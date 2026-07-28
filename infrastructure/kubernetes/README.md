@@ -44,6 +44,13 @@ kubectl run erpx-migrate --rm -i --restart=Never -n erpx \
 | `celery-deployment.yaml` | Worker (scalable) and beat (fixed at 1 replica — a scheduler must never run more than once) |
 | `web-deployment.yaml` | Static frontend build served by nginx (see `apps/web/Dockerfile.prod`) |
 | `ingress.yaml` | TLS termination + routing for `api.erpx.example.com` and `app.erpx.example.com` |
+| `loki-bucket-init-job.yaml` | One-off Job: creates the `erpx-logs` MinIO/S3 bucket — apply before `loki-deployment.yaml` |
+| `loki-deployment.yaml` | Loki ConfigMap + Deployment + Service + a small PVC — see that file's own header comment for why this is the one deliberate exception to "stateless only" below |
+| `fluent-bit-daemonset.yaml` | Fluent Bit DaemonSet + its own ServiceAccount/ClusterRole/ClusterRoleBinding (read-only pod/namespace metadata) + ConfigMap |
 
 Replace every `erpx.example.com` and `ghcr.io/gir-technologies/...` value
 with your actual domain and container registry before applying.
+
+Log shipping (Loki + Fluent Bit) apply order and details:
+`infrastructure/monitoring/README.md`. Querying shipped logs / on-call
+troubleshooting: `docs/operations/logging-runbook.md`.

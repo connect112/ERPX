@@ -29,6 +29,19 @@ spec:
                 name: erpx-config
             - secretRef:
                 name: erpx-secrets
+          env:
+            # Populates the unified logging schema's `pod_container_metadata`
+            # field (apps/api/app/core/logging_config.py) — null until this
+            # exact env var pair exists, by design (see that file's
+            # docstring). No other behavior depends on these.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           resources:
             requests:
               cpu: "250m"

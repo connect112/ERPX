@@ -1,0 +1,119 @@
+# Grafana Loki configuration — monolithic (single-binary) mode, per
+# docs/logging-architecture-proposal.md Section 4 ("Start in monolithic
+# mode... no premature complexity now"). Used by both the Docker Compose
+# `loki` service and the Kubernetes Deployment
+# (infrastructure/kubernetes/loki-deployment.yaml embeds this same content
+# in its ConfigMap, since K8s ConfigMaps can't reference external files).
+#
+# Reuses MinIO (already running for application file storage) as the
+# object store rather than adding a new storage system — see Section 3's
+# "ERPX-specific justification". Requires `-config.expand-env=true` on the
+# Loki command line so the MinIO connection settings below resolve from
+# environment variables, matching this project's existing MINIO_ENDPOINT/
+# MINIO_ACCESS_KEY/MINIO_SECRET_KEY naming convention
+# (apps/api/app/core/config.py).
+#
+# The `erpx-logs` bucket must exist before Loki starts — see
+# infrastructure/kubernetes/loki-bucket-init-job.yaml (Kubernetes) or the
+# `loki-bucket-init` one-shot service in docker-compose.yml (Compose);
+# Loki, unlike the application's own packages/storage/client.py, does not
+# create its bucket automatically.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+
+common:
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+ingester:
+  chunk_idle_period: 30m
+  chunk_target_size: 1048576
+  max_chunk_age: 1h
+  wal:
+    enabled: true
+    dir: /loki/wal
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: boltdb-shipper
+      object_store: aws
+      # v11, not v12+ — v12's chunk object-key format was found (empirically,
+      # during implementation) to generate S3 keys MinIO rejects
+      # ("XMinioInvalidObjectName: Object name contains unsupported
+      # characters"). v11 is the long-established, well-documented pairing
+      # for boltdb-shipper + S3-compatible (non-AWS) backends.
+      schema: v11
+      index:
+        prefix: erpx_logs_index_
+        period: 24h
+
+storage_config:
+  boltdb_shipper:
+    active_index_directory: /loki/boltdb-shipper-active
+    cache_location: /loki/boltdb-shipper-cache
+    cache_ttl: 24h
+  aws:
+    # "aws" store type == any S3-compatible API, including MinIO — the
+    # same client library and config shape the AWS terraform path would
+    # use for a real S3 bucket, so switching from MinIO to S3 later is a
+    # config-only change (Section 3 point 2), not a rearchitecture.
+    # Explicit fields (not the combined "s3://key:secret@host/bucket" URL
+    # form, which is AWS-region-oriented and unreliable against a custom
+    # S3-compatible endpoint like MinIO) — empirically verified against a
+    # real MinIO instance during implementation.
+    endpoint: ${MINIO_ENDPOINT}
+    bucketnames: ${MINIO_BUCKET_LOGS}
+    access_key_id: ${MINIO_ACCESS_KEY}
+    secret_access_key: ${MINIO_SECRET_KEY}
+    s3forcepathstyle: true
+    insecure: true # matches MINIO_SECURE=false already used for the app's own MinIO client in local/Compose dev — set to false once TLS terminates in front of MinIO in production
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: aws
+
+limits_config:
+  retention_period: 720h # 30 days — see Section "Data Governance": deliberately shorter than AuditLog's indefinite retention, this is an operational tool, not the compliance record
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  ingestion_rate_mb: 8
+  ingestion_burst_size_mb: 16
+  max_label_names_per_series: 15
+  # request_id/organization_id/user_id are deliberately NOT Loki labels —
+  # they stay in the log body, queried via LogQL line filters
+  # (`| json | organization_id="..."`), not as indexed labels. Promoting
+  # them to labels would be exactly the cardinality mistake Section 5's
+  # Risk Assessment flags as Loki's most common operational failure mode.
+
+# Loki's ruler (LogQL-based alerting, e.g. "error rate spike") is left
+# disabled here for the same reason Prometheus's own `alerting:` block in
+# prometheus.yml is commented out: no Alertmanager instance is deployed
+# anywhere in this repo yet (deployment-specific, per that file's own
+# comment). Uncomment once Alertmanager exists, pointing at the same
+# instance Prometheus alerts already route to, so there is one alerting
+# pipeline, not two.
+# ruler:
+#   storage:
+#     type: local
+#     local:
+#       directory: /loki/rules
+#   rule_path: /loki/rules-temp
+#   alertmanager_url: http://alertmanager:9093
+#   ring:
+#     kvstore:
+#       store: inmemory
+#   enable_api: true
+
+analytics:
+  reporting_enabled: false

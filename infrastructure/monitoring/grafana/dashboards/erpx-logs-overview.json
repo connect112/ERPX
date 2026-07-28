@@ -1,0 +1,90 @@
+{
+  "title": "ERPX Logs Overview",
+  "uid": "erpx-logs-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Log Volume by Service",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({job=\"erpx\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error Log Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({job=\"erpx\", level=\"error\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Errors in the last 6h",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "targets": [
+        { "expr": "sum(count_over_time({job=\"erpx\", level=\"error\"}[6h]))" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Log Lines by Level",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 8 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({job=\"erpx\"}[6h])) by (level)",
+          "legendFormat": "{{level}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Live Logs",
+      "type": "logs",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "expr": "{job=\"erpx\"} | json | request_id=~\".*$request_id.*\""
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "request_id",
+        "type": "textbox",
+        "label": "Filter by request_id",
+        "description": "Paste a request_id (e.g. from an error response's X-Request-ID header, or an AuditLog row) to see every log line — API, Celery, nginx — from that one request. Leave blank to see everything.",
+        "current": { "value": "", "text": "" },
+        "query": ""
+      }
+    ]
+  }
+}

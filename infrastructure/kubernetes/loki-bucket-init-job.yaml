@@ -1,0 +1,45 @@
+# One-off Job to create the `erpx-logs` MinIO/S3 bucket before Loki's
+# first deploy — Loki, unlike the application's own
+# packages/storage/client.py, does not create its bucket automatically.
+# Run once, the same way this directory's README already documents for
+# `alembic upgrade head` (a one-off Job, not baked into a Deployment's
+# startup command, so nothing crash-loops if it fails):
+#
+#   kubectl apply -f loki-bucket-init-job.yaml
+#   kubectl wait --for=condition=complete job/erpx-loki-bucket-init -n erpx --timeout=60s
+#
+# Safe to re-run (mc mb --ignore-existing) if MinIO/S3 is ever recreated.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: erpx-loki-bucket-init
+  namespace: erpx
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              mc alias set erpx_minio http://$(MINIO_ENDPOINT) $(MINIO_ACCESS_KEY) $(MINIO_SECRET_KEY) &&
+              mc mb --ignore-existing erpx_minio/erpx-logs
+          env:
+            - name: MINIO_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: erpx-config
+                  key: MINIO_ENDPOINT
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: erpx-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: erpx-secrets
+                  key: MINIO_SECRET_KEY

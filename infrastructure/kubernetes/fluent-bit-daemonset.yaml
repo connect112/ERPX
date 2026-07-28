@@ -1,0 +1,223 @@
+# Fluent Bit DaemonSet — one pod per node, tailing node-local container
+# logs (/var/log/containers, kubelet's standard symlink target for every
+# pod's stdout/stderr) and shipping them to Loki. See
+# docs/logging-architecture-proposal.md Section 4 for the full topology.
+#
+# RBAC is read-only and minimal: `get`/`list`/`watch` on pods and
+# namespaces only, for the `kubernetes` filter's metadata enrichment
+# (adds namespace/pod/container/labels to every record) — no write access
+# to anything, matching the least-privilege posture the rest of this
+# directory doesn't otherwise need to establish (the application
+# Deployments use no ServiceAccount-level Kubernetes API access at all).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluent-bit
+  namespace: erpx
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: erpx-fluent-bit
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: erpx-fluent-bit
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: erpx-fluent-bit
+subjects:
+  - kind: ServiceAccount
+    name: fluent-bit
+    namespace: erpx
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: erpx
+data:
+  parsers.conf: |
+    [PARSER]
+        Name        erpx_json
+        Format      json
+        Time_Key    timestamp
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+        Time_Keep   On
+
+  mask_sensitive_fields.lua: |
+    -- Identical logic to infrastructure/monitoring/fluent-bit/mask_sensitive_fields.lua
+    -- (the Docker Compose path's copy of this same file) — duplicated here
+    -- only because Kubernetes ConfigMaps can't reference external files,
+    -- not because the masking policy itself differs between deployment
+    -- paths.
+    local SENSITIVE_KEYS = {
+        password = true, old_password = true, new_password = true, password_hash = true,
+        token = true, access_token = true, refresh_token = true,
+        secret = true, client_secret = true, api_key = true, authorization = true,
+        otp = true, otp_code = true, two_factor_secret = true,
+        credit_card = true, card_number = true, cvv = true, ssn = true,
+    }
+    local REDACTED = "***REDACTED***"
+
+    local function mask_value(key, value)
+        if type(key) == "string" and SENSITIVE_KEYS[string.lower(key)] then
+            return REDACTED
+        end
+        return value
+    end
+
+    local function walk(tbl)
+        for key, value in pairs(tbl) do
+            if type(value) == "table" then
+                walk(value)
+            else
+                tbl[key] = mask_value(key, value)
+            end
+        end
+    end
+
+    function mask_sensitive_fields(tag, timestamp, record)
+        walk(record)
+        return 1, timestamp, record
+    end
+
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         5
+        Daemon        Off
+        Log_Level     info
+        Parsers_File  parsers.conf
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_PORT     2020
+
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/*erpx*.log
+        Parser            cri
+        Tag               kube.*
+        Refresh_Interval  5
+        Mem_Buf_Limit     50MB
+        Skip_Long_Lines   On
+        DB                /var/log/flb_erpx.db
+
+    # Enriches every record with namespace/pod/container/labels, using the
+    # ServiceAccount RBAC above to query the API server — the Kubernetes
+    # analogue of what the Docker `fluentd` logging driver's tag already
+    # gives the Compose path for free.
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Merge_Log           Off
+        Keep_Log            Off
+        K8s-Logging.Parser  Off
+        K8s-Logging.Exclude Off
+
+    # The CRI parser above puts the raw container log line into `log` —
+    # decode it as our unified JSON schema. Reserve_Data On means a
+    # record that isn't valid JSON (shouldn't happen for erpx-labeled
+    # pods post-prerequisite-fix, but fails safe) passes through
+    # unparsed rather than being dropped.
+    [FILTER]
+        Name          parser
+        Match         kube.*
+        Key_Name      log
+        Parser        erpx_json
+        Reserve_Data  On
+        Preserve_Key  Off
+
+    [FILTER]
+        Name    lua
+        Match   kube.*
+        script  mask_sensitive_fields.lua
+        call    mask_sensitive_fields
+
+    [OUTPUT]
+        Name                    loki
+        Match                   kube.*
+        Host                    loki.erpx.svc.cluster.local
+        Port                    3100
+        Labels                  job=erpx, deployment=kubernetes
+        Label_keys              $service,$level,$kubernetes['namespace_name'],$kubernetes['pod_name']
+        Line_format             json
+        Auto_kubernetes_labels  Off
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: erpx
+  labels:
+    app: fluent-bit
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/v1/metrics/prometheus"
+        prometheus.io/port: "2020"
+    spec:
+      serviceAccountName: fluent-bit
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:3.1.9
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          ports:
+            - containerPort: 2020
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 2020
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: fluent-bit-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+      terminationGracePeriodSeconds: 10

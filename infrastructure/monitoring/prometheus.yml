@@ -45,3 +45,21 @@ scrape_configs:
   - job_name: redis-exporter
     static_configs:
       - targets: ["redis-exporter:9121"]
+
+  # Loki and Fluent Bit both expose their own Prometheus /metrics endpoint
+  # natively — no exporter needed, same as erpx-api above. Keeps "who
+  # watches the logging pipeline" inside this one monitoring system
+  # instead of a separate concern (docs/logging-architecture-proposal.md
+  # Section 4, "Monitoring").
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+        labels:
+          service: loki
+
+  - job_name: fluent-bit
+    metrics_path: /api/v1/metrics/prometheus
+    static_configs:
+      - targets: ["fluent-bit:2020"]
+        labels:
+          service: fluent-bit

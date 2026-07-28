@@ -24,6 +24,17 @@ spec:
                 name: erpx-config
             - secretRef:
                 name: erpx-secrets
+          env:
+            # Same as api-deployment.yaml — populates the unified logging
+            # schema's `pod_container_metadata` field for worker/beat logs.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           resources:
             requests:
               cpu: "250m"
@@ -70,6 +81,17 @@ spec:
                 name: erpx-config
             - secretRef:
                 name: erpx-secrets
+          env:
+            # Same as api-deployment.yaml — populates the unified logging
+            # schema's `pod_container_metadata` field for worker/beat logs.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           resources:
             requests:
               cpu: "100m"

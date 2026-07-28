@@ -1,0 +1,12 @@
+# Auto-provisions the Loki datasource on Grafana startup — mount into
+# /etc/grafana/provisioning/datasources/loki.yml (mirrors prometheus.yml
+# in this same directory exactly, same auto-provisioning mechanism).
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

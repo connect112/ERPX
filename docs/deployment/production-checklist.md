@@ -25,7 +25,10 @@
 
 - [ ] `/metrics` (Prometheus) scraped — see `infrastructure/monitoring/prometheus.yml`
 - [ ] Alert rules loaded (`infrastructure/monitoring/alert_rules.yml`) and routed to a real on-call channel via Alertmanager (not included — deployment-specific)
-- [ ] Structured logs (`app/core/logging_config.py`) shipped somewhere queryable (CloudWatch, Loki, ELK) — every request already carries an `X-Request-ID` for cross-referencing
+- [ ] Structured logs (`app/core/logging_config.py`) shipped somewhere queryable — implemented via Fluent Bit + Grafana Loki (`infrastructure/monitoring/README.md`, `docs/logging-architecture-proposal.md`); apply `loki-bucket-init-job.yaml` → `loki-deployment.yaml` → `fluent-bit-daemonset.yaml` in that order. Every request already carries an `X-Request-ID`/`request_id` for cross-referencing, plus `organization_id`/`user_id` where the request resolves them
+- [ ] Loki retention period intentionally set for this deployment (default: 720h/30 days, `infrastructure/monitoring/loki/loki-config.yaml`'s `limits_config.retention_period`) — not left at any tool default
+- [ ] `erpx-logs` MinIO/S3 bucket encryption/versioning confirmed, matching the existing `erpx-storage` bucket's policy (same item above, one row up)
+- [ ] LogQL query path (`/loki/api/v1/query_range`, and a live Grafana Explore query) validated against the real, running Loki instance before relying on it during an incident — a query-path anomaly was encountered against a short-lived validation instance during implementation and could not be conclusively root-caused; see `docs/operations/logging-runbook.md`'s "Loki is up and receiving data, but LogQL queries return nothing" section
 - [ ] `/api/v1/health/ready` wired as the Kubernetes readinessProbe, `/api/v1/health` as the liveness probe (lightweight, no dependency calls) — see `infrastructure/kubernetes/api-deployment.yaml` for why these are deliberately different endpoints. Readiness checks Postgres, Redis, MinIO, and Elasticsearch, but only Postgres is classified `critical` (gates the 200/503 outcome) — see `docs/architecture/health-checks.md` for the full dependency classification and why (a prior version failed readiness on Elasticsearch alone, which would have kept every pod out of rotation in any environment without it, i.e. all of them at time of writing)
 
 ## Security

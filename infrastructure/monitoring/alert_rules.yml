@@ -59,3 +59,23 @@ groups:
         annotations:
           summary: "Redis exporter target is down"
           description: "Celery task dispatch and caching depend on Redis being reachable."
+
+  - name: erpx-logging
+    rules:
+      - alert: LokiDown
+        expr: up{job="loki"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki target is down"
+          description: "Log shipping is degraded or stopped — application logs are still written to container stdout (unaffected), but are not being centrally ingested/queryable until Loki recovers."
+
+      - alert: FluentBitDown
+        expr: up{job="fluent-bit"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fluent Bit target is down"
+          description: "No pod/node is currently shipping logs to Loki. Same impact as LokiDown — application behavior is unaffected, but incident investigation loses centralized log search until this recovers."

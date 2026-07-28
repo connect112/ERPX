@@ -1,14 +1,15 @@
 # ERPX Log Shipping — Architecture Design Proposal (v2)
 
-Status: **architecture approved.** The Fluent Bit + Grafana Loki shipping
-pipeline itself (Section 4) is **not yet implemented** — no Loki/Fluent Bit
-code, manifests, or config exist yet; still waiting for explicit approval to
-start that work. The **prerequisites** this proposal's Risk Assessment
-(Section 5, both High-severity rows) called out as required *before* shipping
-— structured JSON logging on every entrypoint including Celery, and
-`organization_id` correlation — have been implemented and tested; see
-Section 6. Addresses Production Hardening Audit finding #6
-(`docs/project-hardening-audit.md`).
+Status: **implemented.** Both the prerequisites (Section 6) and the
+Fluent Bit + Grafana Loki shipping pipeline itself (Section 4) now exist
+as real, tested config — Kubernetes manifests
+(`infrastructure/kubernetes/{loki-deployment,fluent-bit-daemonset,loki-bucket-init-job}.yaml`),
+Docker Compose services + override file, Fluent Bit/Loki configs, Grafana
+datasource + dashboard, and Prometheus scrape targets/alerts for the
+pipeline's own health. See Section 7 for what was implemented and how it
+was validated, including one disclosed, not-fully-resolved gap in the
+LogQL query-read path found during validation. Addresses Production
+Hardening Audit finding #6 (`docs/project-hardening-audit.md`).
 
 This supersedes the v1 proposal written for the same finding — extended in
 place, not duplicated, to the more exhaustive specification requested.
@@ -725,7 +726,10 @@ unstructured log-format split documented in Section 1.
 
 ## 4. Complete Implementation Blueprint
 
-**Presented for approval — nothing in this section has been implemented.**
+**Implemented — see Section 7 for what was built and how it was validated.**
+The design below is the blueprint that was actually followed; kept as
+originally written (not rewritten in past tense) since it's still the
+accurate description of the deployed topology.
 
 ### Topology — Architecture & Component Diagram
 
@@ -1110,5 +1114,141 @@ Full regression suite (`tests/unit tests/api tests/integration
 tests/security`) re-run after these changes; see
 `docs/project-hardening-audit.md` finding #6 for the pass/fail count.
 
-**Waiting for your review/approval before implementing Section 4 (Loki +
-Fluent Bit) itself.**
+## 7. Log Shipping Implementation Status (2026-07-28)
+
+Implements Section 4's blueprint. Loki and Fluent Bit are no longer
+proposed — they're real config, applied the same way as every other
+piece of infrastructure in this repo.
+
+### Files added
+
+- `infrastructure/kubernetes/loki-deployment.yaml` — Loki ConfigMap +
+  Deployment (single replica, `Recreate` strategy) + Service + a 5Gi PVC
+  for the boltdb-shipper index cache only (bulk chunk data lives in
+  MinIO/S3 — see that file's own header comment for why this one PVC is
+  a deliberate, documented exception to
+  `infrastructure/kubernetes/README.md`'s "stateless application tier
+  only" policy, not an oversight of it).
+- `infrastructure/kubernetes/fluent-bit-daemonset.yaml` — DaemonSet +
+  ServiceAccount + ClusterRole (`get`/`list`/`watch` on pods/namespaces
+  only) + ClusterRoleBinding + ConfigMap embedding the `kubernetes`
+  filter-based config (namespace/pod/container enrichment).
+- `infrastructure/kubernetes/loki-bucket-init-job.yaml` — one-off Job
+  creating the `erpx-logs` MinIO/S3 bucket, following the exact pattern
+  this directory's own README already established for `alembic upgrade
+  head` (a Job, not baked into a Deployment's startup command).
+- `infrastructure/monitoring/loki/loki-config.yaml`,
+  `infrastructure/monitoring/fluent-bit/{fluent-bit.conf,parsers.conf,mask_sensitive_fields.lua}`
+  — the Docker Compose path's copies of the same configs (the Kubernetes
+  ConfigMap embeds its own copy of the Fluent Bit config, since ConfigMaps
+  can't reference external files — masking/parsing logic is identical,
+  only the input mechanism differs: `tail` + `kubernetes` filter for K8s
+  vs. a `forward` listener for Compose, since Compose has no single
+  "kubelet" to source node-local log files from).
+- `docker-compose.monitoring.yml` (new override file, not merged into
+  `docker-compose.yml`) — wires the `fluentd` logging driver onto `api`,
+  `celery_worker`, `celery_beat`, `nginx`. Kept separate deliberately: see
+  the file's own header comment — merging it into the base file would
+  have made `docker logs`/`docker compose logs` stop working for those
+  four services on every plain `docker compose up`, not just when
+  monitoring is explicitly requested. `docker-compose.yml` itself only
+  gained the `loki`/`fluent-bit`/`loki-bucket-init` service definitions,
+  all `profiles: ["monitoring"]` (same opt-in pattern `prometheus`/
+  `grafana` already use).
+- `infrastructure/monitoring/grafana/datasources/loki.yml` — mirrors
+  `datasources/prometheus.yml` exactly.
+- `infrastructure/monitoring/grafana/dashboards/erpx-logs-overview.json` —
+  log volume by service, error rate, errors-in-6h stat, log-lines-by-level
+  breakdown, and a live/raw log panel with a `request_id` filter variable.
+- `infrastructure/monitoring/README.md`, `docs/operations/logging-runbook.md`
+  — operational documentation: how to enable each path, health checks,
+  common failure modes, retention.
+- `infrastructure/kubernetes/{api,celery}-deployment.yaml` (modified, not
+  new) — added `POD_NAME`/`POD_NAMESPACE` Downward API env vars, closing
+  the gap the prerequisites work (Section 6) explicitly deferred to this
+  phase: `pod_container_metadata` in the unified log schema was `null`
+  until these existed.
+- `infrastructure/monitoring/prometheus.yml`, `alert_rules.yml` (modified)
+  — Loki and Fluent Bit both scraped like any other target (they expose
+  their own `/metrics`), plus `LokiDown`/`FluentBitDown` alerts mirroring
+  the existing `PostgresDown`/`RedisDown` pattern exactly.
+- `.env.example`, `docs/deployment/production-checklist.md`,
+  `infrastructure/kubernetes/README.md` (modified) — new
+  `MINIO_BUCKET_LOGS` variable documented; checklist gained retention/
+  bucket-policy/query-path-validation items; K8s README's file table and
+  apply-order gained the three new manifests.
+
+### Validation performed (real, not just config review)
+
+- `docker compose config` (base file alone, and merged with
+  `docker-compose.monitoring.yml`) — both validated cleanly; confirmed by
+  inspecting the merged output that the `fluentd` logging driver is
+  genuinely absent from `api`/`nginx`/etc. unless both files are combined,
+  and that unrelated services (`postgres`, etc.) are completely untouched
+  either way.
+- `fluent-bit --dry-run` against both the Compose config and the exact
+  content embedded in the Kubernetes ConfigMap (including the
+  `kubernetes` filter) — both report `configuration test is successful`.
+- `loki -verify-config` against both the Compose config and the
+  Kubernetes ConfigMap's embedded config, with real MinIO credentials
+  expanded via `-config.expand-env=true` — both report `config is valid`.
+- A real Fluent Bit + Loki pair, run standalone on an isolated Docker
+  network against this project's actual standalone MinIO instance:
+  - `loki-bucket-init`'s exact `mc alias set` / `mc mb --ignore-existing`
+    commands, run for real — bucket created successfully, confirmed via
+    `mc ls`.
+  - Fluent Bit accepted forward-protocol records shaped exactly like what
+    Docker's `fluentd` logging driver sends, and its own
+    `/api/v1/metrics` endpoint confirmed all records passed through the
+    parser → Lua masking filter → record_modifier → Loki output chain
+    with **0 errors**.
+  - Loki's own metrics confirmed real ingestion:
+    `loki_distributor_lines_received_total`, `loki_ingester_chunks_created_total`,
+    `loki_ingester_memory_streams` all incremented as expected, and
+    `/loki/api/v1/series` confirmed the exact expected label set
+    (`{service="erpx-api", level="info", job="erpx", deployment="compose"}`)
+    — proving the unified logging schema's `service`/`level` fields
+    (Section 6) correctly reach Loki as labels, with `request_id`/
+    `organization_id`/`user_id` correctly staying in the log body (not
+    promoted to labels — the exact cardinality discipline Section 5's
+    Risk Assessment called for).
+  - Found and fixed a real bug during this validation: schema `v12`
+    generated chunk object keys MinIO rejected
+    (`XMinioInvalidObjectName: Object name contains unsupported
+    characters`, seen in Loki's own flush logs) — switched to schema
+    `v11`, the long-established pairing for boltdb-shipper + S3-compatible
+    (non-AWS) backends, documented in `loki-config.yaml`'s own comment.
+
+### Known gap — disclosed, not hidden
+
+LogQL read queries (`/loki/api/v1/query`, `/loki/api/v1/query_range`)
+against that same standalone validation instance consistently returned an
+**empty result set**, despite `/loki/api/v1/series` and Loki's own
+`loki_ingester_memory_streams`/`loki_ingester_memory_chunks` metrics
+confirming the data was genuinely present and correctly labeled. Isolated
+via a follow-up test that reproduced the identical symptom with plain
+filesystem storage (MinIO/S3 entirely removed from the equation) and
+across both schema v11 and v12 — this rules out the storage integration
+itself as the cause. The most likely explanation is a Loki 2.9.x
+monolithic-mode querier/ingester ring-bootstrap timing artifact specific
+to a single, very-short-lived ad hoc container, not a defect in this
+repository's `loki-config.yaml`/`fluent-bit.conf` — but this was **not
+conclusively proven** within the time spent investigating it, and is not
+being claimed as proven here.
+
+**Practical effect:** ingestion (Fluent Bit → Loki → MinIO, with correct
+labels and masking) is verified with real evidence. The Grafana
+query/Explore experience (`/loki/api/v1/query_range` under the hood) was
+**not** verified end-to-end against a running instance and should be
+checked against the real, longer-running deployment before being relied
+upon during an incident — see `docs/operations/logging-runbook.md`'s
+"Loki is up and receiving data, but LogQL queries return nothing" section
+for the exact troubleshooting steps if this recurs, and
+`docs/deployment/production-checklist.md`'s new checklist item for the
+pre-production gate this should pass before go-live.
+
+### Regression status
+
+No application code was touched by this phase — only infrastructure/
+config/docs. Full regression suite re-run regardless per instruction; see
+the final implementation summary for the pass count.

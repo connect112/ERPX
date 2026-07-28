@@ -1,0 +1,46 @@
+# Compose override — adds log shipping to Loki for the 4 services with
+# real request traffic (api, celery_worker, celery_beat, nginx).
+#
+# Deliberately NOT merged into docker-compose.yml: the `fluentd` logging
+# driver fully replaces each service's `json-file` driver, which means
+# `docker logs <container>` / `docker compose logs <service>` stop working
+# for whichever service uses it — a real, known tradeoff of centralized
+# log shipping (see infrastructure/monitoring/README.md), not something
+# that should be forced on anyone running a plain `docker compose up` for
+# local dev. Keeping it in a separate override file means the base
+# docker-compose.yml's behavior is completely unchanged unless both files
+# are combined explicitly:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml \
+#     --profile monitoring up
+#
+# `fluentd-async: "true"` means startup is never blocked waiting for
+# fluent-bit — if fluent-bit isn't reachable, log writes are buffered/
+# dropped rather than blocking the application container, exactly as if
+# monitoring weren't running at all.
+x-loki-logging: &loki-logging
+  driver: fluentd
+  options:
+    fluentd-address: "fluent-bit:24224"
+    fluentd-async: "true"
+    fluentd-buffer-limit: "10485760" # 10MB
+    tag: "erpx.app"
+
+services:
+  api:
+    logging: *loki-logging
+
+  celery_worker:
+    logging: *loki-logging
+
+  celery_beat:
+    logging: *loki-logging
+
+  nginx:
+    logging:
+      <<: *loki-logging
+      options:
+        fluentd-address: "fluent-bit:24224"
+        fluentd-async: "true"
+        fluentd-buffer-limit: "10485760"
+        tag: "erpx.nginx"

@@ -279,6 +279,87 @@ services:
     networks:
       - erpx_network
 
+  # ---------------------------------------------------------------------
+  # Log shipping (Loki + Fluent Bit) — also opt-in via `--profile monitoring`.
+  # Reuses MinIO as Loki's object store rather than adding a new storage
+  # system (see docs/logging-architecture-proposal.md Section 3). Service
+  # log collection itself is wired via docker-compose.monitoring.yml (an
+  # override file, not this base file) so the `fluentd` logging driver —
+  # which replaces `docker logs`/`docker compose logs` for whichever
+  # services use it — is never applied unless monitoring is explicitly
+  # requested with both files. See infrastructure/monitoring/README.md.
+  # ---------------------------------------------------------------------
+  loki-bucket-init:
+    image: minio/mc:latest
+    container_name: erpx_loki_bucket_init
+    profiles: ["monitoring"]
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        mc alias set erpx_minio http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing erpx_minio/${MINIO_BUCKET_LOGS:-erpx-logs}
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-erpx_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-erpx_minio_secret}
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - erpx_network
+
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: erpx_loki
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    command: -config.file=/etc/loki/loki-config.yaml -config.expand-env=true
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-erpx_minio}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-erpx_minio_secret}
+      MINIO_BUCKET_LOGS: ${MINIO_BUCKET_LOGS:-erpx-logs}
+    volumes:
+      - ./infrastructure/monitoring/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - erpx_loki_data:/loki
+    ports:
+      - "3100:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      loki-bucket-init:
+        condition: service_completed_successfully
+    networks:
+      - erpx_network
+
+  fluent-bit:
+    image: fluent/fluent-bit:3.1.9
+    container_name: erpx_fluent_bit
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    volumes:
+      - ./infrastructure/monitoring/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./infrastructure/monitoring/fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - ./infrastructure/monitoring/fluent-bit/mask_sensitive_fields.lua:/fluent-bit/etc/mask_sensitive_fields.lua:ro
+    ports:
+      - "24224:24224" # forward input — Docker's fluentd logging driver targets this
+      - "2020:2020" # Fluent Bit's own HTTP health/metrics endpoint
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:2020/api/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - erpx_network
+
 networks:
   erpx_network:
     driver: bridge
@@ -290,3 +371,4 @@ volumes:
   erpx_es_data:
   erpx_prometheus_data:
   erpx_grafana_data:
+  erpx_loki_data:

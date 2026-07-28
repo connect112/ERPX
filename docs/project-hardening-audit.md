@@ -29,7 +29,7 @@ not inferred.
 | 3 | Backup & Restore | Application-level backups (`modules/backups`) are manual-only — no scheduled/automated trigger | High — **fixed** |
 | 4 | Docker | Single-stage build ships build tooling into the runtime image; container runs as root | High — **fixed** |
 | 5 | CI/CD | 3 of 4 frontend apps have no test script and are not built/tested in CI at all | High — **fixed** |
-| 6 | Logging | No log shipping configured — container stdout is the only sink; logs are lost on pod eviction/restart | High |
+| 6 | Logging | No log shipping configured — container stdout is the only sink; logs are lost on pod eviction/restart | High — **fixed** |
 | 7 | Operational Readiness | No documented rollback procedure for a bad deployment | Medium |
 | 8 | Testing | `apps/web`'s `npm run test` (vitest) has zero test files behind it (already noted in `docs/project-audit.md`, included here for completeness) | Medium |
 | 9 | Security | Global rate limiting only — auth endpoints share the same 100/min budget as read-only list endpoints (mitigated by account lockout) | Medium |
@@ -178,13 +178,20 @@ failed `tsc -b` with `error TS2769: ... 'test' does not exist`.
 - Fix: this is inherently deployment-specific (which log aggregation backend a given deployment already has access to), so a single fix isn't universal — but a minimum viable version (a Fluent Bit DaemonSet shipping to whatever's configured, with a documented example for CloudWatch Logs since Terraform already targets AWS) would close the gap for the primary deployment path this codebase already assumes.
 - Effort: Medium (half a day for a Fluent Bit DaemonSet + CloudWatch Logs example config, following the same pattern as `infrastructure/monitoring/`).
 
-**Status: architecture approved (Fluent Bit + Grafana Loki, see
-`docs/logging-architecture-proposal.md`); shipping pipeline itself
-**not yet implemented** — still waiting for explicit approval to start that
-work. The proposal's own Risk Assessment (Section 5) flagged two
-High-severity risks that had to be closed *before* shipping could safely
-begin; those prerequisites are now implemented and tested (full detail in
-the proposal's new Section 6):**
+**Status: fixed.** Fluent Bit + Grafana Loki (see
+`docs/logging-architecture-proposal.md`) is implemented — Kubernetes
+manifests (`infrastructure/kubernetes/{loki-deployment,fluent-bit-daemonset,loki-bucket-init-job}.yaml`),
+Docker Compose services (`docker-compose.yml` + `docker-compose.monitoring.yml`),
+Grafana datasource + "ERPX Logs Overview" dashboard, and Prometheus
+scrape targets/alerts for the pipeline's own health
+(`infrastructure/monitoring/{prometheus.yml,alert_rules.yml}`). Full
+implementation detail and validation evidence: proposal Section 7.
+Operational runbook: `docs/operations/logging-runbook.md`.
+
+The proposal's own Risk Assessment (Section 5) flagged two High-severity
+risks that had to be closed *before* shipping could safely begin; those
+prerequisites were implemented and tested first, in a separate prior
+change (full detail in the proposal's Section 6):
 
 1. **Structured JSON logging standardized on every entrypoint, including
    Celery.** `apps/api/app/core/celery_app.py` previously never called
@@ -219,9 +226,19 @@ entrypoint import path to guard against the bug above recurring silently.
 Full regression suite re-run: 223/223 passing (212 before this change + 11
 new), 0 regressions.
 
-**Loki/Fluent Bit themselves remain not implemented — waiting for explicit
-approval before starting that work, per the standing instruction that
-architectural/infrastructure changes require sign-off first.**
+Loki + Fluent Bit shipping itself: implemented and validated against a
+real Fluent Bit + Loki pair on this project's actual standalone MinIO
+(bucket creation, ingestion, correct label extraction, 0 pipeline errors
+— see proposal Section 7 for the full evidence). One gap disclosed rather
+than hidden: the LogQL query-read path returned empty results in that
+same short-lived validation instance despite the ingester provably
+holding the data — reproduced identically with plain filesystem storage,
+ruling out the MinIO integration as the cause, but not conclusively
+root-caused. Tracked as a pre-production validation gate in
+`docs/deployment/production-checklist.md` and a troubleshooting entry in
+`docs/operations/logging-runbook.md`. No application code changed in this
+phase — infrastructure/config/docs only; full regression suite re-run
+regardless, 0 regressions (see proposal Section 7).
 
 ## 8. Testing
 
