@@ -21,8 +21,18 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 CardHeader.displayName = "CardHeader";
 
 const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
-  ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn("text-2xl font-semibold leading-none tracking-tight", className)} {...props} />
+  // Explicitly destructuring and rendering `children` (rather than only
+  // ever carrying it implicitly via `{...props}`) is a behavior-identical
+  // change for every existing, correctly-used caller — React renders
+  // spread-in children the same way — but it lets static analysis
+  // (jsx-a11y/heading-has-content) see that this <h3> actually has
+  // content, instead of flagging the element definition itself as a
+  // potentially-empty heading. See docs/project-hardening-audit.md
+  // finding #14.
+  ({ className, children, ...props }, ref) => (
+    <h3 ref={ref} className={cn("text-2xl font-semibold leading-none tracking-tight", className)} {...props}>
+      {children}
+    </h3>
   )
 );
 CardTitle.displayName = "CardTitle";

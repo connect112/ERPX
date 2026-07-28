@@ -37,7 +37,7 @@ not inferred.
 | 11 | Scalability | No database read replica; all reads and writes hit the single RDS primary | Low |
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
-| 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling + baseline) fixed; violations not yet remediated** |
+| 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (shared `CardTitle` fix, -4 violations) fixed; 20 of 24 original violations remain, Phase 3+ not started** |
 
 ## 1. Docker
 
@@ -722,27 +722,71 @@ honest signal that a real gap exists, not a bug introduced by this change.
   change.
 - No backend files touched; backend regression suite not re-run.
 
-### Recommended remediation strategy (Phase 2+, not started)
+### Phase 2 (2026-07-28): shared `card.tsx` `CardTitle` fixed across all 4 apps
 
-1. Fix the shared `card.tsx` `heading-has-content` issue once, port to
-   all 4 apps — closes 4 violations in one coordinated change, mirroring
-   the auth-client test rollout's own pattern.
-2. Introduce one shared, accessible form-field pattern (label + control
+**Root cause:** `CardTitle` (`components/ui/card.tsx`, byte-identical
+across all 4 apps — confirmed via direct `diff`, zero differences)
+rendered `<h3 ref={ref} className={...} {...props} />` — `children` was
+only ever carried implicitly through the `{...props}` spread, never
+referenced explicitly in the JSX. `jsx-a11y/heading-has-content` performs
+static analysis on the JSX tree and cannot verify a heading always has
+accessible content when it's only ever provided via an opaque prop
+spread, so it flagged the component's own definition.
+
+**Fix:** destructured `children` explicitly out of `props` and rendered
+it between the `<h3>` tags instead of relying on the spread alone. This
+is a behavior-identical change for every existing, correctly-used
+caller — React renders spread-in children the same way a component
+renders explicitly-destructured-and-rendered children — so no caller
+anywhere in any of the 4 apps needed to change. Verified live: the
+login page's `CardTitle` ("Sign in to ERPX") still renders correctly as
+an accessible heading in the DOM after the change (checked via the
+browser's accessibility tree, not just static analysis).
+
+**Files changed:** `apps/{web,student-portal,trainer-portal,corporate-portal}/src/components/ui/card.tsx`
+(identical 8-line diff in each, confirmed post-change byte-identical
+across all 4 apps again).
+
+**Violations removed:** exactly 4 — one `heading-has-content` per app,
+confirmed via direct `eslint` re-run before and after in every app.
+
+| App | Before | After | Change |
+|---|---|---|---|
+| `apps/web` | 19 | 18 | -1 |
+| `apps/student-portal` | 1 | **0** | -1 (fully clean) |
+| `apps/trainer-portal` | 2 | 1 | -1 |
+| `apps/corporate-portal` | 2 | 1 | -1 |
+| **Total** | **24** | **20** | **-4** |
+
+**Remaining 20 violations** (all pre-existing, untouched by this phase):
+18× `jsx-a11y/label-has-associated-control` (`apps/web`: 16,
+`apps/trainer-portal`: 1, `apps/corporate-portal`: 1), 1×
+`jsx-a11y/click-events-have-key-events` + 1×
+`jsx-a11y/no-static-element-interactions` (same line, `apps/web`'s
+`learning-paths-list-page.tsx`) — both explicitly out of scope for this
+phase per the strict "shared component only" instruction.
+
+### Recommended remediation strategy (Phase 3+, not started)
+
+1. Introduce one shared, accessible form-field pattern (label + control
    properly associated) and migrate the 18 `label-has-associated-control`
    sites to it — likely worth a small shared `FormField` wrapper in
    `components/ui/` rather than fixing each site's markup independently,
    since the underlying cause (labels not connected to controls) recurs
-   identically across ~18 otherwise-unrelated feature forms.
-3. Fix the one keyboard-navigation gap in `learning-paths-list-page.tsx`
+   identically across ~18 otherwise-unrelated feature forms. This is a
+   materially larger change than Phase 2 (touches individual forms across
+   many features, not one shared component) and should be scoped/approved
+   as its own phase.
+2. Fix the one keyboard-navigation gap in `learning-paths-list-page.tsx`
    (add a real `<button>`/keyboard handler instead of a clickable `<div>`).
-4. Re-run the baseline after each phase to track the count down to zero
+3. Re-run the baseline after each phase to track the count down to zero
    for `jsx-a11y/recommended`, then evaluate `jsx-a11y/strict` as a
    further tightening once the current gap is closed.
-5. This tooling-only phase does not address non-lintable accessibility
-   concerns (color contrast, focus order, screen-reader testing with
-   real assistive technology) — those need separate, likely manual or
-   `axe-core`-in-Playwright-driven verification, out of scope for
-   Phase 1's ESLint-based baseline.
+4. This tooling-only/shared-component-only work does not address
+   non-lintable accessibility concerns (color contrast, focus order,
+   screen-reader testing with real assistive technology) — those need
+   separate, likely manual or `axe-core`-in-Playwright-driven
+   verification, out of scope for both Phase 1 and Phase 2.
 
 ---
 
