@@ -204,6 +204,154 @@ The gap is entirely at the application layer — see Backup & Restore below — 
 - Fix: at minimum, document the manual restore procedure (which this audit can write without touching application code); ideally, add a `POST /backups/{id}/restore` admin-only endpoint or a documented CLI script, gated behind explicit confirmation given how destructive a restore is.
 - Effort: Documentation-only fix: Small (an hour). A real restore endpoint: Medium-Large, and — given how destructive a mistaken restore would be — deserves its own careful design pass rather than being rushed through an automated "fix Critical issues" loop. **Recommend documenting the manual procedure now, and treating a self-service restore endpoint as separate follow-up work**, not part of this session's fix pass.
 
+**Status: re-verified still open (2026-07-28)** — no `restore` match anywhere
+under `modules/backups/`. This finding requires a data-loss-risking,
+architectural decision, so per your instructions it's a design proposal
+below, not an automatic implementation. **Not yet approved — no code
+changes made for this finding.**
+
+### Design proposal: `modules/backups` restore capability
+
+#### Problem
+
+`modules/backups` can produce a full-database `pg_dump` and upload it to
+object storage, but there is no way — via the API, a CLI script, or
+documentation — to get that dump back into a database. If this module is
+ever relied on as the actual DR mechanism (true for the self-hosted /
+docker-compose deployment path, which has no RDS-managed backups behind
+it), a real incident today would mean: a real dump file exists in MinIO/S3,
+and the person on call has to reconstruct the restore procedure from first
+principles, under pressure, for the first time, during the incident itself.
+
+#### Current implementation
+
+`modules/backups/service.py`'s `BackupService.trigger_backup()`:
+1. Runs `pg_dump -h <host> -p <port> -U <user> -d <db> -f <tmp>.sql
+   --no-owner --no-privileges` (plain SQL format, **not** `-Fc`/custom
+   format — this matters: it means the eventual restore tool is `psql`,
+   not `pg_restore`).
+2. Uploads the resulting `.sql` file to object storage at
+   `backups/{job_id}.sql`.
+3. Records a `BackupJob` row (`modules/backups/models.py`) with status,
+   size, and a `storage_key`.
+
+`modules/backups/routes.py` exposes `trigger`, `list`, `get`, and
+`download-url` — all gated by `backups.manage`/`backups.view`, which
+`modules/authorization/service.py` deliberately excludes from the default
+Staff role (Administrator/Super Admin only).
+
+Critically: `BackupJob` is **not organization-scoped**
+(`modules/backups/models.py`'s own docstring: "every organization's data
+lives in the same shared Postgres database... a 'backup' is inherently a
+whole-database operation"). A restore is therefore not a
+"restore this one customer's data" operation — it's "roll back every
+tenant on the platform to the backup's point in time, simultaneously."
+There is no way to restore a single organization's data in isolation given
+this schema (row-level multi-tenancy, not database-per-tenant).
+
+#### Proposed architecture
+
+Given the blast radius above, I'm proposing something deliberately more
+conservative than a simple `POST /backups/{id}/restore` endpoint:
+
+1. **No self-service, one-click restore via the running application at
+   all.** The API process that would serve that request is itself backed
+   by the same database being overwritten — restoring out from under your
+   own live connection pool is a well-known way to corrupt in-flight
+   transactions and hand back inconsistent errors to users mid-restore.
+   Real restores should happen with the API stopped or in maintenance mode.
+
+2. **A standalone CLI script**
+   (`apps/api/scripts/restore_backup.py`, following the existing
+   convention of `apps/api/scripts/seed.py` / `seed_e2e.py`), run manually
+   by an operator, outside the running API process:
+   - Takes a `BackupJob` id (or `storage_key`) and downloads the dump from
+     object storage via the existing `StorageClient`.
+   - Requires an explicit `--yes-i-understand-this-overwrites-all-tenant-data`
+     flag (or equivalent interactive confirmation reading back the target
+     database name) before proceeding — mirrors the destructive-action
+     confirmation pattern already used in this codebase's frontend for
+     other high-stakes actions.
+   - Runs `psql -h ... -f <downloaded>.sql` (matching the plain-SQL dump
+     format already produced) against a database connection string passed
+     explicitly on the command line — never silently inferred from
+     `settings.DATABASE_URL`, so an operator can't accidentally restore
+     into production while believing they're pointed at a staging
+     restore-drill database.
+   - Logs a real `AuditLog`-equivalent record of the restore action
+     (who, when, which backup, which target) — likely a new
+     `RestoreAttempt` row on `BackupJob` or a dedicated table, so a restore
+     is itself auditable after the fact, consistent with this codebase's
+     existing "every mutation is audited" design (`modules/audit/hooks.py`).
+
+3. **A read-only `GET /backups/{id}/restore-instructions` API endpoint**
+   (safe, non-destructive, fine to auto-implement later without a design
+   review) that returns the exact CLI invocation for that specific backup
+   — closes the "no guidance" half of the gap without touching the
+   dangerous half.
+
+4. **Explicitly out of scope for this proposal:** a fully automated,
+   in-app restore button. If a future requirement genuinely needs
+   self-service restore (e.g., a customer-facing "restore my own data to
+   yesterday" feature), that requires database-per-tenant or
+   schema-per-tenant partitioning first — a much larger architectural
+   change than this finding, and not something to bundle in here.
+
+#### Risks
+
+- **Primary risk: total data loss across every tenant** if the wrong backup
+  is chosen, or a restore is run against the wrong target database. This is
+  the entire reason this is a design proposal and not an auto-fix.
+- **Partial restore inconsistency:** the plain-SQL dump has no `--clean`
+  flag today, so replaying it against a database that already has data
+  will emit constraint-violation errors rather than cleanly replacing
+  existing rows. The restore script needs to either add `--clean` to
+  future dumps (changes finding #3/#12's output format too — needs to be
+  decided together) or explicitly document "restore only into an empty
+  database," which itself needs a documented procedure for how an operator
+  gets an empty-but-correctly-migrated database ready (run migrations,
+  then restore — order matters, since the dump includes data for tables
+  that must already exist via Alembic).
+- **Downtime during restore:** correctly requires the API stopped (see
+  Proposed architecture #1) — this is a real operational cost that needs
+  to be reflected in any RTO figure written down for this DR path.
+
+#### Rollback strategy
+
+If a restore itself goes wrong (e.g., wrong backup selected, or the
+`psql` replay fails partway through): the target database is now in a
+partially-restored, likely inconsistent state. The only safe rollback is
+**restoring again from a known-good backup** (ideally one taken
+immediately before the failed restore attempt) — there is no
+"undo" for a partial SQL replay short of that. This is why the CLI script
+proposal above should, as a refinement worth deciding at implementation
+time, optionally take its own `pg_dump` of the *current* (pre-restore)
+state before proceeding, so a botched restore has an immediate way back.
+
+#### Migration plan
+
+No schema/data migration is required for the CLI-script version of this
+proposal. If the audit-trail refinement (a `RestoreAttempt` table) is
+approved as part of this, that's one small additive Alembic migration,
+following the exact pattern of every other migration in
+`apps/api/alembic/versions/`.
+
+#### Estimated implementation effort
+
+- CLI script + confirmation flag + basic logging: **Small-Medium** (half a
+  day to a day, including manual restore-drill testing against the
+  standalone Postgres environment).
+- `RestoreAttempt` audit table + migration: **Small** (an hour or two,
+  following existing patterns exactly).
+- `GET /backups/{id}/restore-instructions` read-only endpoint: **Small**
+  (an hour) — safe to implement without further approval once the CLI
+  script's actual invocation shape is finalized, since it only returns
+  text.
+- **Not estimated / explicitly deferred:** true self-service in-app
+  restore, which would require the tenancy-model change described above.
+
+**Waiting for your decision before implementing any part of this.**
+
 **Finding #3 (High):** No automated schedule triggers `modules/backups`. `apps/api/app/core/celery_app.py`'s `beat_schedule` covers overdue-invoice detection and scheduled reports (confirmed present) but has no backup entry — confirmed by direct search.
 
 - Impact: for a deployment using this module as its DR mechanism, a backup only exists if a human remembers to click "Trigger Backup" in the admin UI. There is no floor of "at least a daily backup always exists."
