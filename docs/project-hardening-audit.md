@@ -292,6 +292,23 @@ runner configured in any of the three); broader `apps/web` component/page
 coverage beyond this one file; accessibility tooling (a distinct, still-open
 finding from the RC1 audit).
 
+**Status: second increment (2026-07-28).** `apps/student-portal/src/api/client.ts`
+and `auth-store.ts` were confirmed byte-identical to `apps/web`'s
+already-tested versions — but `student-portal` is a separately built and
+deployed app (own `package.json`, own Vite bundle, own CI matrix entry in
+`.github/workflows/ci.yml`), so having `apps/web`'s tests pass proves
+nothing about whether `student-portal`'s own build actually exercises the
+same code correctly. Added the same vitest setup (`vite.config.ts`'s
+`defineConfig` import switched to `vitest/config`, matching the exact fix
+already applied to `apps/web`'s config; `vitest` + `axios-mock-adapter`
+devDependencies; `"test": "vitest run"` script) and ported the identical,
+already-proven 8-test suite. All 8 pass identically. No production code
+in `student-portal` was changed — `client.ts`/`auth-store.ts` were only
+read to confirm the byte-for-byte match, not edited.
+
+`trainer-portal` and `corporate-portal` remain untouched — same gap,
+tracked as continued follow-up, not yet started.
+
 ## 9. Scalability
 
 **Finding #11 (Low):** `infrastructure/terraform/database.tf` provisions a single RDS instance (with Multi-AZ failover, not read scaling) and one ElastiCache replication group. There's no read replica, so all reads (which for an ERP with heavy reporting/dashboard usage are a meaningful share of traffic) hit the same instance as writes.
