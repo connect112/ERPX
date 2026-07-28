@@ -39,10 +39,20 @@ celery_app.conf.beat_schedule = {
         "task": "reports.run_due_scheduled_reports",
         "schedule": crontab(minute="*/30"),
     },
+    "backups-trigger-daily": {
+        "task": "backups.trigger_daily_backup",
+        "schedule": crontab(hour=2, minute=0),
+    },
 }
 
 # Modules register their Celery task modules here as they are built, e.g.:
 # celery_app.autodiscover_tasks(["modules.notifications", "modules.accounting"])
 celery_app.autodiscover_tasks(
-    packages=["modules.authentication", "modules.accounting", "modules.reports", "modules.crm.followups"]
+    packages=[
+        "modules.authentication",
+        "modules.accounting",
+        "modules.reports",
+        "modules.crm.followups",
+        "modules.backups",
+    ]
 )

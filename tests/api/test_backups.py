@@ -44,3 +44,22 @@ async def test_trigger_backup_produces_a_real_downloadable_dump(client, auth_hea
 async def test_staff_without_view_permission_cannot_list_backups(client, staff_headers):
     response = await client.get("/api/v1/backups", headers=staff_headers)
     assert response.status_code == 403
+
+
+async def test_scheduled_backup_with_no_triggering_user_succeeds(db_session):
+    """
+    modules/backups/tasks.py's daily Celery beat task calls
+    BackupService.trigger_backup(triggered_by_user_id=None) — there is no
+    HTTP request/authenticated user for a scheduled run. Confirms the
+    nullable triggered_by_user_id column (modules/backups/models.py)
+    actually accepts None end-to-end, rather than only being exercised via
+    the API route, which always supplies a real user id.
+    """
+    from modules.backups.service import BackupService
+
+    service = BackupService(db_session)
+    job = await service.trigger_backup(triggered_by_user_id=None)
+
+    assert job.status == "completed", job.error_message
+    assert job.triggered_by_user_id is None
+    assert job.size_bytes is not None and job.size_bytes > 0

@@ -35,7 +35,7 @@ class BackupService:
         self.repo = BackupJobRepository(db)
         self.storage = get_storage_client()
 
-    async def trigger_backup(self, triggered_by_user_id: uuid.UUID) -> BackupJob:
+    async def trigger_backup(self, triggered_by_user_id: uuid.UUID | None) -> BackupJob:
         job = await self.repo.create(
             triggered_by_user_id=triggered_by_user_id,
             status=BackupStatus.RUNNING,

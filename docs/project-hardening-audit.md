@@ -26,7 +26,7 @@ not inferred.
 |---|---|---|---|
 | 1 | Security | No startup validation blocks booting in production with the default, hardcoded, source-visible JWT signing secret | **Critical** |
 | 2 | Backup & Restore | No backup restore capability anywhere in the application layer | High |
-| 3 | Backup & Restore | Application-level backups (`modules/backups`) are manual-only — no scheduled/automated trigger | High |
+| 3 | Backup & Restore | Application-level backups (`modules/backups`) are manual-only — no scheduled/automated trigger | High — **fixed** |
 | 4 | Docker | Single-stage build ships build tooling into the runtime image; container runs as root | High — **fixed** |
 | 5 | CI/CD | 3 of 4 frontend apps have no test script and are not built/tested in CI at all | High — **fixed** |
 | 6 | Logging | No log shipping configured — container stdout is the only sink; logs are lost on pod eviction/restart | High |
@@ -357,6 +357,33 @@ following the exact pattern of every other migration in
 - Impact: for a deployment using this module as its DR mechanism, a backup only exists if a human remembers to click "Trigger Backup" in the admin UI. There is no floor of "at least a daily backup always exists."
 - Fix: add `celery_app.conf.beat_schedule["backups-daily-trigger"]` calling a new task that runs `BackupService.trigger_backup()` for a system account, following the exact pattern already used for `accounting.mark_overdue_invoices` and `reports.run_due_scheduled_reports`.
 - Effort: Small (1-2 hours) — one new task function + one beat schedule entry, following an existing pattern exactly.
+
+**Status: fixed.** Added `modules/backups/tasks.py` (new file), mirroring
+`modules/accounting/invoices/tasks.py`'s exact pattern — an async helper
+using `get_db_context()` for a fresh session, wrapped in a sync
+`@celery_app.task` via `asyncio.run()`. Simpler than the invoices task
+since `BackupJob` isn't organization-scoped, so no per-organization loop is
+needed. Calls `BackupService.trigger_backup(triggered_by_user_id=None)` —
+used `None` rather than inventing a synthetic "system user" account, since
+`triggered_by_user_id` was already a nullable FK
+(`modules/backups/models.py`) for exactly this reason; widened the
+service method's type hint from `uuid.UUID` to `uuid.UUID | None` to match,
+since this is now genuinely the first caller to pass `None`. Registered a
+new `celery_app.conf.beat_schedule["backups-trigger-daily"]` entry
+(`crontab(hour=2, minute=0)`, distinct from the existing 00:30 and `*/30`
+entries) and added `modules.backups` to `autodiscover_tasks`.
+
+- Files changed: `modules/backups/tasks.py` (new), `apps/api/app/core/celery_app.py`, `modules/backups/service.py` (one-line type hint fix)
+- Tests added: `tests/api/test_backups.py::test_scheduled_backup_with_no_triggering_user_succeeds` — calls `BackupService.trigger_backup(triggered_by_user_id=None)` directly (the code path the new Celery task exercises, which has no HTTP route since it's never user-initiated) and confirms it completes successfully with a real `pg_dump` and a null `triggered_by_user_id`, rather than only being exercised via the API route (which always supplies a real user id). Also directly verified task registration: `python -c "from app.core.celery_app import celery_app; import modules.backups.tasks; ..."` confirms `backups.trigger_daily_backup` is registered and the beat schedule entry exists.
+- Full regression suite: 212/212 passing (211 before this fix + 1 new), 0 regressions.
+- Risks: none identified. The task is a thin wrapper around the
+  already-tested `trigger_backup()` method; the only new runtime behavior
+  is *when* it's called (a schedule) and *what* it's called with
+  (`None` instead of a real user id), both covered by the new test.
+  2:00 AM UTC chosen to avoid overlapping the existing 00:30 overdue-invoice
+  sweep; no other scheduled task runs at that time. Doesn't address
+  finding #12 (retention/cleanup of old backup files) — noted as a
+  separate, lower-severity, explicitly-deferred finding below.
 
 **Finding #12 (Low):** No retention/cleanup policy — once automated backups exist (finding #3), nothing ever deletes old ones, so storage cost grows unbounded over time. Low severity because it's a cost/hygiene issue, not a DR risk, and only becomes relevant once #3 is fixed.
 
