@@ -11,10 +11,11 @@ referenced, not re-derived. The one finding from that audit (`/health/ready`
 failing on an unused Elasticsearch dependency) has since been fixed; see
 `docs/architecture/health-checks.md`.
 
-**Environment note:** no git repository exists in this working tree
-(`git status` fails at every parent directory). This blocks the "commit
-after each fix" part of the requested workflow — flagged for a decision
-before the fix phase begins, not something I resolved unilaterally.
+**Environment note:** no git repository existed in this working tree when
+this audit was written (`git status` failed at every parent directory).
+Resolved by initializing one (confirmed with you first) — see the initial
+commit and the Critical fix's commit for the baseline this audit's
+subsequent fixes build on.
 
 Every finding is backed by an exact file path, verified by reading the file,
 not inferred.
@@ -26,7 +27,7 @@ not inferred.
 | 1 | Security | No startup validation blocks booting in production with the default, hardcoded, source-visible JWT signing secret | **Critical** |
 | 2 | Backup & Restore | No backup restore capability anywhere in the application layer | High |
 | 3 | Backup & Restore | Application-level backups (`modules/backups`) are manual-only — no scheduled/automated trigger | High |
-| 4 | Docker | Single-stage build ships build tooling into the runtime image; container runs as root | High |
+| 4 | Docker | Single-stage build ships build tooling into the runtime image; container runs as root | High — **fixed** |
 | 5 | CI/CD | 3 of 4 frontend apps have no test script and are not built/tested in CI at all | High |
 | 6 | Logging | No log shipping configured — container stdout is the only sink; logs are lost on pod eviction/restart | High |
 | 7 | Operational Readiness | No documented rollback procedure for a bad deployment | Medium |
@@ -45,6 +46,43 @@ not inferred.
 - Impact: larger attack surface (compilers present at runtime), larger image (slower deploys/pulls), and a process running as root inside the container — standard CIS Docker Benchmark violation. Not an active exploit by itself, but increases blast radius if any other vulnerability in the app or a dependency is ever exploited.
 - Fix: multi-stage build (`builder` stage installs + compiles, final stage copies only the venv/site-packages + app code), add a non-root `USER erpx`, keep the existing `HEALTHCHECK` (already correct).
 - Effort: Small (1-2 hours) — self-contained, no application code changes.
+
+**Status: fixed.** `apps/api/Dockerfile` rewritten as a two-stage build — a
+`builder` stage with `build-essential`/`libpq-dev` that produces a venv, and
+a runtime stage that copies only that venv plus app code, running as a new
+non-root `erpx` system user (`groupadd`/`useradd --system`). `HEALTHCHECK`
+and `CMD` unchanged.
+
+- Files changed: `apps/api/Dockerfile`
+- Tests added: none (infrastructure-only change) — verified instead by
+  actually building and running the image with Docker Desktop (which
+  crashed and had to be restarted mid-verification; confirmed back up
+  before proceeding):
+  - `docker build` succeeds cleanly, all dependencies install in the
+    builder stage.
+  - `docker run --rm erpx-api:hardening-test whoami` → `erpx` (confirms
+    non-root).
+  - Direct `docker run ... python -c "import app.main"` initially failed
+    with `ModuleNotFoundError: No module named 'modules.accounting'` — this
+    is **not a regression**: `docker-compose.yml` bind-mounts `./modules`
+    and `./packages` from the repo root into the container at runtime
+    (lines 126-128), independent of what `COPY` bakes into the image at
+    build time. Rebuilt the *original* (pre-fix) Dockerfile under the
+    identical `docker run` invocation and confirmed it fails identically —
+    proving this is pre-existing, by-design behavior (the image has never
+    been runnable via bare `docker run` without those mounts) and not
+    something introduced by this fix. Re-ran with the same volume mounts
+    `docker-compose.yml` provides (correcting a Git-Bash path-mangling
+    issue on the container-side mount path via `MSYS_NO_PATHCONV=1`) and
+    confirmed `app.main` imports successfully under realistic runtime
+    conditions.
+  - Image size: 973MB (original) → 540MB (hardened), a 44% reduction.
+  - Full backend regression suite unaffected (this change touches no
+    Python source): 211/211 passing.
+- Risks: none identified. The multi-stage pattern is standard and
+  well-tested; behavior parity with the original was explicitly verified
+  above rather than assumed. `docker-compose.yml` itself needed no changes
+  — it already targets `context: ./apps/api`, `dockerfile: Dockerfile`.
 
 ## 2. Kubernetes
 
