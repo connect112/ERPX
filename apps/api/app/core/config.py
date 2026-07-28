@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     DB_ECHO: bool = False
     PG_DUMP_PATH: str = "pg_dump"
+    # The plain-SQL dumps modules/backups/service.py produces (no -Fc) are
+    # replayed with psql, not pg_restore — see apps/api/scripts/restore_backup.py.
+    PSQL_PATH: str = "psql"
 
     # ---- Redis / Celery ----
     REDIS_URL: str = "redis://redis:6379/0"

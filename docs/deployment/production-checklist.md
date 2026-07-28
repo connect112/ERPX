@@ -21,6 +21,15 @@
 - [ ] Celery beat: **exactly one replica** — running two double-fires every scheduled task (overdue-invoice sweep, depreciation reminders, scheduled report emails). `infrastructure/kubernetes/celery-deployment.yaml` pins this via `replicas: 1` + `strategy: Recreate`.
 - [ ] TLS terminated at the ingress/load balancer; `Strict-Transport-Security` only applies once this is true
 
+## Disaster Recovery / Backup & Restore
+
+Full procedure: `docs/operations/disaster-recovery-runbook.md`.
+
+- [ ] Daily automated backup (`modules/backups/tasks.py`) confirmed actually running — check for a recent `COMPLETED` `BackupJob` via `GET /api/v1/backups`, not just that the Celery beat schedule exists
+- [ ] A restore has actually been performed against a disposable/drill database at least once — `apps/api/scripts/restore_backup.py` is validated by its own test suite (`tests/integration/test_restore_backup_integration.py`), but a real restore drill against production-shaped data volume is what actually establishes your RTO figure, not an assumption
+- [ ] Whoever is on-call has the `--database-url` credentials and object-storage access needed to run `restore_backup.py` *before* an incident, not discovered for the first time during one
+- [ ] If relying on this platform's own backups as the primary DR mechanism (i.e. the self-hosted/Compose path, not AWS RDS's own automated backups) — confirmed, not assumed, since `infrastructure/terraform/database.tf`'s RDS backups are a separate, faster path for the AWS-hosted deployment
+
 ## Observability
 
 - [ ] `/metrics` (Prometheus) scraped — see `infrastructure/monitoring/prometheus.yml`

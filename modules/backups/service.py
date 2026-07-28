@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -81,6 +82,16 @@ class BackupService:
                 )
 
             size_bytes = os.path.getsize(tmp_path)
+
+            def _sha256_file() -> str:
+                digest = hashlib.sha256()
+                with open(tmp_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                return digest.hexdigest()
+
+            sha256 = await asyncio.to_thread(_sha256_file)
+
             storage_key = f"backups/{job.id}.sql"
             await self.storage.ensure_bucket()
             await self.storage.upload_file(storage_key, tmp_path, content_type="application/sql")
@@ -90,9 +101,10 @@ class BackupService:
                 status=BackupStatus.COMPLETED,
                 storage_key=storage_key,
                 size_bytes=size_bytes,
+                sha256=sha256,
                 completed_at=datetime.now(timezone.utc),
             )
-            logger.info("backup_completed", job_id=str(job.id), size_bytes=size_bytes)
+            logger.info("backup_completed", job_id=str(job.id), size_bytes=size_bytes, sha256=sha256)
         except Exception as exc:
             logger.exception("backup_failed", job_id=str(job.id))
             job.status = BackupStatus.FAILED

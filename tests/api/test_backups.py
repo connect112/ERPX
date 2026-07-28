@@ -25,6 +25,9 @@ async def test_trigger_backup_produces_a_real_downloadable_dump(client, auth_hea
     assert job["status"] == "completed", job.get("error_message")
     assert job["size_bytes"] is not None and job["size_bytes"] > 0
     assert job["storage_key"] is not None
+    # sha256 lets apps/api/scripts/restore_backup.py verify the downloaded
+    # file wasn't corrupted/tampered with before ever handing it to psql.
+    assert job["sha256"] is not None and len(job["sha256"]) == 64
 
     list_response = await client.get("/api/v1/backups", headers=auth_headers)
     assert list_response.status_code == 200
@@ -39,6 +42,8 @@ async def test_trigger_backup_produces_a_real_downloadable_dump(client, auth_hea
         assert fetched.status_code == 200
         # A real pg_dump text dump starts with a Postgres-generated header comment.
         assert fetched.content.startswith(b"--")
+        import hashlib
+        assert hashlib.sha256(fetched.content).hexdigest() == job["sha256"]
 
 
 async def test_staff_without_view_permission_cannot_list_backups(client, staff_headers):

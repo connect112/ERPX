@@ -12,6 +12,7 @@ class BackupJobPublic(BaseModel):
     status: BackupStatus
     storage_key: str | None
     size_bytes: int | None
+    sha256: str | None
     error_message: str | None
     started_at: datetime
     completed_at: datetime | None

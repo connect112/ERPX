@@ -25,7 +25,7 @@ not inferred.
 | # | Category | Finding | Severity |
 |---|---|---|---|
 | 1 | Security | No startup validation blocks booting in production with the default, hardcoded, source-visible JWT signing secret | **Critical** |
-| 2 | Backup & Restore | No backup restore capability anywhere in the application layer | High |
+| 2 | Backup & Restore | No backup restore capability anywhere in the application layer | High — **fixed** |
 | 3 | Backup & Restore | Application-level backups (`modules/backups`) are manual-only — no scheduled/automated trigger | High — **fixed** |
 | 4 | Docker | Single-stage build ships build tooling into the runtime image; container runs as root | High — **fixed** |
 | 5 | CI/CD | 3 of 4 frontend apps have no test script and are not built/tested in CI at all | High — **fixed** |
@@ -266,11 +266,10 @@ The gap is entirely at the application layer — see Backup & Restore below — 
 - Fix: at minimum, document the manual restore procedure (which this audit can write without touching application code); ideally, add a `POST /backups/{id}/restore` admin-only endpoint or a documented CLI script, gated behind explicit confirmation given how destructive a restore is.
 - Effort: Documentation-only fix: Small (an hour). A real restore endpoint: Medium-Large, and — given how destructive a mistaken restore would be — deserves its own careful design pass rather than being rushed through an automated "fix Critical issues" loop. **Recommend documenting the manual procedure now, and treating a self-service restore endpoint as separate follow-up work**, not part of this session's fix pass.
 
-**Status: re-verified still open (2026-07-28)** — no `restore` match anywhere
-under `modules/backups/`. This finding requires a data-loss-risking,
-architectural decision, so per your instructions it's a design proposal
-below, not an automatic implementation. **Not yet approved — no code
-changes made for this finding.**
+**Status: fixed (2026-07-28)** — see "Implementation status" at the end of
+this section for what was built. The design proposal below is kept
+as originally written (it's what was actually implemented, not a
+retrospective rewrite).
 
 ### Design proposal: `modules/backups` restore capability
 
@@ -405,6 +404,55 @@ following the exact pattern of every other migration in
   standalone Postgres environment).
 - `RestoreAttempt` audit table + migration: **Small** (an hour or two,
   following existing patterns exactly).
+
+### Implementation status (2026-07-28)
+
+**Status: fixed.** Implemented exactly as proposed above — CLI-only,
+manual, confirmation-gated, no web-based restore endpoint. Full procedure:
+`docs/operations/disaster-recovery-runbook.md`.
+
+- `apps/api/scripts/restore_backup.py` (new): resolves a backup from a
+  `BackupJob` id, a raw storage key, or a local file; verifies size and
+  SHA-256 (new `backup_jobs.sha256` column, computed at backup time —
+  `modules/backups/service.py`) plus a pg_dump-format sanity check before
+  ever touching a database; refuses if the target has other active
+  connections (`pg_stat_activity`) or already has tables (unless
+  `--yes-wipe-existing-schema`); requires typed confirmation of the exact
+  target database name unless `--force`; takes its own pre-restore safety
+  `pg_dump` of the target by default; runs `psql -v ON_ERROR_STOP=1` so a
+  partial failure is detected immediately rather than continuing past
+  errors silently; on failure, prints the exact rollback path (restore
+  again from the safety backup). `--database-url` is always explicit,
+  never inferred from `settings.DATABASE_URL`. Distinct exit codes per
+  failure category (argument error, backup invalid, target unsafe,
+  confirmation declined, safety backup failed, restore failed, internal
+  error) — see the runbook's table.
+- Every attempt is logged to a local JSON-lines audit file (the primary,
+  always-written trail) and, best-effort, to a new `restore_attempts`
+  table (`apps/api/alembic/versions/0037_*.py`) if the target already has
+  it.
+- `packages/storage/client.py` gained `download_file()` (the restore
+  script needs bytes on local disk for `psql -f`, unlike every existing
+  caller which only ever needed presigned URLs or server-side uploads).
+
+Tested: `tests/unit/test_restore_backup.py` (21 tests — argument parsing,
+URL redaction/parsing, checksum/format checks, the confirmation prompt,
+no database needed) and `tests/integration/test_restore_backup_integration.py`
+(13 tests — real Postgres, real `pg_dump`/`psql` subprocesses, real
+wipe-and-restore, real confirmation-decline and SHA-256-mismatch paths).
+Every integration test creates and drops its own throwaway database
+(`erpx_restore_test_<uuid>`) — the shared `erpx_test` database the rest of
+the suite depends on is never touched by these tests. `tests/api/test_backups.py`
+extended with one assertion confirming the new `sha256` field is correct.
+Full regression suite re-run: **257/257 passing** (223 before this change
++ 21 new unit + 13 new integration), 0 regressions.
+
+**Explicitly not implemented** (matches the proposal exactly): any
+API endpoint, any web UI, any self-service/automated restore trigger. The
+read-only `GET /backups/{id}/restore-instructions` endpoint the proposal
+mentioned as safe-to-add-later remains unimplemented — it's non-destructive
+and could be picked up as separate, small follow-up work if useful, but
+wasn't part of this scope.
 - `GET /backups/{id}/restore-instructions` read-only endpoint: **Small**
   (an hour) — safe to implement without further approval once the CLI
   script's actual invocation shape is finalized, since it only returns

@@ -111,6 +111,17 @@ class StorageClient:
             logger.exception("storage_upload_failed", object_key=object_key)
             raise ServiceUnavailableError("Could not upload the file to storage.") from exc
 
+    async def download_file(self, object_key: str, dest_path: str) -> None:
+        """Server-side download for callers that need the bytes on local
+        disk rather than a presigned URL to hand to a browser — currently
+        only apps/api/scripts/restore_backup.py, which needs a real file
+        path to pass to `psql -f`."""
+        try:
+            await asyncio.to_thread(self._client.fget_object, self.bucket, object_key, dest_path)
+        except S3Error as exc:
+            logger.exception("storage_download_failed", object_key=object_key)
+            raise ServiceUnavailableError("Could not download the file from storage.") from exc
+
 
 _client: StorageClient | None = None
 
