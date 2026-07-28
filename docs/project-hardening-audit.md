@@ -37,6 +37,7 @@ not inferred.
 | 11 | Scalability | No database read replica; all reads and writes hit the single RDS primary | Low |
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
+| 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling + baseline) fixed; violations not yet remediated** |
 
 ## 1. Docker
 
@@ -641,6 +642,107 @@ entries) and added `modules.backups` to `autodiscover_tasks`.
 - Impact: in an incident, the first response is usually "roll back" — without a documented procedure (is it `kubectl rollout undo`? Does the Alembic migration need a corresponding manual downgrade? Is the previous image tag retained?), an on-call engineer is improvising during an active incident.
 - Fix: add a "Rollback" section to `docs/deployment/production-checklist.md` covering: `kubectl rollout undo deployment/erpx-api -n erpx` (K8s handles the app-code rollback since `image: ghcr.io/gir-technologies/erpx-api:latest` — recommend pinning to immutable tags/digests rather than `:latest` for this to be reliable, a related sub-finding), and the separate question of whether the bad deploy included a forward-only Alembic migration (in which case code rollback alone isn't sufficient — this needs explicit guidance since migrations here are reversible, per the prior audit, but running `alembic downgrade` in production is its own risk that needs a documented decision tree, not just "it's technically possible").
 - Effort: Small (documentation only, 1-2 hours) for the rollback runbook. The `:latest` tag → immutable tag/digest change is a separate, very small infra fix (`infrastructure/kubernetes/api-deployment.yaml` / `web-deployment.yaml` / `celery-deployment.yaml`, and `.github/workflows/docker-publish.yml`'s tagging strategy).
+
+## 13. Accessibility
+
+**Finding #14 (Medium):** No accessibility (WCAG 2.1 AA) tooling existed
+in any of the 4 frontend apps (`apps/web`, `apps/student-portal`,
+`apps/trainer-portal`, `apps/corporate-portal`) — confirmed: zero
+`eslint-plugin-jsx-a11y`/`axe-core`/similar in any `package.json`, and
+near-zero `aria-*`/`role=`/`alt=` attribute usage across all ~700
+combined frontend source files.
+
+**Status: Phase 1 (tooling + baseline) fixed (2026-07-28). Violations
+themselves are not yet remediated — that is explicitly Phase 2, not part
+of this change.**
+
+### Tooling added
+
+`eslint-plugin-jsx-a11y` (`^6.10.2`, compatible with this project's
+`eslint ^8.57.1`) added to all 4 apps' `package.json` devDependencies.
+Each app's `.eslintrc.cjs` gained `"plugin:jsx-a11y/recommended"` in
+`extends`, `"jsx-a11y"` in `plugins`, and a `settings["jsx-a11y"].components`
+map telling the plugin's rules to also check this project's own
+`components/ui/*` wrapper components (`Button`, `Input`, `Textarea`,
+`Select`, `Label`, `Table`) — not just raw HTML elements — since those
+wrappers forward props onto real DOM elements via Radix's `Slot` pattern.
+
+**Deliberately enabled at the plugin's real default severities, not
+silenced.** `.github/workflows/ci.yml`'s frontend job runs `npm run build`
+and `npm run test --if-present` — it never runs `npm run lint` — so
+turning the rules on for real carries zero CI regression risk, and a
+baseline measured against silenced/downgraded rules wouldn't be a real
+baseline. Local `npm run lint --max-warnings 0` will now report these
+violations where it previously reported none; this is the intended,
+honest signal that a real gap exists, not a bug introduced by this change.
+
+### Baseline: 24 violations across all 4 apps
+
+| App | Violations | Categories |
+|---|---|---|
+| `apps/web` | 19 | 16× `jsx-a11y/label-has-associated-control`, 1× `jsx-a11y/heading-has-content`, 1× `jsx-a11y/click-events-have-key-events` + 1× `jsx-a11y/no-static-element-interactions` (same line) |
+| `apps/student-portal` | 1 | 1× `jsx-a11y/heading-has-content` |
+| `apps/trainer-portal` | 2 | 1× `jsx-a11y/heading-has-content`, 1× `jsx-a11y/label-has-associated-control` |
+| `apps/corporate-portal` | 2 | 1× `jsx-a11y/heading-has-content`, 1× `jsx-a11y/label-has-associated-control` |
+| **Total** | **24** | — |
+
+**Violation categories, in order of prevalence:**
+
+1. **`label-has-associated-control` (18 of 24, 75%)** — `<label>` elements
+   in form dialogs/pages not programmatically associated with their input
+   (missing `htmlFor`/nested control). Concentrated in `apps/web`'s
+   accounting, HR/payroll, pentrix, and academic-ops feature forms —
+   exactly the pattern one would expect from ~40 independently-built
+   feature forms following a shared visual style but not a shared,
+   enforced form-field component.
+2. **`heading-has-content` (4 of 24, 17%)** — one shared root cause: line
+   25 of `components/ui/card.tsx`, present identically in all 4 apps (the
+   same file-copy pattern already confirmed for `client.ts`/`auth-store.ts`
+   in the testing increments) — a `CardTitle` that can render with no
+   accessible text content in some usage. Fixing this once and porting the
+   fix to all 4 apps (matching the exact workflow already used for the
+   auth-client tests) would resolve 4 of the 24 violations in one motion.
+3. **`click-events-have-key-events` + `no-static-element-interactions` (2
+   of 24, 8%)** — a single clickable non-interactive element (in
+   `apps/web`'s `learning-paths-list-page.tsx`) with no keyboard
+   equivalent — a real keyboard-navigation gap, not just a screen-reader
+   gap.
+
+### Validation performed
+
+- `eslint` run directly (bypassing `--max-warnings 0`) against all 4 apps
+  to establish the baseline counts above — real, unmodified rule
+  severities.
+- `tsc -b && vite build` — clean for all 4 apps, confirming the new
+  ESLint config has no effect on TypeScript compilation or the Vite build
+  (expected: ESLint is a separate static-analysis pass, not part of
+  either pipeline).
+- `vitest run` — all 4 apps' existing 8-test auth-client suites (32 tests
+  total) still pass unchanged, confirming zero regression from the config
+  change.
+- No backend files touched; backend regression suite not re-run.
+
+### Recommended remediation strategy (Phase 2+, not started)
+
+1. Fix the shared `card.tsx` `heading-has-content` issue once, port to
+   all 4 apps — closes 4 violations in one coordinated change, mirroring
+   the auth-client test rollout's own pattern.
+2. Introduce one shared, accessible form-field pattern (label + control
+   properly associated) and migrate the 18 `label-has-associated-control`
+   sites to it — likely worth a small shared `FormField` wrapper in
+   `components/ui/` rather than fixing each site's markup independently,
+   since the underlying cause (labels not connected to controls) recurs
+   identically across ~18 otherwise-unrelated feature forms.
+3. Fix the one keyboard-navigation gap in `learning-paths-list-page.tsx`
+   (add a real `<button>`/keyboard handler instead of a clickable `<div>`).
+4. Re-run the baseline after each phase to track the count down to zero
+   for `jsx-a11y/recommended`, then evaluate `jsx-a11y/strict` as a
+   further tightening once the current gap is closed.
+5. This tooling-only phase does not address non-lintable accessibility
+   concerns (color contrast, focus order, screen-reader testing with
+   real assistive technology) — those need separate, likely manual or
+   `axe-core`-in-Playwright-driven verification, out of scope for
+   Phase 1's ESLint-based baseline.
 
 ---
 
