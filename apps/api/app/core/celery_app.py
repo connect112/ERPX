@@ -5,12 +5,25 @@ Every module that needs background/scheduled work (email dispatch,
 report generation, VM lifecycle in Pentrix, payroll runs, etc.) registers
 its tasks under `modules/<module>/tasks.py` and imports `celery_app` from
 here rather than creating a separate Celery instance.
+
+`configure_logging()` is called here — not just from `app/main.py` — since
+the K8s/Compose worker and beat entrypoints (`celery -A app.core.celery_app
+worker/beat ...`) import only this module, never `app.main`. Previously
+that meant Celery processes silently fell back to structlog's un-configured
+default renderer (plain key=value text, no JSON, no schema fields) despite
+using the identical `get_logger()` API every task module calls — a real,
+verified inconsistency (see docs/logging-architecture-proposal.md Section 1).
+`service_name="erpx-celery"` distinguishes worker/beat log lines from the
+API's `erpx-api` in the unified `service` field.
 """
 
 from celery import Celery
 from celery.schedules import crontab
 
 from app.core.config import settings
+from app.core.logging_config import configure_logging
+
+configure_logging(service_name="erpx-celery")
 
 celery_app = Celery(
     "erpx",

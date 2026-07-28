@@ -178,6 +178,51 @@ failed `tsc -b` with `error TS2769: ... 'test' does not exist`.
 - Fix: this is inherently deployment-specific (which log aggregation backend a given deployment already has access to), so a single fix isn't universal — but a minimum viable version (a Fluent Bit DaemonSet shipping to whatever's configured, with a documented example for CloudWatch Logs since Terraform already targets AWS) would close the gap for the primary deployment path this codebase already assumes.
 - Effort: Medium (half a day for a Fluent Bit DaemonSet + CloudWatch Logs example config, following the same pattern as `infrastructure/monitoring/`).
 
+**Status: architecture approved (Fluent Bit + Grafana Loki, see
+`docs/logging-architecture-proposal.md`); shipping pipeline itself
+**not yet implemented** — still waiting for explicit approval to start that
+work. The proposal's own Risk Assessment (Section 5) flagged two
+High-severity risks that had to be closed *before* shipping could safely
+begin; those prerequisites are now implemented and tested (full detail in
+the proposal's new Section 6):**
+
+1. **Structured JSON logging standardized on every entrypoint, including
+   Celery.** `apps/api/app/core/celery_app.py` previously never called
+   `configure_logging()` — the real `celery -A app.core.celery_app worker/
+   beat` entrypoints import only that module, never `app/main.py`, so
+   Celery processes silently logged plain, un-configured `key=value` text
+   with no JSON and no schema fields at all, despite calling the identical
+   `get_logger()` API every task module uses. This was a real,
+   previously-undocumented bug, found and fixed as part of this work.
+   `apps/api/app/core/logging_config.py` now emits a fixed, unified schema
+   in production (`timestamp`, `level`, `message`, `service`,
+   `environment`, `request_id`, `organization_id`, `user_id`, `module`,
+   `logger`, `hostname`, `pod_container_metadata`, `exception_details`)
+   from both the API and Celery entrypoints identically.
+2. **`organization_id` correlation.** `apps/api/app/core/audit_context.py`'s
+   existing setters now also bind into `structlog.contextvars`, reusing the
+   same two call sites that already populate `AuditLog` rows — no new
+   resolution mechanism. Closes the specific gap the proposal's Section 5
+   called out: without this, an operator with log access could query
+   across every organization with no built-in scoping, on a platform
+   that's otherwise organization-scoped everywhere else.
+
+Also completed as part of "ingress apps" standardization:
+`infrastructure/nginx/nginx.conf` (Compose path) gained a JSON
+`log_format` correlating `request_id` via the API's own `X-Request-ID`
+response header — previously nginx ran on compiled defaults with zero
+`log_format`/`access_log` directives.
+
+Tested: new `tests/unit/test_logging_config.py` (11 tests, all passing),
+including a subprocess-based regression test reproducing the exact Celery
+entrypoint import path to guard against the bug above recurring silently.
+Full regression suite re-run: 223/223 passing (212 before this change + 11
+new), 0 regressions.
+
+**Loki/Fluent Bit themselves remain not implemented — waiting for explicit
+approval before starting that work, per the standing instruction that
+architectural/infrastructure changes require sign-off first.**
+
 ## 8. Testing
 
 **Finding #8 (Medium):** already documented in `docs/project-audit.md`. Backend testing (205 tests across unit/api/integration/security, verified passing) is genuinely strong. `tests/performance/locustfile.py` provides real load-test coverage. The gap is specifically frontend unit tests.
