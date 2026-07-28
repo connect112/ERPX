@@ -1,0 +1,41 @@
+# Requires an ingress-nginx controller and cert-manager (for automatic
+# TLS via the ClusterIssuer named "letsencrypt-prod") already installed
+# on the cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: erpx
+  namespace: erpx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "25m"
+    nginx.ingress.kubernetes.io/rate-limit-rps: "20"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app.erpx.example.com
+        - api.erpx.example.com
+      secretName: erpx-tls
+  rules:
+    - host: api.erpx.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: erpx-api
+                port:
+                  number: 80
+    - host: app.erpx.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: erpx-web
+                port:
+                  number: 80

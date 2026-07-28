@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erpx-web
+  namespace: erpx
+  labels:
+    app: erpx-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: erpx-web
+  template:
+    metadata:
+      labels:
+        app: erpx-web
+    spec:
+      containers:
+        - name: web
+          # Built from apps/web/Dockerfile.prod (static nginx build), not
+          # apps/web/Dockerfile (the dev-server image docker-compose uses).
+          image: ghcr.io/gir-technologies/erpx-web:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erpx-web
+  namespace: erpx
+  labels:
+    app: erpx-web
+spec:
+  selector:
+    app: erpx-web
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+  type: ClusterIP

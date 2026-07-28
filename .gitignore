@@ -1,0 +1,41 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Kubernetes secrets (never commit a filled-in copy — see secret.yaml.example)
+infrastructure/kubernetes/secret.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (bind-mounted local data, if any)
+database/backups/*
+!database/backups/.gitkeep
+
+# Logs
+*.log
+logs/

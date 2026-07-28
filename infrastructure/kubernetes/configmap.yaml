@@ -1,0 +1,33 @@
+# Non-secret configuration shared by every ERPX backend workload
+# (api, celery-worker, celery-beat). Values here match the defaults in
+# apps/api/app/core/config.py; override per-environment via kustomize
+# overlays or by editing this file for the target cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erpx-config
+  namespace: erpx
+data:
+  ENVIRONMENT: "production"
+  API_V1_PREFIX: "/api/v1"
+  DB_POOL_SIZE: "20"
+  DB_MAX_OVERFLOW: "10"
+  DB_POOL_TIMEOUT: "30"
+  DB_ECHO: "false"
+  JWT_ALGORITHM: "HS256"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  MINIO_ENDPOINT: "minio.erpx.svc.cluster.local:9000"
+  MINIO_BUCKET: "erpx-storage"
+  MINIO_SECURE: "false"
+  ELASTICSEARCH_URL: "http://elasticsearch.erpx.svc.cluster.local:9200"
+  SMTP_HOST: "smtp.example.com"
+  SMTP_PORT: "587"
+  SMTP_FROM_EMAIL: "noreply@erpx.example.com"
+  SMTP_FROM_NAME: "ERPX"
+  RATE_LIMIT_DEFAULT: "100/minute"
+  MAX_LOGIN_ATTEMPTS: "5"
+  ACCOUNT_LOCKOUT_MINUTES: "15"
+  AI_PROVIDER: "anthropic"
+  AI_API_BASE_URL: "https://api.anthropic.com"
+  AI_MODEL: "claude-sonnet-5"

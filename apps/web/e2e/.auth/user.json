@@ -1,0 +1,14 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://localhost:5173",
+      "localStorage": [
+        {
+          "name": "erpx-auth",
+          "value": "{\"state\":{\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYTA1MDI1Ny00ODZkLTQ0YzYtOGYxZC05MzA4NDM3MmJkNjQiLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzg1MDY2NjEzLCJleHAiOjE3ODUwNjc1MTMsImp0aSI6IjNiMjA1NGZlLWVkN2MtNGY2ZS1iNTllLTBiZjk3ZDQ1NzZlNiJ9.uZNOhsB2sJhKEdAPvcubRtwKwSiWqBQLRWk0HcSqk6A\",\"refreshToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYTA1MDI1Ny00ODZkLTQ0YzYtOGYxZC05MzA4NDM3MmJkNjQiLCJ0eXBlIjoicmVmcmVzaCIsImlhdCI6MTc4NTA2NjYxMywiZXhwIjoxNzg1NjcxNDEzLCJqdGkiOiJkODNkNDdiMy1mZmNjLTRhYWYtYTQ4My1mYzhmZTY2YTMzZDQifQ.RneZbQ-BnCCDJVBUxB_DfsaWOQIL2NRL4Zt6v1hJ6V8\",\"user\":{\"id\":\"3a050257-486d-44c6-8f1d-93084372bd64\",\"email\":\"e2e@erpx.example.com\",\"fullName\":\"E2E Test User\",\"status\":\"active\",\"isEmailVerified\":true,\"twoFactorEnabled\":false},\"isAuthenticated\":true},\"version\":0}"
+        }
+      ]
+    }
+  ]
+}

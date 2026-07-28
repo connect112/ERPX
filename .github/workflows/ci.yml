@@ -1,0 +1,77 @@
+name: ERPX CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: erpx
+          POSTGRES_PASSWORD: erpx_secret
+          POSTGRES_DB: erpx_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U erpx"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: apps/api/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: apps/api
+        run: pip install -r requirements.txt
+
+      - name: Run migrations
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
+        run: alembic upgrade head
+
+      - name: Run backend tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
+          REDIS_URL: redis://localhost:6379/0
+        run: pytest -v --cov=apps/api/app --cov=modules --cov=packages
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Type check + build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Run frontend tests
+        working-directory: apps/web
+        run: npm run test

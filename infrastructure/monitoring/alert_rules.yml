@@ -1,0 +1,61 @@
+# Baseline alerting rules for ERPX. Referenced from prometheus.yml via:
+#
+#   rule_files:
+#     - "alert_rules.yml"
+#
+# and evaluated by Prometheus's built-in Alertmanager integration.
+groups:
+  - name: erpx-api
+    rules:
+      - alert: ERPXApiDown
+        expr: up{job="erpx-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ERPX API target is down"
+          description: "Prometheus has not been able to scrape {{ $labels.instance }} for over 1 minute."
+
+      - alert: ERPXApiHighErrorRate
+        expr: >
+          sum(rate(http_requests_total{job="erpx-api", status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total{job="erpx-api"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ERPX API 5xx error rate above 5%"
+          description: "More than 5% of requests over the last 5 minutes returned a 5xx status."
+
+      - alert: ERPXApiHighLatency
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="erpx-api"}[5m])) by (le)
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ERPX API p95 latency above 1s"
+          description: "95th percentile request latency has exceeded 1 second for 10 minutes."
+
+  - name: erpx-infrastructure
+    rules:
+      - alert: PostgresDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL exporter target is down"
+          description: "Cannot confirm PostgreSQL is reachable — verify the database directly."
+
+      - alert: RedisDown
+        expr: up{job="redis-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis exporter target is down"
+          description: "Celery task dispatch and caching depend on Redis being reachable."

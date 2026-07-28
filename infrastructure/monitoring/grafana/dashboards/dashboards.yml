@@ -1,0 +1,14 @@
+# Auto-provisions dashboards from this directory on Grafana startup —
+# mount into /etc/grafana/provisioning/dashboards/dashboards.yml (and
+# mount this whole dashboards/ folder into the path referenced below).
+apiVersion: 1
+
+providers:
+  - name: ERPX
+    orgId: 1
+    folder: ERPX
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

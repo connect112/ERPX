@@ -1,0 +1,47 @@
+# Prometheus scrape configuration for ERPX.
+#
+# Docker Compose: mount this file into a `prometheus` service
+# (image: prom/prometheus:latest) at /etc/prometheus/prometheus.yml and
+# it will scrape the `api` service directly by container DNS name.
+#
+# Kubernetes: if using the Prometheus Operator, replace the static
+# `erpx-api` job below with a PodMonitor selecting pods labeled
+# `app: erpx-api` — the pod annotations in api-deployment.yaml
+# (prometheus.io/scrape, /path, /port) already advertise the /metrics
+# endpoint for auto-discovery-based setups instead.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: erpx
+
+rule_files:
+  - "alert_rules.yml"
+
+# Uncomment once an Alertmanager instance is deployed, with its own
+# routing/receivers config (Slack, PagerDuty, email) — deployment-specific,
+# so not templated here.
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: erpx-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          service: erpx-api
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis-exporter
+    static_configs:
+      - targets: ["redis-exporter:9121"]

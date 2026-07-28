@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erpx-api
+  namespace: erpx
+  labels:
+    app: erpx-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: erpx-api
+  template:
+    metadata:
+      labels:
+        app: erpx-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/gir-technologies/erpx-api:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: erpx-config
+            - secretRef:
+                name: erpx-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            # /health/ready only fails (503) when a CRITICAL dependency is
+            # down (currently: Postgres only). Redis, MinIO, and Elasticsearch
+            # are checked and reported in the response body but classified as
+            # optional, so a pod stays in rotation and keeps serving the vast
+            # majority of endpoints even if one of them is unavailable — see
+            # apps/api/app/api/v1/health.py for the full classification and
+            # rationale.
+            httpGet:
+              path: /api/v1/health/ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            # /health is a lightweight liveness check (no dependency calls) —
+            # a slow Postgres shouldn't cause Kubernetes to kill and restart
+            # otherwise-healthy API pods.
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 2
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erpx-api
+  namespace: erpx
+  labels:
+    app: erpx-api
+spec:
+  selector:
+    app: erpx-api
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: erpx-api
+  namespace: erpx
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: erpx-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

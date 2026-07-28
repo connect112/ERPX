@@ -1,0 +1,11 @@
+# Local-machine override — not something other developers or deployment
+# targets need. This machine already has a separate PostgreSQL Windows
+# service bound to host port 5432 (installed earlier, unrelated to Docker),
+# so the containerized Postgres is remapped to 5434 on the host side only.
+# The `api` container still talks to it as `postgres:5432` over the internal
+# Docker network — this only affects connecting to it from Windows directly
+# (e.g. a GUI tool), which isn't required for the app to work.
+services:
+  postgres:
+    ports:
+      - "5434:5432"
