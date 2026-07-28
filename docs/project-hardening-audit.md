@@ -242,7 +242,55 @@ regardless, 0 regressions (see proposal Section 7).
 
 ## 8. Testing
 
-**Finding #8 (Medium):** already documented in `docs/project-audit.md`. Backend testing (205 tests across unit/api/integration/security, verified passing) is genuinely strong. `tests/performance/locustfile.py` provides real load-test coverage. The gap is specifically frontend unit tests.
+**Finding #8 (Medium):** already documented in `docs/project-audit.md`. Backend testing (257 tests across unit/api/integration/security, verified passing) is genuinely strong. `tests/performance/locustfile.py` provides real load-test coverage. The gap is specifically frontend unit tests.
+
+**Status: partially fixed (2026-07-28), first increment.** `apps/web` had a
+`vitest` test runner configured (`vite.config.ts`) but zero actual unit
+test files — confirmed during the Complete Enterprise Software Engineering
+Audit. Rather than attempt "add frontend test coverage" as one
+undifferentiated task across 4 apps and ~118 routes, the highest-leverage,
+narrowly-scoped first increment was chosen: real unit tests for
+`apps/web/src/api/client.ts`'s auth-header-attachment and
+401→refresh→retry interceptor logic — the single piece of frontend code
+every authenticated request in the app depends on, previously completely
+untested.
+
+New file `apps/web/src/api/client.test.ts` (8 tests, all passing): request
+interceptor attaches/omits the `Authorization` header correctly; non-401
+errors pass through without attempting a refresh; a 401 with no refresh
+token logs out without calling the refresh endpoint; a 401 with a valid
+refresh token refreshes, updates the store, and retries the original
+request with the new token; a failed refresh call logs out; a request
+that already retried once does not trigger a second refresh (no infinite
+loop); and — the most valuable case — 3 concurrent 401s while a refresh is
+already in flight are queued behind exactly **one** refresh call, not
+three, and all three original requests still resolve correctly once it
+completes.
+
+Added `axios-mock-adapter` as a new devDependency (`apps/web/package.json`)
+— attaches to the real `apiClient`/`axios` instances at the HTTP-adapter
+layer, so the interceptors and the real Zustand auth store both run
+unmocked; only the network boundary is faked. This is a test-only utility,
+not a new architectural choice — axios itself was already the chosen HTTP
+client.
+
+Real gotcha found and fixed during implementation, not swept under the
+rug: `client.ts`'s refresh call deliberately goes through the bare
+`axios` import rather than `apiClient` (so a request already marked
+`_retry` can't recursively re-enter `apiClient`'s own interceptors) — the
+test file mocks both instances separately for exactly that reason, rather
+than assuming one mock covers both request paths.
+
+`apps/web`'s existing `vite.config.ts` already scoped `test.include` to
+`src/**/*.{test,spec}.{ts,tsx}` specifically to exclude Playwright's
+`e2e/*.spec.ts` specs from vitest's runner — no config change was needed.
+
+**Explicitly not done in this increment** (tracked as separate follow-up
+work, not silently deferred): unit test infrastructure for
+`student-portal`/`trainer-portal`/`corporate-portal` (currently zero test
+runner configured in any of the three); broader `apps/web` component/page
+coverage beyond this one file; accessibility tooling (a distinct, still-open
+finding from the RC1 audit).
 
 ## 9. Scalability
 
