@@ -244,6 +244,9 @@ regardless, 0 regressions (see proposal Section 7).
 
 **Finding #8 (Medium):** already documented in `docs/project-audit.md`. Backend testing (257 tests across unit/api/integration/security, verified passing) is genuinely strong. `tests/performance/locustfile.py` provides real load-test coverage. The gap is specifically frontend unit tests.
 
+**Status: Auth client unit test infrastructure completed across all four
+frontend applications (2026-07-28).**
+
 **Status: partially fixed (2026-07-28), first increment.** `apps/web` had a
 `vitest` test runner configured (`vite.config.ts`) but zero actual unit
 test files — confirmed during the Complete Enterprise Software Engineering
@@ -324,6 +327,59 @@ matrix job, no workflow change needed); the identical, already-proven
 
 `corporate-portal` remains untouched — same gap, one app left, tracked as
 continued follow-up.
+
+**Status: fourth and final increment (2026-07-28) — the auth-client
+portion of this finding is now closed.** `apps/corporate-portal/src/api/client.ts`
+and `auth-store.ts` confirmed byte-identical to the other three apps'
+(direct `diff`, zero differences). Applied the identical pattern:
+`vite.config.ts`'s `defineConfig` import switched to `vitest/config`
+(corporate-portal's own dev-server port, 5176, preserved unchanged);
+`vitest` + `axios-mock-adapter` devDependencies; `"test": "vitest run"`
+script; the identical, already-proven 8-test suite ported verbatim. All 8
+pass. No production code in `corporate-portal` was changed, and
+`apps/web`/`apps/student-portal`/`apps/trainer-portal` were not touched in
+any of the four increments.
+
+**Summary across all four increments:** every one of ERPX's 4 frontend
+applications (`apps/web`, `apps/student-portal`, `apps/trainer-portal`,
+`apps/corporate-portal`) now has vitest configured, a working `npm run
+test` script wired into the existing CI matrix job with no workflow
+changes required, and a real, passing 8-test suite covering the exact
+piece of code every authenticated request in every app depends on
+(`src/api/client.ts`'s token-attachment and 401-refresh-retry
+interceptors) — 32 frontend unit tests total, all passing, all exercising
+real production code against a mocked HTTP boundary only.
+
+**What "frontend unit test coverage" still means beyond this** — this
+increment deliberately covered one file per app, chosen because it was
+the single highest-risk, completely untested piece of logic. It is not
+the same as comprehensive frontend coverage. Still genuinely untested,
+tracked as separate future work, not silently rolled into this finding's
+"done" status:
+- **Forms**: react-hook-form + Zod validation logic across ~40 business
+  feature forms (crm/leads, accounting/invoices, hr/payroll, etc.) — zero
+  tests.
+- **Pages**: the ~118 route components in `apps/web` alone (plus each
+  portal app's own pages) — zero component/rendering tests.
+- **Hooks**: custom React Query hooks per feature (`useLeads`,
+  `useInvoices`, etc.) — zero tests; no `@testing-library/react` or
+  `@testing-library/react-hooks`-equivalent is installed in any of the 4
+  apps yet, which would be needed for this.
+- **Tables**: the shared `components/ui/table.tsx` primitives and their
+  per-page usage (sorting, filtering, pagination where implemented ad hoc
+  per page) — zero tests.
+- **State management**: the Zustand auth store's own reducers are
+  exercised indirectly (via the client tests, which call `setState`/read
+  `getState`) but have no dedicated unit tests of their own; React Query
+  cache/invalidation behavior is entirely untested.
+- **Accessibility**: still a distinct, separately-tracked open item (near-zero
+  ARIA/alt coverage, no `eslint-plugin-jsx-a11y`/`axe-core` in any app) —
+  not a testing-infrastructure gap, a design/implementation gap; adding
+  tests wouldn't close it on its own.
+- **Visual/integration**: no component-level integration tests (e.g. "fill
+  this form, submit, see this result") exist in any app — only the 3
+  Playwright e2e specs in `apps/web` cover that class of behavior, and only
+  for 3 flows (auth, leads, nav smoke).
 
 ## 9. Scalability
 

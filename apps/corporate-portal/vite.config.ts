@@ -1,6 +1,11 @@
 import path from "node:path";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+// vitest/config re-exports vite's defineConfig with its types extended to
+// recognize the `test` key below — plain "vite"'s defineConfig doesn't know
+// about it and fails typecheck (`tsc -b`) even though it works at runtime.
+// Same fix already applied to apps/web, apps/student-portal, and
+// apps/trainer-portal's vite.config.ts.
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
@@ -17,5 +22,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    // Scoped to where real unit tests actually live — see
+    // apps/web/vite.config.ts for the identical rationale.
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    passWithNoTests: true,
   },
 });
