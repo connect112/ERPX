@@ -54,6 +54,14 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Previously this job only covered apps/web — student-portal,
+        # trainer-portal, and corporate-portal were never built, type-
+        # checked, or tested in CI at all (Production Hardening Audit
+        # finding #5). All four apps share the same build/test scripts.
+        app: [web, student-portal, trainer-portal, corporate-portal]
     steps:
       - uses: actions/checkout@v4
 
@@ -62,16 +70,19 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: apps/${{ matrix.app }}/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: apps/web
+        working-directory: apps/${{ matrix.app }}
         run: npm ci
 
       - name: Type check + build
-        working-directory: apps/web
+        working-directory: apps/${{ matrix.app }}
         run: npm run build
 
       - name: Run frontend tests
-        working-directory: apps/web
-        run: npm run test
+        working-directory: apps/${{ matrix.app }}
+        # Only apps/web has a "test" script today (see
+        # docs/project-hardening-audit.md finding #8) — --if-present skips
+        # the other three cleanly rather than failing on a missing script.
+        run: npm run test --if-present

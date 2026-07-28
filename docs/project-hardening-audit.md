@@ -28,7 +28,7 @@ not inferred.
 | 2 | Backup & Restore | No backup restore capability anywhere in the application layer | High |
 | 3 | Backup & Restore | Application-level backups (`modules/backups`) are manual-only — no scheduled/automated trigger | High |
 | 4 | Docker | Single-stage build ships build tooling into the runtime image; container runs as root | High — **fixed** |
-| 5 | CI/CD | 3 of 4 frontend apps have no test script and are not built/tested in CI at all | High |
+| 5 | CI/CD | 3 of 4 frontend apps have no test script and are not built/tested in CI at all | High — **fixed** |
 | 6 | Logging | No log shipping configured — container stdout is the only sink; logs are lost on pod eviction/restart | High |
 | 7 | Operational Readiness | No documented rollback procedure for a bad deployment | Medium |
 | 8 | Testing | `apps/web`'s `npm run test` (vitest) has zero test files behind it (already noted in `docs/project-audit.md`, included here for completeness) | Medium |
@@ -98,6 +98,50 @@ One additional observation: `infrastructure/kubernetes/celery-deployment.yaml`'s
 - Impact: a breaking change (bad import, broken build, type error) in any of the 3 other frontend apps merges to `main` and ships in a published Docker image without CI ever detecting it.
 - Fix: add a matrix job (`strategy.matrix.app: [web, student-portal, trainer-portal, corporate-portal]`) or 3 additional job blocks running `npm ci && npm run build` for each.
 - Effort: Small (1-2 hours) — pure CI config, no app code changes.
+
+**Status: fixed.** `.github/workflows/ci.yml`'s `frontend` job converted to
+a `strategy.matrix.app: [web, student-portal, trainer-portal,
+corporate-portal]`, running install/build/test for each. Test step uses
+`npm run test --if-present` since only `apps/web` has a `test` script today
+(finding #8, separately tracked, not fixed here).
+
+While verifying, found and fixed a **second, more severe bug this fix would
+otherwise have shipped straight into CI**: `apps/web`'s existing `npm run
+test` step doesn't just have zero test files (finding #8's description) —
+it actively **crashes** (exit code 1). `vite.config.ts` had no `test.include`
+scoping, so vitest's default file-discovery glob matched
+`e2e/*.spec.ts` (Playwright specs using Playwright's own `test()` API,
+incompatible with vitest's runner) and errored on all 3 files. Since this
+matrix change is what would newly make CI *actually exercise* that already-
+broken step for the first time (no commit had ever existed to trigger CI
+before this session), shipping the coverage fix without addressing it would
+have produced a guaranteed-red job. Scoped as the smallest fix that doesn't
+expand into finding #8's territory (writing real unit tests): added
+`test.include: ["src/**/*.{test,spec}.{ts,tsx}"]` (scoped to where real
+tests will live, excluding `e2e/`) and `test.passWithNoTests: true` (exit 0
+when legitimately zero unit tests exist yet, rather than treating that as a
+failure). Also had to switch `vite.config.ts`'s `defineConfig` import from
+`"vite"` to `"vitest/config"` — vitest's re-export is what actually types
+the `test` key; plain `vite`'s `defineConfig` doesn't know about it and
+failed `tsc -b` with `error TS2769: ... 'test' does not exist`.
+
+- Files changed: `.github/workflows/ci.yml`, `apps/web/vite.config.ts`
+- Tests added: none (CI/tooling-config change, not application logic) —
+  verified by running every matrix-job step locally for all 4 apps:
+  - `npm run build` (install already covered by earlier work in this
+    session): exit 0 for `web`, `student-portal`, `trainer-portal`,
+    `corporate-portal`.
+  - `npm run test --if-present`: exit 0 for all 4 (`web` now reports
+    "No test files found, exiting with code 0" instead of crashing;
+    the other 3 skip silently since they have no `test` script).
+  - Full backend regression suite unaffected (no Python changes):
+    211/211 passing.
+- Risks: none identified for existing behavior — `apps/web`'s production
+  build output is unaffected (`vitest/config`'s `defineConfig` is a
+  type-only-relevant re-export of vite's own; runtime `vite build` behavior
+  is unchanged, confirmed by comparing build output before/after). The only
+  behavior change is `npm run test` going from "crashes" to "correctly
+  reports no tests" — strictly a bug fix, not a new capability.
 
 ## 4. Security
 
