@@ -309,6 +309,22 @@ read to confirm the byte-for-byte match, not edited.
 `trainer-portal` and `corporate-portal` remain untouched — same gap,
 tracked as continued follow-up, not yet started.
 
+**Status: third increment (2026-07-28).** `apps/trainer-portal/src/api/client.ts`
+and `auth-store.ts` confirmed byte-identical to `apps/web`'s and
+`apps/student-portal`'s (direct `diff`, zero differences) — same reasoning
+as the second increment applies: identical source code, but a third
+independently built/deployed app, so it needs its own real test run.
+Applied the identical pattern: `vite.config.ts`'s `defineConfig` import
+switched to `vitest/config` (trainer-portal's own dev-server port, 5175,
+preserved unchanged); `vitest` + `axios-mock-adapter` devDependencies;
+`"test": "vitest run"` script (picked up automatically by the existing CI
+matrix job, no workflow change needed); the identical, already-proven
+8-test suite ported verbatim. All 8 pass. No production code in
+`trainer-portal` was changed.
+
+`corporate-portal` remains untouched — same gap, one app left, tracked as
+continued follow-up.
+
 ## 9. Scalability
 
 **Finding #11 (Low):** `infrastructure/terraform/database.tf` provisions a single RDS instance (with Multi-AZ failover, not read scaling) and one ElastiCache replication group. There's no read replica, so all reads (which for an ERP with heavy reporting/dashboard usage are a meaningful share of traffic) hit the same instance as writes.
