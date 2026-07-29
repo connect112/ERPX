@@ -52,6 +52,30 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
         run: pytest -v --cov=apps/api/app --cov=modules --cov=packages
 
+      # Production Hardening Audit: no dependency vulnerability scanning
+      # existed anywhere in CI. pip-audit's own JSON output carries no
+      # severity field (verified directly against its actual schema), so
+      # `|| true` here deliberately lets pip-audit's own exit code pass
+      # through without failing the step — .github/scripts/pip_audit_severity_gate.py
+      # is what actually gates the build, using OSV.dev's severity data
+      # for pip-audit's reported GHSA aliases, so only Critical/High
+      # findings fail CI; Low/Moderate/Unknown are reported, not blocking.
+      - name: Dependency vulnerability scan (pip-audit)
+        working-directory: apps/api
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --format json -o ../../pip-audit-report.json || true
+
+      - name: Upload pip-audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.json
+
+      - name: Gate on Critical/High severity (pip-audit)
+        run: python .github/scripts/pip_audit_severity_gate.py pip-audit-report.json
+
   frontend:
     runs-on: ubuntu-latest
     strategy:
@@ -86,3 +110,24 @@ jobs:
         # docs/project-hardening-audit.md finding #8) — --if-present skips
         # the other three cleanly rather than failing on a missing script.
         run: npm run test --if-present
+
+      # Production Hardening Audit: no dependency vulnerability scanning
+      # existed anywhere in CI. Full report (all severities) captured as
+      # an artifact first, non-blocking; the actual gate is npm's own
+      # native `--audit-level=high`, which exits non-zero only for
+      # high/critical findings, exactly matching the required threshold —
+      # no custom severity parsing needed here, unlike pip-audit.
+      - name: Dependency vulnerability report (npm audit, all severities)
+        working-directory: apps/${{ matrix.app }}
+        run: npm audit --json > npm-audit-report.json || true
+
+      - name: Upload npm audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/npm-audit-report.json
+
+      - name: Gate on Critical/High severity (npm audit)
+        working-directory: apps/${{ matrix.app }}
+        run: npm audit --audit-level=high

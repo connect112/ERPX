@@ -38,6 +38,7 @@ not inferred.
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (shared `CardTitle` fix, -4 violations) fixed; 20 of 24 original violations remain, Phase 3+ not started** |
+| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; underlying vulnerabilities NOT fixed (out of scope), CI will now correctly fail until they are addressed** |
 
 ## 1. Docker
 
@@ -811,6 +812,86 @@ phase per the strict "shared component only" instruction.
    screen-reader testing with real assistive technology) — those need
    separate, likely manual or `axe-core`-in-Playwright-driven
    verification, out of scope for both Phase 1 and Phase 2.
+
+## 14. Dependency Vulnerability Scanning
+
+**Finding #15 (Medium):** No dependency vulnerability scanning existed
+anywhere in `.github/workflows/*.yml` (confirmed: zero matches for
+`pip-audit`/`npm audit`/`dependabot`/`snyk`/`trivy`/`safety`/`bandit`,
+and no `.github/dependabot.yml` file) — a pre-existing item on
+`docs/deployment/production-checklist.md`'s own Security checklist,
+never implemented.
+
+**Status: scanning tooling fixed (2026-07-28). The vulnerabilities it
+found are NOT fixed — that is explicit, deliberate scope (no package
+upgrades were made) — CI will correctly fail on the next backend push
+and on all 4 frontend matrix legs until they are addressed separately.**
+
+### What was added
+
+- **Backend**: `pip-audit -r apps/api/requirements.txt` added to
+  `.github/workflows/ci.yml`'s existing `backend` job (no new job).
+  `pip-audit`'s own JSON output was verified directly to carry **no
+  severity field at all** (only `id`/`fix_versions`/`aliases`/`description`)
+  — there is no `pip-audit --audit-level` equivalent to npm's. New
+  `.github/scripts/pip_audit_severity_gate.py` closes that gap: it
+  resolves each finding's GHSA alias against the public OSV.dev API
+  (`https://api.osv.dev/v1/vulns/{id}`), which reliably exposes a real
+  `database_specific.severity` field (verified empirically against this
+  project's actual findings — `MODERATE`, `HIGH`, `CRITICAL` all
+  observed) for GHSA-sourced advisories, and exits non-zero **only**
+  when a `CRITICAL`/`HIGH` finding is present. `pip-audit`'s own exit
+  code is deliberately absorbed (`|| true`) so it never blocks the
+  build directly — the gate script is what determines pass/fail. The
+  full report is uploaded as a build artifact regardless of severity.
+- **Frontend**: `npm audit` added to the existing `frontend` matrix job
+  (already covers all 4 apps — `web`, `student-portal`, `trainer-portal`,
+  `corporate-portal` — no new job needed). Two steps: a full-severity
+  `npm audit --json` report (always uploaded as an artifact,
+  non-blocking), and `npm audit --audit-level=high` as the actual gate —
+  npm's own native flag already does exactly what was asked (exits
+  non-zero only for `high`/`critical`), no custom severity parsing
+  needed.
+- Neither `--fix` nor `npm audit fix` was used anywhere — no package was
+  upgraded, replaced, or pinned by this change.
+
+### Real findings surfaced (informational — not remediated in this change)
+
+**Backend** (`apps/api/requirements.txt`), via the actual gate run against
+this repository:
+
+| Package | Installed | Vulnerability | Severity | Fix version |
+|---|---|---|---|---|
+| `python-jose` | 3.3.0 | PYSEC-2024-232 / CVE-2024-33663 | **CRITICAL** | 3.4.0 |
+| `python-multipart` | 0.0.9 | PYSEC-2026-1852, -1851, -3036, -3039 | **HIGH** (×4) | 0.0.18–0.0.27 |
+| `starlette` | 0.38.6 | PYSEC-2026-249, -1943, -2281 | **HIGH** (×3) | 0.40.0–1.1.0 |
+| `ecdsa` | 0.19.2 | PYSEC-2026-1325 | **HIGH** | (no fix published yet) |
+
+Plus several `MODERATE`/`LOW` findings (`python-jose`, `python-dotenv`,
+`aiosmtplib`, `pytest`, `starlette`) that do not block the build.
+
+**Frontend** (all 4 apps share the same `react-router-dom` version, so the
+finding is identical across all of them): 17 total vulnerabilities per
+app (5 moderate, **11 high, 1 critical**) — `npm audit`'s own output
+identifies the root cause as `react-router-dom` depending on a vulnerable
+version range of `react-router`.
+
+### Recommended remediation (separate follow-up, not this change)
+
+1. `python-jose` (CRITICAL) is the single highest-priority fix — it's a
+   direct dependency of this platform's own JWT handling
+   (`apps/api/app/core/security.py`), not a transitive one. Upgrading to
+   3.4.0 should be evaluated and scheduled as its own task, with the full
+   backend regression suite re-run given the security-sensitivity of that
+   module.
+2. `python-multipart`/`starlette`/`ecdsa` HIGH findings and the frontend
+   `react-router-dom` HIGH/CRITICAL findings should be scheduled next,
+   each as their own scoped upgrade-and-regression-test task per this
+   project's established "one logical change per commit" discipline —
+   not bundled together, since a dependency upgrade can have independent
+   compatibility implications per package.
+3. Once addressed, re-run both gates locally to confirm a clean pass
+   before the next CI run depends on it.
 
 ---
 

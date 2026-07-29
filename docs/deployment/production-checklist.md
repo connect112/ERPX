@@ -50,7 +50,7 @@ Full procedure: `docs/operations/disaster-recovery-runbook.md`.
 ## Security
 
 - [ ] Rate limiting (`slowapi`, `RATE_LIMIT_DEFAULT`) tuned for real traffic — the 100/minute default is a starting point, not a production-tuned value
-- [ ] Dependency vulnerability scanning on `apps/api/requirements.txt` and `apps/web/package.json` (e.g. `pip-audit`, `npm audit`, or GitHub Dependabot) in CI
+- [x] Dependency vulnerability scanning on `apps/api/requirements.txt` and all 4 frontend apps' `package.json` — `pip-audit` (backend) + `npm audit` (frontend, all 4 apps in the existing CI matrix) added to `.github/workflows/ci.yml`, gated to fail the build only on Critical/High severity (Low/Moderate reported, non-blocking) via `.github/scripts/pip_audit_severity_gate.py` (backend) and npm's native `--audit-level=high` (frontend). **This surfaced real, pre-existing Critical/High vulnerabilities that were never caught before** — see finding #15 in `docs/project-hardening-audit.md`; resolving them (dependency upgrades) is separate, deliberately out-of-scope follow-up work, not done as part of adding the scanner itself
 - [ ] Container image scanning enabled on push (ECR's `scan_on_push` is on by default in `infrastructure/terraform/storage.tf`)
 - [ ] Secrets never in environment variable dumps/logs — verify `app/core/logging_config.py` doesn't log full request bodies for `/auth/*` endpoints
 - [ ] `docs/security/` reviewed for anything specific to modules handling especially sensitive data (Payroll, Pentrix VAPT findings, Corporate SOC incidents)
