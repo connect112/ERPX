@@ -21,6 +21,13 @@
 - [ ] Celery beat: **exactly one replica** — running two double-fires every scheduled task (overdue-invoice sweep, depreciation reminders, scheduled report emails). `infrastructure/kubernetes/celery-deployment.yaml` pins this via `replicas: 1` + `strategy: Recreate`.
 - [ ] TLS terminated at the ingress/load balancer; `Strict-Transport-Security` only applies once this is true
 
+## Rollback
+
+Full procedure: `docs/operations/deployment-rollback-runbook.md`.
+
+- [ ] Whoever is on-call knows `kubectl rollout undo deployment/erpx-api -n erpx` (and the equivalent for `erpx-celery-worker`/`erpx-celery-beat`/`erpx-web`) is the fast path for a code-only bad deploy — this already works correctly today: `.github/workflows/docker-publish.yml` tags every image with the immutable `${{ github.sha }}` in addition to `:latest`, and `infrastructure/ci-cd/deploy.sh` deploys by that SHA, so `kubectl`'s rollout history already has the real previous image, not `:latest`
+- [ ] Before rolling back a deploy that shipped an Alembic migration, the migration has been read and classified (purely additive vs. destructive/renaming) — do not default to `alembic downgrade` without that read; see the runbook's Step 3b decision tree
+
 ## Disaster Recovery / Backup & Restore
 
 Full procedure: `docs/operations/disaster-recovery-runbook.md`.

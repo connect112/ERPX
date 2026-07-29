@@ -30,7 +30,7 @@ not inferred.
 | 4 | Docker | Single-stage build ships build tooling into the runtime image; container runs as root | High — **fixed** |
 | 5 | CI/CD | 3 of 4 frontend apps have no test script and are not built/tested in CI at all | High — **fixed** |
 | 6 | Logging | No log shipping configured — container stdout is the only sink; logs are lost on pod eviction/restart | High — **fixed** |
-| 7 | Operational Readiness | No documented rollback procedure for a bad deployment | Medium |
+| 7 | Operational Readiness | No documented rollback procedure for a bad deployment | Medium — **fixed** |
 | 8 | Testing | `apps/web`'s `npm run test` (vitest) has zero test files behind it (already noted in `docs/project-audit.md`, included here for completeness) | Medium |
 | 9 | Security | Global rate limiting only — auth endpoints share the same 100/min budget as read-only list endpoints (mitigated by account lockout) | Medium |
 | 10 | Monitoring | Prometheus + Grafana + alert rules exist, but no distributed tracing / APM / error aggregation (Sentry, OpenTelemetry) | Medium |
@@ -642,6 +642,30 @@ entries) and added `modules.backups` to `autodiscover_tasks`.
 - Impact: in an incident, the first response is usually "roll back" — without a documented procedure (is it `kubectl rollout undo`? Does the Alembic migration need a corresponding manual downgrade? Is the previous image tag retained?), an on-call engineer is improvising during an active incident.
 - Fix: add a "Rollback" section to `docs/deployment/production-checklist.md` covering: `kubectl rollout undo deployment/erpx-api -n erpx` (K8s handles the app-code rollback since `image: ghcr.io/gir-technologies/erpx-api:latest` — recommend pinning to immutable tags/digests rather than `:latest` for this to be reliable, a related sub-finding), and the separate question of whether the bad deploy included a forward-only Alembic migration (in which case code rollback alone isn't sufficient — this needs explicit guidance since migrations here are reversible, per the prior audit, but running `alembic downgrade` in production is its own risk that needs a documented decision tree, not just "it's technically possible").
 - Effort: Small (documentation only, 1-2 hours) for the rollback runbook. The `:latest` tag → immutable tag/digest change is a separate, very small infra fix (`infrastructure/kubernetes/api-deployment.yaml` / `web-deployment.yaml` / `celery-deployment.yaml`, and `.github/workflows/docker-publish.yml`'s tagging strategy).
+
+**Status: fixed (2026-07-28).** New `docs/operations/deployment-rollback-runbook.md`
+plus a short pointer section in `docs/deployment/production-checklist.md`.
+
+**Correction to this finding's own original text, found during
+implementation (evidence contradicted the assumption above — reported per
+the standing "zero assumptions" instruction rather than silently carried
+forward):** the suggested "related sub-finding" about pinning to
+immutable tags/digests turned out to already be solved, not a gap.
+`.github/workflows/docker-publish.yml` was checked directly and already
+tags every image with **both** `:latest` and the immutable
+`${{ github.sha }}` on every push to `main`. `infrastructure/ci-cd/deploy.sh`
+was checked directly and already deploys via `kubectl set image
+deployment/erpx-api api=${REGISTRY}/erpx-api:${IMAGE_TAG}` where
+`IMAGE_TAG` is that real git SHA, not `:latest` — the `:latest` value
+visible in the static `infrastructure/kubernetes/*-deployment.yaml`
+manifests is only the bootstrap placeholder for a cluster's first-ever
+deploy, immediately overwritten by `deploy.sh` on every real deploy
+after that. `kubectl rollout undo` and `kubectl rollout history`
+therefore already operate on real, precise, immutable image tags today —
+no infrastructure/CI change was needed, only the runbook documenting the
+already-correct mechanism (and the separate, genuinely-still-needed
+Alembic migration decision tree, which no tagging change would have
+addressed anyway).
 
 ## 13. Accessibility
 
