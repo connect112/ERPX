@@ -973,7 +973,7 @@ high, 1 critical).
 | `rimraf` | HIGH | Transitive (via `eslint`) | via `glob` | requires `eslint@10.8.0` — **breaking** |
 | `eslint-plugin-jsx-a11y` | HIGH | Direct (`devDependency`, added by finding #14's a11y tooling) | via `minimatch` | `eslint-plugin-jsx-a11y@6.4.1` — **breaking** |
 | `minimatch` | HIGH | Transitive (via `eslint-plugin-jsx-a11y`) | via `brace-expansion` | requires `eslint-plugin-jsx-a11y@6.4.1` — **breaking** |
-| `brace-expansion` | HIGH | Transitive (via `eslint`/`eslint-plugin-jsx-a11y`) | GHSA-mh99-v99m-4gvg — ReDoS-adjacent unbounded expansion | `brace-expansion@1.1.17`/`5.0.8` — **non-breaking patch, verified via a real `npm audit fix --dry-run`** (the only one of the 17 findings this is true for) |
+| `brace-expansion` | HIGH | Transitive (via `eslint`/`eslint-plugin-jsx-a11y`) | GHSA-mh99-v99m-4gvg — DoS via unbounded expansion length, vulnerable range `<=5.0.7` | **corrected 2026-07-29 — no working non-breaking fix exists**; see the dedicated subsection below |
 | `vite` | HIGH | Direct (`devDependency`) | via `esbuild` | `vite@8.1.5` — **breaking** |
 | `esbuild` | Moderate | Transitive (via `vite`) | dev-server request/path-traversal advisories | requires `vite@8.1.5` — **breaking** |
 | `@vitest/mocker` | Moderate | Transitive (via `vitest`) | via `vite` | requires `vitest@4.1.10` — **breaking** |
@@ -990,6 +990,64 @@ introduced/expanded by finding #14's `eslint-plugin-jsx-a11y` addition
 and the pre-existing `vite`/`vitest` pins. `npm audit --audit-level=high`
 (the CI gate added by this same finding) is failing on the toolchain
 findings, not on `react-router-dom`.
+
+### `brace-expansion` (HIGH) — attempted, reverted; not actually fixable without a breaking change
+
+**Correction (2026-07-29):** the previous version of this document
+characterized `brace-expansion`'s fix as "a genuine non-breaking patch,"
+based on `npm audit fix --dry-run`'s change list showing only
+`brace-expansion` itself would be touched, with no `package.json` or
+major-version changes. That was true as far as it went, but incomplete —
+it never checked whether the resulting versions actually cleared the
+advisory's vulnerable range. They don't, for 5 of the package's 6
+installed instances.
+
+**Attempted, with real validation, in this task:** `npm audit fix` (no
+`--force`) was run for real in all 4 apps. It changed only
+`package-lock.json` in each (confirmed via `git status` — zero
+`package.json` changes, matching the task's own gate), bumping
+`brace-expansion` from `1.1.16` → `1.1.17` in 5 of 6 installed instances
+(the ones nested under `eslint@8.57.1`/`eslint-plugin-jsx-a11y@6.10.2`,
+via their shared `minimatch@3.1.5` dependency) and from `5.0.7` → `5.0.8`
+in the 6th (nested under `@typescript-eslint/parser`'s `minimatch@10.2.5`,
+an unrelated, newer major line of `minimatch` that happens to share the
+`brace-expansion` package name for its own bundled helper).
+
+**Root cause of why this doesn't work:** GHSA-mh99-v99m-4gvg's own
+published `vulnerable_version_range` is `<=5.0.7` — a single range
+spanning both the old `1.x` and current `5.x` release lines of this
+package. `1.1.17` satisfies `<=5.0.7` numerically (1 < 5), so it is
+**still inside the vulnerable range** despite being a newer patch within
+its own `1.x` line — only the `5.0.8` bump (the 6th instance) actually
+clears it. The other 5 instances can't reach `5.0.8` because
+`minimatch@3.1.5` (itself pulled in by `eslint@8.57.1` and
+`eslint-plugin-jsx-a11y@6.10.2`, both otherwise unrelated to this
+finding) declares a hard `^1.1.7` dependency on `brace-expansion` in its
+own `package.json` — the same class of transitive-constraint trap already
+seen twice on the backend this session (`python-jose`/`pyasn1`,
+`fastapi`/`starlette`): the nominal "fix" version is outside the range
+the actual installed dependent permits, and getting there requires
+bumping `minimatch` itself, which requires bumping `eslint`/
+`eslint-plugin-jsx-a11y` past a major version — exactly the breaking
+change this task was explicitly prohibited from making.
+
+**Verified, not assumed:** a real post-fix `npm audit --json` was run in
+all 4 apps after applying the fix — the reported count was **unchanged**
+at 17 total (5 moderate, 11 high, 1 critical) in every app, and
+`brace-expansion` itself still appeared as an active finding. This
+directly contradicts what a "fix" should do, so the change was reverted
+(`git checkout -- package-lock.json` in all 4 apps, followed by `npm
+install` to resync `node_modules`) rather than committed. Confirmed clean
+via `git diff --shortstat` after reverting: zero real content
+differences from the pre-existing committed lockfiles (only git's own
+LF/CRLF line-ending metadata warning, no actual changes), and `npm ls
+brace-expansion` confirmed all 4 apps are back to their original
+`1.1.16`/`5.0.7` resolved versions.
+
+**Status: no code/lockfile change made.** This finding requires the same
+`eslint` 8→10 / `eslint-plugin-jsx-a11y` major-version upgrade as the
+other `eslint`-chain HIGH findings — it cannot be resolved in isolation
+as a small, low-risk patch the way it first appeared to be.
 
 ### `python-jose` (CRITICAL) — investigated, upgrade deliberately deferred
 
@@ -1050,11 +1108,14 @@ a local dev-environment fix only — no repository files were changed by it.
    pulls it in) or accepting the risk, tracked but not actionable via a
    simple version bump.
 3. The frontend `eslint`/`vite`/`vitest` toolchain findings (11 High, 1
-   Critical — corrected 2026-07-29, see the Frontend breakdown above) are
-   the higher-value next candidate: `brace-expansion` alone has a genuine
-   non-breaking patch fix; the rest need a scoped `eslint`
-   8→10/`eslint-plugin-jsx-a11y`/`vite`/`vitest` major-version upgrade
-   task, evaluated for breaking changes the same way `starlette` was.
+   Critical — corrected 2026-07-29, see the Frontend breakdown and the
+   `brace-expansion` subsection above) are the higher-value next
+   candidate — but **all 12 of them, including `brace-expansion`, require
+   the same breaking `eslint` 8→10/`eslint-plugin-jsx-a11y`/`vite`/`vitest`
+   major-version upgrade**; a `brace-expansion`-only non-breaking fix was
+   attempted and verified not to work (see above). This needs a single
+   scoped upgrade task, evaluated for breaking changes the same way
+   `starlette` was.
    `react-router`/`react-router-dom` (3 Moderate, not High/Critical) is
    lower priority by severity, and its one XSS-adjacent finding
    (`react-router-dom`) has no fix at all short of the v6→v7 package
