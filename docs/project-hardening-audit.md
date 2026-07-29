@@ -38,7 +38,7 @@ not inferred.
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (shared `CardTitle` fix, -4 violations) fixed; 20 of 24 original violations remain, Phase 3+ not started** |
-| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette`/`ecdsa` (backend) still open; frontend HIGH×11/CRITICAL×1 findings (`eslint`/`vite`/`vitest` toolchain, corrected 2026-07-29 — not `react-router-dom`, which is only MODERATE) still open** |
+| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); frontend `vitest` CRITICAL fixed via `2.1.9→3.2.6` upgrade (2026-07-29, +2 Moderate cleared, 0 new); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette`/`ecdsa` (backend) still open; frontend HIGH×11 (`eslint`/`vite` toolchain) + 3 Moderate still open** |
 
 ## 1. Docker
 
@@ -963,7 +963,7 @@ high, 1 critical).
 
 | Package | Severity | Direct/Transitive | Advisory | Fix path |
 |---|---|---|---|---|
-| `vitest` | **CRITICAL** | Direct (`devDependency`) | GHSA-5xrq-8626-4rwp — arbitrary file read/execute when the Vitest UI server is listening | `vitest@4.1.10` — **breaking** (`isSemVerMajor: true`) |
+| `vitest` | ~~CRITICAL~~ **FIXED (2026-07-29)** | Direct (`devDependency`) | GHSA-5xrq-8626-4rwp — arbitrary file read/execute when the Vitest UI server is listening | **`2.1.9 → 3.2.6`** — patched at exactly `3.2.6`, non-breaking, no Vite bump; see the dedicated subsection below |
 | `eslint` | HIGH | Direct (`devDependency`) | via `@eslint/eslintrc`/`file-entry-cache`/`minimatch` chain | `eslint@10.8.0` — **breaking** |
 | `@eslint/eslintrc` | HIGH | Transitive (via `eslint`) | via `minimatch` | requires `eslint@10.8.0` — **breaking** |
 | `@humanwhocodes/config-array` | HIGH | Transitive (via `eslint`) | via `minimatch` | requires `eslint@10.8.0` — **breaking** |
@@ -976,8 +976,8 @@ high, 1 critical).
 | `brace-expansion` | HIGH | Transitive (via `eslint`/`eslint-plugin-jsx-a11y`) | GHSA-mh99-v99m-4gvg — DoS via unbounded expansion length, vulnerable range `<=5.0.7` | **corrected 2026-07-29 — no working non-breaking fix exists**; see the dedicated subsection below |
 | `vite` | HIGH | Direct (`devDependency`) | via `esbuild` | `vite@8.1.5` — **breaking** |
 | `esbuild` | Moderate | Transitive (via `vite`) | dev-server request/path-traversal advisories | requires `vite@8.1.5` — **breaking** |
-| `@vitest/mocker` | Moderate | Transitive (via `vitest`) | via `vite` | requires `vitest@4.1.10` — **breaking** |
-| `vite-node` | Moderate | Transitive (via `vitest`) | via `vite` | requires `vitest@4.1.10` — **breaking** |
+| `@vitest/mocker` | ~~Moderate~~ **FIXED (2026-07-29)** | Transitive (via `vitest`) | via `vite` | resolved as a side-effect of the `vitest 2→3.2.6` upgrade (`@vitest/mocker@3.2.6` no longer flagged) |
+| `vite-node` | ~~Moderate~~ **FIXED (2026-07-29)** | Transitive (via `vitest`) | via `vite` | resolved as a side-effect of the `vitest 2→3.2.6` upgrade (`vite-node@3.2.4` no longer flagged) |
 | `react-router` | Moderate | Transitive (via `react-router-dom`) | GHSA-wrjc-x8rr-h8h6 (open redirect), GHSA-337j-9hxr-rhxg (SSR hydration constructor injection) | fixed in `react-router@7.18.0` — **breaking** (major, v6→v7) |
 | `react-router-dom` | Moderate | Direct (`^6.26.2` in `package.json`, resolves to `6.30.4`) | GHSA-jjmj-jmhj-qwj2 — open redirect leading to XSS | **no fix exists for this package name at all** — verified via a real `npm audit fix --force --dry-run`, which left all 17 findings, including this one, completely unchanged; the upstream advisory's own `first_patched_version` for `react-router-dom` specifically is `None` (only the separate `react-router` package name got a fix, in `7.13.0`/`7.18.0`) — resolving this requires migrating off the deprecated `react-router-dom` package to the unified `react-router` package (the v6→v7 rewrite), not any version bump |
 
@@ -990,6 +990,62 @@ introduced/expanded by finding #14's `eslint-plugin-jsx-a11y` addition
 and the pre-existing `vite`/`vitest` pins. `npm audit --audit-level=high`
 (the CI gate added by this same finding) is failing on the toolchain
 findings, not on `react-router-dom`.
+
+**Post-fix state (2026-07-29):** after the `vitest 2→3.2.6` upgrade below,
+each app's `npm audit` reports **14 total (0 critical, 11 high, 3
+moderate)**, down from the 17 (1 critical, 11 high, 5 moderate) baseline
+above — the 1 CRITICAL plus 2 of the 5 Moderate findings resolved, 0 new
+introduced.
+
+### `vitest` (CRITICAL) — fixed (`2.1.9 → 3.2.6`)
+
+**Root cause:** GHSA-5xrq-8626-4rwp ("when the Vitest UI server is
+listening, an arbitrary file can be read and executed") — advisory
+vulnerable range `<3.2.6` (and separately `>=4.0.0 <4.1.0`). All 4
+frontend apps ran `vitest@2.1.9`, inside that range. (ERPX doesn't even
+run the Vitest UI server — the `test` script is `vitest run`, no UI, no
+watch — so the attack surface wasn't active here, but the vulnerable code
+was still present in the installed tree.)
+
+**Why `3.2.6` specifically** (not latest `4.1.10`): `3.2.6` is the exact
+first-patched version for the `<3.2.6` range and is the highest version
+reachable **without** forcing a coupled Vite major upgrade. `vitest@4.x`
+peer-requires `vite@^6 || ^7 || ^8`, which would drag the whole build
+toolchain into a bundler-engine change (Vite 8 replaces Rollup/esbuild
+with Rolldown/Oxc) — out of scope and high-risk. `vitest@3.2.6`'s own vite
+dependency range is `^5.0.0 || ^6.0.0 || ^7.0.0-0`, so the existing
+`vite@5.4.21` satisfies it unchanged. Full pre-upgrade compatibility
+investigation (all 13 documented Vitest 3.0 breaking changes checked
+individually against real repo usage — none apply; the test files use only
+`describe`/`it`/`expect`/`beforeEach`/`afterEach`/`vi.fn`/`vi.restoreAllMocks`/`.rejects.*`,
+all stable across 2→3) was completed and approved before this
+implementation.
+
+**What changed:** `"vitest": "^2.0.5"` → `"vitest": "3.2.6"` in all 4
+apps' `package.json`, and the corresponding `package-lock.json` updates.
+A real `npm install` was run per app; the resulting lockfile diff is
+confined to the vitest family and its internal helpers (`vitest`,
+`@vitest/*`, `vite-node@3.2.4`, `pathe`, `tinyrainbow`, `tinyspy`,
+`strip-literal`, `js-tokens`, `picomatch`, `@types/chai`,
+`@types/deep-eql`). Verified directly that the lockfiles' `vite`, `react`,
+and `eslint` entries are **unchanged** (resolved `vite@5.4.21`,
+`react@18.3.1`, `eslint@8.57.1` in all 4 apps post-install) — no unrelated
+dependency drift, no `npm audit fix --force` used.
+
+**Validation (all 4 apps, real runs):**
+- `vitest run`: **8/8 tests pass** per app (32 total) — the existing
+  auth-client interceptor suite, unchanged.
+- `tsc -b`: clean.
+- `vite build`: succeeds.
+- `npm audit`: **14 findings (0 critical / 11 high / 3 moderate)** per
+  app, down from 17 (1/11/5). GHSA-5xrq-8626-4rwp confirmed absent; the
+  `@vitest/mocker` and `vite-node` Moderate findings also cleared as a
+  side-effect. **Zero new vulnerabilities introduced.**
+
+The 11 HIGH (the `eslint`/`vite` chain) and 3 remaining Moderate
+(`esbuild`, `react-router`, `react-router-dom`) are untouched by this
+change — all require the separately-scoped breaking upgrades already
+documented above and were explicitly out of scope.
 
 ### `brace-expansion` (HIGH) — attempted, reverted; not actually fixable without a breaking change
 
