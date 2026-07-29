@@ -25,12 +25,16 @@ from app.core.config import settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.limiter import limiter
 from app.core.logging_config import configure_logging, get_logger
+from app.core.observability import init_sentry
 from app.middleware.request_context import RequestContextMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from modules.audit.hooks import register_audit_hooks
 
 configure_logging()
 logger = get_logger(__name__)
+# Initialize Sentry before the app is constructed so its FastAPI/Starlette
+# integration wraps the application. No-op unless SENTRY_DSN is configured.
+init_sentry(service_name="erpx-api")
 register_audit_hooks()
 
 

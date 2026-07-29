@@ -41,6 +41,7 @@ should be treated as the top priority.
 | Real Kubernetes manifests: resource requests/limits, 3 differentiated probe types, HPA (CPU+memory), Prometheus scrape annotations, `terminationGracePeriodSeconds` | `infrastructure/kubernetes/api-deployment.yaml` |
 | Real Terraform with Multi-AZ toggle for both RDS and ElastiCache | `infrastructure/terraform/database.tf` |
 | Real monitoring stack: Prometheus scrape config, Grafana dashboards + datasources, alert rules | `infrastructure/monitoring/` |
+| Sentry error aggregation (backend, both API + Celery entrypoints), env-driven, PII-filtered, disabled by default (finding #10, 2026-07-29) | `apps/api/app/core/observability.py` |
 | Reversible migrations — all 36 Alembic revisions have real `downgrade()` bodies, none are `pass`-only | `apps/api/alembic/versions/` |
 | CI runs real backend tests with coverage + Alembic migration check on every push/PR | `.github/workflows/ci.yml` |
 | Image publish gated on CI success (never builds from an unvalidated commit) | `.github/workflows/docker-publish.yml` |

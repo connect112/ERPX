@@ -99,6 +99,18 @@ class Settings(BaseSettings):
     MAX_LOGIN_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15
 
+    # ---- Error Tracking (Sentry) ----
+    # Empty DSN (the default) disables Sentry entirely — no init, no network
+    # calls, a pure no-op. This is the intended local-development behavior:
+    # nothing to run or configure. Set a real DSN only in staging/production.
+    SENTRY_DSN: str = ""
+    # Falls back to ENVIRONMENT when left blank (see app/core/observability.py).
+    SENTRY_ENVIRONMENT: str = ""
+    SENTRY_RELEASE: str = ""
+    # 0.0 = error/exception reporting only, no performance tracing (minimal,
+    # zero sampling overhead). Raise (e.g. 0.1) to sample transaction traces.
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+
     # ---- AI Provider ----
     AI_PROVIDER: str = "anthropic"
     AI_API_KEY: str = ""

@@ -33,7 +33,7 @@ not inferred.
 | 7 | Operational Readiness | No documented rollback procedure for a bad deployment | Medium — **fixed** |
 | 8 | Testing | `apps/web`'s `npm run test` (vitest) has zero test files behind it (already noted in `docs/project-audit.md`, included here for completeness) | Medium |
 | 9 | Security | Global rate limiting only — auth endpoints share the same 100/min budget as read-only list endpoints (mitigated by account lockout) | Medium — **fixed (2026-07-29)** |
-| 10 | Monitoring | Prometheus + Grafana + alert rules exist, but no distributed tracing / APM / error aggregation (Sentry, OpenTelemetry) | Medium |
+| 10 | Monitoring | Prometheus + Grafana + alert rules exist, but no distributed tracing / APM / error aggregation (Sentry, OpenTelemetry) | Medium — **error aggregation (Sentry) fixed (2026-07-29); full OpenTelemetry tracing still deferred** |
 | 11 | Scalability | No database read replica; all reads and writes hit the single RDS primary | Low |
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
@@ -248,6 +248,74 @@ collection and run with zero import errors, already covers this change.
 - Impact: metrics answer "is something wrong" (latency/error-rate graphs), but not "which specific request/database call caused it" — an operator debugging a slow endpoint has structured logs (with request-ID correlation, which is genuinely good) but no automatic span/trace linking a slow HTTP request to the specific slow DB query or external call inside it.
 - Fix: not a quick fix — requires picking a backend (Sentry for error aggregation is the smaller lift; OpenTelemetry + Jaeger/Tempo for full tracing is larger) and instrumenting. Recommend Sentry first (smallest effort/value ratio) as a separate follow-up, not part of this pass.
 - Effort: Medium (Sentry: ~1 day integration + testing) to Large (OpenTelemetry: multi-day, touches every service boundary).
+
+**Status: error aggregation (Sentry) fixed (2026-07-29).** The smaller,
+higher-value half of this finding — error/exception aggregation — is now
+implemented. Full distributed tracing / APM (OpenTelemetry + Jaeger/Tempo)
+remains deliberately out of scope (larger, multi-day, touches every service
+boundary); Sentry performance tracing is wired but disabled by default
+(`SENTRY_TRACES_SAMPLE_RATE=0.0`) and can be enabled later without code
+changes.
+
+### Sentry integration (finding #10 — error aggregation)
+
+**Root cause:** the platform had Prometheus metrics (aggregate "is
+something wrong") and structured request-ID-correlated logs, but no
+error-aggregation service — an operator had no single place where
+unhandled exceptions across the API and Celery workers are collected,
+deduplicated, alerted on, and tied back to a request. The catch-all
+`Exception` handler's own message even promised "our team has been
+notified," which wasn't literally true.
+
+**Integration point & design:**
+- `apps/api/app/core/observability.py` (new) — a single `init_sentry(service_name)`
+  shared by both entrypoints, mirroring the existing shared
+  `configure_logging()` pattern. Called from `app/main.py` (before
+  `create_app()`, so the FastAPI/Starlette integration wraps the app) as
+  `erpx-api`, and from `app/core/celery_app.py` as `erpx-celery`.
+- **Capture targets, all three covered:** FastAPI/Starlette request
+  exceptions and process-level unhandled exceptions (Sentry's auto-enabled
+  integrations), plus Celery background-task failures (auto-enabled Celery
+  integration, since celery is imported in that entrypoint). The catch-all
+  `@app.exception_handler(Exception)` in `app/core/exception_handlers.py`
+  now *also* calls `sentry_sdk.capture_exception(exc)` explicitly — because
+  that handler returns a JSON envelope, Starlette treats the 500 as
+  "handled," so it never reaches the server-error layer the framework
+  integration hooks; without the explicit call these app-level 500s would
+  go uncaptured. Sentry's default `DedupeIntegration` prevents any double
+  reporting. The capture is tagged with the request's `request_id` for
+  log↔error cross-referencing.
+- **Local vs production behavior:** entirely env-driven. `SENTRY_DSN` is
+  empty by default → Sentry is fully disabled (no init, no network calls, a
+  pure no-op) — the intended local-dev behavior. It activates only when a
+  real DSN is set (staging/production). `SENTRY_ENVIRONMENT` falls back to
+  `ENVIRONMENT` when blank.
+- **PII / credential filtering:** `send_default_pii=False` is forced, so
+  Sentry never attaches request bodies, cookies, the `Authorization`
+  header, or client IP. A `before_send` hook additionally drops cookies and
+  redacts `authorization`/`cookie`/`x-api-key`/`x-csrf-token` headers to
+  `[Filtered]`, layered on top of Sentry's built-in `EventScrubber`
+  (which redacts values for keys like `password`/`secret`/`token`/`api_key`).
+
+**Environment variables** (documented in `.env.example`):
+`SENTRY_DSN` (blank = disabled), `SENTRY_ENVIRONMENT` (blank = falls back to
+`ENVIRONMENT`), `SENTRY_RELEASE` (blank = none), `SENTRY_TRACES_SAMPLE_RATE`
+(default `0.0` = error reporting only, no perf tracing).
+
+**Dependency:** `sentry-sdk==2.66.1` added to `apps/api/requirements.txt`.
+Verified conflict-free against the pinned stack — its only runtime deps
+(`urllib3>=1.26.11`, `certifi`) were already satisfied; a real
+`pip install --dry-run` changed nothing else.
+
+**Validation:** new `tests/unit/test_observability.py` (4 tests — disabled
+no-op path, initialized path with PII off + env fallback, header/cookie
+scrubbing, and tolerance of non-HTTP events) all pass. Verified both
+entrypoints (`app.main`, `app.core.celery_app`) import and boot cleanly
+with Sentry disabled. End-to-end verified that a route raising an exception
+drives the registered handler to call `sentry_sdk.capture_exception` with
+the real exception object. `sentry_sdk.capture_exception` confirmed to be a
+safe no-op when uninitialized. Full backend regression suite re-run:
+**266/266 passing** (262 pre-existing + 4 new), 0 regressions.
 
 ## 7. Logging
 

@@ -17,6 +17,7 @@ mode across every module:
 
 import uuid
 
+import sentry_sdk
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -80,6 +81,15 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
         request_id = getattr(request.state, "request_id", None)
+        # Report to Sentry explicitly: this handler returns a JSON envelope,
+        # so Starlette treats the 500 as "handled" and it never reaches the
+        # server-error layer the framework integration hooks — without this
+        # call these unhandled application errors would go uncaptured. No-op
+        # when SENTRY_DSN is unset. Deduplicated by Sentry if also seen by an
+        # integration. Tagged with the request_id for log cross-referencing.
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag("request_id", request_id)
+            sentry_sdk.capture_exception(exc)
         logger.exception(
             "unhandled_exception",
             path=request.url.path,
