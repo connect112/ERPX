@@ -38,7 +38,7 @@ not inferred.
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (shared `CardTitle` fix, -4 violations) fixed; 20 of 24 original violations remain, Phase 3+ not started** |
-| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; underlying vulnerabilities NOT fixed (out of scope), CI will now correctly fail until they are addressed** |
+| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette`/`ecdsa`/frontend `react-router-dom` findings still open** |
 
 ## 1. Docker
 
@@ -860,12 +860,12 @@ and on all 4 frontend matrix legs until they are addressed separately.**
 **Backend** (`apps/api/requirements.txt`), via the actual gate run against
 this repository:
 
-| Package | Installed | Vulnerability | Severity | Fix version |
-|---|---|---|---|---|
-| `python-jose` | 3.3.0 | PYSEC-2024-232 / CVE-2024-33663 | **CRITICAL** | 3.4.0 |
-| `python-multipart` | 0.0.9 | PYSEC-2026-1852, -1851, -3036, -3039 | **HIGH** (×4) | 0.0.18–0.0.27 |
-| `starlette` | 0.38.6 | PYSEC-2026-249, -1943, -2281 | **HIGH** (×3) | 0.40.0–1.1.0 |
-| `ecdsa` | 0.19.2 | PYSEC-2026-1325 | **HIGH** | (no fix published yet) |
+| Package | Installed | Vulnerability | Severity | Fix version | Status |
+|---|---|---|---|---|---|
+| `python-jose` | 3.3.0 | PYSEC-2024-232 / CVE-2024-33663 | **CRITICAL** | 3.4.0 | **Investigated, deliberately not upgraded** — see below |
+| `python-multipart` | ~~0.0.9~~ **0.0.32** | PYSEC-2026-1852, -1851, -3036, -3039 | **HIGH** (×4) | 0.0.18–0.0.30 | **Fixed (2026-07-29)** |
+| `starlette` | 0.38.6 | PYSEC-2026-249, -1943, -2281 | **HIGH** (×3) | 0.40.0–1.1.0 | Open — transitive via `fastapi`, not yet evaluated |
+| `ecdsa` | 0.19.2 | PYSEC-2026-1325 | **HIGH** | (no fix published yet) | Open — cannot be fixed by upgrading; no version resolves it |
 
 Plus several `MODERATE`/`LOW` findings (`python-jose`, `python-dotenv`,
 `aiosmtplib`, `pytest`, `starlette`) that do not block the build.
@@ -876,21 +876,67 @@ app (5 moderate, **11 high, 1 critical**) — `npm audit`'s own output
 identifies the root cause as `react-router-dom` depending on a vulnerable
 version range of `react-router`.
 
+### `python-jose` (CRITICAL) — investigated, upgrade deliberately deferred
+
+Attempted first as the single highest-severity finding. **Blocked, not
+implemented**: `python-jose[cryptography]==3.4.0`'s own published PyPI
+metadata declares a hard constraint `pyasn1<0.5.0,>=0.4.1`. Installing it
+forces pip to *downgrade* the already-present `pyasn1` (0.6.4 → 0.4.8) —
+confirmed via a real `pip install` and a before/after `pip-audit` diff —
+and that older `pyasn1` carries **5 separate HIGH-severity vulnerabilities**
+of its own. Upgrading `python-jose` as published would trade 1 CRITICAL
+for 5 HIGH findings, not a clean fix. Reverted; tracked as a known,
+deliberate risk pending a decision on whether to override `pyasn1`'s
+version against `python-jose`'s own declared (and effectively unmaintained
+upstream) constraint, or migrate off `python-jose` entirely — both
+explicitly out of scope without further approval.
+
+### `python-multipart` (HIGH ×4) — fixed
+
+`0.0.9` → `0.0.32` (`apps/api/requirements.txt`). Direct dependency (no
+other installed package requires/constrains it — confirmed via `pip show`),
+and `fastapi==0.115.0`'s own metadata declares only an open-ended
+`python-multipart>=0.0.7` — no upper bound, no transitive-constraint trap
+like `python-jose`/`pyasn1`. Verified clean via a real `pip-audit`
+before/after diff: all 4 HIGH findings gone, **zero new vulnerabilities
+introduced**. Zero uses of `python-multipart`'s own API directly anywhere
+in this codebase (`grep` confirmed) — it's consumed only internally by
+FastAPI/Starlette's `File`/`Form`/`UploadFile` support, which was verified
+directly (not just inferred from the changelog) with a real
+`fastapi.testclient.TestClient` request exercising simultaneous file
+upload + form field parsing — response matched exactly on filename,
+content type, byte-for-byte file content, and form field value.
+
+**Full validation, including the real backend regression suite** (initially
+blocked by a local Postgres infrastructure fault unrelated to this change
+— see below — then re-run to completion once fixed): **257/257 passing**,
+`pip-audit` re-confirmed clean post-fix.
+
+**Local infrastructure note (not a code issue):** the standalone Postgres
+cluster used for local test runs (`pgdata_standalone/`) turned out to have
+no explicit `port` set in `postgresql.conf` — it silently defaulted to
+Postgres's standard `5432`, which was already occupied by an unrelated,
+already-running Postgres Windows service. Every earlier "Permission
+denied" bind failure this session was a misleading symptom of that same
+underlying port conflict (an IPv6 `::1` bind attempt failing first
+obscured the real IPv4 `5432`-already-in-use error in the log). Fixed by
+explicitly setting `port = 5433` in `postgresql.conf`, matching what this
+project's `DATABASE_URL`/test configuration has always expected. This is
+a local dev-environment fix only — no repository files were changed by it.
+
 ### Recommended remediation (separate follow-up, not this change)
 
-1. `python-jose` (CRITICAL) is the single highest-priority fix — it's a
-   direct dependency of this platform's own JWT handling
-   (`apps/api/app/core/security.py`), not a transitive one. Upgrading to
-   3.4.0 should be evaluated and scheduled as its own task, with the full
-   backend regression suite re-run given the security-sensitivity of that
-   module.
-2. `python-multipart`/`starlette`/`ecdsa` HIGH findings and the frontend
-   `react-router-dom` HIGH/CRITICAL findings should be scheduled next,
-   each as their own scoped upgrade-and-regression-test task per this
-   project's established "one logical change per commit" discipline —
-   not bundled together, since a dependency upgrade can have independent
-   compatibility implications per package.
-3. Once addressed, re-run both gates locally to confirm a clean pass
+1. `starlette` (HIGH ×3) is the next reasonable candidate — but it's
+   transitive via `fastapi`, so its own declared constraint needs checking
+   first (the same class of check that caught the `python-jose`/`pyasn1`
+   trap) before assuming it's safe to bump directly.
+2. `ecdsa` (HIGH) has no available fix version at all — upgrading is not
+   an option; the only paths are removing the dependency (`python-jose`
+   pulls it in) or accepting the risk, tracked but not actionable via a
+   simple version bump.
+3. The frontend `react-router-dom` HIGH/CRITICAL findings should be
+   scheduled next, as their own scoped upgrade-and-regression-test task.
+4. Once addressed, re-run both gates locally to confirm a clean pass
    before the next CI run depends on it.
 
 ---
