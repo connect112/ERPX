@@ -38,7 +38,7 @@ not inferred.
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (`CardTitle`) + Phase 3 (all 20 remaining `label`/keyboard violations, 2026-07-29) fixed — `jsx-a11y/recommended` now clean across all 4 apps; non-lintable a11y (contrast, focus order, AT testing) still open** |
-| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); frontend `vitest` CRITICAL fixed via `2.1.9→3.2.6` upgrade (2026-07-29, +2 Moderate cleared, 0 new); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette`/`ecdsa` (backend) still open; frontend HIGH×11 (`eslint`/`vite` toolchain) + 3 Moderate still open** |
+| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); frontend `vitest` CRITICAL fixed via `2.1.9→3.2.6` upgrade (2026-07-29, +2 Moderate cleared, 0 new); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette` HIGH×3 + `ecdsa` HIGH (backend) investigated 2026-07-29 and documented as accepted risks — none reachable in ERPX's attack surface, full fix blocked by a breaking `fastapi` 0.133+ migration / no upstream `ecdsa` fix; frontend HIGH×11 (`eslint`/`vite` toolchain) + 3 Moderate still open** |
 
 ## 1. Docker
 
@@ -1048,11 +1048,73 @@ this repository:
 |---|---|---|---|---|---|
 | `python-jose` | 3.3.0 | PYSEC-2024-232 / CVE-2024-33663 | **CRITICAL** | 3.4.0 | **Investigated, deliberately not upgraded** — see below |
 | `python-multipart` | ~~0.0.9~~ **0.0.32** | PYSEC-2026-1852, -1851, -3036, -3039 | **HIGH** (×4) | 0.0.18–0.0.30 | **Fixed (2026-07-29)** |
-| `starlette` | 0.38.6 | PYSEC-2026-249, -1943, -2281 | **HIGH** (×3) | 0.40.0–1.1.0 | Open — transitive via `fastapi`, not yet evaluated |
-| `ecdsa` | 0.19.2 | PYSEC-2026-1325 | **HIGH** | (no fix published yet) | Open — cannot be fixed by upgrading; no version resolves it |
+| `starlette` | 0.38.6 | CVE-2024-47874, CVE-2026-48818, CVE-2026-54283 | **HIGH** (×3) | 0.40.0 / 1.1.0 / 1.3.1 | **Accepted risk (2026-07-29)** — none reachable in ERPX's attack surface; full fix requires a breaking `fastapi` 0.133+ migration. See "Remaining backend HIGH findings" below |
+| `ecdsa` | 0.19.2 | CVE-2024-23342 (Minerva) | **HIGH** | (no fix will be published — upstream out-of-scope) | **Accepted risk (2026-07-29)** — not reachable (HS256 only, ECDSA signing never invoked); removal = auth-layer rewrite. See below |
 
-Plus several `MODERATE`/`LOW` findings (`python-jose`, `python-dotenv`,
-`aiosmtplib`, `pytest`, `starlette`) that do not block the build.
+Plus several `MODERATE`/`LOW` findings (`python-jose` MEDIUM `CVE-2024-33664`,
+`python-dotenv` MEDIUM, `aiosmtplib` MEDIUM, `pytest` MEDIUM, and additional
+`starlette` MEDIUM/LOW advisories `CVE-2026-48710`/`CVE-2026-48817`/`CVE-2025-54121`/`CVE-2026-54282`)
+that do not block the `--audit-level=high` gate. `python-jose`'s
+`CVE-2024-33663` (CRITICAL — algorithm confusion with OpenSSH **ECDSA** keys)
+remains deferred and is likewise not reachable under HS256.
+
+### Remaining backend HIGH findings — investigated, documented as accepted risk (2026-07-29)
+
+All four remaining backend **HIGH** advisories were investigated
+individually. The conclusion for every one is the same: **(a) it is not
+reachable in ERPX's actual attack surface** (verified against the code, not
+assumed), and **(b) it cannot be fixed without either an upstream fix that
+will never be published, or a breaking framework migration** — so per the
+"stop before a breaking migration / document with evidence" gate, **no
+dependency was changed**.
+
+**Exploitability evidence (codebase-verified):**
+
+| HIGH finding | Requires | ERPX reality (verified) | Reachable? |
+|---|---|---|---|
+| `starlette` CVE-2024-47874 — multipart/form-data DoS | an endpoint declaring `File`/`Form`/`UploadFile` (invokes Starlette's multipart parser) | **zero** `File`/`Form`/`UploadFile`/`OAuth2PasswordRequestForm`/`request.form()` anywhere in the backend; uploads use **presigned MinIO URLs** (client → MinIO directly, never through FastAPI); login/all bodies are JSON | **No** |
+| `starlette` CVE-2026-48818 — StaticFiles SSRF/NTLM theft via UNC (Windows) | `StaticFiles` mounted | **`StaticFiles` not used anywhere** | **No** |
+| `starlette` CVE-2026-54283 — `request.form()` limits ignored for `x-www-form-urlencoded` | app accepts urlencoded form bodies and relies on `max_fields`/`max_part_size` | no form endpoints; no custom parse limits set | **No** |
+| `ecdsa` CVE-2024-23342 — Minerva timing attack on P-256 | ECDSA **signing** via the pure-Python `ecdsa` package (verification is unaffected) | JWT is **HS256** (HMAC, symmetric — no ECDSA at all); `ecdsa` never referenced in app code; `python-jose[cryptography]` routes any EC op through `cryptography`, not `ecdsa` | **No** |
+
+**Fixability evidence (fresh dry-runs / metadata):**
+
+- **Clearing all `starlette` HIGHs requires `starlette >= 1.3.1`** (the
+  highest fix version among the three: CVE-2024-47874→0.40.0,
+  CVE-2026-48818→1.1.0, CVE-2026-54283→1.3.1). A real
+  `pip install --dry-run "fastapi==0.115.0" "starlette==1.3.1"` returns
+  **`ResolutionImpossible`** — `fastapi==0.115.0` pins `starlette<0.39.0`.
+- Walking FastAPI's own PyPI metadata: `0.115.14` (latest 0.115.x) allows
+  only `starlette<0.47.0`; `0.132.1` allows only `<1.0.0`; **`0.133.0` is
+  the first FastAPI to allow `starlette` 1.x**. And FastAPI **0.132.0**
+  introduced the `strict_content_type` breaking change (JSON requests
+  without a valid `Content-Type` are now rejected) — a real behavioral
+  break that cannot be verified safe here without a live-client audit or a
+  source-level opt-out (`strict_content_type=False`). This is exactly the
+  breaking migration the task gate says to stop before. (Full FastAPI
+  compatibility analysis: see the two earlier "Starlette Security
+  Investigation" / "FastAPI Compatibility Investigation" reports.)
+- A *partial* bump (`fastapi` 0.115.14 + `starlette` 0.40–0.46) would fix
+  only CVE-2024-47874 — which isn't reachable anyway — while leaving the
+  other two `starlette` HIGHs flagged, adding a real `fastapi`+`starlette`
+  regression surface for zero security gain. Rejected.
+- **`ecdsa` CVE-2024-23342 has no fix and never will**: the python-ecdsa
+  maintainers declared the Minerva timing attack out of scope (a
+  pure-Python implementation cannot be constant-time) — `fix_versions` is
+  empty in the advisory. `ecdsa` is a hard (non-extra) dependency of
+  `python-jose`, so the only way to remove it is to migrate off
+  `python-jose` entirely (to `PyJWT`/`authlib`) — an authentication-layer
+  rewrite, explicitly out of scope ("no framework rewrites / low
+  regression risk only").
+
+**Decision:** all four HIGH findings are tracked as **accepted risks**. No
+`fastapi`/`starlette`/`python-jose` version was changed. This is revisited
+if/when (i) a future, separately-scoped task migrates FastAPI to 0.133+
+with the `strict_content_type` decision made explicitly, or (ii) the auth
+layer is migrated off `python-jose`. Validation for this investigation:
+full backend regression suite re-run on the unchanged tree —
+**266/266 passing** — confirming the documented baseline is green; a fresh
+`pip-audit` produced the exact finding set tabulated above.
 
 **Frontend** — **correction (2026-07-29):** the text below originally
 attributed all 17 findings to `react-router-dom`. Re-running `npm audit
@@ -1262,14 +1324,16 @@ a local dev-environment fix only — no repository files were changed by it.
 
 ### Recommended remediation (separate follow-up, not this change)
 
-1. `starlette` (HIGH ×3) is the next reasonable candidate — but it's
-   transitive via `fastapi`, so its own declared constraint needs checking
-   first (the same class of check that caught the `python-jose`/`pyasn1`
-   trap) before assuming it's safe to bump directly.
-2. `ecdsa` (HIGH) has no available fix version at all — upgrading is not
-   an option; the only paths are removing the dependency (`python-jose`
-   pulls it in) or accepting the risk, tracked but not actionable via a
-   simple version bump.
+1. `starlette` (HIGH ×3) — **investigated and closed as accepted risk
+   (2026-07-29)**: none of the three are reachable in ERPX's attack
+   surface, and a full fix requires the breaking `fastapi` 0.133+
+   migration. See "Remaining backend HIGH findings" above for the full
+   evidence. Only re-open as part of a dedicated FastAPI 0.133+ migration
+   task where the `strict_content_type` decision is made explicitly.
+2. `ecdsa` (HIGH) — **investigated and closed as accepted risk
+   (2026-07-29)**: no upstream fix will ever exist (Minerva, out-of-scope
+   upstream), and it is not reachable under HS256; removing it means
+   migrating off `python-jose`. See above.
 3. The frontend `eslint`/`vite`/`vitest` toolchain findings (11 High, 1
    Critical — corrected 2026-07-29, see the Frontend breakdown and the
    `brace-expansion` subsection above) are the higher-value next
