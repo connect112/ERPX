@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,8 @@ interface GradeSubmissionRowProps {
 export function GradeSubmissionRow({ hackathonId, submission, team }: GradeSubmissionRowProps) {
   const [score, setScore] = useState(submission.score?.toString() ?? "");
   const [feedback, setFeedback] = useState(submission.feedback ?? "");
+  const scoreId = useId();
+  const feedbackId = useId();
   const gradeMutation = useGradeSubmission(hackathonId);
 
   const handleGrade = () => {
@@ -49,12 +51,13 @@ export function GradeSubmissionRow({ hackathonId, submission, team }: GradeSubmi
 
       <div className="flex items-end gap-3">
         <div className="w-24 space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Score</label>
-          <Input type="number" min={0} value={score} onChange={(e) => setScore(e.target.value)} />
+          <label htmlFor={scoreId} className="text-xs font-medium text-muted-foreground">Score</label>
+          <Input id={scoreId} type="number" min={0} value={score} onChange={(e) => setScore(e.target.value)} />
         </div>
         <div className="flex-1 space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Feedback</label>
+          <label htmlFor={feedbackId} className="text-xs font-medium text-muted-foreground">Feedback</label>
           <Textarea
+            id={feedbackId}
             rows={1}
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}

@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,8 @@ const emptyValues: LeaveTypeFormValues = {
 export function LeaveTypesPage() {
   const { data: leaveTypes, isLoading, isError } = useLeaveTypes();
   const createLeaveType = useCreateLeaveType();
+  const isPaidId = useId();
+  const carryForwardId = useId();
   const [formOpen, setFormOpen] = useState(false);
 
   const {
@@ -161,12 +163,13 @@ export function LeaveTypesPage() {
                 <p className="text-sm text-destructive">{errors.annualQuota.message}</p>
               )}
             </div>
-            <label className="flex items-center gap-2 text-sm">
+            <label htmlFor={isPaidId} className="flex items-center gap-2 text-sm">
               <Controller
                 control={control}
                 name="isPaid"
                 render={({ field }) => (
                   <input
+                    id={isPaidId}
                     type="checkbox"
                     className="h-4 w-4 rounded border-input"
                     checked={field.value}
@@ -176,12 +179,13 @@ export function LeaveTypesPage() {
               />
               Paid leave
             </label>
-            <label className="flex items-center gap-2 text-sm">
+            <label htmlFor={carryForwardId} className="flex items-center gap-2 text-sm">
               <Controller
                 control={control}
                 name="carryForwardAllowed"
                 render={({ field }) => (
                   <input
+                    id={carryForwardId}
                     type="checkbox"
                     className="h-4 w-4 rounded border-input"
                     checked={field.value}

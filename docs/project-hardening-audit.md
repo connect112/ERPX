@@ -37,7 +37,7 @@ not inferred.
 | 11 | Scalability | No database read replica; all reads and writes hit the single RDS primary | Low |
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
-| 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (shared `CardTitle` fix, -4 violations) fixed; 20 of 24 original violations remain, Phase 3+ not started** |
+| 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (`CardTitle`) + Phase 3 (all 20 remaining `label`/keyboard violations, 2026-07-29) fixed — `jsx-a11y/recommended` now clean across all 4 apps; non-lintable a11y (contrast, focus order, AT testing) still open** |
 | 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); frontend `vitest` CRITICAL fixed via `2.1.9→3.2.6` upgrade (2026-07-29, +2 Moderate cleared, 0 new); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette`/`ecdsa` (backend) still open; frontend HIGH×11 (`eslint`/`vite` toolchain) + 3 Moderate still open** |
 
 ## 1. Docker
@@ -936,27 +936,66 @@ confirmed via direct `eslint` re-run before and after in every app.
 `learning-paths-list-page.tsx`) — both explicitly out of scope for this
 phase per the strict "shared component only" instruction.
 
-### Recommended remediation strategy (Phase 3+, not started)
+### Phase 3 (2026-07-29): all remaining 20 violations fixed — `jsx-a11y/recommended` now clean
 
-1. Introduce one shared, accessible form-field pattern (label + control
-   properly associated) and migrate the 18 `label-has-associated-control`
-   sites to it — likely worth a small shared `FormField` wrapper in
-   `components/ui/` rather than fixing each site's markup independently,
-   since the underlying cause (labels not connected to controls) recurs
-   identically across ~18 otherwise-unrelated feature forms. This is a
-   materially larger change than Phase 2 (touches individual forms across
-   many features, not one shared component) and should be scoped/approved
-   as its own phase.
-2. Fix the one keyboard-navigation gap in `learning-paths-list-page.tsx`
-   (add a real `<button>`/keyboard handler instead of a clickable `<div>`).
-3. Re-run the baseline after each phase to track the count down to zero
-   for `jsx-a11y/recommended`, then evaluate `jsx-a11y/strict` as a
-   further tightening once the current gap is closed.
-4. This tooling-only/shared-component-only work does not address
-   non-lintable accessibility concerns (color contrast, focus order,
-   screen-reader testing with real assistive technology) — those need
-   separate, likely manual or `axe-core`-in-Playwright-driven
-   verification, out of scope for both Phase 1 and Phase 2.
+**Investigation correction that reshaped the approach.** The original
+Phase 3 plan (above) assumed a new shared `FormField` wrapper was the
+right fix. A direct pre-implementation audit found two things that
+changed that: (a) the real remaining count is **20** (18
+`label-has-associated-control` + the 2 keyboard violations, all on one
+line), and (b) the codebase **already has an established, dominant
+convention** — explicit `<Label htmlFor="x">` + `<control id="x">`, used
+in **620 places**. Introducing a new `FormField` would create a *second*
+competing form-field pattern alongside those 620 usages, directly
+violating the "never duplicate" constraint. The 18 label violations were
+simply the minority of sites that deviated from the existing convention,
+in **four structurally distinct ways**, so a single wrapper wouldn't
+have cleanly fixed them anyway. **Chosen approach: align the 20 deviating
+sites to the existing `htmlFor`/`id` convention. No new component.**
+
+**The four categories and their fixes** (all behavior/style-identical —
+attributes added only, except Category D which swaps one element):
+
+| Category | Count | Pattern | Fix |
+|---|---|---|---|
+| A — `<Label>` + native `<Input>`/`<Textarea>` sibling | 7 | no `htmlFor`/`id` | add `htmlFor`/`id` (static ids, or `useId()` for reusable rows) |
+| B — `<Label>` + Radix `<Select>` | 6 | trigger is a labelable `<button>` | `htmlFor` on `<Label>` + `id` on `<SelectTrigger>` |
+| C — `<label>` wrapping a RHF `<Controller>` checkbox | 4 | control hidden behind the `Controller` render-prop boundary (functionally associated at runtime, but the linter can't see it statically) | `htmlFor` on `<label>` + `id` on the nested `<input>` via `useId()` |
+| D — `<Label>` labeling a non-control section | 1 | "Lines" labels a line-items editor + Add button, not a control | replace `<Label>` with `<p className="text-sm font-medium leading-none">` (identical rendering) |
+
+Plus the **keyboard fix** (`learning-paths-list-page.tsx`): the clickable
+`<div>` row gained `role="button"`, `tabIndex={0}`, and an `onKeyDown`
+(Enter/Space) handler — resolving both `click-events-have-key-events` and
+`no-static-element-interactions` while preserving the exact layout.
+
+**Files changed (12):** `apps/web` — `accounting/reports/pages/reports-page.tsx`
+(4, A), `accounting/journals/pages/journal-entry-form-dialog.tsx` (1, D),
+`branches/components/branch-form-dialog.tsx` (1, C),
+`hackathons/components/grade-submission-row.tsx` (2, A),
+`leave/pages/leave-types-page.tsx` (2, C),
+`timetable/components/timetable-panel.tsx` (3, B),
+`live-classes/components/live-classes-panel.tsx` (1, B),
+`payroll/pages/salary-components-page.tsx` (1, C),
+`pentrix/flags/components/flag-panel.tsx` (1, B),
+`courses/learning-paths/pages/learning-paths-list-page.tsx` (2, keyboard);
+`apps/trainer-portal` — `batches/components/grade-submission-row.tsx`
+(1, A — its adjacent Score label, not separately flagged, was associated
+too for consistency); `apps/corporate-portal` —
+`tickets/components/new-ticket-dialog.tsx` (1, B). **No new files, no
+`FormField`, no dependency changes.**
+
+**Validation:** `eslint` re-run on all 4 apps → **20 → 0** a11y
+violations, **0** other lint issues introduced. `tsc -b`, `vite build`,
+and `vitest` (8/8 per app, 32 total) all clean for every app. Existing
+Playwright e2e specs (`auth`, `leads`, `nav-smoke`) — none reference any
+affected feature, so no selector could be affected; adding `htmlFor`/`id`
+only *improves* `getByLabel` reliability.
+
+`jsx-a11y/recommended` is now fully clean across all 4 apps. Remaining
+accessibility work (non-lintable: color contrast, focus order, real
+assistive-technology / `axe-core` testing, and evaluating the stricter
+`jsx-a11y/strict` ruleset) is separate and still open — out of scope for
+Phases 1–3.
 
 ## 14. Dependency Vulnerability Scanning
 

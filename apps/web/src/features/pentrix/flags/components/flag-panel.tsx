@@ -58,10 +58,10 @@ export function FlagPanel({ challengeId }: { challengeId: string }) {
         </div>
 
         <div className="space-y-2 border-t pt-4">
-          <Label>Submit on behalf of a student</Label>
+          <Label htmlFor="submit-on-behalf">Submit on behalf of a student</Label>
           <div className="flex flex-wrap gap-2">
             <Select value={studentId || undefined} onValueChange={setStudentId}>
-              <SelectTrigger className="w-48">
+              <SelectTrigger id="submit-on-behalf" className="w-48">
                 <SelectValue placeholder="Select student" />
               </SelectTrigger>
               <SelectContent>

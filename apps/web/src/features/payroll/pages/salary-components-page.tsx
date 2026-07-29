@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +52,7 @@ export function SalaryComponentsPage() {
   const { data: components, isLoading, isError } = useSalaryComponents();
   const { data: accounts } = useAccountsList({ limit: 200 });
   const createComponent = useCreateSalaryComponent();
+  const isTaxableId = useId();
   const [formOpen, setFormOpen] = useState(false);
 
   const {
@@ -217,12 +218,13 @@ export function SalaryComponentsPage() {
                 )}
               />
             </div>
-            <label className="flex items-center gap-2 text-sm">
+            <label htmlFor={isTaxableId} className="flex items-center gap-2 text-sm">
               <Controller
                 control={control}
                 name="isTaxable"
                 render={({ field }) => (
                   <input
+                    id={isTaxableId}
                     type="checkbox"
                     className="h-4 w-4 rounded border-input"
                     checked={field.value}

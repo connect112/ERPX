@@ -128,12 +128,12 @@ function ProfitAndLossTab() {
       <CardContent className="space-y-4 p-6">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <Label className="text-xs text-muted-foreground">From</Label>
-            <Input type="date" className="w-40" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} />
+            <Label htmlFor="pl-from" className="text-xs text-muted-foreground">From</Label>
+            <Input id="pl-from" type="date" className="w-40" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)} />
           </div>
           <div className="flex items-center gap-2">
-            <Label className="text-xs text-muted-foreground">To</Label>
-            <Input type="date" className="w-40" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
+            <Label htmlFor="pl-to" className="text-xs text-muted-foreground">To</Label>
+            <Input id="pl-to" type="date" className="w-40" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
           </div>
         </div>
         {isLoading && <Skeleton className="h-64 w-full" />}
@@ -167,8 +167,8 @@ function BalanceSheetTab() {
     <Card>
       <CardContent className="space-y-4 p-6">
         <div className="flex items-center gap-2">
-          <Label className="text-xs text-muted-foreground">As of</Label>
-          <Input type="date" className="w-48" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
+          <Label htmlFor="bs-asof" className="text-xs text-muted-foreground">As of</Label>
+          <Input id="bs-asof" type="date" className="w-48" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
         </div>
         {isLoading && <Skeleton className="h-64 w-full" />}
         {data && (
@@ -212,8 +212,8 @@ function AgingTab({ type }: { type: "receivables" | "payables" }) {
     <Card>
       <CardContent className="space-y-4 p-6">
         <div className="flex items-center gap-2">
-          <Label className="text-xs text-muted-foreground">As of</Label>
-          <Input type="date" className="w-48" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
+          <Label htmlFor="aging-asof" className="text-xs text-muted-foreground">As of</Label>
+          <Input id="aging-asof" type="date" className="w-48" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
         </div>
         {isLoading && <Skeleton className="h-64 w-full" />}
         {data && (

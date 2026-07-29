@@ -185,9 +185,9 @@ export function LiveClassesPanel({ batchId }: { batchId: string }) {
               />
             </div>
             <div className="space-y-2">
-              <Label>Trainer</Label>
+              <Label htmlFor="trainer">Trainer</Label>
               <Select value={trainerId} onValueChange={setTrainerId}>
-                <SelectTrigger>
+                <SelectTrigger id="trainer">
                   <SelectValue placeholder="No trainer" />
                 </SelectTrigger>
                 <SelectContent>

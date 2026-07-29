@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useForm } from "react-hook-form";
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +40,7 @@ export function BranchFormDialog({ open, onOpenChange, organizationId, branch }:
   const isEditing = !!branch;
   const createBranch = useCreateBranch(organizationId);
   const updateBranch = useUpdateBranch(organizationId);
+  const isHeadOfficeId = useId();
 
   const {
     register,
@@ -135,12 +136,13 @@ export function BranchFormDialog({ open, onOpenChange, organizationId, branch }:
             <Input placeholder="Country" {...register("country")} />
             <Input placeholder="Postal code" {...register("postalCode")} />
           </div>
-          <label className="flex items-center gap-2 text-sm">
+          <label htmlFor={isHeadOfficeId} className="flex items-center gap-2 text-sm">
             <Controller
               control={control}
               name="isHeadOffice"
               render={({ field }) => (
                 <input
+                  id={isHeadOfficeId}
                   type="checkbox"
                   className="h-4 w-4 rounded border-input"
                   checked={field.value}

@@ -105,7 +105,7 @@ export function JournalEntryFormDialog({ open, onOpenChange }: JournalEntryFormD
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label>Lines</Label>
+              <p className="text-sm font-medium leading-none">Lines</p>
               <Button
                 type="button"
                 variant="ghost"

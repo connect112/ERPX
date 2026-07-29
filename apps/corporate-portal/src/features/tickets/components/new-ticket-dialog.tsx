@@ -70,12 +70,12 @@ export function NewTicketDialog() {
             />
           </div>
           <div className="space-y-2">
-            <Label>Priority</Label>
+            <Label htmlFor="ticket-priority">Priority</Label>
             <Select
               value={priority}
               onValueChange={(value) => setPriority(value as SupportTicketPublic["priority"])}
             >
-              <SelectTrigger>
+              <SelectTrigger id="ticket-priority">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

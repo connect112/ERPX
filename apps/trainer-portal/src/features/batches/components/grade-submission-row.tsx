@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ export function GradeSubmissionRow({
 }: GradeSubmissionRowProps) {
   const [score, setScore] = useState(submission.score?.toString() ?? "");
   const [feedback, setFeedback] = useState(submission.feedback ?? "");
+  const scoreId = useId();
+  const feedbackId = useId();
   const gradeMutation = useGradeSubmission(courseId, assignmentId);
 
   const handleGrade = () => {
@@ -60,8 +62,9 @@ export function GradeSubmissionRow({
 
       <div className="flex items-end gap-3">
         <div className="w-24 space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Score / {maxScore}</label>
+          <label htmlFor={scoreId} className="text-xs font-medium text-muted-foreground">Score / {maxScore}</label>
           <Input
+            id={scoreId}
             type="number"
             min={0}
             max={maxScore}
@@ -70,8 +73,9 @@ export function GradeSubmissionRow({
           />
         </div>
         <div className="flex-1 space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">Feedback</label>
+          <label htmlFor={feedbackId} className="text-xs font-medium text-muted-foreground">Feedback</label>
           <Textarea
+            id={feedbackId}
             rows={1}
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}

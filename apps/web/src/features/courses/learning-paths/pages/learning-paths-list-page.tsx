@@ -84,8 +84,16 @@ export function LearningPathsListPage() {
           {paths?.map((path) => (
             <div
               key={path.id}
+              role="button"
+              tabIndex={0}
               className="flex cursor-pointer items-center justify-between rounded-md border p-3"
               onClick={() => navigate(`/courses/learning-paths/${path.id}`)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate(`/courses/learning-paths/${path.id}`);
+                }
+              }}
             >
               <div>
                 <p className="text-sm font-medium">{path.title}</p>

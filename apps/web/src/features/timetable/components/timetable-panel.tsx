@@ -145,9 +145,9 @@ export function TimetablePanel({ batchId }: { batchId: string }) {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Day of week</Label>
+              <Label htmlFor="dayOfWeek">Day of week</Label>
               <Select value={dayOfWeek} onValueChange={(v) => setDayOfWeek(v as DayOfWeek)}>
-                <SelectTrigger>
+                <SelectTrigger id="dayOfWeek">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -174,9 +174,9 @@ export function TimetablePanel({ batchId }: { batchId: string }) {
               <Input id="subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Classroom</Label>
+              <Label htmlFor="classroom">Classroom</Label>
               <Select value={classroomId} onValueChange={setClassroomId}>
-                <SelectTrigger>
+                <SelectTrigger id="classroom">
                   <SelectValue placeholder="No classroom" />
                 </SelectTrigger>
                 <SelectContent>
@@ -189,9 +189,9 @@ export function TimetablePanel({ batchId }: { batchId: string }) {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Trainer</Label>
+              <Label htmlFor="trainer">Trainer</Label>
               <Select value={trainerId} onValueChange={setTrainerId}>
-                <SelectTrigger>
+                <SelectTrigger id="trainer">
                   <SelectValue placeholder="No trainer" />
                 </SelectTrigger>
                 <SelectContent>
