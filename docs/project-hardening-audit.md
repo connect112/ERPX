@@ -38,7 +38,7 @@ not inferred.
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (shared `CardTitle` fix, -4 violations) fixed; 20 of 24 original violations remain, Phase 3+ not started** |
-| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette`/`ecdsa`/frontend `react-router-dom` findings still open** |
+| 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette`/`ecdsa` (backend) still open; frontend HIGH×11/CRITICAL×1 findings (`eslint`/`vite`/`vitest` toolchain, corrected 2026-07-29 — not `react-router-dom`, which is only MODERATE) still open** |
 
 ## 1. Docker
 
@@ -947,11 +947,49 @@ this repository:
 Plus several `MODERATE`/`LOW` findings (`python-jose`, `python-dotenv`,
 `aiosmtplib`, `pytest`, `starlette`) that do not block the build.
 
-**Frontend** (all 4 apps share the same `react-router-dom` version, so the
-finding is identical across all of them): 17 total vulnerabilities per
-app (5 moderate, **11 high, 1 critical**) — `npm audit`'s own output
-identifies the root cause as `react-router-dom` depending on a vulnerable
-version range of `react-router`.
+**Frontend** — **correction (2026-07-29):** the text below originally
+attributed all 17 findings to `react-router-dom`. Re-running `npm audit
+--json` for real against all 4 apps and reading each finding's own
+`isDirect`/`via`/`fixAvailable` fields (not just the summary counts) shows
+that description was wrong about the root cause; corrected here with the
+verified breakdown.
+
+All 4 apps' `package-lock.json` resolve to byte-identical dependency
+trees (confirmed via a direct diff of each app's full `npm audit --json`
+output, not just matching totals), so the finding is genuinely identical
+across `apps/web`, `apps/student-portal`, `apps/trainer-portal`, and
+`apps/corporate-portal`: 17 total vulnerabilities per app (5 moderate, 11
+high, 1 critical).
+
+| Package | Severity | Direct/Transitive | Advisory | Fix path |
+|---|---|---|---|---|
+| `vitest` | **CRITICAL** | Direct (`devDependency`) | GHSA-5xrq-8626-4rwp — arbitrary file read/execute when the Vitest UI server is listening | `vitest@4.1.10` — **breaking** (`isSemVerMajor: true`) |
+| `eslint` | HIGH | Direct (`devDependency`) | via `@eslint/eslintrc`/`file-entry-cache`/`minimatch` chain | `eslint@10.8.0` — **breaking** |
+| `@eslint/eslintrc` | HIGH | Transitive (via `eslint`) | via `minimatch` | requires `eslint@10.8.0` — **breaking** |
+| `@humanwhocodes/config-array` | HIGH | Transitive (via `eslint`) | via `minimatch` | requires `eslint@10.8.0` — **breaking** |
+| `file-entry-cache` | HIGH | Transitive (via `eslint`) | via `flat-cache` | requires `eslint@10.8.0` — **breaking** |
+| `flat-cache` | HIGH | Transitive (via `eslint`) | via `rimraf` | requires `eslint@10.8.0` — **breaking** |
+| `glob` | HIGH | Transitive (via `eslint`) | via `minimatch` | requires `eslint@10.8.0` — **breaking** |
+| `rimraf` | HIGH | Transitive (via `eslint`) | via `glob` | requires `eslint@10.8.0` — **breaking** |
+| `eslint-plugin-jsx-a11y` | HIGH | Direct (`devDependency`, added by finding #14's a11y tooling) | via `minimatch` | `eslint-plugin-jsx-a11y@6.4.1` — **breaking** |
+| `minimatch` | HIGH | Transitive (via `eslint-plugin-jsx-a11y`) | via `brace-expansion` | requires `eslint-plugin-jsx-a11y@6.4.1` — **breaking** |
+| `brace-expansion` | HIGH | Transitive (via `eslint`/`eslint-plugin-jsx-a11y`) | GHSA-mh99-v99m-4gvg — ReDoS-adjacent unbounded expansion | `brace-expansion@1.1.17`/`5.0.8` — **non-breaking patch, verified via a real `npm audit fix --dry-run`** (the only one of the 17 findings this is true for) |
+| `vite` | HIGH | Direct (`devDependency`) | via `esbuild` | `vite@8.1.5` — **breaking** |
+| `esbuild` | Moderate | Transitive (via `vite`) | dev-server request/path-traversal advisories | requires `vite@8.1.5` — **breaking** |
+| `@vitest/mocker` | Moderate | Transitive (via `vitest`) | via `vite` | requires `vitest@4.1.10` — **breaking** |
+| `vite-node` | Moderate | Transitive (via `vitest`) | via `vite` | requires `vitest@4.1.10` — **breaking** |
+| `react-router` | Moderate | Transitive (via `react-router-dom`) | GHSA-wrjc-x8rr-h8h6 (open redirect), GHSA-337j-9hxr-rhxg (SSR hydration constructor injection) | fixed in `react-router@7.18.0` — **breaking** (major, v6→v7) |
+| `react-router-dom` | Moderate | Direct (`^6.26.2` in `package.json`, resolves to `6.30.4`) | GHSA-jjmj-jmhj-qwj2 — open redirect leading to XSS | **no fix exists for this package name at all** — verified via a real `npm audit fix --force --dry-run`, which left all 17 findings, including this one, completely unchanged; the upstream advisory's own `first_patched_version` for `react-router-dom` specifically is `None` (only the separate `react-router` package name got a fix, in `7.13.0`/`7.18.0`) — resolving this requires migrating off the deprecated `react-router-dom` package to the unified `react-router` package (the v6→v7 rewrite), not any version bump |
+
+**Corrected finding:** `react-router`/`react-router-dom` account for only
+the **3 Moderate** findings, not the 11 High/1 Critical the earlier text
+attributed to them. Every High and the one Critical finding trace to the
+`eslint`/`vite`/`vitest` **devDependency toolchain** — build-time and
+test-time tooling only, not shipped in the production browser bundle —
+introduced/expanded by finding #14's `eslint-plugin-jsx-a11y` addition
+and the pre-existing `vite`/`vitest` pins. `npm audit --audit-level=high`
+(the CI gate added by this same finding) is failing on the toolchain
+findings, not on `react-router-dom`.
 
 ### `python-jose` (CRITICAL) — investigated, upgrade deliberately deferred
 
@@ -1011,8 +1049,17 @@ a local dev-environment fix only — no repository files were changed by it.
    an option; the only paths are removing the dependency (`python-jose`
    pulls it in) or accepting the risk, tracked but not actionable via a
    simple version bump.
-3. The frontend `react-router-dom` HIGH/CRITICAL findings should be
-   scheduled next, as their own scoped upgrade-and-regression-test task.
+3. The frontend `eslint`/`vite`/`vitest` toolchain findings (11 High, 1
+   Critical — corrected 2026-07-29, see the Frontend breakdown above) are
+   the higher-value next candidate: `brace-expansion` alone has a genuine
+   non-breaking patch fix; the rest need a scoped `eslint`
+   8→10/`eslint-plugin-jsx-a11y`/`vite`/`vitest` major-version upgrade
+   task, evaluated for breaking changes the same way `starlette` was.
+   `react-router`/`react-router-dom` (3 Moderate, not High/Critical) is
+   lower priority by severity, and its one XSS-adjacent finding
+   (`react-router-dom`) has no fix at all short of the v6→v7 package
+   migration — its own separate, larger scoped task regardless of
+   priority ordering.
 4. Once addressed, re-run both gates locally to confirm a clean pass
    before the next CI run depends on it.
 
