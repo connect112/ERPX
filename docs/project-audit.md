@@ -89,6 +89,15 @@ Elasticsearch as a required dependency now. I'd recommend the former.
 
 **#5. Global rate limiting (`slowapi`, `RATE_LIMIT_DEFAULT` = 100/minute) applies uniformly to every endpoint** — login and password-reset get the same limit as a paginated list endpoint. Account lockout (finding in §1) is a real compensating control, but per-endpoint throttling on auth routes specifically is still standard defense-in-depth for a system handling payroll/financial data.
 
+**Status: fixed (2026-07-29).** See `docs/project-hardening-audit.md`
+finding #9 for full detail — `/auth/register`, `/auth/login`,
+`/auth/refresh`, `/auth/forgot-password`, `/auth/reset-password`, and
+`/auth/resend-verification` now each carry their own tighter per-route
+limit (10/minute, 10/minute, 20/minute, 5/minute, 5/minute, 5/minute
+respectively); every other endpoint, including the paginated list
+endpoints this finding contrasted against, still uses the unchanged
+100/minute global default.
+
 **#6. Two Celery tasks have no retry/backoff**: `accounting.mark_overdue_invoices` and `reports.run_due_scheduled_reports` (`modules/accounting/invoices/tasks.py`, `modules/reports/tasks.py`) — contrast with `crm.followups.send_whatsapp_reminder`/`send_sms_reminder`, which do retry with backoff. Lower severity because both are idempotent and naturally self-heal on the next scheduled run, but a transient DB hiccup means slower recovery and no retry-exhaustion alerting.
 
 **#7. Global/cross-entity search**: `ELASTICSEARCH_URL` is configured and Elasticsearch is provisioned in `docker-compose.yml` and Terraform-adjacent infra, but `packages/search/` is empty — no indexing, no search endpoint, no UI. This is the same finding reported earlier this session; repeated here for completeness since it's directly related to finding #1.

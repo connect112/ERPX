@@ -32,7 +32,7 @@ not inferred.
 | 6 | Logging | No log shipping configured — container stdout is the only sink; logs are lost on pod eviction/restart | High — **fixed** |
 | 7 | Operational Readiness | No documented rollback procedure for a bad deployment | Medium — **fixed** |
 | 8 | Testing | `apps/web`'s `npm run test` (vitest) has zero test files behind it (already noted in `docs/project-audit.md`, included here for completeness) | Medium |
-| 9 | Security | Global rate limiting only — auth endpoints share the same 100/min budget as read-only list endpoints (mitigated by account lockout) | Medium |
+| 9 | Security | Global rate limiting only — auth endpoints share the same 100/min budget as read-only list endpoints (mitigated by account lockout) | Medium — **fixed (2026-07-29)** |
 | 10 | Monitoring | Prometheus + Grafana + alert rules exist, but no distributed tracing / APM / error aggregation (Sentry, OpenTelemetry) | Medium |
 | 11 | Scalability | No database read replica; all reads and writes hit the single RDS primary | Low |
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
@@ -150,6 +150,83 @@ failed `tsc -b` with `error TS2769: ... 'test' does not exist`.
 **Finding #1 (Critical):** see below.
 
 **Finding #9 (Medium):** already covered in `docs/project-audit.md` — global rate limiting, not tuned per-endpoint. Account lockout (`modules/authentication/repository.py`) is a real compensating control already in place, which is why this is Medium and not High.
+
+**Status: fixed (2026-07-29).** Confirmed via direct evidence before changing
+anything: `apps/api/app/main.py` applied exactly one `Limiter` with a single
+`default_limits=[settings.RATE_LIMIT_DEFAULT]` (`"100/minute"`), and a repo-wide
+search for `@limiter.limit`/`limiter.limit` found zero per-route decorators
+anywhere — every endpoint, including `/auth/login`, genuinely shared the same
+100/minute budget as read-only list endpoints, exactly as the finding states.
+
+**Root cause of why no per-route limit existed:** the `Limiter` instance was
+defined inline in `app/main.py`, which every module's `routes.py` is imported
+by (via `app/api/v1/router.py`) — so a route module trying `from app.main
+import limiter` would hit a circular import. Fixed by extracting the
+`Limiter` into its own dependency-free module, `apps/api/app/core/limiter.py`;
+`app/main.py` now imports it from there instead of constructing it inline
+(identical `Limiter(key_func=get_remote_address,
+default_limits=[settings.RATE_LIMIT_DEFAULT])` call, just relocated), and
+`modules/authentication/routes.py` imports the same singleton to apply
+per-route decorators.
+
+**Endpoints tightened** — the six pre-authentication endpoints in
+`modules/authentication/routes.py` reachable by an anonymous attacker with no
+credential at all (the actual threat model rate limiting defends against —
+credential stuffing, account-creation spam, password-reset-token guessing,
+verification-email spam):
+
+| Endpoint | New limit | Reasoning |
+|---|---|---|
+| `POST /auth/register` | 10/minute | Slows mass account-creation/spam |
+| `POST /auth/login` | 10/minute | Slows credential-stuffing/brute force per IP; account lockout remains the deeper per-account defense |
+| `POST /auth/refresh` | 20/minute | Looser than login/register since legitimate SPA sessions call this automatically and somewhat frequently, but still 5x tighter than the global default |
+| `POST /auth/forgot-password` | 5/minute | Slows password-reset-token guessing and email-bombing a victim's inbox |
+| `POST /auth/reset-password` | 5/minute | Same reasoning as forgot-password |
+| `POST /auth/resend-verification` | 5/minute | Slows verification-email spam |
+
+**Deliberately left untouched:** `/auth/logout`, `/me`, `/change-password`,
+`/2fa/setup`, `/2fa/confirm`, `/2fa/disable` — all require an already-valid
+`Authorization` bearer token (`get_current_active_user`), so they aren't
+reachable by an anonymous attacker in the first place; tightening them was
+judged out of scope for this finding, which is specifically about the
+pre-auth attack surface. The global 100/minute default still applies to
+every other endpoint in the application, unchanged.
+
+**A real regression this change surfaced and fixed, not swept under the
+rug:** the shared `Limiter`'s in-memory hit counters are a process-wide
+singleton, and the backend test suite imports the real `app` object exactly
+once for the whole pytest session (`tests/_fixtures.py`) — so the first attempt
+at this fix (limits applied with no test-side accommodation) caused 24
+unrelated test failures across `tests/api/test_auth.py`, `test_two_factor.py`,
+`test_hackathons.py`, `test_placements.py`, `test_trainer_self_service.py`,
+`test_lms_transcripts.py`, and `test_workshops.py` — all of them use
+`/auth/register`/`/auth/login` as ordinary HTTP setup machinery (27 and 28
+real calls respectively, scattered across the whole suite), and the shared
+limiter's hit count accumulated across every earlier test file in the same
+pytest session until a later, entirely unrelated test's legitimate call
+tripped the same budget. Root-caused via the real 429 responses in the
+failure log (`assert 429 == 201`), not assumed. Fixed at the correct layer:
+`tests/_fixtures.py`'s shared `client` fixture (used by `tests/api`,
+`tests/integration`, and `tests/security`) now calls `limiter.reset()` before
+every test, so each test starts with a clean rate-limit slate — this does
+not touch the production limit values at all, it only isolates test-to-test
+state, exactly the same isolation `db_session`/`db_session`'s transaction
+rollback already provides for the database.
+
+**Files changed:** `apps/api/app/core/limiter.py` (new),
+`apps/api/app/main.py`, `modules/authentication/routes.py`,
+`tests/_fixtures.py`, `tests/api/test_auth_rate_limiting.py` (new).
+
+**Validation performed:** new `tests/api/test_auth_rate_limiting.py` (5
+tests, all passing) — proves each limited endpoint actually returns 429 past
+its threshold, proves limits are scoped per-route (exhausting `/login`'s
+budget doesn't affect `/forgot-password`'s), and proves an endpoint that
+was never given a per-route limit (`/me`) is unaffected. Full backend
+regression suite re-run end-to-end: **262/262 passing** (257 pre-existing +
+5 new), 0 regressions. No backend lint/typecheck/build CI step exists in
+this project (verified, not assumed, in the prior `python-multipart`
+finding's validation) — the closest equivalent, a clean full-suite
+collection and run with zero import errors, already covers this change.
 
 ### Critical: default JWT secret has no production guard
 

@@ -28,6 +28,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.limiter import limiter
 from app.core.security import create_access_token, hash_password
 from app.db.session import engine, get_db
 from app.main import app
@@ -72,6 +73,18 @@ async def db_session():
 
 @pytest_asyncio.fixture
 async def client(db_session):
+    # `limiter` (app/core/limiter.py) is a process-wide singleton reused by
+    # every test in this session (`app` above is imported once, not
+    # recreated per test) — its in-memory hit counters would otherwise
+    # accumulate across every test file that happens to call a
+    # rate-limited endpoint (register/login/etc. are exercised as ordinary
+    # setup machinery in many unrelated test files, not just
+    # tests/api/test_auth*.py), eventually tripping a 429 for a test that
+    # has nothing to do with rate limiting. Reset before every test so
+    # each one starts with a clean budget; only
+    # tests/api/test_auth_rate_limiting.py deliberately exhausts it.
+    limiter.reset()
+
     async def _override_get_db():
         yield db_session
 

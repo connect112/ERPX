@@ -7,6 +7,7 @@ Registered under /api/v1/auth in app/api/v1/router.py.
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.limiter import limiter
 from app.db.session import get_db
 from modules.authentication.dependencies import get_current_active_user
 from modules.authentication.models import User
@@ -39,7 +40,8 @@ def _client_context(request: Request) -> tuple[str | None, str | None]:
 
 
 @router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
-async def register(payload: UserRegisterRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def register(payload: UserRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     user = await service.register(
         email=payload.email,
@@ -51,6 +53,7 @@ async def register(payload: UserRegisterRequest, db: AsyncSession = Depends(get_
 
 
 @router.post("/login")
+@limiter.limit("10/minute")
 async def login(payload: UserLoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     user_agent, ip_address = _client_context(request)
@@ -65,6 +68,7 @@ async def login(payload: UserLoginRequest, request: Request, db: AsyncSession = 
 
 
 @router.post("/refresh", response_model=RefreshTokenResponse)
+@limiter.limit("20/minute")
 async def refresh(payload: RefreshTokenRequest, request: Request, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     user_agent, ip_address = _client_context(request)
@@ -91,7 +95,10 @@ async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(g
 
 
 @router.post("/resend-verification", response_model=MessageResponse)
-async def resend_verification(payload: ResendVerificationRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def resend_verification(
+    payload: ResendVerificationRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
     service = AuthService(db)
     await service.resend_verification(payload.email)
     return MessageResponse(
@@ -100,7 +107,8 @@ async def resend_verification(payload: ResendVerificationRequest, db: AsyncSessi
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-async def forgot_password(payload: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def forgot_password(payload: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     await service.forgot_password(payload.email)
     return MessageResponse(
@@ -109,7 +117,8 @@ async def forgot_password(payload: ForgotPasswordRequest, db: AsyncSession = Dep
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def reset_password(payload: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     await service.reset_password(payload.token, payload.new_password)
     return MessageResponse(message="Password reset successfully. You can now log in.")
