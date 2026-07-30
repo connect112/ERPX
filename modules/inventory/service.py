@@ -162,9 +162,13 @@ class StockService:
                 quantity_on_hand -= quantity
 
         receipts = await self.repo.receiving_transactions(item_id, warehouse_id)
-        total_received_qty = sum(t.quantity for t in receipts)
+        # `quantity`/`unit_cost` are SQLAlchemy Numeric columns → Decimal; mixing
+        # Decimal with the float(unit_cost) below raises TypeError, so normalise
+        # both to float (matching the float standard_cost fallback and the float
+        # quantity_on_hand from sum_by_type).
+        total_received_qty = sum(float(t.quantity) for t in receipts)
         average_unit_cost = (
-            sum(t.quantity * float(t.unit_cost) for t in receipts) / total_received_qty
+            sum(float(t.quantity) * float(t.unit_cost) for t in receipts) / total_received_qty
             if total_received_qty > 0
             else float(item.standard_cost)
         )

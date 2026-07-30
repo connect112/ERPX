@@ -721,6 +721,55 @@ tasks expose `max_retries == 3`, `Exception in autoretry_for`, and
 anchor that the `crm.followups.*` policy this mirrors is intact. Full backend
 suite: **295/295 passing** (292 + 3 new), 0 regressions.
 
+### Finding #26 (Backend correctness — runtime crash) — inventory stock level `Decimal * float` TypeError — fixed (2026-07-30)
+
+**Independent certification audit (trusting no prior audit).** Re-verifying from
+source turned up a genuine, previously-uncaught **runtime crash** in a core
+inventory read path — outranking the concurrency/perf items on the remaining
+list. (Vectors re-checked and confirmed sound: JWT pins `algorithms=[...]` with
+a startup check rejecting the placeholder secret / <32-char keys; no raw-SQL
+interpolation; document download URLs are org-scoped + RBAC; journal posting
+enforces `debit == credit`; no blocking sync I/O in async request paths.)
+
+**Root cause (hard evidence — reproduced).** `StockService.get_stock_level`
+(`modules/inventory/service.py`) computed the moving-average cost as
+`sum(t.quantity * float(t.unit_cost) ...)` and `sum(t.quantity ...)` over
+receiving transactions. `StockTransaction.quantity` is a `Numeric(12,2)` column,
+so SQLAlchemy returns `decimal.Decimal`; Python has **no** `Decimal * float`
+operator, so the expression raised
+`TypeError: unsupported operand type(s) for *: 'decimal.Decimal' and 'float'`
+the moment *any* receiving transaction existed for the item — i.e. under normal
+operation (you receive stock before issuing it). That is a hard **HTTP 500** on
+the stock-level endpoint and on everything that calls it: `issue_stock`,
+`adjust_stock`, `transfer_stock`, and the low-stock report loop. The path had
+**zero** automated coverage (the 290-test suite never exercised
+`get_stock_level` with receipts), which is why it shipped.
+
+**Fix (smallest safe change).** Normalise the receipt quantity to float —
+`sum(float(t.quantity) * float(t.unit_cost) ...)` and
+`sum(float(t.quantity) ...)` — matching the already-float `unit_cost` cast, the
+float `standard_cost` fallback, and the float `quantity_on_hand` from
+`sum_by_type`. Two lines; no signature, response-model, or behaviour change
+beyond no-longer-crashing (the arithmetic result is identical, just computed in
+float).
+
+**Regression risk.** Minimal — arithmetic normalisation on one derived field;
+all callers already treat `average_unit_cost`/`quantity_on_hand` as floats.
+
+**Tests** (`tests/api/test_inventory_stock_level.py`, 3): stock level after a
+receipt returns the right on-hand + average cost as a float (this repro'd the
+crash on pre-fix code), moving-average is weighted correctly across multiple
+receipts at different costs, and `issue_stock` after a receipt reduces on-hand
+and still enforces the availability guard. Full backend suite: **298/298
+passing** (295 + 3 new), 0 regressions.
+
+**Note — related concurrency item (NOT fixed here, ranked next).** The same
+reducing paths (`issue_stock` / `adjust_stock` / `transfer_stock`) do a
+check-then-insert against derived on-hand with no lock — a TOCTOU that can
+oversell into negative stock under concurrency (same shape as finding #23). It
+was deliberately left for a separate atomic change to keep this commit to the
+single highest-severity issue (the guaranteed crash).
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing
