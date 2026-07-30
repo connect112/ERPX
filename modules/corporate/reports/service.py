@@ -71,23 +71,18 @@ class CorporateReportService:
         }
 
     async def vapt_portfolio_summary(self, organization_id: uuid.UUID, as_of_date: date) -> dict:
-        projects, _ = await self.project_repo.list_for_organization(organization_id, skip=0, limit=10_000)
+        total_engagements = await self.engagement_repo.count_for_organization(organization_id)
 
-        total_engagements = 0
         total_findings = 0
         open_findings = 0
         by_severity = {severity.value: 0 for severity in FindingSeverity}
-
-        for project in projects:
-            engagements = await self.engagement_repo.list_for_project(project.id)
-            total_engagements += len(engagements)
-            for engagement in engagements:
-                findings = await self.finding_repo.list_for_engagement(engagement.id)
-                total_findings += len(findings)
-                for finding in findings:
-                    by_severity[finding.severity.value] += 1
-                    if finding.status in _OPEN_FINDING_STATUSES:
-                        open_findings += 1
+        for severity, total, open_count in await self.finding_repo.severity_breakdown_for_organization(
+            organization_id, _OPEN_FINDING_STATUSES
+        ):
+            severity_value = severity.value if isinstance(severity, FindingSeverity) else severity
+            by_severity[severity_value] = total
+            total_findings += total
+            open_findings += open_count
 
         return {
             "as_of_date": as_of_date,

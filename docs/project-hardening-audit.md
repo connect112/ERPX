@@ -452,6 +452,60 @@ runs). They pass deterministically when the perf module is run on its own
 touches neither endpoint — and is left as-is (see Remaining ranked bottlenecks
 for the perf-harness hardening item).
 
+### Finding #21 (Backend performance) — Corporate VAPT portfolio summary triple-nested N+1 — fixed (2026-07-30)
+
+**Root cause (evidence-based, profiled before touching code).**
+`CorporateReportService.vapt_portfolio_summary` (behind the Redis-cached
+`GET /api/v1/corporate/reports/vapt/portfolio-summary`) walked a three-level
+loop — list all org projects, then per project `list_for_project` to fetch
+engagements, then per engagement `list_for_engagement` to fetch findings —
+accumulating `total_engagements`, `total_findings`, `open_findings`, and
+`findings_by_severity` in Python. That is **1 + P + E queries** (P projects, E
+engagements) plus the projects list/count, i.e. the deepest structural N+1 in
+the audit. (`client_summary`, which the directive named, was verified to issue
+only flat per-relation list queries — the nested loop lives in
+`vapt_portfolio_summary`.)
+
+**Profiling evidence.** A query-counting harness (SQLAlchemy
+`before_cursor_execute` listener filtering the VAPT/project tables) seeded one
+org with 6 projects × 2 engagements × 4 findings (12 engagements, 48 findings)
+and called the service directly:
+
+| | VAPT/project queries | total statements | wall time | eng / find / open |
+|---|---|---|---|---|
+| Before | **20** (2 projects list+count + 6 engagement lists + 12 finding lists) | 20 | ~147 ms | 12 / 48 / 16 |
+| After | **2** (1 count-join + 1 grouped breakdown-join) | 2 | ~22 ms | 12 / 48 / 16 |
+
+DB round-trips dropped **O(1+P+E) → O(1)** (20 → 2, −90%); wall time ~147 ms →
+~22 ms (**−85%**); every returned figure is identical.
+
+**Fix (grouped SQL aggregation).** Two new VAPT-repository methods that own the
+joins up to `corporate_projects`:
+- `VAPTEngagementRepository.count_for_organization(org)` —
+  `SELECT count(*) FROM engagements JOIN projects ON … WHERE
+  projects.organization_id = :org`.
+- `VAPTFindingRepository.severity_breakdown_for_organization(org, open_statuses)`
+  — `SELECT severity, count(*), count(*) FILTER (WHERE status IN (:open))
+  FROM findings JOIN engagements JOIN projects WHERE
+  projects.organization_id = :org GROUP BY severity`.
+
+The service seeds `by_severity` with every `FindingSeverity` at 0 (unchanged),
+then fills totals from the grouped rows: the sum of per-severity totals equals
+the old `total_findings`, the sum of the conditional counts equals the old
+`open_findings`, and severities with no rows stay 0 — arithmetically identical
+to the loop. Project scoping matches the previous code exactly
+(`list_for_organization` filtered on `organization_id` only; no soft-delete
+column involved). The `limit=10_000` project cap the loop relied on is removed
+as a side effect — the join naturally covers *all* org projects, so the summary
+is now correct even past 10k projects rather than silently truncating.
+
+**Response model (`VAPTPortfolioSummaryResponse`), API contract, RBAC, caching
+(`corporate.vapt_portfolio`, TTL 120s), and serialization unchanged.** New
+regression tests `tests/api/test_corporate_reports.py` (2) assert the four
+figures and the fully-seeded severity dict against manual counts over seeded
+data, cover the empty-org all-zero case, and pin the VAPT-table query count to
+exactly 2. Full backend suite: **285/285 passing** (283 + 2 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing
