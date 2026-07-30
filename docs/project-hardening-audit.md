@@ -38,6 +38,7 @@ not inferred.
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low — **addressed (2026-07-30): trial-balance/P&L/balance-sheet journal-line sums were already SQL `GROUP BY`; AR/AP aging per-row party-name N+1 (1+N queries) replaced with a single `LEFT OUTER JOIN` (O(N)→O(1) round-trips); response models unchanged; 271/271 tests pass** |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (`CardTitle`) + Phase 3 (all 20 remaining `label`/keyboard violations, 2026-07-29) fixed — `jsx-a11y/recommended` now clean across all 4 apps; non-lintable a11y (contrast, focus order, AT testing) still open** |
+| 18 | Database | AR/AP aging predicate (`organization_id` + `status IN (...)`) had only two single-column indexes → Postgres `BitmapAnd` of both | Low — **fixed (2026-07-30): composite `(organization_id, status)` added on `accounting_invoices` + `accounting_expenses` (Alembic 0038, reversible); EXPLAIN ANALYZE @500k rows: index-access cost −87.5%, entries examined −90%, execution ~113→97ms (−14%); 271/271 tests pass** |
 | 17 | Performance | Read-heavy aggregate endpoints (dashboard, analytics, financial reports) recomputed multi-query + Python aggregation on every request; existing Redis unused for response caching | Medium — **fixed (2026-07-30): reusable Redis `@cache_response` decorator on 12 read-only GET endpoints (org/param-scoped keys, RBAC still enforced, graceful degradation); TTLs 60s/120s; 266/266 tests pass with Redis down (live graceful-fallback proof)** |
 | 16 | Performance | All 4 frontend apps statically imported every route page → single monolithic JS bundle per app (`apps/web` 1,495 kB, >500 kB Vite warning); 100% of the app downloaded on first paint | Medium — **fixed (2026-07-30): route-based `React.lazy` + Suspense + `vendor` `manualChunks`; 125 routes now lazy; web app-entry 1,495→65 kB (−95.6%); tsc/vitest 32/32/build/e2e 11/11 all green** |
 | 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); frontend `vitest` CRITICAL fixed via `2.1.9→3.2.6` upgrade (2026-07-29, +2 Moderate cleared, 0 new); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette` HIGH×3 + `ecdsa` HIGH (backend) investigated 2026-07-29 and documented as accepted risks — none reachable in ERPX's attack surface, full fix blocked by a breaking `fastapi` 0.133+ migration / no upstream `ecdsa` fix; frontend HIGH×11 (`eslint`/`vite` toolchain) + 3 Moderate still open** |
@@ -242,6 +243,62 @@ collection and run with zero import errors, already covers this change.
 ## 5. Performance
 
 **Finding #13 (Low):** already flagged in `docs/deployment/production-checklist.md` (report aggregations fetching up to 10,000 rows and aggregating in Python). No new performance findings from this pass — connection pool sizing (`DB_POOL_SIZE=20`/`DB_MAX_OVERFLOW=10` in `apps/api/app/db/session.py`) is reasonable for the documented single-replica default and is already flagged there as something to multiply by replica count. GZip compression, response envelope consistency, and index coverage on migration foreign keys were all previously verified real.
+
+### Finding #18 (Database) — composite indexes for the accounting aging-report predicate — added (2026-07-30)
+
+**Evidence-based audit.** A live `pg_indexes` inventory confirmed the
+accounting hot tables are already well indexed: every table has
+`organization_id`, `status`, all FKs, and the date columns individually
+indexed (plus the org-scoped unique constraints). The remaining gap was a
+**composite** for the exact predicate the AR/AP aging reports run —
+`WHERE organization_id = :org AND status IN (...)` (the
+`outstanding_receivables_with_customer` / `outstanding_payables_with_vendor`
+queries from finding #13). With only the two single-column indexes, Postgres
+must combine them with a `BitmapAnd`.
+
+**`EXPLAIN ANALYZE`, representative 500k-row dataset** (5 orgs; the queried
+org ≈ 100k invoices, ~20% outstanding — status distribution independent of
+org; an initial run with correlated test data was discarded as it masked the
+effect):
+
+| Metric | Before (2× single-col + BitmapAnd) | After (composite `(org, status)`) | Delta |
+|---|---|---|---|
+| Index-access plan | `BitmapAnd` of `…_status` (99,068 entries) + `…_organization_id` (100,223 entries) | single `Bitmap Index Scan` on `…_org_status` (19,866 entries) | BitmapAnd eliminated |
+| Index entries examined | ~199,291 | 19,866 | **−90%** |
+| Index-access cost | 2,171.50 | 271.03 | **−87.5%** |
+| Index-scan actual time | ~15 ms | ~2.9 ms | **−80%** |
+| Total query cost | 10,631.98 | 8,725.84 | **−17.9%** |
+| End-to-end execution | ~113 ms | ~97 ms | **−14%** |
+
+(At the 50k-row scale the plan/cost improvements are identical in shape but
+wall-clock is flat, because the heap fetch + sort of the returned rows
+dominates; the wall-clock win emerges and grows with volume, as the 500k run
+shows.) The residual heap fetch is inherent — the aging report *returns*
+every outstanding line item — so the win is entirely in how those rows are
+*found* (one index scan vs two + AND).
+
+**Migration:** `apps/api/alembic/versions/0038_add_accounting_aging_composite_indexes.py`
+adds `ix_accounting_invoices_organization_id_status` and
+`ix_accounting_expenses_organization_id_status` (both `(organization_id, status)`).
+Fully reversible (verified: `upgrade` creates both, `downgrade` drops both
+cleanly, `upgrade` restores). The pre-existing single-column
+`organization_id` / `status` indexes are **retained** — they still serve
+org-only and status-only queries elsewhere in the module — so no duplicate is
+introduced. (The standalone `organization_id` index is now a *prefix* of the
+composite and could, as a separate future change with its own validation, be
+dropped to save write cost; not done here to avoid a broader-impact change.)
+
+**Null-action note for the other modules audited** (Dashboard, HR, CRM,
+Marketing, Inventory, Student/LMS, Payroll, Journals): their high-traffic
+queries filter on already-indexed columns (`organization_id` + a single
+already-indexed status/FK/date), so no additional composite gave a
+data-backed improvement worth the write cost — left unchanged per the
+evidence-based / null-action rule.
+
+**Validation:** migration up/down/up verified on `erpx_test`; full backend
+regression suite re-run against the migrated schema — **271/271 passing**,
+100% functional match (indexes are transparent to behaviour). No business
+logic, response model, or API contract changed.
 
 **Status: addressed (2026-07-30) — accounting-report aggregation pushed to SQL / N+1 eliminated.**
 
