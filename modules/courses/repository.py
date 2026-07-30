@@ -27,6 +27,25 @@ class CourseRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_by_ids(
+        self, course_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[Course]:
+        """Batch-load org-scoped, non-deleted courses by id in a single query.
+
+        Same filtering as ``get_by_id`` (organization scope + ``deleted_at IS
+        NULL``); callers that need per-id access build an ``{id: course}`` map.
+        """
+        if not course_ids:
+            return []
+        result = await self.db.execute(
+            select(Course).where(
+                Course.id.in_(course_ids),
+                Course.organization_id == organization_id,
+                Course.deleted_at.is_(None),
+            )
+        )
+        return list(result.scalars().all())
+
     async def get_by_slug(self, organization_id: uuid.UUID, slug: str) -> Course | None:
         result = await self.db.execute(
             select(Course).where(

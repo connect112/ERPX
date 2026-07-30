@@ -349,6 +349,52 @@ party name (via the JOIN, not "Unknown"), outstanding amount, and that
 `bucket_totals` sum to `total_outstanding`. Full backend regression suite:
 **271/271 passing** (270 + 1 new), 0 regressions.
 
+### Finding #19 (Backend performance) — LMS transcript per-enrollment course N+1 — fixed (2026-07-30)
+
+**Root cause (evidence-based, profiled before touching code).**
+`TranscriptService.get_student_transcript`
+(`modules/lms/transcripts/service.py`) — the aggregator behind
+`GET /api/v1/lms/transcripts/me` and `/{student_id}` — listed every one of a
+student's enrollments and then, inside the loop, issued a separate
+`CourseRepository.get_by_id(enrollment.course_id, organization_id)` per
+enrollment to resolve each course title, i.e. **1 + N queries** on the
+`courses` table for a student enrolled in N courses. `list_for_student` is
+unbounded (a student accumulates enrollments over their whole tenure), so this
+scales linearly with transcript size. Notably the certificates lookup one line
+above was *already* batched into a `{course_id: certificate}` dict — the course
+lookup was the same pattern left un-batched.
+
+**Profiling evidence.** A query-counting harness (SQLAlchemy
+`before_cursor_execute` listener filtering `FROM courses`) seeded one student
+with 12 enrollments and called the service directly:
+
+| | `courses`-table SELECTs | total statements | transcript entries |
+|---|---|---|---|
+| Before | **12** (1 per enrollment) | 87 | 12 |
+| After | **1** (single `IN` query) | 76 | 12 |
+
+Course-table round-trips dropped **O(N) → O(1)** (12 → 1; total statements
+−11 = exactly N−1); the entry list is byte-for-byte identical.
+
+**Fix (smallest safe change).** Added `CourseRepository.list_by_ids(course_ids,
+organization_id)` — one `SELECT ... WHERE id IN (:ids) AND organization_id = :org
+AND deleted_at IS NULL`, i.e. the *exact* filter `get_by_id` applies, just
+batched. The service builds a `{course.id: course}` map once (mirroring the
+existing `certificates_by_course` dict) and does an in-memory `.get()` per
+enrollment; the `if not course: continue` skip for a missing/other-org/deleted
+course is preserved unchanged (such ids are simply absent from the map), and
+enrollment iteration order — hence entry order — is untouched.
+
+**Response models unchanged; API contract unchanged; behaviour identical.**
+Covered by the existing `tests/api/test_lms_transcripts.py` suite (student
+self-view with certificate + progress, staff by-id view, RBAC-denied view):
+**3/3 passing**. The per-component examinations result loops
+(`ResultsService.get_student_course_result`: per-exam attempt/`total_marks`,
+per-practical/-viva `get_result`) were profiled but left unchanged — they are
+bounded by a single course's component count (small N), each needs a distinct
+per-student row, and batching them would add correctness-sensitive per-student
+join methods for no proven scaling win; documented under Remaining bottlenecks.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

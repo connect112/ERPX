@@ -60,9 +60,18 @@ class TranscriptService:
         certificates = await self.certificate_repo.list_for_student(student_id)
         certificates_by_course = {c.course_id: c for c in certificates}
 
+        # Batch-load every enrolled course in one query instead of one
+        # get_by_id per enrollment (N+1) — same org-scope/deleted_at filter.
+        courses_by_id = {
+            course.id: course
+            for course in await self.course_repo.list_by_ids(
+                [enrollment.course_id for enrollment in enrollments], organization_id
+            )
+        }
+
         entries: list[CourseTranscriptEntry] = []
         for enrollment in enrollments:
-            course = await self.course_repo.get_by_id(enrollment.course_id, organization_id)
+            course = courses_by_id.get(enrollment.course_id)
             if not course:
                 continue
 
