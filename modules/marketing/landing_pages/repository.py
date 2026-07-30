@@ -98,6 +98,19 @@ class LandingPageViewRepository:
         )
         return result.scalar_one()
 
+    async def count_for_organization(self, organization_id: uuid.UUID) -> int:
+        """Total views across all of an org's landing pages in one join query.
+        Equivalent to ``count_for_pages`` over every page the org owns, but
+        without materialising the page list or building an ``IN`` clause — the
+        join to ``LandingPage`` applies the org scope."""
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(LandingPageView)
+            .join(LandingPage, LandingPage.id == LandingPageView.landing_page_id)
+            .where(LandingPage.organization_id == organization_id)
+        )
+        return result.scalar_one()
+
     async def count_conversions_for_page(self, landing_page_id: uuid.UUID) -> int:
         result = await self.db.execute(
             select(func.count())

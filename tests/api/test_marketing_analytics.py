@@ -182,8 +182,25 @@ async def test_marketing_overview_no_pages_zero_views(db_session, organization):
         overview = await MarketingAnalyticsService(db_session).marketing_overview(organization.id)
 
     assert overview["total_landing_page_views"] == 0
-    # No pages -> the aggregate short-circuits without hitting the table.
-    assert counter.count == 0
+    # The overview's org-scoped view aggregate (count_for_organization) runs
+    # once and returns zero — no landing-page list is materialised.
+    assert counter.count == 1
+
+
+async def test_view_count_for_organization_matches_count_for_pages(db_session, organization):
+    # The org-scoped join aggregate (used by marketing_overview to avoid
+    # materialising the page list) must equal the id-list aggregate over every
+    # one of the org's pages.
+    await _seed_pages_with_views(db_session, organization, n_pages=5, views_each=3)
+
+    pages, _ = await LandingPageRepository(db_session).list_for_organization(
+        organization.id, skip=0, limit=10_000
+    )
+    view_repo = LandingPageViewRepository(db_session)
+    by_ids = await view_repo.count_for_pages([p.id for p in pages])
+    by_org = await view_repo.count_for_organization(organization.id)
+
+    assert by_org == by_ids == 15  # 5 pages x 3 views
 
 
 async def test_campaign_performance_page_views_are_sql_aggregated(db_session, organization):

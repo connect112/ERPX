@@ -914,6 +914,49 @@ plus a new `test_totals_for_organization_matches_totals_for_coupons` asserting
 the join returns values identical to the id-list aggregate. Full backend suite:
 **305/305 passing** (304 + 1 new), 0 regressions.
 
+### Finding #30 (Backend performance) — Marketing overview landing-page-list materialization — fixed (2026-07-30)
+
+**Root cause (profiled before touching code).** The sibling of finding #29:
+`marketing_overview` loaded the org's landing pages with
+`page_repo.list_for_organization(limit=10_000)` — a `COUNT` + a `SELECT` that
+hydrates up to 10k `LandingPage` ORM objects — only to pass `[page.id …]` into
+`view_repo.count_for_pages(... WHERE landing_page_id IN (:ids))`. So the view
+total cost 3 queries + a full page-list materialization + a large `IN` clause.
+
+**Baseline profiling** (harness: 200 pages × 2 views = 400 views, configured
+`erpx` DB):
+
+| | page-section queries | `marketing_overview` total statements | peak Python memory |
+|---|---|---|---|
+| Before | **3** (list ×2 + `IN` aggregate) | 8 | 906.1 KiB |
+| After | **1** (single join aggregate) | 6 | 509.0 KiB |
+
+Page views now cost **1 query** (−2); overview statements 8 → 6; peak memory
+**−44%** at this volume (page-list hydration removed), scaling with page count.
+
+**Fix (smallest safe change).** Added
+`LandingPageViewRepository.count_for_organization(organization_id)` — one
+`SELECT count(*) FROM marketing_landing_page_views JOIN marketing_landing_pages
+ON … WHERE marketing_landing_pages.organization_id = :org`. The join applies the
+org scope, so no page list is materialised and no `IN` clause is built.
+`marketing_overview` calls it directly and no longer fetches the page list.
+Values are provably identical to `count_for_pages([every org page id])` — same
+view set — verified by a dedicated equivalence test. `campaign_performance`
+still uses `count_for_pages` (a single campaign's pages), so that method is
+retained; no duplicate logic. Response models, API contract, RBAC, and caching
+(`marketing.overview`, TTL 120s) unchanged.
+
+**One test updated (not a regression):** `test_marketing_overview_no_pages…`
+previously asserted 0 view-table queries (old empty-`IN` short-circuit); the org
+join now runs once and returns 0, so the assertion became `== 1` — same zero
+result, one cheap aggregate.
+
+**Regression tests** in `tests/api/test_marketing_analytics.py`: existing
+overview page-view + query-count tests still pass (now exercising the join),
+plus a new `test_view_count_for_organization_matches_count_for_pages` asserting
+the join equals the id-list aggregate. Full backend suite: **306/306 passing**
+(305 + 1 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing
