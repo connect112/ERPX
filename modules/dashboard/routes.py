@@ -3,6 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache_response
+from app.core.config import settings
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
@@ -14,6 +16,7 @@ router = APIRouter()
 
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
+@cache_response(ttl=settings.CACHE_TTL_DASHBOARD, prefix="dashboard.summary")
 async def get_dashboard_summary(
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("dashboard.view")),

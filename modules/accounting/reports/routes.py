@@ -4,6 +4,8 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache_response
+from app.core.config import settings
 from app.db.session import get_db
 from modules.accounting.reports.schemas import (
     AgingReportResponse,
@@ -20,6 +22,7 @@ router = APIRouter()
 
 
 @router.get("/trial-balance", response_model=TrialBalanceResponse)
+@cache_response(ttl=settings.CACHE_TTL_ANALYTICS, prefix="accounting.trial_balance")
 async def get_trial_balance(
     as_of_date: date = Query(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
@@ -32,6 +35,7 @@ async def get_trial_balance(
 
 
 @router.get("/profit-and-loss", response_model=ProfitAndLossResponse)
+@cache_response(ttl=settings.CACHE_TTL_ANALYTICS, prefix="accounting.profit_and_loss")
 async def get_profit_and_loss(
     period_from: date = Query(...),
     period_to: date = Query(...),
@@ -45,6 +49,7 @@ async def get_profit_and_loss(
 
 
 @router.get("/balance-sheet", response_model=BalanceSheetResponse)
+@cache_response(ttl=settings.CACHE_TTL_ANALYTICS, prefix="accounting.balance_sheet")
 async def get_balance_sheet(
     as_of_date: date = Query(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
@@ -57,6 +62,7 @@ async def get_balance_sheet(
 
 
 @router.get("/aging/receivables", response_model=AgingReportResponse)
+@cache_response(ttl=settings.CACHE_TTL_ANALYTICS, prefix="accounting.ar_aging")
 async def get_ar_aging(
     as_of_date: date = Query(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
@@ -69,6 +75,7 @@ async def get_ar_aging(
 
 
 @router.get("/aging/payables", response_model=AgingReportResponse)
+@cache_response(ttl=settings.CACHE_TTL_ANALYTICS, prefix="accounting.ap_aging")
 async def get_ap_aging(
     as_of_date: date = Query(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),

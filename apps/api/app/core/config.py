@@ -99,6 +99,16 @@ class Settings(BaseSettings):
     MAX_LOGIN_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15
 
+    # ---- Response caching (Redis) ----
+    # Caches read-only aggregate endpoints (dashboards/analytics/reports) in
+    # the existing Redis. Set CACHE_ENABLED=false to disable globally; if
+    # Redis is unreachable the cache degrades transparently (see
+    # app/core/cache.py). TTLs are in seconds.
+    CACHE_ENABLED: bool = True
+    CACHE_TTL_DASHBOARD: int = 60
+    CACHE_TTL_ANALYTICS: int = 120
+    CACHE_TTL_REFERENCE: int = 300
+
     # ---- Error Tracking (Sentry) ----
     # Empty DSN (the default) disables Sentry entirely — no init, no network
     # calls, a pure no-op. This is the intended local-development behavior:

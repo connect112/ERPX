@@ -38,6 +38,7 @@ not inferred.
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (`CardTitle`) + Phase 3 (all 20 remaining `label`/keyboard violations, 2026-07-29) fixed — `jsx-a11y/recommended` now clean across all 4 apps; non-lintable a11y (contrast, focus order, AT testing) still open** |
+| 17 | Performance | Read-heavy aggregate endpoints (dashboard, analytics, financial reports) recomputed multi-query + Python aggregation on every request; existing Redis unused for response caching | Medium — **fixed (2026-07-30): reusable Redis `@cache_response` decorator on 12 read-only GET endpoints (org/param-scoped keys, RBAC still enforced, graceful degradation); TTLs 60s/120s; 266/266 tests pass with Redis down (live graceful-fallback proof)** |
 | 16 | Performance | All 4 frontend apps statically imported every route page → single monolithic JS bundle per app (`apps/web` 1,495 kB, >500 kB Vite warning); 100% of the app downloaded on first paint | Medium — **fixed (2026-07-30): route-based `React.lazy` + Suspense + `vendor` `manualChunks`; 125 routes now lazy; web app-entry 1,495→65 kB (−95.6%); tsc/vitest 32/32/build/e2e 11/11 all green** |
 | 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); frontend `vitest` CRITICAL fixed via `2.1.9→3.2.6` upgrade (2026-07-29, +2 Moderate cleared, 0 new); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette` HIGH×3 + `ecdsa` HIGH (backend) investigated 2026-07-29 and documented as accepted risks — none reachable in ERPX's attack surface, full fix blocked by a breaking `fastapi` 0.133+ migration / no upstream `ecdsa` fix; frontend HIGH×11 (`eslint`/`vite` toolchain) + 3 Moderate still open** |
 
@@ -241,6 +242,83 @@ collection and run with zero import errors, already covers this change.
 ## 5. Performance
 
 **Finding #13 (Low):** already flagged in `docs/deployment/production-checklist.md` (report aggregations fetching up to 10,000 rows and aggregating in Python). No new performance findings from this pass — connection pool sizing (`DB_POOL_SIZE=20`/`DB_MAX_OVERFLOW=10` in `apps/api/app/db/session.py`) is reasonable for the documented single-replica default and is already flagged there as something to multiply by replica count. GZip compression, response envelope consistency, and index coverage on migration foreign keys were all previously verified real.
+
+### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
+
+**Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing
+analytics, corporate reports, and the accounting financial reports that
+finding #13 flagged for fetching up to 10,000 rows and aggregating in
+Python) recomputed their full result — several DB round-trips plus in-Python
+aggregation — on *every* request, even though the underlying data changes
+far less often than they are viewed. The Redis instance the platform
+already runs (Celery broker + rate-limit store) was not used for any
+response caching.
+
+**Architecture (`apps/api/app/core/cache.py`, new — Redis only, no new
+dependency):** one reusable `@cache_response(ttl=..., prefix=...)`
+decorator placed *below* the `@router.get(...)` decorator on read-only GET
+handlers. On a **miss** the handler runs untouched, its Pydantic model is
+returned to FastAPI exactly as before, and the cache stores
+`model.model_dump(mode="json")`. On a **hit** the stored dict is returned
+and FastAPI re-validates it through the endpoint's own `response_model` and
+serialises it on the identical code path — so a cached response is
+byte-for-byte what an uncached one would be (verified the schemas use
+`int`/`float`/`date` only, which round-trip losslessly). Cache keys are
+**organization- and parameter-scoped**: `erpx:cache:{prefix}:{org_id}:{sha256(scalar params)}`,
+built from the handler's own injected args (org id + every scalar
+path/query param such as `as_of_date`/`period_from`/`campaign_id`); the DB
+session and `User` object are explicitly excluded, so tenants never share
+an entry. Because `require_permissions(...)` runs as a FastAPI *dependency*
+(before the decorated body), **RBAC is still enforced on every cache hit** —
+caching never touches auth, permission, or mutation logic.
+
+**Graceful degradation:** every Redis call is wrapped; any failure (Redis
+down, timeout, corrupt entry) transparently falls back to running the
+handler. A 30-second circuit-breaker backoff (plus 0.5s socket timeouts)
+keeps requests fast and avoids hammering a downed Redis. `CACHE_ENABLED`
+can disable it globally.
+
+**Cached endpoints (12) & TTL tiers:**
+
+| Tier | TTL | Endpoints |
+|---|---|---|
+| Dashboard | `CACHE_TTL_DASHBOARD` = 60s | `GET /dashboard/summary` |
+| Analytics / Reports | `CACHE_TTL_ANALYTICS` = 120s | marketing: `/analytics/overview`, `/analytics/campaigns/{id}/performance`; corporate: `/reports/clients/{id}/summary`, `/reports/vapt/portfolio-summary`, `/reports/tickets/sla-summary`; accounting: `/reports/trial-balance`, `/profit-and-loss`, `/balance-sheet`, `/aging/receivables`, `/aging/payables` |
+| Reference | `CACHE_TTL_REFERENCE` = 300s | provisioned in config for future reference-list caching; not applied yet (reference lists are single cheap SELECTs — low caching ROI, higher staleness annoyance) |
+
+Only idempotent **GET** handlers are cached; no POST/PUT/PATCH/DELETE, auth,
+JWT, permission, or CSRF path is ever cached.
+
+**Invalidation — TTL-only (deliberate, documented):** the cached endpoints
+are cross-cutting aggregates (dashboard counts span users/branches/roles;
+the financial reports span journals/invoices/payments/…), so precise
+post-mutation invalidation would require hooking dozens of write endpoints
+across many modules to delete the right keys — high complexity and a real
+risk of a *missed* invalidation leaving data stale indefinitely (worse than
+a bounded TTL). The short TTLs (60–120s) bound worst-case staleness to
+seconds, which is appropriate for point-in-time dashboards/reports (the
+financial reports are already `as_of_date`/period snapshots). A ready
+`invalidate_prefix(prefix, org_id)` helper is provided in the cache module
+for callers that later want explicit invalidation, but the aggregate
+endpoints intentionally rely on TTL.
+
+**Validation:** new `tests/unit/test_cache.py` (4 tests) covers cache
+**miss→hit** (handler skipped on hit, org/param-scoped key), **key
+determinism/scoping** (db & user excluded, different org/param ⇒ different
+key), and **graceful degradation** both when Redis is disabled and when a
+Redis call raises. Startup validated (`app.main` imports with all 12
+decorators; 698 routes). The full backend regression suite was re-run with
+**Redis genuinely down locally** — a live exercise of the graceful-fallback
+path — and passed **266/266** with every cached endpoint behaving
+identically (cache transparently bypassed). Zero behaviour changes.
+
+**Estimated improvement:** on a cache hit these endpoints skip all DB
+round-trips + Python aggregation and return directly from Redis — typically
+an order-of-magnitude latency drop (single-digit-ms Redis GET vs the
+multi-query/10k-row-aggregation cost) and a corresponding reduction in DB
+load for the hottest read endpoints. Exact figures depend on data volume;
+to be measured against the perf suite once a Redis instance is attached in
+a load environment.
 
 ### Finding #16 (Frontend performance) — route-based lazy loading + code splitting — fixed (2026-07-30)
 
