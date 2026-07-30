@@ -555,6 +555,75 @@ views correct + query count == 1 for both endpoints, and the no-pages zero case
 (query count == 0). Full backend suite: **288/288 passing** (285 + 3 new), 0
 regressions.
 
+### Finding #23 (Backend correctness / security) — Coupon usage-limit TOCTOU race — fixed (2026-07-30)
+
+**Scope note.** A production-readiness audit across security (broken auth,
+IDOR, privilege escalation, mass assignment, injection) and correctness (race
+conditions, transaction bugs, cache consistency) preceded this fix. Areas
+verified sound and left untouched: no mutating route lacks an auth dependency
+except the public landing-page view beacon; every `*UpdateRequest` schema on a
+self-service (`/me`) endpoint omits privilege/verification fields (e.g.
+`AlumniProfileUpdateRequest` excludes `is_verified`) so mass assignment is not
+possible; client-portal ticket/comment access enforces per-client ownership.
+The single highest-value defect was a genuine **data-integrity race**, not a
+micro-optimization.
+
+**Root cause.** `CouponService.redeem_coupon`
+(`modules/marketing/coupons/service.py`, behind
+`POST /api/v1/marketing/coupons/redeem`, permission `marketing.coupons.redeem`)
+enforced `usage_limit_total` / `usage_limit_per_customer` with a live
+**count-then-insert**: `_validate` runs `COUNT(*)` over `CouponRedemption`, and
+if under the limit `redeem_coupon` inserts a new redemption. With no lock or
+DB constraint between the count and the insert, two concurrent redemptions of a
+single-use coupon both read `count == 0`, both pass, and both insert — the
+coupon is redeemed **past its cap**, granting discounts (real money) beyond the
+configured limit. The model docstring even asserted this "can never drift under
+concurrent redemptions", which was false (a textbook TOCTOU). Two concurrent
+redemptions do *not* block each other via the redemption FK either — inserting
+the child rows takes only a shared `FOR KEY SHARE` on the parent coupon.
+
+**Investigation evidence.** `redeem_coupon` → `_validate`
+(`count_for_coupon` / `count_for_coupon_and_customer`) → `redemption_repo.create`
+with nothing serializing the interval; `grep` confirmed no `with_for_update`,
+no `SELECT ... FOR UPDATE`, and no partial unique index anywhere in the module;
+`usage_limit_total` / `usage_limit_per_customer` are plain integer columns with
+no DB-level enforcement.
+
+**Why selected over the others.** It is the only finding that is simultaneously
+(a) a real integrity/financial defect (over-redemption of capped discounts),
+(b) reachable via an authenticated production endpoint, and (c) fixable with a
+minimal, contract-preserving change — versus the remaining items which are
+performance N+1s (explicitly de-prioritized) or accepted-design/low-severity.
+
+**Fix (smallest safe change).** `redeem_coupon` now takes a
+`SELECT ... FOR UPDATE` row lock on the coupon (new
+`CouponRepository.get_by_code_for_update`) before validating. Concurrent
+redemptions of the same code serialize on that row: the second waiter proceeds
+only after the first commits, so its usage-limit `COUNT` sees the first
+redemption and correctly rejects. `validate_coupon` (the read-only preview) is
+untouched — no lock needed there. Response models, the endpoint contract, and
+the returned `CouponRedemption` are unchanged.
+
+**Before vs After.** Before: N concurrent redemptions of a `usage_limit_total=1`
+coupon → up to N redemptions written (cap breached). After: exactly 1 succeeds,
+the rest are rejected with the existing "reached its total usage limit"
+`ValidationError`.
+
+**Security/correctness impact.** Closes an authenticated financial-integrity
+race (unbounded discount stacking on capped/single-use coupons); no change to
+authz, response shape, or single-threaded behaviour.
+
+**Regression risk.** Low — one added `FOR UPDATE` select on the redeem path
+(write path, already transactional; the lock releases at the per-request
+commit in `get_db`). No read path or response model touched.
+
+**Regression tests** (`tests/api/test_coupon_redemption.py`, 2): one asserts the
+redeem path emits `SELECT ... FOR UPDATE` on `marketing_coupons` (fails if the
+lock is removed — verified by temporarily reverting the fix), one asserts the
+total-usage limit is enforced (second redemption rejected, exactly one
+redemption row). Both run on committed data outside the rolled-back fixture and
+clean up. Full backend suite: **290/290 passing** (288 + 2 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

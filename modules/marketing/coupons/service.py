@@ -108,6 +108,12 @@ class CouponService:
         redeemed_against_type: str | None = None,
         redeemed_against_id: uuid.UUID | None = None,
     ) -> CouponRedemption:
+        # Lock the coupon row for the rest of this transaction so that
+        # concurrent redemptions of the same code serialize: the second waiter
+        # only proceeds after the first commits, and its usage-limit count then
+        # sees the first redemption — closing the check-then-insert TOCTOU that
+        # otherwise lets a limited coupon be redeemed past its cap.
+        await self.repo.get_by_code_for_update(organization_id, code)
         coupon, discount, reason = await self._validate(organization_id, code, order_amount, customer_reference)
         if coupon is None:
             raise ValidationError(reason or "This coupon cannot be redeemed.")

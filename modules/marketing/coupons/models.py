@@ -4,7 +4,10 @@ Marketing / Coupons — ORM models.
 `Coupon` is the reusable discount code definition; `CouponRedemption` is
 an append-only record of each use. Usage-limit enforcement (`service.py`)
 counts redemptions live rather than maintaining a mutable counter on
-`Coupon`, so it can never drift under concurrent redemptions.
+`Coupon`. Because a live count-then-insert is a check-then-act sequence,
+`redeem_coupon` takes a `SELECT ... FOR UPDATE` lock on the coupon row so
+concurrent redemptions of the same code serialize and cannot exceed the
+configured limit.
 `redeemed_against_type`/`redeemed_against_id` are an opaque reference
 (e.g. "admission", "invoice") rather than a hard FK, since a coupon may
 apply against different order types across modules.

@@ -29,6 +29,17 @@ class CouponRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_code_for_update(self, organization_id: uuid.UUID, code: str) -> Coupon | None:
+        """Same lookup as ``get_by_code`` but takes a ``SELECT ... FOR UPDATE``
+        row lock, so concurrent redemptions of the same coupon serialize and the
+        usage-limit check-then-insert becomes atomic (prevents over-redemption)."""
+        result = await self.db.execute(
+            select(Coupon)
+            .where(Coupon.organization_id == organization_id, Coupon.code == code)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def list_for_organization(
         self,
         organization_id: uuid.UUID,
