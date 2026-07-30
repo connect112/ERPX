@@ -823,6 +823,51 @@ result untouched.
 code and pass after** (verified) — plus a sequential availability guard. Full
 backend suite: **302/302 passing** (298 + 4 new), 0 regressions.
 
+### Finding #28 (Backend performance) — Marketing overview per-campaign lead-count N+1 — fixed (2026-07-30)
+
+**Correctness/security cleared first (fresh audit, trusting nothing).** Re-verified
+from source that all prior fixes hold and no new HIGH/MEDIUM correctness or
+security defect exists: JWT pins `algorithms=[...]` + rejects the placeholder/
+short secret; no raw-SQL interpolation; document downloads org-scoped + RBAC;
+journal posting enforces `debit == credit`; the coupon and inventory
+stock-reduction TOCTOUs are locked (`FOR UPDATE`, findings #23/#27); and every
+duplicate-prone table (`attendance`, `enrollment`, `payroll_run`, `payslip`,
+`salary_component`) has a `UniqueConstraint` backing its check-then-create guard,
+so those cannot race into duplicates. **Backend declared production-ready for
+correctness/security**, so this pass took the top remaining performance item.
+
+**Root cause (evidence-based, profiled before touching code).**
+`MarketingAnalyticsService.marketing_overview` computed `total_leads_from_campaigns`
+by looping every campaign and calling
+`lead_repo.list_for_organization(campaign_id=campaign.id, limit=1)` — which runs
+**two** queries per campaign (a `COUNT` and a bounded `SELECT`) — then summing the
+counts. That is **2N queries** on `crm_leads` for N campaigns; the discarded
+`SELECT` rows are pure waste.
+
+**Profiling evidence.** Query-counting harness, 8 campaigns × 3 leads:
+
+| | `crm_leads` queries | total statements | returned total |
+|---|---|---|---|
+| Before | **16** (2 per campaign) | 24 | 24 |
+| After | **1** (single `IN` COUNT) | 9 | 24 |
+
+Lead-table round-trips dropped **O(N) → O(1)** (16 → 1); the returned total is
+identical.
+
+**Fix (smallest safe change).** Added
+`LeadRepository.count_for_campaigns(organization_id, campaign_ids)` —
+`SELECT count(*) WHERE organization_id = :org AND deleted_at IS NULL AND
+campaign_id IN (:ids)` (empty list short-circuits to 0). A lead carries a single
+`campaign_id`, so the `IN` count equals the sum of the per-campaign counts, and
+the org + `deleted_at IS NULL` filter matches `list_for_organization` exactly — so
+the value is arithmetically identical. Response models, API contract, RBAC, and
+caching (`marketing.overview`, TTL 120s) unchanged.
+
+**Regression tests** added to `tests/api/test_marketing_analytics.py` (2): total
+equals the manually-seeded lead count with the `crm_leads` query count pinned to
+1, plus the no-campaigns zero case (query count 0). Full backend suite:
+**304/304 passing** (302 + 2 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

@@ -184,3 +184,45 @@ async def test_campaign_performance_page_views_are_sql_aggregated(db_session, or
 
     assert perf["landing_page_views"] == expected_views
     assert counter.count == 1
+
+
+async def _seed_campaigns_with_leads(db_session, organization, *, n_campaigns=4, leads_each=3):
+    from modules.crm.leads.models import LeadSource
+    from modules.crm.leads.repository import LeadRepository
+
+    campaign_repo = CampaignRepository(db_session)
+    lead_repo = LeadRepository(db_session)
+    expected = 0
+    for i in range(n_campaigns):
+        campaign = await campaign_repo.create(
+            organization_id=organization.id, campaign_code=f"CMP-{uuid.uuid4().hex[:6]}",
+            name=f"Campaign {i}", channel=CampaignChannel.EMAIL, start_date=date(2026, 1, 1),
+        )
+        for _ in range(leads_each):
+            await lead_repo.create(
+                organization_id=organization.id, campaign_id=campaign.id,
+                full_name="Lead", source=LeadSource.WEBSITE,
+            )
+            expected += 1
+    await db_session.flush()
+    return expected
+
+
+async def test_marketing_overview_campaign_lead_count_is_sql_aggregated(db_session, organization):
+    expected_leads = await _seed_campaigns_with_leads(db_session, organization, n_campaigns=4, leads_each=3)
+
+    with _TableQueryCounter("crm_leads") as counter:
+        overview = await MarketingAnalyticsService(db_session).marketing_overview(organization.id)
+
+    assert overview["total_leads_from_campaigns"] == expected_leads
+    # One grouped COUNT over all campaigns, not two queries per campaign.
+    assert counter.count == 1
+
+
+async def test_marketing_overview_no_campaigns_zero_leads(db_session, organization):
+    with _TableQueryCounter("crm_leads") as counter:
+        overview = await MarketingAnalyticsService(db_session).marketing_overview(organization.id)
+
+    assert overview["total_leads_from_campaigns"] == 0
+    # No campaigns -> the aggregate short-circuits without hitting the table.
+    assert counter.count == 0

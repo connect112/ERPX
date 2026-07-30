@@ -71,12 +71,9 @@ class MarketingAnalyticsService:
         )
         active_campaigns = sum(1 for c in campaigns if c.status == CampaignStatus.ACTIVE)
 
-        total_leads_from_campaigns = 0
-        for campaign in campaigns:
-            _, count = await self.lead_repo.list_for_organization(
-                organization_id, campaign_id=campaign.id, skip=0, limit=1
-            )
-            total_leads_from_campaigns += count
+        total_leads_from_campaigns = await self.lead_repo.count_for_campaigns(
+            organization_id, [campaign.id for campaign in campaigns]
+        )
 
         pages, _ = await self.page_repo.list_for_organization(organization_id, skip=0, limit=10_000)
         total_landing_page_views = await self.view_repo.count_for_pages([page.id for page in pages])

@@ -66,6 +66,27 @@ class LeadRepository:
         )
         return list(result.scalars().all()), total
 
+    async def count_for_campaigns(
+        self, organization_id: uuid.UUID, campaign_ids: list[uuid.UUID]
+    ) -> int:
+        """Total non-deleted leads attributed to any of the given campaigns, in
+        one query. A lead carries a single ``campaign_id``, so a ``campaign_id IN
+        (...)`` count equals the sum of the per-campaign counts
+        ``list_for_organization(campaign_id=...)`` returns — same
+        organization + ``deleted_at IS NULL`` filter — replacing that N+1."""
+        if not campaign_ids:
+            return 0
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(Lead)
+            .where(
+                Lead.organization_id == organization_id,
+                Lead.deleted_at.is_(None),
+                Lead.campaign_id.in_(campaign_ids),
+            )
+        )
+        return result.scalar_one()
+
     async def update(self, lead: Lead, **fields) -> Lead:
         for key, value in fields.items():
             if value is not None:
