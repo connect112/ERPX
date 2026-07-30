@@ -36,7 +36,7 @@ not inferred.
 | 10 | Monitoring | Prometheus + Grafana + alert rules exist, but no distributed tracing / APM / error aggregation (Sentry, OpenTelemetry) | Medium — **error aggregation (Sentry) fixed (2026-07-29); full OpenTelemetry tracing still deferred** |
 | 11 | Scalability | No database read replica; all reads and writes hit the single RDS primary | Low |
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
-| 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
+| 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low — **addressed (2026-07-30): trial-balance/P&L/balance-sheet journal-line sums were already SQL `GROUP BY`; AR/AP aging per-row party-name N+1 (1+N queries) replaced with a single `LEFT OUTER JOIN` (O(N)→O(1) round-trips); response models unchanged; 271/271 tests pass** |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (`CardTitle`) + Phase 3 (all 20 remaining `label`/keyboard violations, 2026-07-29) fixed — `jsx-a11y/recommended` now clean across all 4 apps; non-lintable a11y (contrast, focus order, AT testing) still open** |
 | 17 | Performance | Read-heavy aggregate endpoints (dashboard, analytics, financial reports) recomputed multi-query + Python aggregation on every request; existing Redis unused for response caching | Medium — **fixed (2026-07-30): reusable Redis `@cache_response` decorator on 12 read-only GET endpoints (org/param-scoped keys, RBAC still enforced, graceful degradation); TTLs 60s/120s; 266/266 tests pass with Redis down (live graceful-fallback proof)** |
 | 16 | Performance | All 4 frontend apps statically imported every route page → single monolithic JS bundle per app (`apps/web` 1,495 kB, >500 kB Vite warning); 100% of the app downloaded on first paint | Medium — **fixed (2026-07-30): route-based `React.lazy` + Suspense + `vendor` `manualChunks`; 125 routes now lazy; web app-entry 1,495→65 kB (−95.6%); tsc/vitest 32/32/build/e2e 11/11 all green** |
@@ -242,6 +242,55 @@ collection and run with zero import errors, already covers this change.
 ## 5. Performance
 
 **Finding #13 (Low):** already flagged in `docs/deployment/production-checklist.md` (report aggregations fetching up to 10,000 rows and aggregating in Python). No new performance findings from this pass — connection pool sizing (`DB_POOL_SIZE=20`/`DB_MAX_OVERFLOW=10` in `apps/api/app/db/session.py`) is reasonable for the documented single-replica default and is already flagged there as something to multiply by replica count. GZip compression, response envelope consistency, and index coverage on migration foreign keys were all previously verified real.
+
+**Status: addressed (2026-07-30) — accounting-report aggregation pushed to SQL / N+1 eliminated.**
+
+Investigation found two distinct sub-cases:
+
+1. **Trial balance / P&L / balance sheet — already SQL-aggregated, left
+   unchanged (Exceptions clause).** The heavy work — summing potentially
+   tens of thousands of posted `JournalLine` rows per account — was already
+   done in PostgreSQL by `ReportsRepository.account_activity`
+   (`func.coalesce(func.sum(JournalLine.debit/credit), 0)` +
+   `GROUP BY Account`), returning one pre-aggregated row per account. The
+   residual Python in `ReportService._merged_lines` is the debit/credit
+   sign split (`max(net, 0)` per account, applying `DEBIT_NORMAL_TYPES`) and
+   the `sum()` of per-account balances — both **O(accounts)** (a chart of
+   accounts is dozens–hundreds of rows), never O(journal-lines). Converting
+   the sign logic to SQL `CASE`/`GREATEST` was judged not worth the
+   regression risk to numeric/rounding behaviour for a loop that does not
+   scale with transaction volume; left as-is and documented.
+
+2. **AR / AP aging reports — the real inefficiency: an N+1 query, fixed.**
+   `accounts_receivable_aging` / `accounts_payable_aging` fetched every
+   outstanding invoice/expense (the "up to 10,000 rows" case) and then, for
+   **each** row, issued a separate `CustomerRepository.get_by_id` /
+   `VendorRepository.get_by_id` to resolve the party name — i.e. **1 + N
+   queries** per report (10,000 outstanding invoices ⇒ 10,001 round-trips).
+   Replaced with a single `LEFT OUTER JOIN` per report
+   (`ReportsRepository.outstanding_receivables_with_customer` /
+   `outstanding_payables_with_vendor`, `select(Invoice, Customer.name)` /
+   `select(Expense, Vendor.name)`), org-scoped on the joined party so the
+   previous "Unknown" fallback for a missing/other-org party is reproduced
+   exactly, with deterministic ordering for a stable item list.
+
+   **Before:** `1 + N` DB queries; party names fetched one-by-one in a
+   Python loop. **After:** `1` DB query; party name arrives on the joined
+   row. Complexity on the DB round-trip axis drops from **O(N) → O(1)**.
+   The per-row bucketing (`days_overdue` → aging bucket) and the
+   `bucket_totals` / `total_outstanding` sums remain in Python **by design**:
+   the report returns every outstanding line item in its response, so all
+   rows must be materialised regardless — a SQL `GROUP BY` for the bucket
+   totals would be a redundant second scan of rows already in memory. The
+   Python pass is a single O(N) loop over already-fetched-and-returned rows,
+   not extra DB work.
+
+**Response models unchanged; API contract unchanged.** New regression test
+`tests/integration/test_accounting_posting.py::test_ar_aging_report_resolves_customer_name_via_join`
+posts a real invoice and asserts the AR aging endpoint reports the correct
+party name (via the JOIN, not "Unknown"), outstanding amount, and that
+`bucket_totals` sum to `total_outstanding`. Full backend regression suite:
+**271/271 passing** (270 + 1 new), 0 regressions.
 
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 

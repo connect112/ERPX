@@ -11,11 +11,15 @@ with the journal because it IS the journal, aggregated differently.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.accounting.customers.models import Customer
+from modules.accounting.expenses.models import Expense, ExpenseStatus
+from modules.accounting.invoices.models import Invoice, InvoiceStatus
 from modules.accounting.journals.models import JournalEntry, JournalEntryStatus, JournalLine
 from modules.accounting.ledger.models import Account, AccountType
+from modules.accounting.vendors.models import Vendor
 
 
 class ReportsRepository:
@@ -78,3 +82,50 @@ class ReportsRepository:
             conditions.append(Account.account_type.in_(account_types))
         result = await self.db.execute(select(Account).where(*conditions).order_by(Account.code.asc()))
         return list(result.scalars().all())
+
+    async def outstanding_receivables_with_customer(
+        self, organization_id: uuid.UUID
+    ) -> list[tuple[Invoice, str | None]]:
+        """Outstanding invoices, each paired with its customer's name, in a
+        SINGLE query — a LEFT OUTER JOIN replacing the per-invoice
+        `CustomerRepository.get_by_id` call that made the AR aging report
+        run 1+N queries. The customer is joined org-scoped so an invoice
+        whose customer is missing (or in another org) yields `None`, exactly
+        reproducing the previous "Unknown" fallback. Deterministic ordering
+        keeps the report's item list stable across requests."""
+        result = await self.db.execute(
+            select(Invoice, Customer.name)
+            .outerjoin(
+                Customer,
+                and_(Customer.id == Invoice.customer_id, Customer.organization_id == organization_id),
+            )
+            .where(
+                Invoice.organization_id == organization_id,
+                Invoice.status.in_(
+                    [InvoiceStatus.SENT, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.OVERDUE]
+                ),
+            )
+            .order_by(Invoice.due_date.asc(), Invoice.invoice_number.asc())
+        )
+        return [(row[0], row[1]) for row in result.all()]
+
+    async def outstanding_payables_with_vendor(
+        self, organization_id: uuid.UUID
+    ) -> list[tuple[Expense, str | None]]:
+        """Outstanding expenses paired with their vendor's name in a SINGLE
+        query — the AP-aging counterpart of
+        `outstanding_receivables_with_customer` (replaces a per-expense
+        `VendorRepository.get_by_id` N+1)."""
+        result = await self.db.execute(
+            select(Expense, Vendor.name)
+            .outerjoin(
+                Vendor,
+                and_(Vendor.id == Expense.vendor_id, Vendor.organization_id == organization_id),
+            )
+            .where(
+                Expense.organization_id == organization_id,
+                Expense.status.in_([ExpenseStatus.APPROVED, ExpenseStatus.PARTIALLY_PAID]),
+            )
+            .order_by(Expense.expense_date.asc(), Expense.expense_number.asc())
+        )
+        return [(row[0], row[1]) for row in result.all()]

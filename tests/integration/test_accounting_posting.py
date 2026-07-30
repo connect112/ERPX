@@ -184,3 +184,52 @@ async def test_cannot_post_invoice_twice(client, auth_headers, chart_of_accounts
 
     second_post = await client.post(f"/api/v1/accounting/invoices/{invoice['id']}/post", headers=auth_headers)
     assert second_post.status_code == 422
+
+
+async def test_ar_aging_report_resolves_customer_name_via_join(client, auth_headers, chart_of_accounts):
+    """AR aging must report each outstanding invoice with its customer's
+    name and correct totals. Guards the JOIN-based
+    ReportsRepository.outstanding_receivables_with_customer that replaced a
+    per-invoice N+1 customer lookup (finding #17 SQL-aggregation pass)."""
+    customer = await _create_customer(client, auth_headers, code="CUST-AGE")
+
+    create_response = await client.post(
+        "/api/v1/accounting/invoices",
+        json={
+            "customer_id": customer["id"],
+            "invoice_number": "INV-AGE-1",
+            "invoice_date": "2026-01-15T00:00:00Z",
+            "due_date": "2026-02-15T00:00:00Z",
+            "receivable_account_id": chart_of_accounts["receivable"]["id"],
+            "lines": [
+                {
+                    "revenue_account_id": chart_of_accounts["revenue"]["id"],
+                    "description": "Aging test course",
+                    "quantity": 1,
+                    "unit_price": 12000,
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert create_response.status_code == 201, create_response.text
+    invoice = create_response.json()
+    post_response = await client.post(
+        f"/api/v1/accounting/invoices/{invoice['id']}/post", headers=auth_headers
+    )
+    assert post_response.status_code == 200, post_response.text
+
+    aging = await client.get(
+        "/api/v1/accounting/reports/aging/receivables?as_of_date=2026-03-31", headers=auth_headers
+    )
+    assert aging.status_code == 200, aging.text
+    body = aging.json()
+
+    mine = [item for item in body["items"] if item["document_number"] == "INV-AGE-1"]
+    assert len(mine) == 1
+    item = mine[0]
+    assert item["party_name"] == "Acme Corp"  # resolved via the JOIN, not "Unknown"
+    assert item["party_id"] == customer["id"]
+    assert item["outstanding_amount"] == 12000.0
+    assert body["total_outstanding"] >= 12000.0
+    assert sum(body["bucket_totals"].values()) == pytest.approx(body["total_outstanding"])

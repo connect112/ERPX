@@ -3,12 +3,8 @@ from datetime import date, datetime, time, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.accounting.expenses.repository import ExpenseRepository
-from modules.accounting.invoices.repository import InvoiceRepository
 from modules.accounting.ledger.models import DEBIT_NORMAL_TYPES, AccountType
 from modules.accounting.reports.repository import ReportsRepository
-from modules.accounting.vendors.repository import VendorRepository
-from modules.accounting.customers.repository import CustomerRepository
 
 _AGING_BUCKETS = [
     (0, 0, "current"),
@@ -43,10 +39,6 @@ class ReportService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repo = ReportsRepository(db)
-        self.invoice_repo = InvoiceRepository(db)
-        self.expense_repo = ExpenseRepository(db)
-        self.vendor_repo = VendorRepository(db)
-        self.customer_repo = CustomerRepository(db)
 
     async def _merged_lines(
         self,
@@ -160,23 +152,24 @@ class ReportService:
         }
 
     async def accounts_receivable_aging(self, organization_id: uuid.UUID, as_of_date: date) -> dict:
-        invoices = await self.invoice_repo.list_all_outstanding(organization_id)
+        # One JOINed query (invoice + customer name) instead of a per-invoice
+        # customer lookup — see ReportsRepository.outstanding_receivables_with_customer.
+        invoices = await self.repo.outstanding_receivables_with_customer(organization_id)
         items = []
         bucket_totals: dict[str, float] = {}
         cutoff = _end_of_day_utc(as_of_date)
 
-        for invoice in invoices:
+        for invoice, customer_name in invoices:
             outstanding = invoice.outstanding_amount
             if outstanding <= 0:
                 continue
-            customer = await self.customer_repo.get_by_id(invoice.customer_id, organization_id)
             days_overdue = max((cutoff.date() - invoice.due_date.date()).days, 0)
             bucket = _bucket_for(days_overdue)
             bucket_totals[bucket] = round(bucket_totals.get(bucket, 0) + outstanding, 2)
             items.append(
                 {
                     "party_id": invoice.customer_id,
-                    "party_name": customer.name if customer else "Unknown",
+                    "party_name": customer_name if customer_name else "Unknown",
                     "document_number": invoice.invoice_number,
                     "document_date": invoice.invoice_date.date(),
                     "due_date": invoice.due_date.date(),
@@ -194,16 +187,17 @@ class ReportService:
         }
 
     async def accounts_payable_aging(self, organization_id: uuid.UUID, as_of_date: date) -> dict:
-        expenses = await self.expense_repo.list_all_outstanding(organization_id)
+        # One JOINed query (expense + vendor name) instead of a per-expense
+        # vendor lookup — see ReportsRepository.outstanding_payables_with_vendor.
+        expenses = await self.repo.outstanding_payables_with_vendor(organization_id)
         items = []
         bucket_totals: dict[str, float] = {}
         cutoff = _end_of_day_utc(as_of_date)
 
-        for expense in expenses:
+        for expense, vendor_name in expenses:
             outstanding = expense.outstanding_amount
             if outstanding <= 0:
                 continue
-            vendor = await self.vendor_repo.get_by_id(expense.vendor_id, organization_id)
             due_date = expense.approved_at or expense.expense_date
             days_overdue = max((cutoff.date() - due_date.date()).days, 0)
             bucket = _bucket_for(days_overdue)
@@ -211,7 +205,7 @@ class ReportService:
             items.append(
                 {
                     "party_id": expense.vendor_id,
-                    "party_name": vendor.name if vendor else "Unknown",
+                    "party_name": vendor_name if vendor_name else "Unknown",
                     "document_number": expense.expense_number,
                     "document_date": expense.expense_date.date(),
                     "due_date": due_date.date(),
