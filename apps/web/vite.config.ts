@@ -21,6 +21,22 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split all third-party code into a single, deterministic `vendor`
+        // chunk. It changes far less often than app code, so browsers can
+        // cache it across deploys; keeping it as ONE chunk (rather than
+        // per-package) avoids request waterfalls / high fragmentation.
+        // Per-route app code is already split via React.lazy in the router.
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            return "vendor";
+          }
+        },
+      },
+    },
+  },
   test: {
     // Without an explicit `include`, vitest's default glob also matches
     // e2e/*.spec.ts — Playwright specs, which use Playwright's own test()

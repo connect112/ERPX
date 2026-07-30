@@ -38,6 +38,7 @@ not inferred.
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low |
 | 14 | Accessibility | No accessibility (WCAG 2.1 AA) tooling existed in any of the 4 frontend apps; near-zero ARIA/alt attribute usage found across all of them | Medium — **Phase 1 (tooling) + Phase 2 (`CardTitle`) + Phase 3 (all 20 remaining `label`/keyboard violations, 2026-07-29) fixed — `jsx-a11y/recommended` now clean across all 4 apps; non-lintable a11y (contrast, focus order, AT testing) still open** |
+| 16 | Performance | All 4 frontend apps statically imported every route page → single monolithic JS bundle per app (`apps/web` 1,495 kB, >500 kB Vite warning); 100% of the app downloaded on first paint | Medium — **fixed (2026-07-30): route-based `React.lazy` + Suspense + `vendor` `manualChunks`; 125 routes now lazy; web app-entry 1,495→65 kB (−95.6%); tsc/vitest 32/32/build/e2e 11/11 all green** |
 | 15 | Security | No dependency vulnerability scanning existed anywhere in CI; scanning added and immediately surfaced real Critical/High vulnerabilities already present in both the backend and all 4 frontend apps | Medium — **scanning tooling fixed; `python-multipart` HIGH×4 fixed and fully regression-tested (2026-07-29); frontend `vitest` CRITICAL fixed via `2.1.9→3.2.6` upgrade (2026-07-29, +2 Moderate cleared, 0 new); `python-jose` CRITICAL investigated and deliberately deferred (transitive `pyasn1` trade-off); `starlette` HIGH×3 + `ecdsa` HIGH (backend) investigated 2026-07-29 and documented as accepted risks — none reachable in ERPX's attack surface, full fix blocked by a breaking `fastapi` 0.133+ migration / no upstream `ecdsa` fix; frontend HIGH×11 (`eslint`/`vite` toolchain) + 3 Moderate still open** |
 
 ## 1. Docker
@@ -240,6 +241,72 @@ collection and run with zero import errors, already covers this change.
 ## 5. Performance
 
 **Finding #13 (Low):** already flagged in `docs/deployment/production-checklist.md` (report aggregations fetching up to 10,000 rows and aggregating in Python). No new performance findings from this pass — connection pool sizing (`DB_POOL_SIZE=20`/`DB_MAX_OVERFLOW=10` in `apps/api/app/db/session.py`) is reasonable for the documented single-replica default and is already flagged there as something to multiply by replica count. GZip compression, response envelope consistency, and index coverage on migration foreign keys were all previously verified real.
+
+### Finding #16 (Frontend performance) — route-based lazy loading + code splitting — fixed (2026-07-30)
+
+**Root cause:** all four frontend apps statically imported every route
+page in `src/router/index.tsx`, so Vite emitted a **single monolithic JS
+bundle per app** containing every page up-front. `apps/web` (118 routes)
+shipped a **1,495.27 kB** entry chunk (gzip 326.72 kB) and Vite's own
+">500 kB chunk" warning fired; the three portals shipped ~420–442 kB
+single chunks. First paint downloaded 100% of the app regardless of which
+route the user landed on.
+
+**Implementation:** converted every *protected* route page to
+`React.lazy(() => import(...))` (named-export interop via
+`.then((m) => ({ default: m.X }))`), keeping the small **public/auth
+routes eager** (login/register/verify/forgot/reset + the two public
+certificate-verify pages in `web`) so the pre-auth critical path takes no
+extra network round-trip. A single `<Suspense fallback={<PageLoader />}>`
+boundary wraps the `<Outlet />` in each app's `AppLayout`, so all lazy
+pages share one fallback. A new shared `components/ui/page-loader.tsx`
+(centered `lucide-react` spinner — an existing dependency, no new package)
+provides that fallback. `vite.config.ts` gained a deterministic
+`manualChunks` rule sending all `node_modules` into one cacheable `vendor`
+chunk (avoids per-package fragmentation; app code changes no longer bust
+the vendor cache). **No routing map, URL, RBAC, layout, theme, or styling
+changed** — behaviour is identical, only load timing differs.
+
+**Chunk strategy:** `vendor` (all third-party libs, one chunk, cached
+across deploys) + `index` (app shell/router/eager auth pages) + **one
+lazy chunk per protected route**, fetched on demand. **125 routes are now
+lazy-loaded** (web 110, each portal 5).
+
+**Bundle metrics (production `vite build`, raw / gzip):**
+
+| App | Before (single entry) | After — app `index` chunk | After — `vendor` chunk | Lazy route chunks | App-entry reduction |
+|---|---|---|---|---|---|
+| `apps/web` | 1,495.27 kB / 326.72 | **65.33 kB / 16.37** | 570.09 kB / 176.89 | 110 | **−95.6%** |
+| `apps/student-portal` | 442.40 kB / 139.19 | **12.54 kB / 4.55** | 419.41 kB / 132.98 | 5 | **−97.2%** |
+| `apps/trainer-portal` | 441.11 kB / 138.89 | **12.41 kB / 4.49** | 417.76 kB / 132.62 | 5 | **−97.2%** |
+| `apps/corporate-portal` | 442.x kB / 139.x | **12.50 kB / 4.53** | 509.69 kB / 163.40 | 5 | **−97.2%** |
+
+The headline win is `apps/web`: the app-code entry chunk fell from
+**1,495 kB → 65 kB (−95.6%)**; a landing user now downloads
+`index (65) + vendor (570) + only the landed route's small chunk` instead
+of all 118 pages. Total initial payload for `web` (index + vendor) is
+~635 kB / ~193 kB gzip vs 1,495 kB / 327 kB before — **≈57% raw / ≈41%
+gzip** reduction on first load — and the 570 kB vendor chunk is now
+cached across app-code deploys.
+
+**Design options considered:** (a) react-router's route-level `lazy:`
+property — rejected: would rewrite all ~125 route objects (higher churn,
+changes route shape) vs the mandated `React.lazy` + one Suspense boundary
+(surgical: only imports change + one layout edit). (b) per-package vendor
+chunks — rejected for fragmentation/waterfalls; a single `vendor` chunk is
+deterministic and cache-friendly.
+
+**Validation:** `tsc -b` clean (all 4), `vitest` 32/32 (8 per app),
+`vite build` succeeds (all 4), Playwright e2e **11/11** — the nav-smoke
+specs render 7 distinct lazy routes "without console errors", directly
+proving the dynamic imports and Suspense boundary resolve correctly. Zero
+behavioural regressions.
+
+**Remaining frontend-perf opportunities (not this change):** the `vendor`
+chunk (web 570 kB, corporate 510 kB) still trips the 500 kB warning —
+a future micro-optimization could isolate rarely-used heavy libs (e.g.
+`recharts`, currently eager via a shared component) into their own lazy
+chunk; and Brotli/gzip precompression at build time is still unconfigured.
 
 ## 6. Monitoring
 

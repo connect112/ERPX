@@ -1,12 +1,13 @@
+import { lazy } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
 import { AppLayout } from "@/layouts/app-layout";
 import { LoginPage } from "@/features/auth/pages/login-page";
-import { DashboardPage } from "@/features/dashboard/pages/dashboard-page";
-import { MyTicketsPage } from "@/features/tickets/pages/my-tickets-page";
-import { TicketDetailPage } from "@/features/tickets/pages/ticket-detail-page";
-import { MyProjectsPage } from "@/features/projects/pages/my-projects-page";
-import { MyContractsPage } from "@/features/contracts/pages/my-contracts-page";
+const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-page").then((m) => ({ default: m.DashboardPage })));
+const MyTicketsPage = lazy(() => import("@/features/tickets/pages/my-tickets-page").then((m) => ({ default: m.MyTicketsPage })));
+const TicketDetailPage = lazy(() => import("@/features/tickets/pages/ticket-detail-page").then((m) => ({ default: m.TicketDetailPage })));
+const MyProjectsPage = lazy(() => import("@/features/projects/pages/my-projects-page").then((m) => ({ default: m.MyProjectsPage })));
+const MyContractsPage = lazy(() => import("@/features/contracts/pages/my-contracts-page").then((m) => ({ default: m.MyContractsPage })));
 import { ProtectedRoute } from "@/router/protected-route";
 
 export const router = createBrowserRouter([

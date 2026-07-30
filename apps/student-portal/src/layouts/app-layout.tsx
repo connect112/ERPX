@@ -1,7 +1,9 @@
 import { Award, Bookmark, GraduationCap, LayoutDashboard, LogOut, Moon, Sun } from "lucide-react";
+import { Suspense } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { useTheme } from "@/components/theme-provider";
+import { PageLoader } from "@/components/ui/page-loader";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api/auth-hooks";
 import { useAuthStore } from "@/store/auth-store";
@@ -98,7 +100,11 @@ export function AppLayout() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <AppTopbar />
         <main className="flex-1 overflow-y-auto bg-muted/20">
-          <Outlet />
+          {/* Single Suspense boundary for every lazily-loaded route rendered
+              into this Outlet (see src/router/index.tsx). */}
+          <Suspense fallback={<PageLoader />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

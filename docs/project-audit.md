@@ -43,6 +43,7 @@ should be treated as the top priority.
 | Real monitoring stack: Prometheus scrape config, Grafana dashboards + datasources, alert rules | `infrastructure/monitoring/` |
 | Sentry error aggregation (backend, both API + Celery entrypoints), env-driven, PII-filtered, disabled by default (finding #10, 2026-07-29) | `apps/api/app/core/observability.py` |
 | Accessibility: `eslint-plugin-jsx-a11y` enforced on all 4 frontend apps; `jsx-a11y/recommended` clean (finding #14 Phases 1–3 complete, 2026-07-29) — label↔control association via the repo's `htmlFor`/`id` convention, keyboard-operable interactive elements | `docs/project-hardening-audit.md` §13 |
+| Frontend route-based lazy loading + code splitting across all 4 apps (finding #16, 2026-07-30) — `React.lazy` + one shared `Suspense`/`PageLoader`, `vendor` `manualChunks`; 125 lazy routes; `apps/web` app-entry bundle 1,495 kB → 65 kB (−95.6%) | `docs/project-hardening-audit.md` §5 |
 | Reversible migrations — all 36 Alembic revisions have real `downgrade()` bodies, none are `pass`-only | `apps/api/alembic/versions/` |
 | CI runs real backend tests with coverage + Alembic migration check on every push/PR | `.github/workflows/ci.yml` |
 | Image publish gated on CI success (never builds from an unvalidated commit) | `.github/workflows/docker-publish.yml` |
