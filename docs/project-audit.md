@@ -52,6 +52,7 @@ should be treated as the top priority.
 | Corporate VAPT portfolio-summary triple-nested N+1 (projects→engagements→findings, 1+P+E queries) replaced with one count-join + one `GROUP BY severity` breakdown-join with `FILTER` (finding #21, 2026-07-30) — profiled 20→2 queries, ~147ms→~22ms; response model/figures identical | `modules/corporate/vapt/repository.py`, `modules/corporate/reports/service.py` |
 | Marketing analytics landing-page-view N+1 (one `count_for_page` per page, up to 10k pages) replaced with one grouped `count(*) ... WHERE landing_page_id IN (...)` (finding #22, 2026-07-30) — profiled 10→1 page-view queries; fixes both `/analytics/overview` and `/campaigns/{id}/performance`; counts identical. Broad backend audit (identifiers/RBAC/cache-keys/auth) verified sound | `modules/marketing/landing_pages/repository.py`, `modules/marketing/analytics/service.py` |
 | Coupon usage-limit TOCTOU race fixed (finding #23, 2026-07-30) — `redeem_coupon` count-then-insert could redeem a capped coupon past its limit under concurrency; now takes a `SELECT ... FOR UPDATE` lock on the coupon row so redemptions serialize. Authenticated financial-integrity fix; contract unchanged; 2 regression tests | `modules/marketing/coupons/service.py`, `modules/marketing/coupons/repository.py` |
+| Anonymous landing-page view beacon per-IP rate limit added (finding #24, 2026-07-30) — the unauthenticated `POST /landing-pages/{id}/views` had NO rate limit (slowapi `default_limits` are not enforced — no `SlowAPIMiddleware`; only per-route `@limiter.limit` decorators apply), allowing unbounded analytics inflation / write floods. Now `@limiter.limit(RATE_LIMIT_PUBLIC_VIEW)`; anonymous access + contract preserved; 2 regression tests | `modules/marketing/landing_pages/routes.py`, `apps/api/app/core/config.py` |
 | Composite `(organization_id, status)` indexes on `accounting_invoices` + `accounting_expenses` for the aging predicate (finding #18, 2026-07-30) — EXPLAIN ANALYZE-verified (BitmapAnd → single index scan; index cost −87.5% @500k rows); reversible Alembic 0038 | `apps/api/alembic/versions/0038_add_accounting_aging_composite_indexes.py` |
 | Reversible migrations — all 36 Alembic revisions have real `downgrade()` bodies, none are `pass`-only | `apps/api/alembic/versions/` |
 | CI runs real backend tests with coverage + Alembic migration check on every push/PR | `.github/workflows/ci.yml` |
@@ -100,6 +101,15 @@ Elasticsearch as a required dependency now. I'd recommend the former.
 ### 🟡 Low
 
 **#5. Global rate limiting (`slowapi`, `RATE_LIMIT_DEFAULT` = 100/minute) applies uniformly to every endpoint** — login and password-reset get the same limit as a paginated list endpoint. Account lockout (finding in §1) is a real compensating control, but per-endpoint throttling on auth routes specifically is still standard defense-in-depth for a system handling payroll/financial data.
+
+> **Correction (finding #24, 2026-07-30):** the premise above is inaccurate.
+> `RATE_LIMIT_DEFAULT` is *not* enforced globally — slowapi's `default_limits`
+> require a `SlowAPIMiddleware`, which this app never registers. Rate limiting
+> applies **only** to routes with an explicit `@limiter.limit(...)` decorator
+> (the six auth endpoints from finding #9, plus the landing-page view beacon
+> added in finding #24). All other endpoints are unthrottled and rely on
+> authentication + account lockout; the anonymous view beacon, being
+> unauthenticated, was the one that genuinely needed its own limit.
 
 **Status: fixed (2026-07-29).** See `docs/project-hardening-audit.md`
 finding #9 for full detail — `/auth/register`, `/auth/login`,

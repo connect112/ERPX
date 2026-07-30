@@ -91,6 +91,11 @@ class Settings(BaseSettings):
 
     # ---- Rate Limiting ----
     RATE_LIMIT_DEFAULT: str = "100/minute"
+    # Per-IP cap for the anonymous landing-page view beacon
+    # (POST /marketing/landing-pages/{id}/views). Generous for a real
+    # visitor (one beacon per page load) but bounds automated view-count
+    # inflation / write floods on this unauthenticated endpoint.
+    RATE_LIMIT_PUBLIC_VIEW: str = "30/minute"
 
     # ---- Frontend ----
     FRONTEND_URL: str = "http://localhost:5173"

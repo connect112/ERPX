@@ -1,8 +1,10 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.limiter import limiter
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
@@ -106,9 +108,11 @@ async def archive_landing_page(
 
 
 @router.post("/{page_id}/views", response_model=LandingPageViewPublic, status_code=status.HTTP_201_CREATED)
+@limiter.limit(settings.RATE_LIMIT_PUBLIC_VIEW)
 async def record_view(
     page_id: uuid.UUID,
     payload: LandingPageViewCreateRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -116,6 +120,13 @@ async def record_view(
     dependency at all (no JWT, no organization_id) since it's invoked by
     an anonymous visitor's browser on the published landing page itself,
     not by a logged-in ERP user. The page is resolved by its UUID alone.
+
+    Because it is unauthenticated and writes a row per call, it is the one
+    endpoint an anonymous client can flood to inflate view analytics /
+    exhaust storage; a per-IP `@limiter.limit` (the only rate-limit
+    mechanism wired in this app — there is no global SlowAPI middleware)
+    bounds that abuse while leaving normal one-per-page-load tracking
+    untouched. `request: Request` is required by slowapi's key function.
     """
     service = LandingPageService(db)
     view = await service.record_public_view(page_id, **payload.model_dump())

@@ -624,6 +624,57 @@ total-usage limit is enforced (second redemption rejected, exactly one
 redemption row). Both run on committed data outside the rolled-back fixture and
 clean up. Full backend suite: **290/290 passing** (288 + 2 new), 0 regressions.
 
+### Finding #24 (Backend security / abuse) — anonymous landing-page view beacon was unrate-limited — fixed (2026-07-30)
+
+**Target.** `POST /api/v1/marketing/landing-pages/{page_id}/views` — the
+public, unauthenticated tracking beacon (`record_view`), which writes one
+`LandingPageView` row per call.
+
+**Root cause / investigation evidence.** Rate limiting in this app is wired
+**only** through per-route `@limiter.limit(...)` decorators: `app/core/limiter.py`
+builds the slowapi `Limiter` with `default_limits=[RATE_LIMIT_DEFAULT]`, but
+those defaults are enforced only by `SlowAPIMiddleware`, and a repo-wide search
+found no `SlowAPIMiddleware`/`SlowAPIASGIMiddleware` registered in
+`app/main.py` (only CORS, GZip, RequestContext, SecurityHeaders). The only
+routes carrying an explicit `@limiter.limit` are the six authentication
+endpoints (`grep` count: 6, all in `modules/authentication/routes.py`).
+`record_view` had **no** decorator and **no** `request: Request` param, so it
+was subject to **no** rate limit at all. An anonymous client could therefore
+POST without bound to: inflate `total_landing_page_views` and per-page stats
+(distorting marketing analytics/conversion reports), generate unbounded writes
+into `marketing_landing_page_views` (storage growth), and do so with no
+per-visitor identity check. (This corrects the earlier note in
+`docs/project-audit.md` §3 that the global 100/min limiter guarded this
+endpoint — that default is not actually enforced.)
+
+**Why this mitigation.** The smallest safe control that preserves legitimate
+anonymous analytics is a **per-IP rate limit** using the app's existing
+mechanism — a `@limiter.limit(settings.RATE_LIMIT_PUBLIC_VIEW)` (default
+`30/minute`, keyed on client IP via `get_remote_address`, identical pattern to
+finding #9's auth limits). A real visitor fires one beacon per page load, far
+under the cap; automated flooding from one source is throttled to 429.
+**De-duplication was deliberately rejected**: a landing-page view is an
+append-only analytics *event*, and repeat views (a visitor reloading, returning
+later) are legitimate and expected — collapsing them would corrupt the very
+metric the endpoint exists to capture. The endpoint contract is unchanged:
+still anonymous, same request body, same `201` + `LandingPageViewPublic` on
+success; `request: Request` is injected by FastAPI and does not appear in the
+OpenAPI body.
+
+**Files changed.** `apps/api/app/core/config.py` (new `RATE_LIMIT_PUBLIC_VIEW`),
+`modules/marketing/landing_pages/routes.py` (decorator + `request` param).
+
+**Security/abuse impact.** Closes an unauthenticated analytics-inflation /
+write-flood / storage-exhaustion vector on the one anonymous write endpoint;
+legitimate one-per-load tracking is unaffected. No change to authz or response
+shape.
+
+**Tests** (`tests/api/test_landing_page_view_rate_limit.py`, 2): a single
+anonymous view still records (`201`); the (N+1)th call from the same IP within
+the window is rejected `429` (N read from `RATE_LIMIT_PUBLIC_VIEW`, exhausted
+from the clean slate the `client` fixture's `limiter.reset()` provides). Full
+backend suite: **292/292 passing** (290 + 2 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing
