@@ -218,6 +218,9 @@ class StockService:
         **fields,
     ) -> StockTransaction:
         await self._get_item_and_warehouse(organization_id, item_id, warehouse_id)
+        # Serialise concurrent stock reductions of this item so the availability
+        # check-then-insert is atomic (prevents overselling into negative stock).
+        await self.item_repo.lock_for_update(item_id, organization_id)
         level = await self.get_stock_level(organization_id, item_id, warehouse_id)
         if quantity > level["quantity_on_hand"] + 0.001:
             raise ValidationError(
@@ -256,6 +259,8 @@ class StockService:
             transaction_type = StockTransactionType.ADJUSTMENT_IN
             cost = unit_cost
         else:
+            # Serialise concurrent reductions of this item (see issue_stock).
+            await self.item_repo.lock_for_update(item_id, organization_id)
             level = await self.get_stock_level(organization_id, item_id, warehouse_id)
             if abs(quantity_change) > level["quantity_on_hand"] + 0.001:
                 raise ValidationError(
@@ -295,6 +300,8 @@ class StockService:
         await self._get_item_and_warehouse(organization_id, item_id, from_warehouse_id)
         await self._get_item_and_warehouse(organization_id, item_id, to_warehouse_id)
 
+        # Serialise concurrent reductions of this item (see issue_stock).
+        await self.item_repo.lock_for_update(item_id, organization_id)
         level = await self.get_stock_level(organization_id, item_id, from_warehouse_id)
         if quantity > level["quantity_on_hand"] + 0.001:
             raise ValidationError(

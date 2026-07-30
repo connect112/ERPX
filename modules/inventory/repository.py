@@ -120,6 +120,20 @@ class InventoryItemRepository:
         )
         return result.scalar_one_or_none()
 
+    async def lock_for_update(self, item_id: uuid.UUID, organization_id: uuid.UUID) -> InventoryItem | None:
+        """Same lookup as ``get_by_id`` but takes a ``SELECT ... FOR UPDATE`` row
+        lock. On-hand stock is derived by summing transactions (there is no
+        balance row to lock), so stock-reducing operations serialise on the
+        owning item row to make the availability check-then-insert atomic and
+        stop concurrent issues/adjustments/transfers overselling into negative
+        stock."""
+        result = await self.db.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == item_id, InventoryItem.organization_id == organization_id)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def list_for_organization(
         self,
         organization_id: uuid.UUID,

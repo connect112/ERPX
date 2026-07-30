@@ -770,6 +770,59 @@ oversell into negative stock under concurrency (same shape as finding #23). It
 was deliberately left for a separate atomic change to keep this commit to the
 single highest-severity issue (the guaranteed crash).
 
+### Finding #27 (Backend correctness — data-integrity race) — inventory stock-oversell TOCTOU — fixed (2026-07-30)
+
+**Fresh certification audit (trusting no prior finding).** Re-verified from
+source: JWT pins `algorithms=[...]` with a startup check rejecting the
+placeholder / <32-char secret; no raw-SQL/`text()` interpolation; document
+download URLs are org-scoped (`get_by_id(id, organization_id)` → 404) + RBAC;
+journal posting enforces `debit == credit`; identifier uniqueness constraints,
+client-portal ownership, mass-assignment schemas, cache-key scoping, coupon
+redemption lock, and the scheduled-task retries all confirmed intact. The one
+open **HIGH** correctness item was this inventory race.
+
+**Root cause (evidence — reproduced).** On-hand stock is derived live by summing
+`StockTransaction` rows (`StockService.get_stock_level` → `repo.sum_by_type`);
+there is no stored balance. The three stock-reducing operations
+(`issue_stock`, `adjust_stock` reduce-branch, `transfer_stock`) each do
+`get_stock_level(...)` → compare against the requested quantity → `repo.create(...)`
+with **no lock or DB constraint** between the read and the insert. Two concurrent
+reductions of the same item therefore both read the same on-hand, both pass the
+availability check, and both insert — driving stock **negative** (overselling).
+Reachable via the authenticated inventory routes (`inventory.items.manage`).
+Same class as the coupon TOCTOU (finding #23); the FK on the transaction does not
+help (child inserts take only a shared lock on the parent item).
+
+**Fix (smallest safe change).** Serialise reductions of an item on its
+`InventoryItem` row: new `InventoryItemRepository.lock_for_update` issues
+`SELECT ... FOR UPDATE`, and each reducing path acquires it *before*
+`get_stock_level`. The second concurrent reducer blocks until the first commits,
+then re-derives on-hand (now including the first reduction) and correctly rejects
+if insufficient. Increases (`receive_stock`, `adjust_stock` increase-branch)
+take no lock — they cannot oversell. Locking the item row serialises reductions
+across that item's warehouses (correctness over maximal concurrency). No API
+contract, response model, RBAC, cache, or schema change; the lock releases at the
+per-request commit in `get_db`.
+
+**Before vs After.** Before: N concurrent reductions of an item with on-hand=X
+can each pass and insert, so total issued can exceed X (negative stock). After:
+reductions of the same item serialise; exactly the available quantity can be
+issued and further reductions hit the existing "only … available" `ValidationError`.
+
+**Security/correctness impact.** Closes an authenticated data-integrity race that
+corrupts stock balances / valuation (oversell). No authz or response change;
+single-threaded behaviour identical.
+
+**Regression risk.** Low — one added `SELECT ... FOR UPDATE` on the three
+reducing write paths (already transactional); read paths and the successful
+result untouched.
+
+**Tests** (`tests/api/test_inventory_stock_locking.py`, 4): each reducing path
+(`issue_stock`, `adjust_stock` reduction, `transfer_stock`) must emit
+`SELECT ... FOR UPDATE` on `inventory_items` — **all three fail on the pre-fix
+code and pass after** (verified) — plus a sequential availability guard. Full
+backend suite: **302/302 passing** (298 + 4 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing
