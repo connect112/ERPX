@@ -35,7 +35,18 @@ async def _mark_overdue_for_all_organizations() -> int:
     return total_flipped
 
 
-@celery_app.task(name="accounting.mark_overdue_invoices")
+@celery_app.task(
+    name="accounting.mark_overdue_invoices",
+    # Idempotent (re-flipping an already-OVERDUE invoice is a no-op), so a
+    # transient DB failure is safe to retry with exponential backoff rather
+    # than waiting a full day for the next beat run. Mirrors the retry policy
+    # on crm.followups.* — the other two scheduled tasks previously had none.
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+)
 def mark_overdue_invoices_task() -> None:
     count = asyncio.run(_mark_overdue_for_all_organizations())
     logger.info("overdue_invoices_marked", count=count)

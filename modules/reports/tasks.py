@@ -81,7 +81,19 @@ async def _run_due_scheduled_reports() -> tuple[int, int]:
     return succeeded, failed
 
 
-@celery_app.task(name="reports.run_due_scheduled_reports")
+@celery_app.task(
+    name="reports.run_due_scheduled_reports",
+    # Per-schedule failures are already caught and counted inside
+    # `_run_due_scheduled_reports`, so an exception escaping to here is an
+    # infra-level fault (e.g. the DB was briefly unreachable). Retry the whole
+    # sweep with backoff instead of losing this beat tick; the run is
+    # idempotent (a report already delivered this tick is not re-selected).
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+)
 def run_due_scheduled_reports_task() -> None:
     succeeded, failed = asyncio.run(_run_due_scheduled_reports())
     logger.info("scheduled_reports_run_complete", succeeded=succeeded, failed=failed)

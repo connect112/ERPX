@@ -675,6 +675,52 @@ the window is rejected `429` (N read from `RATE_LIMIT_PUBLIC_VIEW`, exhausted
 from the clean slate the `client` fixture's `limiter.reset()` provides). Full
 backend suite: **292/292 passing** (290 + 2 new), 0 regressions.
 
+### Finding #25 (Backend reliability) — scheduled Celery tasks lacked retry/backoff — fixed (2026-07-30)
+
+**Audit context (final production-readiness pass).** A full re-sweep across
+security and correctness confirmed the backend is fundamentally sound and
+produced no new HIGH-severity defect: no raw-SQL/`text()` interpolation
+(the only `text()` is `SELECT 1`), no `UploadFile` proxy endpoints (storage is
+presigned-URL only, and `documents.get_download_url` is org-scoped via
+`repo.get_by_id(document_id, organization_id)` + `documents.view` RBAC — no
+IDOR), journal posting enforces double-entry (`_assert_balanced` rejects
+`debit != credit`), and the identifier/RBAC/mass-assignment/cache-key findings
+from prior passes remain closed. The one *higher-severity* systemic item — the
+platform default rate limit is dead config because no `SlowAPIMiddleware` is
+registered (finding #24) — was deliberately **not** retrofitted here: doing so
+adds middleware (this directive requires preserving middleware order), applies a
+100/min cap to every endpoint (risking existing tests and legitimate traffic),
+and rate-limiting authenticated APIs is conventionally an ingress/gateway
+concern; it is recorded as an ops/infra recommendation, not a safe atomic code
+change. The highest-value **safely-implementable** remaining issue was this
+background-task reliability gap.
+
+**Root cause.** `accounting.mark_overdue_invoices` and
+`reports.run_due_scheduled_reports` were registered with a bare
+`@celery_app.task(name=...)` — no retry policy — while the customer-facing
+`crm.followups.*` tasks retry with backoff (`bind=True, max_retries=3`). A
+transient fault (e.g. the DB briefly unreachable at beat time) would fail the
+task outright with no retry and no retry-exhaustion signal; recovery waited for
+the next scheduled tick (up to a day for the nightly overdue sweep).
+
+**Fix (smallest safe change).** Both decorators now carry
+`autoretry_for=(Exception,)`, `retry_backoff=True`, `retry_backoff_max=600`,
+`retry_jitter=True`, `max_retries=3`. No function signature or body change.
+Retry is safe because both tasks are idempotent — re-flipping an already-OVERDUE
+invoice is a no-op, and the reports sweep already catches and counts each
+schedule's failure internally (so an exception escaping to the task boundary is
+an infra-level fault worth retrying, not a per-report business failure that
+would be wrongly re-run).
+
+**Regression risk.** Minimal — options-only change on two beat-scheduled tasks;
+no API, model, or synchronous path touched; the successful path is unchanged.
+
+**Tests** (`tests/unit/test_scheduled_task_retry.py`, 3, DB-free): assert both
+tasks expose `max_retries == 3`, `Exception in autoretry_for`, and
+`retry_backoff`/`retry_jitter` enabled (fails if the policy is dropped), plus an
+anchor that the `crm.followups.*` policy this mirrors is intact. Full backend
+suite: **295/295 passing** (292 + 3 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

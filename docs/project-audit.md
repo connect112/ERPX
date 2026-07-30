@@ -122,6 +122,14 @@ endpoints this finding contrasted against, still uses the unchanged
 
 **#6. Two Celery tasks have no retry/backoff**: `accounting.mark_overdue_invoices` and `reports.run_due_scheduled_reports` (`modules/accounting/invoices/tasks.py`, `modules/reports/tasks.py`) — contrast with `crm.followups.send_whatsapp_reminder`/`send_sms_reminder`, which do retry with backoff. Lower severity because both are idempotent and naturally self-heal on the next scheduled run, but a transient DB hiccup means slower recovery and no retry-exhaustion alerting.
 
+**Status: fixed (2026-07-30).** See `docs/project-hardening-audit.md`
+finding #25 — both tasks now carry `autoretry_for=(Exception,)`,
+`retry_backoff=True` (capped at 600s), `retry_jitter=True`,
+`max_retries=3`, mirroring the `crm.followups.*` policy. Both are
+idempotent, so whole-task retry is safe; per-report failures in the
+reports sweep are still caught and counted internally, so retry only
+fires on infra-level faults (e.g. a briefly-unreachable DB).
+
 **#7. Global/cross-entity search**: `ELASTICSEARCH_URL` is configured and Elasticsearch is provisioned in `docker-compose.yml` and Terraform-adjacent infra, but `packages/search/` is empty — no indexing, no search endpoint, no UI. This is the same finding reported earlier this session; repeated here for completeness since it's directly related to finding #1.
 
 ## Recommended order to close these
