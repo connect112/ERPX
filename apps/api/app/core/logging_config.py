@@ -70,6 +70,24 @@ def _static_fields_processor(service_name: str):
     return processor
 
 
+def _otel_trace_context(logger, method_name, event_dict):
+    """Inject the active OpenTelemetry span's `trace_id`/`span_id` (hex) into
+    every log line so logs, traces (see `app/core/tracing.py`), and Sentry
+    events can all be pivoted on the same ids alongside the existing
+    `request_id`. A pure no-op when OpenTelemetry isn't installed or no valid
+    span is currently recording (i.e. tracing disabled) — never raises."""
+    try:
+        from opentelemetry import trace
+
+        span_context = trace.get_current_span().get_span_context()
+        if span_context.is_valid:
+            event_dict["trace_id"] = format(span_context.trace_id, "032x")
+            event_dict["span_id"] = format(span_context.span_id, "016x")
+    except Exception:
+        pass
+    return event_dict
+
+
 def _rename_exception_key(logger, method_name, event_dict):
     """`structlog.processors.format_exc_info` (already in the shared
     processor chain below) writes the formatted traceback under an
@@ -100,6 +118,7 @@ def configure_logging(service_name: str = "erpx-api") -> None:
         _rename_exception_key,
         structlog.processors.CallsiteParameterAdder({CallsiteParameter.MODULE}),
         _static_fields_processor(service_name),
+        _otel_trace_context,
     ]
 
     if settings.is_production:

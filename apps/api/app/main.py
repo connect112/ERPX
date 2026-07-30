@@ -26,6 +26,7 @@ from app.core.exception_handlers import register_exception_handlers
 from app.core.limiter import limiter
 from app.core.logging_config import configure_logging, get_logger
 from app.core.observability import init_sentry
+from app.core.tracing import init_tracing, instrument_fastapi_app
 from app.middleware.request_context import RequestContextMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from modules.audit.hooks import register_audit_hooks
@@ -35,6 +36,9 @@ logger = get_logger(__name__)
 # Initialize Sentry before the app is constructed so its FastAPI/Starlette
 # integration wraps the application. No-op unless SENTRY_DSN is configured.
 init_sentry(service_name="erpx-api")
+# Initialize OpenTelemetry tracing (SQLAlchemy/Redis/HTTPX) before the app is
+# built. No-op unless OTEL_TRACING_ENABLED is set.
+init_tracing(service_name="erpx-api")
 register_audit_hooks()
 
 
@@ -89,6 +93,9 @@ def create_app() -> FastAPI:
     # ---- Prometheus metrics (exposed at /metrics, scraped by the Prometheus
     # server configured in infrastructure/monitoring) ----
     Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
+    # ---- OpenTelemetry request tracing (no-op unless OTEL_TRACING_ENABLED) ----
+    instrument_fastapi_app(app)
 
     return app
 

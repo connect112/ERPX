@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     MAX_LOGIN_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15
 
+    # ---- Distributed tracing (OpenTelemetry) ----
+    # Disabled by default (a complete no-op) — see app/core/tracing.py. Enable
+    # in staging/production to emit per-request span trees (HTTP + SQL + Redis
+    # + outbound HTTP + Celery) over OTLP/HTTP to a Collector/Tempo/Jaeger.
+    OTEL_TRACING_ENABLED: bool = False
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4318"
+    OTEL_TRACES_SAMPLE_RATE: float = 0.1
+
     # ---- Response caching (Redis) ----
     # Caches read-only aggregate endpoints (dashboards/analytics/reports) in
     # the existing Redis. Set CACHE_ENABLED=false to disable globally; if

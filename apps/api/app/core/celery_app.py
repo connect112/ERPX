@@ -23,11 +23,16 @@ from celery.schedules import crontab
 from app.core.config import settings
 from app.core.logging_config import configure_logging
 from app.core.observability import init_sentry
+from app.core.tracing import init_tracing, instrument_celery
 
 configure_logging(service_name="erpx-celery")
 # Capture background task failures. No-op unless SENTRY_DSN is configured;
 # Sentry's Celery integration auto-enables here since celery is imported.
 init_sentry(service_name="erpx-celery")
+# Distributed tracing for the worker: provider + shared-client spans, plus a
+# span per Celery task. No-op unless OTEL_TRACING_ENABLED is set.
+init_tracing(service_name="erpx-celery")
+instrument_celery()
 
 celery_app = Celery(
     "erpx",

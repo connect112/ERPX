@@ -33,7 +33,7 @@ not inferred.
 | 7 | Operational Readiness | No documented rollback procedure for a bad deployment | Medium — **fixed** |
 | 8 | Testing | `apps/web`'s `npm run test` (vitest) has zero test files behind it (already noted in `docs/project-audit.md`, included here for completeness) | Medium |
 | 9 | Security | Global rate limiting only — auth endpoints share the same 100/min budget as read-only list endpoints (mitigated by account lockout) | Medium — **fixed (2026-07-29)** |
-| 10 | Monitoring | Prometheus + Grafana + alert rules exist, but no distributed tracing / APM / error aggregation (Sentry, OpenTelemetry) | Medium — **error aggregation (Sentry) fixed (2026-07-29); full OpenTelemetry tracing still deferred** |
+| 10 | Monitoring | Prometheus + Grafana + alert rules exist, but no distributed tracing / APM / error aggregation (Sentry, OpenTelemetry) | Medium — **error aggregation (Sentry) fixed (2026-07-29); OpenTelemetry distributed tracing added (2026-07-30) — env-gated, covers FastAPI/SQLAlchemy/Redis/Celery/HTTPX with trace↔request-id↔log correlation, OTLP export, sampling; disabled by default, 275/275 tests pass** |
 | 11 | Scalability | No database read replica; all reads and writes hit the single RDS primary | Low |
 | 12 | Backup & Restore | No retention/cleanup policy for application-level backup files in MinIO/S3 | Low |
 | 13 | Performance | Some report aggregations fetch up to 10,000 rows and aggregate in Python rather than `GROUP BY` (already noted in `docs/deployment/production-checklist.md`) | Low — **addressed (2026-07-30): trial-balance/P&L/balance-sheet journal-line sums were already SQL `GROUP BY`; AR/AP aging per-row party-name N+1 (1+N queries) replaced with a single `LEFT OUTER JOIN` (O(N)→O(1) round-trips); response models unchanged; 271/271 tests pass** |
@@ -567,6 +567,86 @@ drives the registered handler to call `sentry_sdk.capture_exception` with
 the real exception object. `sentry_sdk.capture_exception` confirmed to be a
 safe no-op when uninitialized. Full backend regression suite re-run:
 **266/266 passing** (262 pre-existing + 4 new), 0 regressions.
+
+### OpenTelemetry distributed tracing (finding #10 — the tracing/APM half) — added (2026-07-30)
+
+**Root cause / delta.** The prior observability layer answered "how many /
+how fast in aggregate" (Prometheus `/metrics`), "what happened" (structlog +
+Loki, with `request_id` correlation), and "what broke" (Sentry) — but had
+**no per-request span tree**: nothing showed, for one specific slow request,
+where inside it the time went (which SQL query, which Redis call, which
+outbound HTTP). A direct audit confirmed zero `opentelemetry` anywhere in
+`requirements.txt` or the codebase. This is the tracing/APM remainder of
+finding #10.
+
+**Architecture (`apps/api/app/core/tracing.py`, new — coexists with, does
+not replace, the existing stack):** one env-gated `init_tracing(service_name)`
+shared by both entrypoints, mirroring the Sentry `init_sentry` pattern.
+- `OTEL_TRACING_ENABLED` is **False by default → a complete no-op** (no
+  provider, no instrumentation, zero overhead) — the local-dev/test default.
+  Activates only when set (staging/production).
+- `TracerProvider` with a `Resource` (`service.name`, `deployment.environment`),
+  a `ParentBased(TraceIdRatioBased(OTEL_TRACES_SAMPLE_RATE))` sampler
+  (default 0.1 = 10%, whole-trace consistent), and a `BatchSpanProcessor`
+  exporting over **OTLP/HTTP** to `OTEL_EXPORTER_OTLP_ENDPOINT` (default
+  `http://localhost:4318` — a Collector/Tempo/Jaeger). Batch export runs off
+  the request path, so a slow/unreachable collector never blocks a request.
+
+**Instrumentation added (auto):** FastAPI requests
+(`FastAPIInstrumentor.instrument_app`, `/metrics` + `/health*` excluded so
+scrape/probe traffic doesn't flood the backend), SQLAlchemy queries
+(instrumenting the async engine's `sync_engine`), Redis commands, outbound
+HTTPX calls, and — in the worker entrypoint — Celery tasks
+(`CeleryInstrumentor`). FastAPI spans are wired in `create_app`; the rest in
+`init_tracing`; Celery in `celery_app.py`.
+
+**Context propagation & correlation.** Each request is one trace: a root
+`SERVER` span with `CLIENT` child spans per SQL/Redis/HTTP call and `INTERNAL`
+ASGI spans, all sharing one W3C trace-id with proper parent-child span-ids. A
+new structlog processor (`logging_config._otel_trace_context`) injects the
+active span's `trace_id`/`span_id` (hex) into **every** log line alongside
+the existing `request_id` — so a log line, a Sentry event, and a trace pivot
+on the same ids. The processor is a pure no-op when no span is recording
+(tracing disabled), so it costs nothing on the default path.
+
+**Metrics captured** (as span durations/attributes, complementing
+Prometheus's aggregates): request duration (SERVER span), SQL execution time
++ statement (CLIENT `SELECT`/`connect` spans), Redis latency, Celery task
+duration, outbound HTTP duration, and error counts (span status = ERROR).
+Slow queries surface as long-duration SQL spans in the trace backend.
+
+**Environment variables** (documented in `.env.example`):
+`OTEL_TRACING_ENABLED` (default false — the runtime toggle),
+`OTEL_EXPORTER_OTLP_ENDPOINT` (default `http://localhost:4318`),
+`OTEL_TRACES_SAMPLE_RATE` (default 0.1).
+
+**Dependencies:** `opentelemetry-sdk/api==1.44.0`,
+`opentelemetry-exporter-otlp-proto-http==1.44.0`, and the fastapi / sqlalchemy
+/ redis / celery / httpx instrumentation packages (`==0.65b0`) added to
+`apps/api/requirements.txt`. Verified conflict-free via a real
+`pip install --dry-run`: **no pinned core dependency** (fastapi 0.115.0,
+sqlalchemy 2.0.35, starlette 0.38.6, celery 5.4.0, redis, httpx) is upgraded —
+only additive OTel packages + protobuf/asgiref.
+
+**Trace flow (validated, enabled state).** A real `POST /api/v1/auth/login`
+request through the instrumented app produced **8 spans in 1 trace**:
+`[SERVER] POST /api/v1/auth/login` (root) → `[CLIENT] connect` +
+`[CLIENT] SELECT` (the user-lookup SQL) → ASGI `http receive`/`http send`
+(INTERNAL) — single trace-id, correct parent-child hierarchy, durations
+recorded (request 1.9 s, SQL SELECT 38 ms, connect 99 ms), and the
+`request_completed` log line carried `request_id` + `trace_id` + `span_id`
+together (correlation confirmed). SQLAlchemy async instrumentation was
+separately verified not to break queries (`SELECT 1` → 1, correct span tree).
+
+**Validation:** new `tests/unit/test_tracing.py` (4 tests — disabled no-op
+for `init_tracing`/instrument helpers, and the log processor with/without an
+active span) all pass. Startup verified for both entrypoints with tracing
+disabled (logs `tracing_disabled`). The enabled trace flow verified via the
+8-span end-to-end capture above with an in-memory exporter. Full backend
+regression suite re-run with tracing **disabled** (the default): **275/275
+passing** (271 + 4 new), 0 regressions — the default path adds no
+instrumentation and no measurable overhead. No business logic, API contract,
+or frontend touched.
 
 ## 7. Logging
 
