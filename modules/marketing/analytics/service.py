@@ -45,11 +45,9 @@ class MarketingAnalyticsService:
         coupons, coupons_count = await self.coupon_repo.list_for_organization(
             organization_id, campaign_id=campaign_id, skip=0, limit=10_000
         )
-        coupon_redemptions = 0
-        coupon_discount_given = 0.0
-        for coupon in coupons:
-            coupon_redemptions += await self.redemption_repo.count_for_coupon(coupon.id)
-            coupon_discount_given += await self.redemption_repo.sum_discount_for_coupon(coupon.id)
+        coupon_redemptions, coupon_discount_given = await self.redemption_repo.totals_for_coupons(
+            [coupon.id for coupon in coupons]
+        )
 
         actual_spend = float(campaign.actual_spend)
         cost_per_lead = round(actual_spend / leads_generated, 2) if leads_generated > 0 else None
@@ -88,11 +86,9 @@ class MarketingAnalyticsService:
             total_landing_page_views += await self.view_repo.count_for_page(page.id)
 
         coupons, _ = await self.coupon_repo.list_for_organization(organization_id, skip=0, limit=10_000)
-        total_coupon_redemptions = 0
-        total_coupon_discount_given = 0.0
-        for coupon in coupons:
-            total_coupon_redemptions += await self.redemption_repo.count_for_coupon(coupon.id)
-            total_coupon_discount_given += await self.redemption_repo.sum_discount_for_coupon(coupon.id)
+        total_coupon_redemptions, total_coupon_discount_given = (
+            await self.redemption_repo.totals_for_coupons([coupon.id for coupon in coupons])
+        )
 
         referrals, total_referrals = await self.referral_repo.list_for_organization(
             organization_id, skip=0, limit=10_000

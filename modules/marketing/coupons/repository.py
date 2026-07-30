@@ -110,3 +110,23 @@ class CouponRedemptionRepository:
             )
         )
         return float(result.scalar_one())
+
+    async def totals_for_coupons(self, coupon_ids: list[uuid.UUID]) -> tuple[int, float]:
+        """Redemption count + total discount across many coupons in one query.
+
+        Aggregates the same values ``count_for_coupon``/``sum_discount_for_coupon``
+        return per coupon, but for a whole set at once — the sum of per-coupon
+        counts is exactly ``COUNT(*)`` over all those coupons' redemptions, and
+        the sum of per-coupon discount sums is exactly ``SUM(discount)`` over
+        them — replacing an N+1 (two queries per coupon) with a single scan.
+        """
+        if not coupon_ids:
+            return 0, 0.0
+        result = await self.db.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(CouponRedemption.discount_amount_applied), 0),
+            ).where(CouponRedemption.coupon_id.in_(coupon_ids))
+        )
+        row = result.one()
+        return int(row[0]), float(row[1])

@@ -395,6 +395,63 @@ bounded by a single course's component count (small N), each needs a distinct
 per-student row, and batching them would add correctness-sensitive per-student
 join methods for no proven scaling win; documented under Remaining bottlenecks.
 
+### Finding #20 (Backend performance) — Marketing analytics coupon-aggregation N+1 — fixed (2026-07-30)
+
+**Root cause (evidence-based, profiled before touching code).**
+`MarketingAnalyticsService.marketing_overview` (behind the Redis-cached
+`GET /api/v1/marketing/analytics/overview`) and `campaign_performance`
+(`/analytics/campaigns/{id}/performance`) each loaded up to 10,000 coupons
+(`list_for_organization(..., limit=10_000)`) and then, **per coupon**, issued
+two separate aggregate queries — `CouponRedemptionRepository.count_for_coupon`
+and `sum_discount_for_coupon` — to accumulate `total_coupon_redemptions` and
+`total_coupon_discount_given`. That is **2N queries** on
+`marketing_coupon_redemptions` per call (10,000 coupons ⇒ 20,000 round-trips),
+the highest-multiplier N+1 in the audit and the only one present in **two**
+endpoints. (The audit also ranked, but deliberately left for follow-up, the
+same functions' per-campaign lead-count loop and per-page view-count loop —
+see Remaining ranked bottlenecks.)
+
+**Profiling evidence.** A query-counting harness (SQLAlchemy
+`before_cursor_execute` listener filtering `marketing_coupon_redemptions`)
+seeded one org with 20 coupons × 3 redemptions and called `marketing_overview`:
+
+| | redemptions-table queries | total statements | returned redemptions / discount |
+|---|---|---|---|
+| Before | **40** (2 per coupon) | 48 | 60 / 660.00 |
+| After | **1** (single grouped scan) | 9 | 60 / 660.00 |
+
+Redemption-table round-trips dropped **O(N) → O(1)** (40 → 1; total statements
+48 → 9, i.e. −(2N−1)); the returned totals are byte-for-byte identical.
+
+**Fix (smallest safe change).** Added
+`CouponRedemptionRepository.totals_for_coupons(coupon_ids)` — one
+`SELECT count(*), coalesce(sum(discount_amount_applied), 0) WHERE coupon_id IN
+(:ids)` returning `(count, discount)`. The sum of per-coupon counts is exactly
+`COUNT(*)` over those coupons' redemptions and the sum of per-coupon discount
+sums is exactly `SUM(discount)` over them, so the aggregate is arithmetically
+identical to the loop; the empty-id list short-circuits to `(0, 0.0)` without a
+query (preserving the no-coupons case). Both call sites now call it once and
+the existing `round(discount, 2)` in the response is unchanged. The single-row
+`count_for_coupon` / `sum_discount_for_coupon` methods are retained (still used
+by the usage-limit path) — no duplicate query logic introduced.
+
+**Response models unchanged; API contract unchanged; RBAC/caching unchanged.**
+New regression tests `tests/api/test_marketing_analytics.py` (3) assert the
+aggregated totals equal the manual sum of seeded redemptions for both
+endpoints, the no-coupons zero case, and pin the redemptions-table query count
+to exactly 1 (0 when there are no coupons) to guard against N+1 reintroduction.
+Full backend suite: **283/283 passing** (280 + 3 new), 0 regressions.
+
+The `tests/performance/test_endpoint_latency.py` budget tests are known to be
+load-sensitive by design (their own docstring notes generous budgets "to avoid
+flaking on a loaded dev machine"): under heavy concurrent full-suite load an
+individual latency assertion can intermittently trip on cold-start or CPU
+contention (observed once each on the dashboard and bcrypt-login cases across
+runs). They pass deterministically when the perf module is run on its own
+(5/5). This is pre-existing and unrelated to this change — the marketing fix
+touches neither endpoint — and is left as-is (see Remaining ranked bottlenecks
+for the perf-harness hardening item).
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing
