@@ -98,14 +98,32 @@ async def test_marketing_overview_coupon_totals_are_sql_aggregated(db_session, o
     assert counter.count == 1
 
 
+async def test_totals_for_organization_matches_totals_for_coupons(db_session, organization):
+    # The org-scoped join aggregate (used by marketing_overview to avoid
+    # materialising the coupon list) must return values identical to the
+    # id-list aggregate over every one of the org's coupons.
+    await _seed_coupons_with_redemptions(db_session, organization, n_coupons=5, redemptions_each=2)
+
+    coupons, _ = await CouponRepository(db_session).list_for_organization(
+        organization.id, skip=0, limit=10_000
+    )
+    redemption_repo = CouponRedemptionRepository(db_session)
+    by_ids = await redemption_repo.totals_for_coupons([c.id for c in coupons])
+    by_org = await redemption_repo.totals_for_organization(organization.id)
+
+    assert by_org == by_ids
+    assert by_org[0] == 10  # 5 coupons x 2 redemptions
+
+
 async def test_marketing_overview_no_coupons_returns_zero_totals(db_session, organization):
     with _RedemptionQueryCounter() as counter:
         overview = await MarketingAnalyticsService(db_session).marketing_overview(organization.id)
 
     assert overview["total_coupon_redemptions"] == 0
     assert overview["total_coupon_discount_given"] == 0.0
-    # No coupons -> the aggregate short-circuits without hitting the table.
-    assert counter.count == 0
+    # The overview's org-scoped redemption aggregate (totals_for_organization)
+    # runs once and returns zero — no coupon list is materialised.
+    assert counter.count == 1
 
 
 async def test_campaign_performance_coupon_totals_are_sql_aggregated(db_session, organization):

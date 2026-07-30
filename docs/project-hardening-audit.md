@@ -868,6 +868,52 @@ equals the manually-seeded lead count with the `crm_leads` query count pinned to
 1, plus the no-campaigns zero case (query count 0). Full backend suite:
 **304/304 passing** (302 + 2 new), 0 regressions.
 
+### Finding #29 (Backend performance) — Marketing overview coupon-list materialization — fixed (2026-07-30)
+
+**Root cause (profiled before touching code).** `marketing_overview` loaded the
+org's coupons with `coupon_repo.list_for_organization(limit=10_000)` — a
+`COUNT` + a `SELECT` that hydrates up to 10k `Coupon` ORM objects — purely to
+pass `[coupon.id …]` into `redemption_repo.totals_for_coupons`, which then
+counted/summed redemptions `WHERE coupon_id IN (:10k-ids)`. So the coupon
+totals cost **3 queries** (list count + list select + `IN` aggregate) plus a
+full coupon-list materialization and a large `IN` parameter.
+
+**Profiling evidence** (harness: 100 coupons+redemptions, 50 pages+views, 300
+referrals; measured against the configured `erpx` DB):
+
+| | coupon-section queries | `marketing_overview` total statements | peak Python memory |
+|---|---|---|---|
+| Before | **3** (list ×2 + `IN` aggregate) | 10 | 1261.0 KiB |
+| After | **1** (single join aggregate) | 8 | 978.8 KiB |
+
+Coupon totals now cost **1 query** (−2); overview statements 10 → 8; peak
+memory −22% at this volume (the coupon-list hydration is gone, and grows with
+coupon count in production).
+
+**Fix (smallest safe change).** Added
+`CouponRedemptionRepository.totals_for_organization(organization_id)` — one
+`SELECT count(*), coalesce(sum(discount), 0) FROM marketing_coupon_redemptions
+JOIN marketing_coupons ON … WHERE marketing_coupons.organization_id = :org`. The
+join applies the org scope, so no coupon list is materialised and no `IN` clause
+is built. `marketing_overview` now calls it directly and no longer fetches the
+coupon list. Values are provably identical to the previous
+`totals_for_coupons([every org coupon id])` — same redemption set — verified by
+a dedicated equivalence test. `campaign_performance` still uses
+`totals_for_coupons` (it aggregates a single campaign's coupons, not the org),
+so that method is retained; no duplicate logic. Response models, API contract,
+RBAC, and caching (`marketing.overview`, TTL 120s) unchanged.
+
+**One test updated (not a regression):** `test_marketing_overview_no_coupons…`
+previously asserted 0 redemption-table queries (the old empty-`IN`
+short-circuit); the org join now runs once and returns 0, so the assertion
+became `== 1` — same zero result, one cheap aggregate.
+
+**Regression tests** in `tests/api/test_marketing_analytics.py`: existing
+overview coupon-total + query-count tests still pass (now exercising the join),
+plus a new `test_totals_for_organization_matches_totals_for_coupons` asserting
+the join returns values identical to the id-list aggregate. Full backend suite:
+**305/305 passing** (304 + 1 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

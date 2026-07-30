@@ -141,3 +141,20 @@ class CouponRedemptionRepository:
         )
         row = result.one()
         return int(row[0]), float(row[1])
+
+    async def totals_for_organization(self, organization_id: uuid.UUID) -> tuple[int, float]:
+        """Redemption count + total discount across all of an org's coupons in
+        one join query. Equivalent to ``totals_for_coupons`` over every coupon
+        the org owns, but without first materialising the coupon list or passing
+        a large ``IN`` clause — the join to ``Coupon`` applies the org scope."""
+        result = await self.db.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(CouponRedemption.discount_amount_applied), 0),
+            )
+            .select_from(CouponRedemption)
+            .join(Coupon, Coupon.id == CouponRedemption.coupon_id)
+            .where(Coupon.organization_id == organization_id)
+        )
+        row = result.one()
+        return int(row[0]), float(row[1])

@@ -78,9 +78,8 @@ class MarketingAnalyticsService:
         pages, _ = await self.page_repo.list_for_organization(organization_id, skip=0, limit=10_000)
         total_landing_page_views = await self.view_repo.count_for_pages([page.id for page in pages])
 
-        coupons, _ = await self.coupon_repo.list_for_organization(organization_id, skip=0, limit=10_000)
         total_coupon_redemptions, total_coupon_discount_given = (
-            await self.redemption_repo.totals_for_coupons([coupon.id for coupon in coupons])
+            await self.redemption_repo.totals_for_organization(organization_id)
         )
 
         referrals, total_referrals = await self.referral_repo.list_for_organization(
