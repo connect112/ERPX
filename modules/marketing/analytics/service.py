@@ -38,9 +38,7 @@ class MarketingAnalyticsService:
         pages, landing_pages_count = await self.page_repo.list_for_organization(
             organization_id, campaign_id=campaign_id, skip=0, limit=10_000
         )
-        landing_page_views = 0
-        for page in pages:
-            landing_page_views += await self.view_repo.count_for_page(page.id)
+        landing_page_views = await self.view_repo.count_for_pages([page.id for page in pages])
 
         coupons, coupons_count = await self.coupon_repo.list_for_organization(
             organization_id, campaign_id=campaign_id, skip=0, limit=10_000
@@ -81,9 +79,7 @@ class MarketingAnalyticsService:
             total_leads_from_campaigns += count
 
         pages, _ = await self.page_repo.list_for_organization(organization_id, skip=0, limit=10_000)
-        total_landing_page_views = 0
-        for page in pages:
-            total_landing_page_views += await self.view_repo.count_for_page(page.id)
+        total_landing_page_views = await self.view_repo.count_for_pages([page.id for page in pages])
 
         coupons, _ = await self.coupon_repo.list_for_organization(organization_id, skip=0, limit=10_000)
         total_coupon_redemptions, total_coupon_discount_given = (

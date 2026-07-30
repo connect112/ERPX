@@ -506,6 +506,55 @@ figures and the fully-seeded severity dict against manual counts over seeded
 data, cover the empty-org all-zero case, and pin the VAPT-table query count to
 exactly 2. Full backend suite: **285/285 passing** (283 + 2 new), 0 regressions.
 
+### Finding #22 (Backend audit) — Marketing analytics landing-page-view N+1 — fixed (2026-07-30)
+
+**Scope note.** A comprehensive backend audit (runtime bugs, race conditions,
+transaction/data-consistency, AuthZ/RBAC, validation, N+1, cache, security) was
+performed before selecting this fix. Findings verified *sound* and deliberately
+**not** touched (evidence in the ranked list below): all business-identifier
+generators (`ticket_number`, `student_code`, `project_code`, `invoice_number`,
+`client_code`) carry `UniqueConstraint`s so their retry-on-`IntegrityError`
+loops are effective; the client-portal ticket/comment endpoints enforce
+per-client ownership (`_require_owns_ticket`) and force `include_internal=False`;
+exactly one mutating route is unauthenticated and it is public by design (the
+anonymous landing-page view beacon); `@cache_response` keys include
+`organization_id` plus every scalar path/query param, and no cached endpoint
+takes a non-scalar/enum param, so no wrong-tenant/wrong-entity cache hit is
+possible. The single highest-value *actionable, proven, contract-safe* fix was
+the remaining marketing-analytics N+1.
+
+**Root cause (evidence-based, profiled before touching code).**
+`MarketingAnalyticsService.marketing_overview` and `campaign_performance`
+loaded up to 10,000 landing pages and issued one `count_for_page` query **per
+page** to build `total_landing_page_views` / `landing_page_views` — an N+1 on
+`marketing_landing_page_views` present in **both** cached analytics endpoints
+(the coupon sibling of this loop was already fixed in finding #20).
+
+**Profiling evidence.** A query-counting harness seeded one org with 10 pages ×
+3 views and called `marketing_overview`:
+
+| | page-view-table queries | total statements | returned views |
+|---|---|---|---|
+| Before | **10** (1 per page) | 18 | 30 |
+| After | **1** (single `IN` COUNT) | 9 | 30 |
+
+Page-view round-trips dropped **O(N) → O(1)** (10 → 1); the returned count is
+identical.
+
+**Fix (smallest safe change).** Added
+`LandingPageViewRepository.count_for_pages(page_ids)` —
+`SELECT count(*) WHERE landing_page_id IN (:ids)` (empty list short-circuits to
+0). The sum of per-page counts equals `COUNT(*)` over those pages' views, so the
+value is arithmetically identical to the loop. Both call sites now call it once;
+the per-page `count_for_page` is retained (still used elsewhere) — no duplicate
+logic. Response models, API contract, RBAC, and caching
+(`marketing.overview` / `marketing.campaign_performance`, TTL 120s) unchanged.
+
+**Regression tests** added to `tests/api/test_marketing_analytics.py` (3): total
+views correct + query count == 1 for both endpoints, and the no-pages zero case
+(query count == 0). Full backend suite: **288/288 passing** (285 + 3 new), 0
+regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

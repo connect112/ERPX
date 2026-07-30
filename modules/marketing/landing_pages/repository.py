@@ -82,6 +82,22 @@ class LandingPageViewRepository:
         )
         return result.scalar_one()
 
+    async def count_for_pages(self, landing_page_ids: list[uuid.UUID]) -> int:
+        """Total views across many pages in one query.
+
+        The sum of per-page ``count_for_page`` values equals ``COUNT(*)`` over
+        all those pages' view rows — replacing an N+1 (one count per page) with
+        a single scan. An empty id list short-circuits to 0 without a query.
+        """
+        if not landing_page_ids:
+            return 0
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(LandingPageView)
+            .where(LandingPageView.landing_page_id.in_(landing_page_ids))
+        )
+        return result.scalar_one()
+
     async def count_conversions_for_page(self, landing_page_id: uuid.UUID) -> int:
         result = await self.db.execute(
             select(func.count())

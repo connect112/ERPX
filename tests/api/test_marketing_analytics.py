@@ -18,18 +18,23 @@ from modules.marketing.campaigns.models import CampaignChannel
 from modules.marketing.campaigns.repository import CampaignRepository
 from modules.marketing.coupons.models import CouponDiscountType
 from modules.marketing.coupons.repository import CouponRedemptionRepository, CouponRepository
+from modules.marketing.landing_pages.repository import (
+    LandingPageRepository,
+    LandingPageViewRepository,
+)
 from modules.marketing.analytics.service import MarketingAnalyticsService
 
 pytestmark = pytest.mark.api
 
 
-class _RedemptionQueryCounter:
-    """Counts statements touching the coupon-redemptions table."""
+class _TableQueryCounter:
+    """Counts statements touching a given table (guards against N+1)."""
 
-    def __init__(self):
+    def __init__(self, table: str):
         from app.db.session import engine
 
         self._engine = engine.sync_engine
+        self._table = table
         self.count = 0
 
     def __enter__(self):
@@ -40,8 +45,12 @@ class _RedemptionQueryCounter:
         event.remove(self._engine, "before_cursor_execute", self._on)
 
     def _on(self, conn, cursor, statement, params, context, executemany):
-        if "marketing_coupon_redemptions" in statement.lower():
+        if self._table in statement.lower():
             self.count += 1
+
+
+def _RedemptionQueryCounter():
+    return _TableQueryCounter("marketing_coupon_redemptions")
 
 
 async def _seed_coupons_with_redemptions(
@@ -118,4 +127,60 @@ async def test_campaign_performance_coupon_totals_are_sql_aggregated(db_session,
 
     assert perf["coupon_redemptions"] == expected_redemptions
     assert perf["coupon_discount_given"] == expected_discount
+    assert counter.count == 1
+
+
+async def _seed_pages_with_views(db_session, organization, *, campaign_id=None, n_pages=4, views_each=3):
+    page_repo = LandingPageRepository(db_session)
+    view_repo = LandingPageViewRepository(db_session)
+    expected_views = 0
+    for i in range(n_pages):
+        page = await page_repo.create(
+            organization_id=organization.id, campaign_id=campaign_id,
+            slug=f"page-{uuid.uuid4().hex[:8]}", title=f"Landing {i}", content="body",
+        )
+        for _ in range(views_each):
+            await view_repo.create(
+                landing_page_id=page.id, viewed_at=datetime.now(timezone.utc)
+            )
+            expected_views += 1
+    await db_session.flush()
+    return expected_views
+
+
+async def test_marketing_overview_page_views_are_sql_aggregated(db_session, organization):
+    expected_views = await _seed_pages_with_views(db_session, organization, n_pages=4, views_each=3)
+
+    with _TableQueryCounter("marketing_landing_page_views") as counter:
+        overview = await MarketingAnalyticsService(db_session).marketing_overview(organization.id)
+
+    assert overview["total_landing_page_views"] == expected_views
+    # One grouped COUNT over all pages, not one per page.
+    assert counter.count == 1
+
+
+async def test_marketing_overview_no_pages_zero_views(db_session, organization):
+    with _TableQueryCounter("marketing_landing_page_views") as counter:
+        overview = await MarketingAnalyticsService(db_session).marketing_overview(organization.id)
+
+    assert overview["total_landing_page_views"] == 0
+    # No pages -> the aggregate short-circuits without hitting the table.
+    assert counter.count == 0
+
+
+async def test_campaign_performance_page_views_are_sql_aggregated(db_session, organization):
+    campaign = await CampaignRepository(db_session).create(
+        organization_id=organization.id, campaign_code=f"CMP-{uuid.uuid4().hex[:6]}",
+        name="Launch", channel=CampaignChannel.EMAIL, start_date=date(2026, 1, 1),
+    )
+    expected_views = await _seed_pages_with_views(
+        db_session, organization, campaign_id=campaign.id, n_pages=3, views_each=2
+    )
+
+    with _TableQueryCounter("marketing_landing_page_views") as counter:
+        perf = await MarketingAnalyticsService(db_session).campaign_performance(
+            campaign.id, organization.id
+        )
+
+    assert perf["landing_page_views"] == expected_views
     assert counter.count == 1
