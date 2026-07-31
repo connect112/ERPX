@@ -53,7 +53,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.PROJECT_NAME,
         description="ERPX — Enterprise ERP + LMS + CRM + Accounting + Pentrix Platform",
-        version="0.1.0",
+        version="1.0.0",
         docs_url="/api/docs" if not settings.is_production else None,
         redoc_url="/api/redoc" if not settings.is_production else None,
         openapi_url="/api/openapi.json",
