@@ -347,17 +347,21 @@ class StockService:
         self, organization_id: uuid.UUID, warehouse_id: uuid.UUID | None = None
     ) -> list[dict]:
         items = await self.item_repo.list_all_active(organization_id)
+        # Compute every item's on-hand in one grouped query instead of a
+        # per-item get_stock_level (which also did a redundant item lookup and an
+        # unused average-cost query) — the report only needs quantity_on_hand.
+        on_hand_by_item = await self.repo.on_hand_by_items([item.id for item in items], warehouse_id)
         low_stock = []
         for item in items:
-            level = await self.get_stock_level(organization_id, item.id, warehouse_id)
-            if level["quantity_on_hand"] <= float(item.reorder_level):
+            quantity_on_hand = round(on_hand_by_item.get(item.id, 0.0), 2)
+            if quantity_on_hand <= float(item.reorder_level):
                 low_stock.append(
                     {
                         "item_id": item.id,
                         "sku": item.sku,
                         "name": item.name,
                         "reorder_level": float(item.reorder_level),
-                        "quantity_on_hand": level["quantity_on_hand"],
+                        "quantity_on_hand": quantity_on_hand,
                     }
                 )
         return low_stock

@@ -997,6 +997,48 @@ list-based code the same test fails with `assert 2 == 1` (the list issues a
 count + a select); after the fix it passes. Full backend suite: **307/307
 passing** (306 + 1 new), 0 regressions.
 
+### Finding #32 (Backend performance) — inventory low-stock report N+1 — fixed (2026-07-30)
+
+**Pivot (evidence-based, trusting no prior conclusion).** Re-reading source, the
+biggest remaining bottleneck was **not** the marketing overview's campaigns
+materialization (a +1 query on one endpoint) but the low-stock report:
+`StockService.list_low_stock_items` (`GET /inventory/low-stock`,
+`inventory.items.view`) loaded all active items then called `get_stock_level`
+per item — **3 queries each** (`item_repo.get_by_id`, redundant since the item
+is already in hand; `sum_by_type`; and `receiving_transactions` for an average
+cost the report never uses) — i.e. **1 + 3N** queries. A profiler on the
+configured `erpx` DB proved the gap:
+
+| endpoint | queries |
+|---|---|
+| `list_low_stock_items` (40 active items) | **121** (= 1 + 3×40) |
+| `marketing_overview` (same org) | 6 |
+
+Low-stock was ~20× the overview and grows at 3N (≈3000 queries at 1000 SKUs),
+so it was the objective #1.
+
+**Fix (smallest safe change).** Added
+`StockTransactionRepository.on_hand_by_items(item_ids, warehouse_id)` — one
+`SELECT item_id, transaction_type, coalesce(sum(quantity),0) … WHERE item_id IN
+(:ids) [AND warehouse_id = :w] GROUP BY item_id, transaction_type`, folded into
+`{item_id: on_hand}` with the *same* increasing/decreasing rule
+`get_stock_level` uses. `list_low_stock_items` now fetches active items and this
+one map, then compares `round(on_hand, 2)` to `reorder_level` exactly as before
+(the report only ever used `quantity_on_hand`; the average-cost work was dead
+weight). `get_stock_level` is unchanged for its other callers.
+
+**After:** **2 queries** (1 active-items list + 1 grouped on-hand),
+**independent of item count** — 121 → 2 at N=40. Same flagged items and
+`quantity_on_hand` values; response model, API contract, RBAC, and caching
+unchanged.
+
+**Regression tests** (`tests/api/test_inventory_low_stock.py`): a below/above/
+net-of-issue/zero-stock scenario asserts the exact flagged set + on-hand values
+and pins the query count to 2, plus an empty-org case (1 query). **Proven
+fail-before / pass-after:** on the pre-fix per-item code the count assertion
+fails with `assert 13 == 2` (1 + 3×4); after the fix it passes. Full backend
+suite: **309/309 passing** (307 + 2 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

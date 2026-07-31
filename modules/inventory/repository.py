@@ -226,6 +226,38 @@ class StockTransactionRepository:
         )
         return [(row[0], float(row[1])) for row in result.all()]
 
+    async def on_hand_by_items(
+        self, item_ids: list[uuid.UUID], warehouse_id: uuid.UUID | None = None
+    ) -> dict[uuid.UUID, float]:
+        """Quantity-on-hand for many items in a single grouped query.
+
+        Groups by ``(item_id, transaction_type)`` and folds each item's rows the
+        same way ``get_stock_level`` does (increasing types add, everything else
+        subtracts), returning ``{item_id: on_hand}``. Lets callers that need the
+        on-hand for a whole item set avoid the per-item `sum_by_type` N+1. Items
+        with no transactions are simply absent (caller treats as 0)."""
+        from modules.inventory.models import INCREASING_TRANSACTION_TYPES
+
+        if not item_ids:
+            return {}
+        conditions = [StockTransaction.item_id.in_(item_ids)]
+        if warehouse_id is not None:
+            conditions.append(StockTransaction.warehouse_id == warehouse_id)
+        result = await self.db.execute(
+            select(
+                StockTransaction.item_id,
+                StockTransaction.transaction_type,
+                func.coalesce(func.sum(StockTransaction.quantity), 0),
+            )
+            .where(*conditions)
+            .group_by(StockTransaction.item_id, StockTransaction.transaction_type)
+        )
+        on_hand: dict[uuid.UUID, float] = {}
+        for item_id, transaction_type, quantity in result.all():
+            delta = float(quantity) if transaction_type in INCREASING_TRANSACTION_TYPES else -float(quantity)
+            on_hand[item_id] = on_hand.get(item_id, 0.0) + delta
+        return on_hand
+
     async def receiving_transactions(
         self, item_id: uuid.UUID, warehouse_id: uuid.UUID | None = None
     ) -> list[StockTransaction]:
