@@ -1080,6 +1080,56 @@ bind-mounts still overlay `/app`).
 are unchanged. Full backend regression suite (Python source byte-identical to
 HEAD): **309/309**, 0 regressions.
 
+### Finding #34 (Deployment / Auth bootstrap — CRITICAL) — fresh `docker compose up` had no usable login — fixed (2026-07-31)
+
+**Problem.** A fresh deployment could not log in (HTTP 401 / empty `users`). Three
+wiring gaps in the bootstrap pipeline:
+1. The compose `x-backend-env` anchor did **not** include `SEED_SUPERADMIN_EMAIL`/
+   `SEED_SUPERADMIN_PASSWORD`, so the `api` container never received them and
+   `scripts/seed.py` skipped creating the admin (`seed_superadmin_skipped`).
+2. Nothing ran migrations or the seed on startup — the `api` command was bare
+   `uvicorn`, so a fresh DB had no schema *and* no bootstrap user.
+3. `.env` / `.env.example` carried no seed variables to propagate.
+
+**Impact — Critical.** No first user exists, registration requires email
+verification, and no one can self-grant a role — so the platform was unusable
+after `docker compose up` without manual SQL.
+
+**Fix (behaviour-preserving, production-quality).**
+- New `apps/api/scripts/entrypoint.sh`: when `RUN_MIGRATIONS` is truthy, runs
+  `alembic upgrade head` then the idempotent `python -m scripts.seed`, then
+  `exec "$@"`. Set as the image `ENTRYPOINT` (via `sh`, exec-bit-independent);
+  the CMD/compose command is unchanged.
+- `docker-compose.yml`: added `SEED_SUPERADMIN_EMAIL`/`SEED_SUPERADMIN_PASSWORD`
+  to the shared env anchor (with overridable defaults), and `RUN_MIGRATIONS:
+  "true"` on the **api service only** — so migrations/seed run exactly once and
+  celery worker/beat (same image, flag unset) skip them (no race).
+- `.env.example` documents the three variables; the local `.env` carries them.
+- Corrected the default seed email from `admin@erpx.local` to
+  `admin@erpx.example.com` — the login endpoint validates `EmailStr`, which
+  rejects the reserved `.local` TLD, so a `.local` admin could be seeded but
+  never log in.
+
+`scripts/seed.py` was already idempotent (checks `get_user_by_email`;
+`assign_role` returns the existing row) and needed no change.
+
+**Test evidence (live compose stack).**
+- `docker compose config`: api receives `RUN_MIGRATIONS`, `SEED_SUPERADMIN_*`;
+  celery_worker does **not** get `RUN_MIGRATIONS`.
+- api startup logs: `Applying database migrations … → Seeding … →
+  seed_superadmin_created email=admin@erpx.example.com → Uvicorn running`.
+- DB: superadmin row `is_superuser=t, is_email_verified=t, status=active`, role
+  `super_admin` assigned; 206 permissions, 3 roles seeded.
+- Auth flow: `POST /api/v1/auth/login` → **200** with `access_token`/`refresh_token`/
+  `user`; `/auth/me` with token → **200**, without → **401**.
+- Idempotency: re-running the seed logs `seed_superadmin_already_exists` (no
+  duplicate).
+- celery_worker on the new image booted `celery@… ready` (healthy) and correctly
+  skipped migrate/seed.
+
+No application (`.py`) code changed. Full backend suite: **309/309**, 0
+regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

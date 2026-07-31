@@ -28,6 +28,11 @@ x-backend-env: &backend-env
   AI_API_KEY: ${AI_API_KEY:-}
   AI_API_BASE_URL: ${AI_API_BASE_URL:-https://api.anthropic.com}
   AI_MODEL: ${AI_MODEL:-claude-sonnet-5}
+  # Bootstrap superadmin used by scripts.seed on first startup (idempotent).
+  # Override in .env; the defaults make a fresh `docker compose up` usable but
+  # MUST be changed for any non-local deployment.
+  SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL:-admin@erpx.example.com}
+  SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:-Admin@12345}
 
 services:
   postgres:
@@ -115,6 +120,10 @@ services:
     restart: unless-stopped
     environment:
       <<: *backend-env
+      # Only the api service owns schema management: its entrypoint runs
+      # `alembic upgrade head` + scripts.seed on startup. celery worker/beat
+      # share the image but leave this unset, so migrations run exactly once.
+      RUN_MIGRATIONS: "true"
     ports:
       - "8000:8000"
     depends_on:
