@@ -1039,6 +1039,47 @@ fail-before / pass-after:** on the pre-fix per-item code the count assertion
 fails with `assert 13 == 2` (1 + 3×4); after the fix it passes. Full backend
 suite: **309/309 passing** (307 + 2 new), 0 regressions.
 
+### Finding #33 (Deployment / CRITICAL) — production Docker image was not self-contained — fixed (2026-07-31)
+
+**Problem.** The API image was built with `context: apps/api` (both
+`docker-compose.yml` and `.github/workflows/docker-publish.yml`), and its
+Dockerfile did `COPY . .`. But the application code is split: the `app` package,
+`alembic`, and `scripts` live under `apps/api/`, while the `modules/` (48
+packages) and `packages/` (9) live at the **repository root** — *outside* that
+build context. `apps/api/modules` and `apps/api/packages` are empty, untracked
+bind-mount stubs. So `COPY . .` baked **empty** `modules/`/`packages/` into the
+image.
+
+**Impact — Critical.** `app.main` does `from modules.accounting.router import …`;
+in the published `ghcr.io/gir-technologies/erpx-api:latest` the container raises
+`ModuleNotFoundError: No module named 'modules.accounting'` on startup. The K8s
+`api-deployment` runs exactly that image with **no volume mounts**, so a real
+deploy crash-loops. It only ran in local dev because `docker-compose.yml`
+bind-mounts `./modules:/app/modules` and `./packages:/app/packages` over `/app`,
+masking the defect. CI has been publishing a non-runnable image.
+
+**Fix.** Build from the **repository-root context** so all three source trees are
+included: the Dockerfile now `COPY apps/api/ ./` then `COPY modules/ ./modules/`
+and `COPY packages/ ./packages/` (over the empty stubs); `requirements.txt` is
+copied from `apps/api/`. The 3 backend compose services now use `context: .` +
+`dockerfile: apps/api/Dockerfile`, and the publish workflow uses `context: .`.
+A new **repo-root `.dockerignore`** keeps the (now larger) context to just the
+API's sources — excluding `.git`, `.env`/secrets, the frontend apps + all
+`node_modules`, `tests/`, `docs/`, `infrastructure/`, and host bytecode/log/
+runtime artifacts. No application code changed; dev behaviour is unchanged (the
+bind-mounts still overlay `/app`).
+
+**Proof (docker, standalone — no bind-mounts).**
+
+| image build context | `/app/modules` | `import app.main` (standalone) |
+|---|---|---|
+| Before (`apps/api`) | **empty** | `ModuleNotFoundError: modules.accounting` |
+| After (repo root) | **47 packages** incl. `accounting` | **OK** ("SELF-CONTAINED app.main import OK") |
+
+`docker compose config` validates; the image builds and its `HEALTHCHECK`/CMD
+are unchanged. Full backend regression suite (Python source byte-identical to
+HEAD): **309/309**, 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

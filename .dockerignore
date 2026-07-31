@@ -1,0 +1,52 @@
+# The API image (apps/api/Dockerfile) builds from the repo root so it can copy
+# apps/api/ + modules/ + packages/. Keep the context to just those — exclude
+# VCS, secrets, the frontend apps (huge node_modules), tests, docs, infra, and
+# host runtime/bytecode artifacts.
+
+# VCS / CI / editor / OS
+.git/
+.github/
+.idea/
+.vscode/
+.DS_Store
+
+# Secrets / environment (never send to the build)
+.env
+.env.*
+*.pem
+*.key
+
+# Frontend apps — not part of the API image
+apps/web/
+apps/student-portal/
+apps/trainer-portal/
+apps/corporate-portal/
+**/node_modules/
+
+# Tests, docs, infra, load tests — not needed at runtime
+tests/
+docs/
+infrastructure/
+locustfile.py
+
+# Python bytecode / caches (would otherwise bake host-Python bytecode in)
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime state & logs
+**/celerybeat-schedule
+**/celerybeat-schedule.*
+**/celerybeat.pid
+**/*.log
+
+# Local virtualenvs
+.venv/
+venv/
+env/

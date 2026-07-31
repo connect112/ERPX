@@ -109,8 +109,8 @@ services:
 
   api:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
     container_name: erpx_api
     restart: unless-stopped
     environment:
@@ -134,8 +134,8 @@ services:
 
   celery_worker:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
     container_name: erpx_celery_worker
     restart: unless-stopped
     environment:
@@ -164,8 +164,8 @@ services:
 
   celery_beat:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
     container_name: erpx_celery_beat
     restart: unless-stopped
     environment:

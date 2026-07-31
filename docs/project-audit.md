@@ -97,6 +97,8 @@ for an audit, not implementation): make the `search` check informational only
 (don't fail readiness on it) until a real search feature exists, or stand up
 Elasticsearch as a required dependency now. I'd recommend the former.
 
+**#1b. (2026-07-31, CRITICAL — fixed) The published API Docker image was not self-contained and crash-looped in production.** The image was built with `context: apps/api`, but `modules/` (48 packages) and `packages/` live at the repo root, outside that context — so `COPY . .` baked *empty* `modules/`/`packages/`, and `app.main`'s `from modules.accounting.router import …` raised `ModuleNotFoundError` on startup. It only worked in dev because compose bind-mounts the real trees over `/app`; the K8s deployment (no mounts) would crash-loop. Fixed by building from the repo-root context (Dockerfile `COPY`s `apps/api/` + `modules/` + `packages/`), updating the 3 backend compose contexts and the publish workflow, and adding a repo-root `.dockerignore`. Verified: standalone `docker run` now imports `app.main` cleanly (was `ModuleNotFoundError`). See `docs/project-hardening-audit.md` finding #33.
+
 ### 🟠 Medium
 
 **#2. `apps/web`'s `npm run test` (vitest) is wired into `package.json` and CI but zero `.test.ts`/`.test.tsx` files exist anywhere in the app** — only 3 Playwright e2e specs (`apps/web/e2e/*.spec.ts`), which run via the separate `test:e2e` script. The CI "Run frontend tests" step is currently running a test command against an empty suite.
