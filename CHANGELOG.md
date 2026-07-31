@@ -73,8 +73,18 @@ release validation (no Critical/High/Medium blockers).
 - No hardcoded secrets in tracked source; Kubernetes injects secrets via
   `secretKeyRef` (`erpx-secrets`). ORM-only data access (no raw SQL/injection).
 
+### Deferred to a future release (by decision)
+- **Global search** — Elasticsearch is provisioned but `packages/search/` is
+  intentionally not implemented for 1.0.0; the search API/UI are post-1.0.
+- **Pentrix lab provisioning** — ships with the documented `StubProvisioner`
+  (all lab lifecycle/status/access-control is functional; real Docker/Kubernetes/
+  cloud environment spin-up is a post-1.0 infrastructure decision).
+- **Global rate limiting** — enforced per-route (auth + the anonymous view
+  beacon) plus at the ingress/API-gateway; no in-app global `SlowAPIMiddleware`.
+
 ### Known minor items (non-blocking, targeted for 1.0.x)
-- Empty untracked `apps/api/{modules,packages}` bind-mount stub directories.
 - Minor list-response envelope variance across a few endpoints.
+- Frontend automated-test coverage is light (web has unit + e2e; the three
+  portals are build-checked in CI but thinly unit-tested).
 
 [1.0.0]: https://github.com/gir-technologies/erpx/releases/tag/v1.0.0

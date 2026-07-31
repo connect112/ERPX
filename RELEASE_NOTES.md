@@ -51,10 +51,19 @@ evidence-cited environment checklist.
 
 None (initial release).
 
+## Deferred to a future release (by decision)
+
+- **Global search** — Elasticsearch is provisioned but not wired into an in-app
+  search API/UI for 1.0.0 (post-1.0).
+- **Pentrix lab provisioning** — ships with the documented `StubProvisioner`;
+  real environment spin-up (Docker/Kubernetes/cloud) is a post-1.0 infra decision.
+- **Global rate limiting** — enforced per-route plus at the ingress/API-gateway;
+  no in-app global middleware.
+
 ## Known minor items (non-blocking; planned for 1.0.x)
 
-- Empty untracked `apps/api/{modules,packages}` bind-mount stub directories.
 - Minor list-response envelope variance across a few endpoints.
+- Frontend automated-test coverage is light outside the main web app.
 
 ## Credits
 
