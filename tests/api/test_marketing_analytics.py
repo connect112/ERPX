@@ -261,3 +261,41 @@ async def test_marketing_overview_no_campaigns_zero_leads(db_session, organizati
     assert overview["total_leads_from_campaigns"] == 0
     # No campaigns -> the aggregate short-circuits without hitting the table.
     assert counter.count == 0
+
+
+async def _seed_referrals(db_session, organization, counts_by_status):
+    from modules.marketing.referrals.models import ReferralStatus
+    from modules.marketing.referrals.repository import ReferralProgramRepository, ReferralRepository
+
+    program = await ReferralProgramRepository(db_session).create(
+        organization_id=organization.id, name="Prog", code=f"RP-{uuid.uuid4().hex[:6]}",
+        referrer_reward_amount=50, valid_from=date(2026, 1, 1),
+    )
+    repo = ReferralRepository(db_session)
+    for status, n in counts_by_status.items():
+        for _ in range(n):
+            await repo.create(
+                organization_id=organization.id, referral_program_id=program.id,
+                referee_name="Referee", status=status,
+            )
+    await db_session.flush()
+
+
+async def test_marketing_overview_referrals_are_sql_aggregated(db_session, organization):
+    from modules.marketing.referrals.models import ReferralStatus
+
+    await _seed_referrals(db_session, organization, {
+        ReferralStatus.PENDING: 4,
+        ReferralStatus.CONVERTED: 3,
+        ReferralStatus.REWARDED: 2,
+        ReferralStatus.EXPIRED: 1,
+    })
+
+    with _TableQueryCounter("marketing_referrals") as counter:
+        overview = await MarketingAnalyticsService(db_session).marketing_overview(organization.id)
+
+    assert overview["total_referrals"] == 10          # 4+3+2+1
+    assert overview["referrals_converted"] == 5        # CONVERTED + REWARDED
+    assert overview["referrals_rewarded"] == 2
+    # One grouped GROUP BY status query, not the list's count + select (2).
+    assert counter.count == 1

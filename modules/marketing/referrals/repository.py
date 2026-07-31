@@ -103,6 +103,25 @@ class ReferralRepository:
         )
         return list(result.scalars().all()), total
 
+    async def status_breakdown_for_organization(
+        self, organization_id: uuid.UUID
+    ) -> dict[ReferralStatus, int]:
+        """Referral counts grouped by status for one org, in a single query.
+
+        Replaces materialising the whole referral list only to tally statuses in
+        Python — the sum of the values is the org's total referral count, and
+        individual buckets give the converted/rewarded figures. Only statuses
+        that actually occur are returned; callers default the rest to 0."""
+        result = await self.db.execute(
+            select(Referral.status, func.count())
+            .where(Referral.organization_id == organization_id)
+            .group_by(Referral.status)
+        )
+        return {
+            (status if isinstance(status, ReferralStatus) else ReferralStatus(status)): int(count)
+            for status, count in result.all()
+        }
+
     async def list_for_referrer(self, referrer_student_id: uuid.UUID) -> list[Referral]:
         result = await self.db.execute(
             select(Referral).where(Referral.referrer_student_id == referrer_student_id)

@@ -957,6 +957,46 @@ plus a new `test_view_count_for_organization_matches_count_for_pages` asserting
 the join equals the id-list aggregate. Full backend suite: **306/306 passing**
 (305 + 1 new), 0 regressions.
 
+### Finding #31 (Backend performance) — Marketing overview referral materialization — fixed (2026-07-30)
+
+**Root cause (profiled before touching code).** `marketing_overview` loaded the
+org's referrals with `referral_repo.list_for_organization(limit=10_000)` — a
+`COUNT` + a `SELECT` hydrating up to 10k `Referral` ORM objects — then tallied
+`referrals_converted`/`referrals_rewarded` with two Python `sum()` loops over
+that list. This is the last "materialise-a-list-to-count-in-Python" section of
+the overview (the last remaining one that is self-contained; the campaigns list
+is retained because its ids also feed the leads count).
+
+**Profiling evidence** (harness: 500 referrals across all five statuses,
+configured `erpx` DB):
+
+| | referrals-table queries | `marketing_overview` total statements | peak Python memory |
+|---|---|---|---|
+| Before | **2** (list count + select, 500 ORM rows) | 6 | 1292.3 KiB |
+| After | **1** (single `GROUP BY status`) | 5 | 457.4 KiB |
+
+Referrals-table queries 2 → 1; overview statements 6 → 5; peak memory **−65%**
+(no `Referral` hydration, no Python loops); grows with referral count in
+production.
+
+**Fix (smallest safe change).** Added
+`ReferralRepository.status_breakdown_for_organization(organization_id)` — one
+`SELECT status, count(*) FROM marketing_referrals WHERE organization_id = :org
+GROUP BY status` returning `{status: count}`. The service derives
+`total_referrals = sum(values)`, `referrals_converted = count(CONVERTED) +
+count(REWARDED)`, `referrals_rewarded = count(REWARDED)` — identical arithmetic
+to the previous Python tally (absent statuses default to 0). Response models,
+API contract, RBAC, and caching (`marketing.overview`, TTL 120s) unchanged;
+`list_for_organization` is retained for the referral list endpoints.
+
+**Regression test** (`tests/api/test_marketing_analytics.py`):
+`test_marketing_overview_referrals_are_sql_aggregated` seeds referrals across
+statuses, asserts the three figures are correct, and pins the referrals-table
+query count to 1. **Proven fail-before / pass-after:** on the pre-fix
+list-based code the same test fails with `assert 2 == 1` (the list issues a
+count + a select); after the fix it passes. Full backend suite: **307/307
+passing** (306 + 1 new), 0 regressions.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing

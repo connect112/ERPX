@@ -81,13 +81,14 @@ class MarketingAnalyticsService:
             await self.redemption_repo.totals_for_organization(organization_id)
         )
 
-        referrals, total_referrals = await self.referral_repo.list_for_organization(
-            organization_id, skip=0, limit=10_000
+        referral_status_counts = await self.referral_repo.status_breakdown_for_organization(
+            organization_id
         )
-        referrals_converted = sum(
-            1 for r in referrals if r.status in (ReferralStatus.CONVERTED, ReferralStatus.REWARDED)
-        )
-        referrals_rewarded = sum(1 for r in referrals if r.status == ReferralStatus.REWARDED)
+        total_referrals = sum(referral_status_counts.values())
+        referrals_converted = referral_status_counts.get(
+            ReferralStatus.CONVERTED, 0
+        ) + referral_status_counts.get(ReferralStatus.REWARDED, 0)
+        referrals_rewarded = referral_status_counts.get(ReferralStatus.REWARDED, 0)
 
         return {
             "total_campaigns": total_campaigns,
