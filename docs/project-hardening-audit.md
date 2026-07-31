@@ -1130,6 +1130,40 @@ after `docker compose up` without manual SQL.
 No application (`.py`) code changed. Full backend suite: **309/309**, 0
 regressions.
 
+### Finding #35 (Deployment / Auth bootstrap) — bootstrap superadmin had no organization → 422 on org-scoped endpoints — fixed (2026-07-31)
+
+**Problem.** After the superadmin seed (finding #34), org-scoped endpoints (e.g.
+`GET /api/v1/audit`) returned **HTTP 422**:
+`get_current_user_organization_id` (`modules/users/dependencies.py`) resolves the
+tenant from `UserProfileRepository.get_by_user_id`, but `scripts/seed.py` created
+the superadmin `User` (+ `super_admin` role) with **no `UserProfile`**, so it had
+no organization.
+
+**Architectural decision — Option A (seed a default org), not Option B (bypass).**
+Bypassing the org requirement for superadmins would force every org-scoped
+endpoint (and the audit-context) to handle a null tenant and would erode
+multi-tenant scoping. Instead the seed now attaches the superadmin to a default
+**"System" organization** via a `UserProfile`, so the existing tenant-scoping and
+RBAC paths work unchanged. Only the bootstrap file (`scripts/seed.py`) changed.
+
+**Fix (idempotent).** In `seed_bootstrap_superadmin`:
+- get-or-create a `System` organization by a fixed slug (`erpx-system`);
+- get-or-create the superadmin's `UserProfile` (by `user_id`) linked to it.
+Both use existing-row checks, so re-seeding never duplicates. Also imported
+`modules.branches.models.Branch` — `UserProfile.branch_id` FKs to `branches`, and
+inserting a profile from this standalone script triggers ORM table-dependency
+sorting that raised `NoReferencedTableError: … table 'branches'` until the model
+was registered (the app pulls it in transitively via `app.main`).
+
+**E2E evidence (fresh DB → live compose stack).** Before: `GET /audit` → **422**.
+Seed logs: `seed_system_org_created slug=erpx-system` → `seed_superadmin_created`
+→ `seed_superadmin_profile_created org=erpx-system`. DB: 1 `erpx-system` org, the
+admin `UserProfile` → `erpx-system`. After: `GET /api/v1/audit` → **200**,
+`GET /api/v1/audit/entity-types` → **200**. Idempotency: re-run logs only
+`seed_superadmin_already_exists`; counts stay 1 org / 1 profile / 1 role. Full
+backend suite: **309/309**, 0 regressions — multi-tenancy/RBAC constraints
+untouched.
+
 ### Finding #17 (Backend performance) — Redis response caching for read-only aggregate endpoints — fixed (2026-07-30)
 
 **Root cause:** read-heavy aggregate endpoints (dashboard summary, marketing
