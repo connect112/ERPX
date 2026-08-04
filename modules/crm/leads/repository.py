@@ -87,6 +87,32 @@ class LeadRepository:
         )
         return result.scalar_one()
 
+    async def status_breakdown_for_campaign(
+        self, organization_id: uuid.UUID, campaign_id: uuid.UUID
+    ) -> dict[LeadStatus, int]:
+        """Lead counts grouped by status for one campaign, in a single query.
+
+        Replaces materialising the campaign's full lead list only to tally the
+        generated/converted figures in Python: the sum of the values is the
+        campaign's total lead count (``leads_generated``) and the ``CONVERTED``
+        bucket gives ``leads_converted`` — same organization + ``deleted_at IS
+        NULL`` filter as ``list_for_organization(campaign_id=...)``. Only
+        statuses that actually occur are returned; callers default the rest
+        to 0."""
+        result = await self.db.execute(
+            select(Lead.status, func.count())
+            .where(
+                Lead.organization_id == organization_id,
+                Lead.deleted_at.is_(None),
+                Lead.campaign_id == campaign_id,
+            )
+            .group_by(Lead.status)
+        )
+        return {
+            (status if isinstance(status, LeadStatus) else LeadStatus(status)): int(count)
+            for status, count in result.all()
+        }
+
     async def update(self, lead: Lead, **fields) -> Lead:
         for key, value in fields.items():
             if value is not None:

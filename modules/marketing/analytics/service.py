@@ -29,10 +29,11 @@ class MarketingAnalyticsService:
         if not campaign:
             raise NotFoundError("Campaign", campaign_id)
 
-        leads, leads_generated = await self.lead_repo.list_for_organization(
-            organization_id, campaign_id=campaign_id, skip=0, limit=10_000
+        lead_status_counts = await self.lead_repo.status_breakdown_for_campaign(
+            organization_id, campaign_id
         )
-        leads_converted = sum(1 for l in leads if l.status == LeadStatus.CONVERTED)
+        leads_generated = sum(lead_status_counts.values())
+        leads_converted = lead_status_counts.get(LeadStatus.CONVERTED, 0)
         conversion_rate = round((leads_converted / leads_generated) * 100, 2) if leads_generated > 0 else 0.0
 
         pages, landing_pages_count = await self.page_repo.list_for_organization(

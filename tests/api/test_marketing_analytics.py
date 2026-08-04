@@ -299,3 +299,43 @@ async def test_marketing_overview_referrals_are_sql_aggregated(db_session, organ
     assert overview["referrals_rewarded"] == 2
     # One grouped GROUP BY status query, not the list's count + select (2).
     assert counter.count == 1
+
+
+async def _seed_campaign_leads_by_status(db_session, organization, campaign_id, counts_by_status):
+    from modules.crm.leads.models import LeadSource
+    from modules.crm.leads.repository import LeadRepository
+
+    repo = LeadRepository(db_session)
+    for status, n in counts_by_status.items():
+        for _ in range(n):
+            await repo.create(
+                organization_id=organization.id, campaign_id=campaign_id,
+                full_name="Lead", source=LeadSource.WEBSITE, status=status,
+            )
+    await db_session.flush()
+
+
+async def test_campaign_performance_lead_counts_are_sql_aggregated(db_session, organization):
+    from modules.crm.leads.models import LeadStatus
+
+    campaign = await CampaignRepository(db_session).create(
+        organization_id=organization.id, campaign_code=f"CMP-{uuid.uuid4().hex[:6]}",
+        name="Lead Drive", channel=CampaignChannel.EMAIL, start_date=date(2026, 1, 1),
+    )
+    await _seed_campaign_leads_by_status(db_session, organization, campaign.id, {
+        LeadStatus.NEW: 5,
+        LeadStatus.CONVERTED: 3,
+        LeadStatus.LOST: 2,
+    })
+
+    with _TableQueryCounter("crm_leads") as counter:
+        perf = await MarketingAnalyticsService(db_session).campaign_performance(
+            campaign.id, organization.id
+        )
+
+    assert perf["leads_generated"] == 10               # 5+3+2
+    assert perf["leads_converted"] == 3
+    assert perf["conversion_rate_percent"] == 30.0     # 3/10 * 100
+    # One grouped GROUP BY status query — not the list's count + select (2),
+    # and no lead rows are materialised to tally the counts in Python.
+    assert counter.count == 1
