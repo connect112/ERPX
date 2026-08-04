@@ -19,6 +19,7 @@ import uuid
 
 import sentry_sdk
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -60,12 +61,19 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         request_id = getattr(request.state, "request_id", None)
+        # ``exc.errors()`` can carry non-JSON-serialisable values in each entry's
+        # ``input``/``ctx`` (e.g. the raw request body as ``bytes`` when a client
+        # posts a wrong content-type to a JSON endpoint). Passing them straight to
+        # ``json.dumps`` raised ``TypeError: Object of type bytes is not JSON
+        # serializable``, which the fallback handler turned into a 500 — masking
+        # what should be a clean 422. ``jsonable_encoder`` coerces those values
+        # (bytes -> str, etc.), matching FastAPI's own default validation handler.
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content=_envelope(
                 "validation_error",
                 "Request validation failed.",
-                exc.errors(),
+                jsonable_encoder(exc.errors()),
                 request_id,
             ),
         )
