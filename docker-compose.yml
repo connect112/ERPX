@@ -165,7 +165,7 @@ services:
     # Override the image's HEALTHCHECK (curls the API's HTTP port, which
     # this container doesn't serve) with a real worker-responsiveness check.
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.core.celery_app inspect ping -d celery@$$HOSTNAME"]
+      test: ["CMD-SHELL", "celery -A app.core.celery_app inspect ping -d celery@$$(hostname)"]
       interval: 30s
       timeout: 10s
       start_period: 15s
