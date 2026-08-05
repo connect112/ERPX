@@ -19,6 +19,7 @@ API's `erpx-api` in the unified `service` field.
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 
 from app.core.config import settings
 from app.core.logging_config import configure_logging
@@ -51,6 +52,27 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
 )
+
+@worker_process_init.connect
+def reset_db_engine_pool(**_kwargs) -> None:
+    """Drop any inherited DB connection pool when a prefork worker child starts.
+
+    Celery's prefork pool forks worker children from the parent process. Any
+    asyncpg connection the parent opened would be inherited as a live socket
+    shared across processes — unsafe to use. Dispose the async ``engine``'s pool
+    synchronously here (no event loop is running at process-init time, so use
+    the underlying ``sync_engine``) so each child lazily opens its own
+    connections. Per-task loop churn is handled separately by
+    ``app.db.session.run_async``, which disposes the pool at the start of every
+    task's event loop.
+    """
+    from app.db.session import engine
+
+    if hasattr(engine, "sync_engine"):
+        engine.sync_engine.dispose()
+    else:  # pragma: no cover - engine is always an AsyncEngine here
+        engine.dispose()
+
 
 celery_app.conf.beat_schedule = {
     "accounting-mark-overdue-invoices": {

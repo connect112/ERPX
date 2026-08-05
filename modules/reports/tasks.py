@@ -12,11 +12,9 @@ advances `next_run_at`. Wire into Celery beat, e.g.:
     }
 """
 
-import asyncio
-
 from app.core.celery_app import celery_app
 from app.core.logging_config import get_logger
-from app.db.session import get_db_context
+from app.db.session import get_db_context, run_async
 from modules.reports.models import ExportFormat
 from modules.reports.registry import get_report_definition
 from modules.reports.service import ReportService, ScheduledReportService
@@ -95,5 +93,5 @@ async def _run_due_scheduled_reports() -> tuple[int, int]:
     max_retries=3,
 )
 def run_due_scheduled_reports_task() -> None:
-    succeeded, failed = asyncio.run(_run_due_scheduled_reports())
+    succeeded, failed = run_async(_run_due_scheduled_reports())
     logger.info("scheduled_reports_run_complete", succeeded=succeeded, failed=failed)

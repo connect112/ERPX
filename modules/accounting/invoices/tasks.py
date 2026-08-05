@@ -12,11 +12,9 @@ computed flag. Wire into Celery beat, e.g.:
     }
 """
 
-import asyncio
-
 from app.core.celery_app import celery_app
 from app.core.logging_config import get_logger
-from app.db.session import get_db_context
+from app.db.session import get_db_context, run_async
 from modules.accounting.invoices.service import InvoiceService
 from modules.organizations.repository import OrganizationRepository
 
@@ -48,5 +46,5 @@ async def _mark_overdue_for_all_organizations() -> int:
     max_retries=3,
 )
 def mark_overdue_invoices_task() -> None:
-    count = asyncio.run(_mark_overdue_for_all_organizations())
+    count = run_async(_mark_overdue_for_all_organizations())
     logger.info("overdue_invoices_marked", count=count)

@@ -14,11 +14,9 @@ inventing a synthetic "system user" account). Wire into Celery beat, e.g.:
     }
 """
 
-import asyncio
-
 from app.core.celery_app import celery_app
 from app.core.logging_config import get_logger
-from app.db.session import get_db_context
+from app.db.session import get_db_context, run_async
 from modules.backups.models import BackupStatus
 from modules.backups.service import BackupService
 
@@ -34,5 +32,5 @@ async def _trigger_scheduled_backup() -> BackupStatus:
 
 @celery_app.task(name="backups.trigger_daily_backup")
 def trigger_daily_backup_task() -> None:
-    status = asyncio.run(_trigger_scheduled_backup())
+    status = run_async(_trigger_scheduled_backup())
     logger.info("scheduled_backup_completed", status=status.value)

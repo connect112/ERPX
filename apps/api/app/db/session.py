@@ -6,8 +6,9 @@ to obtain a transactional AsyncSession. Sessions are always closed and
 rolled back on error via the context-managed generator below.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Coroutine, TypeVar
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -20,6 +21,8 @@ from app.core.config import settings
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+_T = TypeVar("_T")
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -69,6 +72,32 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
+
+def run_async(coro: Coroutine[object, object, _T]) -> _T:
+    """Run an async coroutine to completion from a synchronous Celery task.
+
+    The module-level ``engine`` is created once at import; its asyncpg pool
+    binds each pooled connection to the event loop that first opened it. Celery
+    tasks call async code from a sync context via ``asyncio.run``, which creates
+    then *closes* a fresh loop on every call. A connection pooled during one
+    task is therefore bound to a now-dead loop by the time the next task runs in
+    the same (long-lived, prefork) worker child, raising
+    ``RuntimeError: Event loop is closed`` / ``... got Future ... attached to a
+    different loop``.
+
+    Disposing the pool at the start of each run guarantees every task opens its
+    connections on the loop it actually runs on. Under the prefork pool each
+    child executes one task at a time (``worker_prefetch_multiplier=1``), so no
+    concurrent task in the same process is using the pool when it is disposed.
+    Mirrors the per-test disposal in ``tests/_fixtures.py::db_session``.
+    """
+
+    async def _runner() -> _T:
+        await engine.dispose()
+        return await coro
+
+    return asyncio.run(_runner())
 
 
 async def check_db_connection() -> bool:
