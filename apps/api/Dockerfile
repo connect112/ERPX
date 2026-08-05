@@ -32,10 +32,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
-# curl is needed by the HEALTHCHECK below; no compilers/dev headers ship in this
-# stage. Runs as a non-root user rather than the container default (root).
+# curl is needed by the HEALTHCHECK below; postgresql-client provides pg_dump,
+# used by the scheduled database-backup task (modules/backups). The slim base
+# (Debian trixie) ships pg_dump 17, which dumps the PostgreSQL 16 server
+# (pg_dump is forward-compatible: client version must be >= server version). No
+# compilers/dev headers ship in this stage. Runs as a non-root user rather than
+# the container default (root).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system erpx && useradd --system --gid erpx --create-home --home-dir /home/erpx erpx
 
