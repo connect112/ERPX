@@ -94,7 +94,12 @@ def run_async(coro: Coroutine[object, object, _T]) -> _T:
     """
 
     async def _runner() -> _T:
-        await engine.dispose()
+        # close=False: abandon any pooled connection left over from a previous
+        # task's (now-closed) loop WITHOUT trying to close it — closing would
+        # await the dead loop and raise "Event loop is closed" / "Future
+        # attached to a different loop". The abandoned asyncpg connection is
+        # terminated on garbage collection; the fresh pool binds to this loop.
+        await engine.dispose(close=False)
         return await coro
 
     return asyncio.run(_runner())
