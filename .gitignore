@@ -39,3 +39,13 @@ database/backups/*
 # Logs
 *.log
 logs/
+
+# Celery beat schedule database
+celerybeat-schedule
+celerybeat-schedule.*
+
+
+# Celery beat schedule database
+celerybeat-schedule
+celerybeat-schedule.*
+

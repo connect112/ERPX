@@ -1,0 +1,18 @@
+# Local-machine override — NOT for other developers or deployment targets.
+#
+# podman-compose 1.6.0 on Windows mis-resolves the `build.dockerfile` path
+# (context ".", dockerfile "apps/api/Dockerfile"), so a plain `up` that tries
+# to build the api/celery images fails. The image is therefore built once by
+# hand (`podman build -f apps/api/Dockerfile -t localhost/erpx-api:latest .`)
+# and pinned here so `up --no-build` reuses it instead of rebuilding.
+#
+# All three services share the same image (the Dockerfile bakes app + modules +
+# packages); they differ only by command/env, which the base compose already
+# sets.
+services:
+  api:
+    image: localhost/erpx-api:latest
+  celery_worker:
+    image: localhost/erpx-api:latest
+  celery_beat:
+    image: localhost/erpx-api:latest

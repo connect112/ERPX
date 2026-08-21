@@ -36,7 +36,9 @@
     --background: 222 47% 7%;
     --foreground: 210 40% 98%;
 
-    --card: 222 47% 9%;
+    /* Cards / dialogs sit visibly above the page (7%) so modals and panels read
+       as elevated surfaces instead of blending into the background. */
+    --card: 222 47% 13%;
     --card-foreground: 210 40% 98%;
 
     --primary: 217 91% 60%;

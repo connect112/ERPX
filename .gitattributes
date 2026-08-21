@@ -1,0 +1,43 @@
+# Line-ending policy for cross-platform (Windows + Linux) development.
+#
+# Why this file exists: with `core.autocrlf=true` (Git for Windows' default),
+# a Windows checkout rewrites LF -> CRLF in text files. POSIX shell scripts then
+# fail when executed by /bin/sh (dash) inside the Linux API/Celery containers:
+#   apps/api/scripts/entrypoint.sh: 14: set: Illegal option -
+# which crash-loops every container that runs entrypoint.sh. These rules make
+# each file's line endings a property of the REPO, independent of any developer's
+# personal `core.autocrlf` setting — so the bug cannot recur on a fresh clone.
+
+# Default: treat files as text, auto-detect, and store LF in the repository.
+* text=auto
+
+# --- Must be LF everywhere (run by /bin/sh or bash inside Linux containers/CI) ---
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+docker-compose*.yml text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.env           text eol=lf
+.env.*          text eol=lf
+Makefile        text eol=lf
+*.mk            text eol=lf
+
+# --- Must stay CRLF (Windows-native scripts) ---
+*.ps1           text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# --- Binary: never apply line-ending or diff conversion ---
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+*.zip  binary
+*.gz   binary

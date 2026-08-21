@@ -48,6 +48,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,45 @@ logger = get_logger(__name__)
 
 PG_DUMP_HEADER = "-- PostgreSQL database dump"
 DEFAULT_AUDIT_LOG_PATH = "restore_backup_audit.log"
+
+# Session GUCs that a NEWER pg_dump writes into the dump header but an OLDER
+# target server doesn't recognize — replaying them under ON_ERROR_STOP=1 aborts
+# the whole restore. They are session-tuning knobs (all emitted as `= 0`, i.e.
+# disabled) that have no bearing on the restored *data*, so stripping them is
+# safe and lets a dump taken by a newer client restore into an older server.
+#   - transaction_timeout: added in PostgreSQL 17; unknown to <=16. The image
+#     ships pg_dump 17 (Debian trixie) while the shipped server is postgres 16,
+#     so every dump this platform produces contains it — see apps/api/Dockerfile.
+# Match the header form pg_dump emits: `SET <name> = <value>;` on its own line.
+_INCOMPATIBLE_SESSION_GUCS = ("transaction_timeout",)
+_INCOMPATIBLE_SET_RE = re.compile(
+    r"^\s*SET\s+(?:" + "|".join(_INCOMPATIBLE_SESSION_GUCS) + r")\s*=", re.IGNORECASE
+)
+
+
+def sanitize_dump_for_restore(sql_file: str) -> str:
+    """Return a path to a restore-ready copy of ``sql_file`` with version-skew
+    session-GUC directives (see ``_INCOMPATIBLE_SESSION_GUCS``) stripped. If the
+    dump contains none, the original path is returned unchanged (no copy made)."""
+    with open(sql_file, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+
+    kept = [ln for ln in lines if not _INCOMPATIBLE_SET_RE.match(ln)]
+    stripped = len(lines) - len(kept)
+    if stripped == 0:
+        return sql_file
+
+    sanitized_path = f"{sql_file}.sanitized.sql"
+    with open(sanitized_path, "w", encoding="utf-8") as f:
+        f.writelines(kept)
+    logger.info(
+        "restore_dump_sanitized",
+        source=sql_file,
+        sanitized=sanitized_path,
+        lines_removed=stripped,
+        gucs=list(_INCOMPATIBLE_SESSION_GUCS),
+    )
+    return sanitized_path
 
 
 class ExitCode(IntEnum):
@@ -493,10 +533,14 @@ async def run_psql_restore(target_url: str, sql_file: str) -> subprocess.Complet
     if db["password"]:
         env["PGPASSWORD"] = db["password"]
 
+    # Strip version-skew session-GUC directives a newer pg_dump may have written
+    # that this (possibly older) target server would reject under ON_ERROR_STOP=1.
+    restore_file = sanitize_dump_for_restore(sql_file)
+
     stop_event = threading.Event()
     heartbeat = threading.Thread(target=_progress_heartbeat, args=(stop_event, "restore"), daemon=True)
     heartbeat.start()
-    logger.info("restore_psql_started", target=redact_url(target_url), sql_file=sql_file)
+    logger.info("restore_psql_started", target=redact_url(target_url), sql_file=restore_file)
     try:
         result = await asyncio.to_thread(
             _run_subprocess,
@@ -507,7 +551,7 @@ async def run_psql_restore(target_url: str, sql_file: str) -> subprocess.Complet
                 "-U", db["user"],
                 "-d", db["dbname"],
                 "-v", "ON_ERROR_STOP=1",
-                "-f", sql_file,
+                "-f", restore_file,
             ],
             env,
         )

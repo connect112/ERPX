@@ -33,6 +33,15 @@ interface EventFormDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+/** Red asterisk marking a required field. */
+function RequiredMark() {
+  return (
+    <span className="text-destructive" aria-hidden="true">
+      {" *"}
+    </span>
+  );
+}
+
 const emptyValues: EventFormValues = {
   title: "",
   description: "",
@@ -65,11 +74,11 @@ export function EventFormDialog({ open, onOpenChange }: EventFormDialogProps) {
     createEvent.mutate(
       {
         title: values.title,
-        description: values.description || undefined,
+        description: values.description,
         event_type: values.eventType,
         start_at: new Date(values.startAt).toISOString(),
-        end_at: values.endAt ? new Date(values.endAt).toISOString() : undefined,
-        location: values.location || undefined,
+        end_at: new Date(values.endAt).toISOString(),
+        location: values.location,
         is_all_day: values.isAllDay,
       },
       { onSuccess: () => onOpenChange(false) }
@@ -84,19 +93,31 @@ export function EventFormDialog({ open, onOpenChange }: EventFormDialogProps) {
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="title">Title</Label>
-            <Input id="title" {...register("title")} />
+            <Label htmlFor="title">
+              Title
+              <RequiredMark />
+            </Label>
+            <Input id="title" aria-required="true" {...register("title")} />
             {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea id="description" rows={2} {...register("description")} />
+            <Label htmlFor="description">
+              Description
+              <RequiredMark />
+            </Label>
+            <Textarea id="description" rows={2} aria-required="true" {...register("description")} />
+            {errors.description && (
+              <p className="text-sm text-destructive">{errors.description.message}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="eventType">Type</Label>
+              <Label htmlFor="eventType">
+                Type
+                <RequiredMark />
+              </Label>
               <Controller
                 control={control}
                 name="eventType"
@@ -117,20 +138,33 @@ export function EventFormDialog({ open, onOpenChange }: EventFormDialogProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="location">Location</Label>
-              <Input id="location" {...register("location")} />
+              <Label htmlFor="location">
+                Location
+                <RequiredMark />
+              </Label>
+              <Input id="location" aria-required="true" {...register("location")} />
+              {errors.location && (
+                <p className="text-sm text-destructive">{errors.location.message}</p>
+              )}
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startAt">Starts</Label>
-              <Input id="startAt" type="datetime-local" {...register("startAt")} />
+              <Label htmlFor="startAt">
+                Starts
+                <RequiredMark />
+              </Label>
+              <Input id="startAt" type="datetime-local" aria-required="true" {...register("startAt")} />
               {errors.startAt && <p className="text-sm text-destructive">{errors.startAt.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="endAt">Ends (optional)</Label>
-              <Input id="endAt" type="datetime-local" {...register("endAt")} />
+              <Label htmlFor="endAt">
+                Ends
+                <RequiredMark />
+              </Label>
+              <Input id="endAt" type="datetime-local" aria-required="true" {...register("endAt")} />
+              {errors.endAt && <p className="text-sm text-destructive">{errors.endAt.message}</p>}
             </div>
           </div>
 

@@ -18,6 +18,7 @@ Seeds:
 import asyncio
 import os
 
+from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.core.security import hash_password
 from app.db.session import get_db_context
@@ -40,6 +41,16 @@ logger = get_logger(__name__)
 _SYSTEM_ORG_SLUG = "erpx-system"
 _SYSTEM_ORG_NAME = "ERPX System"
 
+# Bootstrap-password hardening (mirrors config._refuse_default_jwt_secret_in_production).
+# The docker-compose/.env scaffolding defaults SEED_SUPERADMIN_PASSWORD to a value
+# that is publicly visible in this repo, and the api service runs this seed on every
+# startup — so a production deploy that sets a real JWT_SECRET_KEY but forgets to
+# override the seed password would silently create a superuser whose credentials
+# anyone can read from source. Refuse that in production the same way the JWT guard
+# does, rather than shipping a known-credential admin account.
+_KNOWN_DEFAULT_SUPERADMIN_PASSWORDS = frozenset({"Admin@12345", "admin123", "changeme", "password"})
+_MIN_SUPERADMIN_PASSWORD_LENGTH = 12
+
 
 async def seed_rbac() -> None:
     async with get_db_context() as db:
@@ -53,6 +64,21 @@ async def seed_bootstrap_superadmin() -> None:
     if not email or not password:
         logger.info("seed_superadmin_skipped", reason="SEED_SUPERADMIN_EMAIL/PASSWORD not set")
         return
+
+    if settings.is_production:
+        if password in _KNOWN_DEFAULT_SUPERADMIN_PASSWORDS:
+            raise ValueError(
+                "SEED_SUPERADMIN_PASSWORD is still a publicly-known default value "
+                "while ENVIRONMENT=production. Set a real, unique superadmin password "
+                "before starting the application, or unset SEED_SUPERADMIN_PASSWORD to "
+                "skip bootstrap seeding entirely."
+            )
+        if len(password) < _MIN_SUPERADMIN_PASSWORD_LENGTH:
+            raise ValueError(
+                f"SEED_SUPERADMIN_PASSWORD must be at least "
+                f"{_MIN_SUPERADMIN_PASSWORD_LENGTH} characters in production "
+                f"(got {len(password)})."
+            )
 
     async with get_db_context() as db:
         auth_repo = AuthRepository(db)
