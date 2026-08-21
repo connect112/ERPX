@@ -146,18 +146,18 @@ export function LeaveTypesPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name" required>Name</Label>
                 <Input id="name" {...register("name")} />
                 {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="code">Code</Label>
+                <Label htmlFor="code" required>Code</Label>
                 <Input id="code" {...register("code")} />
                 {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="annualQuota">Annual quota (days)</Label>
+              <Label htmlFor="annualQuota" required>Annual quota (days)</Label>
               <Input id="annualQuota" type="number" step="0.5" {...register("annualQuota")} />
               {errors.annualQuota && (
                 <p className="text-sm text-destructive">{errors.annualQuota.message}</p>

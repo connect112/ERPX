@@ -87,7 +87,7 @@ export function MarkAttendanceDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="employeeId">Employee</Label>
+            <Label htmlFor="employeeId" required>Employee</Label>
             <Controller
               control={control}
               name="employeeId"
@@ -116,14 +116,14 @@ export function MarkAttendanceDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="attendanceDate">Date</Label>
+              <Label htmlFor="attendanceDate" required>Date</Label>
               <Input id="attendanceDate" type="date" {...register("attendanceDate")} />
               {errors.attendanceDate && (
                 <p className="text-sm text-destructive">{errors.attendanceDate.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
+              <Label htmlFor="status" required>Status</Label>
               <Controller
                 control={control}
                 name="status"

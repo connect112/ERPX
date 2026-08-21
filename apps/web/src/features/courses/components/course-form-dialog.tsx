@@ -116,13 +116,13 @@ export function CourseFormDialog({ open, onOpenChange, course }: CourseFormDialo
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="title">Title</Label>
+            <Label htmlFor="title" required>Title</Label>
             <Input id="title" {...register("title")} />
             {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
           </div>
           {!isEditing && (
             <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
+              <Label htmlFor="slug" required>Slug</Label>
               <Input id="slug" placeholder="e.g. intro-to-python" {...register("slug")} />
               {errors.slug && <p className="text-sm text-destructive">{errors.slug.message}</p>}
             </div>
@@ -150,7 +150,7 @@ export function CourseFormDialog({ open, onOpenChange, course }: CourseFormDialo
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="level">Level</Label>
+              <Label htmlFor="level" required>Level</Label>
               <Controller
                 control={control}
                 name="level"

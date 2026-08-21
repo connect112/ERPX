@@ -83,7 +83,7 @@ export function ReceiveStockDialog({ open, onOpenChange, defaultItemId }: Receiv
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="itemId">Item</Label>
+            <Label htmlFor="itemId" required>Item</Label>
             <Controller
               control={control}
               name="itemId"
@@ -105,7 +105,7 @@ export function ReceiveStockDialog({ open, onOpenChange, defaultItemId }: Receiv
             {errors.itemId && <p className="text-sm text-destructive">{errors.itemId.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="warehouseId">Warehouse</Label>
+            <Label htmlFor="warehouseId" required>Warehouse</Label>
             <Controller
               control={control}
               name="warehouseId"
@@ -130,12 +130,12 @@ export function ReceiveStockDialog({ open, onOpenChange, defaultItemId }: Receiv
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="quantity">Quantity</Label>
+              <Label htmlFor="quantity" required>Quantity</Label>
               <Input id="quantity" type="number" step="0.01" {...register("quantity")} />
               {errors.quantity && <p className="text-sm text-destructive">{errors.quantity.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="unitCost">Unit cost</Label>
+              <Label htmlFor="unitCost" required>Unit cost</Label>
               <Input id="unitCost" type="number" step="0.01" {...register("unitCost")} />
               {errors.unitCost && <p className="text-sm text-destructive">{errors.unitCost.message}</p>}
             </div>

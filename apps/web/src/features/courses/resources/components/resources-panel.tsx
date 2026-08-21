@@ -124,12 +124,12 @@ export function ResourcesPanel({ courseId, chapterId, lessonId }: ResourcesPanel
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="resourceType">Type</Label>
+              <Label htmlFor="resourceType" required>Type</Label>
               <Controller
                 control={control}
                 name="resourceType"
@@ -150,7 +150,7 @@ export function ResourcesPanel({ courseId, chapterId, lessonId }: ResourcesPanel
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="fileUrl">File URL</Label>
+              <Label htmlFor="fileUrl" required>File URL</Label>
               <Input id="fileUrl" {...register("fileUrl")} />
               {errors.fileUrl && (
                 <p className="text-sm text-destructive">{errors.fileUrl.message}</p>

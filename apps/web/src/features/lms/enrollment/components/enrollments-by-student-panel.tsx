@@ -150,7 +150,7 @@ export function EnrollmentsByStudentPanel({ studentId }: { studentId: string }) 
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="courseId">Course</Label>
+              <Label htmlFor="courseId" required>Course</Label>
               <Controller
                 control={control}
                 name="courseId"

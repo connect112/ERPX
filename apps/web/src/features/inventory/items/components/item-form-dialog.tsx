@@ -107,12 +107,12 @@ export function ItemFormDialog({ open, onOpenChange, item }: ItemFormDialogProps
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="sku">SKU</Label>
+              <Label htmlFor="sku" required>SKU</Label>
               <Input id="sku" disabled={isEditing} {...register("sku")} />
               {errors.sku && <p className="text-sm text-destructive">{errors.sku.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name" required>Name</Label>
               <Input id="name" {...register("name")} />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
@@ -140,7 +140,7 @@ export function ItemFormDialog({ open, onOpenChange, item }: ItemFormDialogProps
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="unitOfMeasure">Unit of measure</Label>
+              <Label htmlFor="unitOfMeasure" required>Unit of measure</Label>
               <Input id="unitOfMeasure" placeholder="e.g. pcs, kg, box" {...register("unitOfMeasure")} />
               {errors.unitOfMeasure && (
                 <p className="text-sm text-destructive">{errors.unitOfMeasure.message}</p>

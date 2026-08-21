@@ -147,12 +147,12 @@ export function AnnouncementsListPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="body">Body</Label>
+              <Label htmlFor="body" required>Body</Label>
               <Textarea id="body" rows={4} {...register("body")} />
               {errors.body && <p className="text-sm text-destructive">{errors.body.message}</p>}
             </div>

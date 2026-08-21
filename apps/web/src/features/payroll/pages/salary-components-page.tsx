@@ -163,18 +163,18 @@ export function SalaryComponentsPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name" required>Name</Label>
                 <Input id="name" {...register("name")} />
                 {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="code">Code</Label>
+                <Label htmlFor="code" required>Code</Label>
                 <Input id="code" {...register("code")} />
                 {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="glAccountId">GL account</Label>
+              <Label htmlFor="glAccountId" required>GL account</Label>
               <Controller
                 control={control}
                 name="glAccountId"
@@ -198,7 +198,7 @@ export function SalaryComponentsPage() {
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="componentType">Type</Label>
+              <Label htmlFor="componentType" required>Type</Label>
               <Controller
                 control={control}
                 name="componentType"

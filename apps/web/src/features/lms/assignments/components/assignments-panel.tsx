@@ -133,7 +133,7 @@ function SubmissionsSection({ courseId, assignmentId }: { courseId: string; assi
           </DialogHeader>
           <form onSubmit={submitForm.handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="studentId">Student</Label>
+              <Label htmlFor="studentId" required>Student</Label>
               <Controller
                 control={submitForm.control}
                 name="studentId"
@@ -185,7 +185,7 @@ function SubmissionsSection({ courseId, assignmentId }: { courseId: string; assi
           </DialogHeader>
           <form onSubmit={gradeForm.handleSubmit(onGrade)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="score">Score</Label>
+              <Label htmlFor="score" required>Score</Label>
               <Input id="score" type="number" {...gradeForm.register("score")} />
               {gradeForm.formState.errors.score && (
                 <p className="text-sm text-destructive">{gradeForm.formState.errors.score.message}</p>
@@ -315,7 +315,7 @@ export function AssignmentsPanel({ courseId }: { courseId: string }) {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
@@ -329,7 +329,7 @@ export function AssignmentsPanel({ courseId }: { courseId: string }) {
                 <Input id="dueDate" type="date" {...register("dueDate")} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="maxScore">Max score</Label>
+                <Label htmlFor="maxScore" required>Max score</Label>
                 <Input id="maxScore" type="number" {...register("maxScore")} />
                 {errors.maxScore && (
                   <p className="text-sm text-destructive">{errors.maxScore.message}</p>

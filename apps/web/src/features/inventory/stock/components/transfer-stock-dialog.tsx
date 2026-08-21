@@ -83,7 +83,7 @@ export function TransferStockDialog({ open, onOpenChange, defaultItemId }: Trans
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="itemId">Item</Label>
+            <Label htmlFor="itemId" required>Item</Label>
             <Controller
               control={control}
               name="itemId"
@@ -106,7 +106,7 @@ export function TransferStockDialog({ open, onOpenChange, defaultItemId }: Trans
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="fromWarehouseId">From warehouse</Label>
+              <Label htmlFor="fromWarehouseId" required>From warehouse</Label>
               <Controller
                 control={control}
                 name="fromWarehouseId"
@@ -130,7 +130,7 @@ export function TransferStockDialog({ open, onOpenChange, defaultItemId }: Trans
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="toWarehouseId">To warehouse</Label>
+              <Label htmlFor="toWarehouseId" required>To warehouse</Label>
               <Controller
                 control={control}
                 name="toWarehouseId"
@@ -155,7 +155,7 @@ export function TransferStockDialog({ open, onOpenChange, defaultItemId }: Trans
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="quantity">Quantity</Label>
+            <Label htmlFor="quantity" required>Quantity</Label>
             <Input id="quantity" type="number" step="0.01" {...register("quantity")} />
             {errors.quantity && <p className="text-sm text-destructive">{errors.quantity.message}</p>}
           </div>

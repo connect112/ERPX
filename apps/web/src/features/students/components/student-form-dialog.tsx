@@ -143,7 +143,7 @@ export function StudentFormDialog({ open, onOpenChange, student }: StudentFormDi
               Personal details
             </p>
             <div className="space-y-2">
-              <Label htmlFor="fullName">Full name</Label>
+              <Label htmlFor="fullName" required>Full name</Label>
               <Input id="fullName" {...register("fullName")} />
               {errors.fullName && (
                 <p className="text-sm text-destructive">{errors.fullName.message}</p>
@@ -236,14 +236,14 @@ export function StudentFormDialog({ open, onOpenChange, student }: StudentFormDi
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="courseName">Course name</Label>
+                  <Label htmlFor="courseName" required>Course name</Label>
                   <Input id="courseName" {...register("courseName")} />
                   {errors.courseName && (
                     <p className="text-sm text-destructive">{errors.courseName.message}</p>
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="enrollmentDate">Enrollment date</Label>
+                  <Label htmlFor="enrollmentDate" required>Enrollment date</Label>
                   <Input id="enrollmentDate" type="date" {...register("enrollmentDate")} />
                   {errors.enrollmentDate && (
                     <p className="text-sm text-destructive">{errors.enrollmentDate.message}</p>

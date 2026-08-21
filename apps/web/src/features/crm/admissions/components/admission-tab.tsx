@@ -152,7 +152,7 @@ export function AdmissionTab({ leadId }: { leadId: string }) {
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="courseName">Course name</Label>
+            <Label htmlFor="courseName" required>Course name</Label>
             <Input id="courseName" {...register("courseName")} />
             {errors.courseName && (
               <p className="text-sm text-destructive">{errors.courseName.message}</p>
@@ -164,7 +164,7 @@ export function AdmissionTab({ leadId }: { leadId: string }) {
               <Input id="batchName" {...register("batchName")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="admissionDate">Admission date</Label>
+              <Label htmlFor="admissionDate" required>Admission date</Label>
               <Input id="admissionDate" type="date" {...register("admissionDate")} />
               {errors.admissionDate && (
                 <p className="text-sm text-destructive">{errors.admissionDate.message}</p>
@@ -173,7 +173,7 @@ export function AdmissionTab({ leadId }: { leadId: string }) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="feeAmount">Fee amount</Label>
+              <Label htmlFor="feeAmount" required>Fee amount</Label>
               <Input id="feeAmount" type="number" step="0.01" {...register("feeAmount")} />
               {errors.feeAmount && (
                 <p className="text-sm text-destructive">{errors.feeAmount.message}</p>

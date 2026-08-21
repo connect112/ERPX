@@ -117,7 +117,7 @@ export function BankAccountFormDialog({ open, onOpenChange, bankAccount }: BankA
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="accountName">Account name</Label>
+            <Label htmlFor="accountName" required>Account name</Label>
             <Input id="accountName" {...register("accountName")} />
             {errors.accountName && (
               <p className="text-sm text-destructive">{errors.accountName.message}</p>
@@ -126,7 +126,7 @@ export function BankAccountFormDialog({ open, onOpenChange, bankAccount }: BankA
           {!isEditing && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="glAccountId">GL account</Label>
+                <Label htmlFor="glAccountId" required>GL account</Label>
                 <Controller
                   control={control}
                   name="glAccountId"
@@ -150,7 +150,7 @@ export function BankAccountFormDialog({ open, onOpenChange, bankAccount }: BankA
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="accountType">Type</Label>
+                <Label htmlFor="accountType" required>Type</Label>
                 <Controller
                   control={control}
                   name="accountType"

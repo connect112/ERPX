@@ -257,12 +257,12 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="assessmentType">Type</Label>
+              <Label htmlFor="assessmentType" required>Type</Label>
               <Controller
                 control={control}
                 name="assessmentType"
@@ -284,14 +284,14 @@ export function AssessmentsPanel({ courseId }: { courseId: string }) {
             </div>
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="totalMarks">Total marks</Label>
+                <Label htmlFor="totalMarks" required>Total marks</Label>
                 <Input id="totalMarks" type="number" {...register("totalMarks")} />
                 {errors.totalMarks && (
                   <p className="text-sm text-destructive">{errors.totalMarks.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="passingMarks">Passing marks</Label>
+                <Label htmlFor="passingMarks" required>Passing marks</Label>
                 <Input id="passingMarks" type="number" {...register("passingMarks")} />
                 {errors.passingMarks && (
                   <p className="text-sm text-destructive">{errors.passingMarks.message}</p>

@@ -76,7 +76,7 @@ export function IssueStockDialog({ open, onOpenChange, defaultItemId }: IssueSto
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="itemId">Item</Label>
+            <Label htmlFor="itemId" required>Item</Label>
             <Controller
               control={control}
               name="itemId"
@@ -98,7 +98,7 @@ export function IssueStockDialog({ open, onOpenChange, defaultItemId }: IssueSto
             {errors.itemId && <p className="text-sm text-destructive">{errors.itemId.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="warehouseId">Warehouse</Label>
+            <Label htmlFor="warehouseId" required>Warehouse</Label>
             <Controller
               control={control}
               name="warehouseId"
@@ -122,7 +122,7 @@ export function IssueStockDialog({ open, onOpenChange, defaultItemId }: IssueSto
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="quantity">Quantity</Label>
+            <Label htmlFor="quantity" required>Quantity</Label>
             <Input id="quantity" type="number" step="0.01" {...register("quantity")} />
             {errors.quantity && <p className="text-sm text-destructive">{errors.quantity.message}</p>}
           </div>

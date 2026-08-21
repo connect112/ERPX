@@ -82,7 +82,7 @@ export function ApplyLeaveDialog({ open, onOpenChange, defaultEmployeeId }: Appl
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="employeeId">Employee</Label>
+            <Label htmlFor="employeeId" required>Employee</Label>
             <Controller
               control={control}
               name="employeeId"
@@ -110,7 +110,7 @@ export function ApplyLeaveDialog({ open, onOpenChange, defaultEmployeeId }: Appl
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="leaveTypeId">Leave type</Label>
+            <Label htmlFor="leaveTypeId" required>Leave type</Label>
             <Controller
               control={control}
               name="leaveTypeId"
@@ -135,20 +135,20 @@ export function ApplyLeaveDialog({ open, onOpenChange, defaultEmployeeId }: Appl
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate" required>Start date</Label>
               <Input id="startDate" type="date" {...register("startDate")} />
               {errors.startDate && (
                 <p className="text-sm text-destructive">{errors.startDate.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="endDate">End date</Label>
+              <Label htmlFor="endDate" required>End date</Label>
               <Input id="endDate" type="date" {...register("endDate")} />
               {errors.endDate && <p className="text-sm text-destructive">{errors.endDate.message}</p>}
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="reason">Reason</Label>
+            <Label htmlFor="reason" required>Reason</Label>
             <Textarea id="reason" rows={3} {...register("reason")} />
             {errors.reason && <p className="text-sm text-destructive">{errors.reason.message}</p>}
           </div>

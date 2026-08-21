@@ -125,12 +125,12 @@ export function ChaptersPanel({ courseId }: { courseId: string }) {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="orderIndex">Order</Label>
+              <Label htmlFor="orderIndex" required>Order</Label>
               <Input id="orderIndex" type="number" {...register("orderIndex")} />
               {errors.orderIndex && (
                 <p className="text-sm text-destructive">{errors.orderIndex.message}</p>

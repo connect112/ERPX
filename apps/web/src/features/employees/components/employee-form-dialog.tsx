@@ -157,14 +157,14 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="employeeCode">Employee code</Label>
+                <Label htmlFor="employeeCode" required>Employee code</Label>
                 <Input id="employeeCode" disabled={isEditing} {...register("employeeCode")} />
                 {errors.employeeCode && (
                   <p className="text-sm text-destructive">{errors.employeeCode.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="fullName">Full name</Label>
+                <Label htmlFor="fullName" required>Full name</Label>
                 <Input id="fullName" {...register("fullName")} />
                 {errors.fullName && (
                   <p className="text-sm text-destructive">{errors.fullName.message}</p>
@@ -282,7 +282,7 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="employmentType">Employment type</Label>
+                <Label htmlFor="employmentType" required>Employment type</Label>
                 <Controller
                   control={control}
                   name="employmentType"
@@ -305,7 +305,7 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </div>
             {!isEditing && (
               <div className="space-y-2">
-                <Label htmlFor="dateOfJoining">Date of joining</Label>
+                <Label htmlFor="dateOfJoining" required>Date of joining</Label>
                 <Input id="dateOfJoining" type="date" {...register("dateOfJoining")} />
                 {errors.dateOfJoining && (
                   <p className="text-sm text-destructive">{errors.dateOfJoining.message}</p>

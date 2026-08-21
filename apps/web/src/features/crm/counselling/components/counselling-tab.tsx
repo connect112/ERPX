@@ -162,7 +162,7 @@ export function CounsellingTab({ leadId }: { leadId: string }) {
           </DialogHeader>
           <form onSubmit={createForm.handleSubmit(onCreate)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="mode">Mode</Label>
+              <Label htmlFor="mode" required>Mode</Label>
               <Controller
                 control={createForm.control}
                 name="mode"
@@ -183,7 +183,7 @@ export function CounsellingTab({ leadId }: { leadId: string }) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="scheduledAt">Scheduled at</Label>
+              <Label htmlFor="scheduledAt" required>Scheduled at</Label>
               <Input
                 id="scheduledAt"
                 type="datetime-local"

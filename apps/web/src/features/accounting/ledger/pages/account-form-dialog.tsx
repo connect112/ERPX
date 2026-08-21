@@ -115,12 +115,12 @@ export function AccountFormDialog({ open, onOpenChange, account }: AccountFormDi
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="code">Code</Label>
+              <Label htmlFor="code" required>Code</Label>
               <Input id="code" disabled={isEditing} {...register("code")} />
               {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="accountType">Type</Label>
+              <Label htmlFor="accountType" required>Type</Label>
               <Controller
                 control={control}
                 name="accountType"
@@ -142,7 +142,7 @@ export function AccountFormDialog({ open, onOpenChange, account }: AccountFormDi
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
+            <Label htmlFor="name" required>Name</Label>
             <Input id="name" {...register("name")} />
             {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
           </div>

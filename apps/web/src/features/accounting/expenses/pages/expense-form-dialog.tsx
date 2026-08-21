@@ -99,7 +99,7 @@ export function ExpenseFormDialog({ open, onOpenChange }: ExpenseFormDialogProps
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="vendorId">Vendor</Label>
+              <Label htmlFor="vendorId" required>Vendor</Label>
               <Controller
                 control={control}
                 name="vendorId"
@@ -121,7 +121,7 @@ export function ExpenseFormDialog({ open, onOpenChange }: ExpenseFormDialogProps
               {errors.vendorId && <p className="text-sm text-destructive">{errors.vendorId.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="expenseNumber">Expense number</Label>
+              <Label htmlFor="expenseNumber" required>Expense number</Label>
               <Input id="expenseNumber" {...register("expenseNumber")} />
               {errors.expenseNumber && (
                 <p className="text-sm text-destructive">{errors.expenseNumber.message}</p>
@@ -130,17 +130,17 @@ export function ExpenseFormDialog({ open, onOpenChange }: ExpenseFormDialogProps
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="category">Category</Label>
+              <Label htmlFor="category" required>Category</Label>
               <Input id="category" {...register("category")} />
               {errors.category && <p className="text-sm text-destructive">{errors.category.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="expenseDate">Date</Label>
+              <Label htmlFor="expenseDate" required>Date</Label>
               <Input id="expenseDate" type="date" {...register("expenseDate")} />
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
+            <Label htmlFor="description" required>Description</Label>
             <Textarea id="description" rows={2} {...register("description")} />
             {errors.description && (
               <p className="text-sm text-destructive">{errors.description.message}</p>
@@ -148,7 +148,7 @@ export function ExpenseFormDialog({ open, onOpenChange }: ExpenseFormDialogProps
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="expenseAccountId">Expense account</Label>
+              <Label htmlFor="expenseAccountId" required>Expense account</Label>
               <Controller
                 control={control}
                 name="expenseAccountId"
@@ -174,7 +174,7 @@ export function ExpenseFormDialog({ open, onOpenChange }: ExpenseFormDialogProps
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="payableAccountId">Payable account</Label>
+              <Label htmlFor="payableAccountId" required>Payable account</Label>
               <Controller
                 control={control}
                 name="payableAccountId"
@@ -202,7 +202,7 @@ export function ExpenseFormDialog({ open, onOpenChange }: ExpenseFormDialogProps
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="subtotalAmount">Amount</Label>
+              <Label htmlFor="subtotalAmount" required>Amount</Label>
               <Input id="subtotalAmount" type="number" step="0.01" {...register("subtotalAmount")} />
               {errors.subtotalAmount && (
                 <p className="text-sm text-destructive">{errors.subtotalAmount.message}</p>

@@ -159,7 +159,7 @@ export function FollowUpsTab({ leadId }: { leadId: string }) {
           </DialogHeader>
           <form onSubmit={createForm.handleSubmit(onCreate)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="followUpType">Type</Label>
+              <Label htmlFor="followUpType" required>Type</Label>
               <Controller
                 control={createForm.control}
                 name="followUpType"
@@ -180,7 +180,7 @@ export function FollowUpsTab({ leadId }: { leadId: string }) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="scheduledAt">Scheduled at</Label>
+              <Label htmlFor="scheduledAt" required>Scheduled at</Label>
               <Input
                 id="scheduledAt"
                 type="datetime-local"
@@ -215,7 +215,7 @@ export function FollowUpsTab({ leadId }: { leadId: string }) {
           </DialogHeader>
           <form onSubmit={completeForm.handleSubmit(onComplete)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="outcome">Outcome</Label>
+              <Label htmlFor="outcome" required>Outcome</Label>
               <Input id="outcome" {...completeForm.register("outcome")} />
               {completeForm.formState.errors.outcome && (
                 <p className="text-sm text-destructive">

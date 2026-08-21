@@ -97,7 +97,7 @@ export function LeadFormDialog({ open, onOpenChange, lead }: LeadFormDialogProps
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="fullName">Full name</Label>
+            <Label htmlFor="fullName" required>Full name</Label>
             <Input id="fullName" {...register("fullName")} />
             {errors.fullName && (
               <p className="text-sm text-destructive">{errors.fullName.message}</p>
@@ -117,7 +117,7 @@ export function LeadFormDialog({ open, onOpenChange, lead }: LeadFormDialogProps
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="source">Source</Label>
+            <Label htmlFor="source" required>Source</Label>
             <Controller
               control={control}
               name="source"

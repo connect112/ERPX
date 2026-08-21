@@ -108,7 +108,7 @@ export function PaymentFormDialog({ open, onOpenChange }: PaymentFormDialogProps
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="vendorId">Vendor</Label>
+              <Label htmlFor="vendorId" required>Vendor</Label>
               <Controller
                 control={control}
                 name="vendorId"
@@ -130,7 +130,7 @@ export function PaymentFormDialog({ open, onOpenChange }: PaymentFormDialogProps
               {errors.vendorId && <p className="text-sm text-destructive">{errors.vendorId.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="expenseId">Expense</Label>
+              <Label htmlFor="expenseId" required>Expense</Label>
               <Controller
                 control={control}
                 name="expenseId"
@@ -156,27 +156,27 @@ export function PaymentFormDialog({ open, onOpenChange }: PaymentFormDialogProps
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="paymentNumber">Payment number</Label>
+              <Label htmlFor="paymentNumber" required>Payment number</Label>
               <Input id="paymentNumber" {...register("paymentNumber")} />
               {errors.paymentNumber && (
                 <p className="text-sm text-destructive">{errors.paymentNumber.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="paymentDate">Date</Label>
+              <Label htmlFor="paymentDate" required>Date</Label>
               <Input id="paymentDate" type="date" {...register("paymentDate")} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="grossAmount">Gross amount</Label>
+              <Label htmlFor="grossAmount" required>Gross amount</Label>
               <Input id="grossAmount" type="number" step="0.01" {...register("grossAmount")} />
               {errors.grossAmount && (
                 <p className="text-sm text-destructive">{errors.grossAmount.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="paymentMode">Payment mode</Label>
+              <Label htmlFor="paymentMode" required>Payment mode</Label>
               <Controller
                 control={control}
                 name="paymentMode"

@@ -103,7 +103,7 @@ export function ReceiptFormDialog({ open, onOpenChange }: ReceiptFormDialogProps
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="customerId">Customer</Label>
+              <Label htmlFor="customerId" required>Customer</Label>
               <Controller
                 control={control}
                 name="customerId"
@@ -174,25 +174,25 @@ export function ReceiptFormDialog({ open, onOpenChange }: ReceiptFormDialogProps
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="receiptNumber">Receipt number</Label>
+              <Label htmlFor="receiptNumber" required>Receipt number</Label>
               <Input id="receiptNumber" {...register("receiptNumber")} />
               {errors.receiptNumber && (
                 <p className="text-sm text-destructive">{errors.receiptNumber.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="receiptDate">Date</Label>
+              <Label htmlFor="receiptDate" required>Date</Label>
               <Input id="receiptDate" type="date" {...register("receiptDate")} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="amount">Amount</Label>
+              <Label htmlFor="amount" required>Amount</Label>
               <Input id="amount" type="number" step="0.01" {...register("amount")} />
               {errors.amount && <p className="text-sm text-destructive">{errors.amount.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="paymentMode">Payment mode</Label>
+              <Label htmlFor="paymentMode" required>Payment mode</Label>
               <Controller
                 control={control}
                 name="paymentMode"

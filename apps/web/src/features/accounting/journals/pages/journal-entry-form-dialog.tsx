@@ -91,7 +91,7 @@ export function JournalEntryFormDialog({ open, onOpenChange }: JournalEntryFormD
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="entryDate">Entry date</Label>
+              <Label htmlFor="entryDate" required>Entry date</Label>
               <Input id="entryDate" type="datetime-local" {...register("entryDate")} />
               {errors.entryDate && (
                 <p className="text-sm text-destructive">{errors.entryDate.message}</p>

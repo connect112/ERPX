@@ -119,7 +119,7 @@ export function RegularizeAttendanceDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="regularizationReason">Reason</Label>
+            <Label htmlFor="regularizationReason" required>Reason</Label>
             <Textarea id="regularizationReason" rows={2} {...register("regularizationReason")} />
             {errors.regularizationReason && (
               <p className="text-sm text-destructive">{errors.regularizationReason.message}</p>

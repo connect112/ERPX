@@ -83,7 +83,7 @@ export function AdjustStockDialog({ open, onOpenChange, defaultItemId }: AdjustS
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="itemId">Item</Label>
+            <Label htmlFor="itemId" required>Item</Label>
             <Controller
               control={control}
               name="itemId"
@@ -105,7 +105,7 @@ export function AdjustStockDialog({ open, onOpenChange, defaultItemId }: AdjustS
             {errors.itemId && <p className="text-sm text-destructive">{errors.itemId.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="warehouseId">Warehouse</Label>
+            <Label htmlFor="warehouseId" required>Warehouse</Label>
             <Controller
               control={control}
               name="warehouseId"
@@ -130,7 +130,7 @@ export function AdjustStockDialog({ open, onOpenChange, defaultItemId }: AdjustS
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="quantityChange">Quantity change</Label>
+              <Label htmlFor="quantityChange" required>Quantity change</Label>
               <Input id="quantityChange" type="number" step="0.01" {...register("quantityChange")} />
               <p className="text-xs text-muted-foreground">Positive to increase, negative to decrease.</p>
               {errors.quantityChange && (
@@ -143,7 +143,7 @@ export function AdjustStockDialog({ open, onOpenChange, defaultItemId }: AdjustS
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="reason">Reason</Label>
+            <Label htmlFor="reason" required>Reason</Label>
             <Textarea id="reason" rows={2} {...register("reason")} />
             {errors.reason && <p className="text-sm text-destructive">{errors.reason.message}</p>}
           </div>

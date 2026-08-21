@@ -127,14 +127,14 @@ export function CustomerFormDialog({ open, onOpenChange, customer }: CustomerFor
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="customerCode">Code</Label>
+              <Label htmlFor="customerCode" required>Code</Label>
               <Input id="customerCode" disabled={isEditing} {...register("customerCode")} />
               {errors.customerCode && (
                 <p className="text-sm text-destructive">{errors.customerCode.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="customerType">Type</Label>
+              <Label htmlFor="customerType" required>Type</Label>
               <Controller
                 control={control}
                 name="customerType"
@@ -156,7 +156,7 @@ export function CustomerFormDialog({ open, onOpenChange, customer }: CustomerFor
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
+            <Label htmlFor="name" required>Name</Label>
             <Input id="name" {...register("name")} />
             {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
           </div>

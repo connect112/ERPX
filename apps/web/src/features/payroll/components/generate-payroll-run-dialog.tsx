@@ -72,14 +72,14 @@ export function GeneratePayrollRunDialog({ open, onOpenChange }: GeneratePayroll
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="periodYear">Period year</Label>
+              <Label htmlFor="periodYear" required>Period year</Label>
               <Input id="periodYear" type="number" {...register("periodYear")} />
               {errors.periodYear && (
                 <p className="text-sm text-destructive">{errors.periodYear.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="periodMonth">Period month</Label>
+              <Label htmlFor="periodMonth" required>Period month</Label>
               <Input id="periodMonth" type="number" min={1} max={12} {...register("periodMonth")} />
               {errors.periodMonth && (
                 <p className="text-sm text-destructive">{errors.periodMonth.message}</p>
@@ -87,7 +87,7 @@ export function GeneratePayrollRunDialog({ open, onOpenChange }: GeneratePayroll
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="runDate">Run date</Label>
+            <Label htmlFor="runDate" required>Run date</Label>
             <Input id="runDate" type="date" {...register("runDate")} />
             {errors.runDate && <p className="text-sm text-destructive">{errors.runDate.message}</p>}
           </div>

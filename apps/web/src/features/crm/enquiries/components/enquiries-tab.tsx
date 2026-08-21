@@ -145,7 +145,7 @@ export function EnquiriesTab({ leadId }: { leadId: string }) {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="courseInterest">Course interest</Label>
+              <Label htmlFor="courseInterest" required>Course interest</Label>
               <Input id="courseInterest" {...register("courseInterest")} />
               {errors.courseInterest && (
                 <p className="text-sm text-destructive">{errors.courseInterest.message}</p>

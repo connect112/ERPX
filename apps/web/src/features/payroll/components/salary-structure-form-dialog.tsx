@@ -87,7 +87,7 @@ export function SalaryStructureFormDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="effectiveFrom">Effective from</Label>
+            <Label htmlFor="effectiveFrom" required>Effective from</Label>
             <Input id="effectiveFrom" type="date" {...register("effectiveFrom")} />
             {errors.effectiveFrom && (
               <p className="text-sm text-destructive">{errors.effectiveFrom.message}</p>
@@ -112,7 +112,7 @@ export function SalaryStructureFormDialog({
             {fields.map((field, index) => (
               <div key={field.id} className="flex items-end gap-2">
                 <div className="flex-1 space-y-2">
-                  <Label htmlFor={`lines.${index}.salaryComponentId`}>Component</Label>
+                  <Label htmlFor={`lines.${index}.salaryComponentId`} required>Component</Label>
                   <Controller
                     control={control}
                     name={`lines.${index}.salaryComponentId`}
@@ -133,7 +133,7 @@ export function SalaryStructureFormDialog({
                   />
                 </div>
                 <div className="w-32 space-y-2">
-                  <Label htmlFor={`lines.${index}.amount`}>Amount</Label>
+                  <Label htmlFor={`lines.${index}.amount`} required>Amount</Label>
                   <Input
                     id={`lines.${index}.amount`}
                     type="number"
