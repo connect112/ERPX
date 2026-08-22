@@ -142,3 +142,43 @@ async def test_staff_without_documents_permission_is_forbidden(client, staff_hea
         headers=staff_headers,
     )
     assert response.status_code == 403
+
+
+async def test_path_traversal_characters_in_filename_and_entity_type_are_neutralized(
+    client, auth_headers, db_session, organization
+):
+    """A caller-supplied `filename`/`entity_type` shouldn't be able to steer
+    the storage key's path structure — e.g. escape the org-scoped prefix via
+    "../" or embed extra "/" segments. This is defense-in-depth (RBAC + the
+    org-scoped lookup are the real access control) but the key itself should
+    still come out confined to the expected `{org}/{entity_type}/{entity}/...`
+    shape with no literal "/" or ".." left over from user input."""
+    import uuid as uuid_module
+
+    from modules.documents.repository import DocumentRepository
+
+    document_id, entity_id, confirm_response = await _upload_and_confirm(
+        client,
+        auth_headers,
+        content=b"payload",
+        filename="../../../etc/passwd",
+        entity_type="../../other-org",
+    )
+    assert confirm_response.status_code == 200
+
+    # The upload/confirm/download round trip still works end-to-end even
+    # though the inputs were hostile — sanitizing the key shouldn't break
+    # the feature for a malicious-looking but otherwise normal request.
+    download_response = await client.get(
+        f"/api/v1/documents/{document_id}/download-url", headers=auth_headers
+    )
+    assert download_response.status_code == 200
+
+    repo = DocumentRepository(db_session)
+    document = await repo.get_by_id(uuid_module.UUID(document_id), organization.id)
+    assert document is not None
+    assert "/../" not in document.storage_key
+    assert not document.storage_key.startswith("../")
+    assert not document.storage_key.startswith("/")
+    # Exactly three "/" separators: org / entity_type / entity_id-or-unattached / key-tail
+    assert document.storage_key.count("/") == 3

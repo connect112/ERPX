@@ -1,3 +1,4 @@
+import re
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,24 @@ logger = get_logger(__name__)
 # tuned per use case. Modules needing larger uploads (e.g. video lessons)
 # should get a dedicated, purpose-specific limit when that's built.
 MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
+
+# Anything outside this set is collapsed to "_" before a value is
+# interpolated into the object key below. `entity_type` and `filename` are
+# caller-supplied (schemas.py only bounds their length), so — even though
+# the org/entity/document-id segments around them are always server-generated
+# UUIDs and RBAC + the org-scoped `get_by_id` lookup are the real access
+# control — this keeps a caller from using "/", "..", or control characters
+# to influence the key's path structure. Defense-in-depth, not a live vuln:
+# nothing downstream currently resolves these keys as filesystem paths.
+# The original filename is preserved as-is in the `filename` column for
+# display; only the storage key is sanitized.
+_UNSAFE_KEY_CHARS = re.compile(r"[^A-Za-z0-9_.-]")
+
+
+def _sanitize_key_segment(value: str, *, max_length: int) -> str:
+    sanitized = _UNSAFE_KEY_CHARS.sub("_", value.replace("\x00", ""))
+    sanitized = sanitized.strip("._") or "unnamed"
+    return sanitized[:max_length]
 
 
 class DocumentService:
@@ -34,7 +53,12 @@ class DocumentService:
     ) -> tuple[Document, str]:
         await self.storage.ensure_bucket()
 
-        object_key = f"{organization_id}/{entity_type}/{entity_id or 'unattached'}/{uuid.uuid4()}-{filename}"
+        safe_entity_type = _sanitize_key_segment(entity_type, max_length=100)
+        safe_filename = _sanitize_key_segment(filename, max_length=255)
+        object_key = (
+            f"{organization_id}/{safe_entity_type}/{entity_id or 'unattached'}/"
+            f"{uuid.uuid4()}-{safe_filename}"
+        )
         document = await self.repo.create(
             organization_id=organization_id,
             uploaded_by_user_id=uploaded_by_user_id,
