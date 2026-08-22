@@ -107,12 +107,12 @@ export function ChallengeFormDialog({ open, onOpenChange, challenge }: Challenge
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="title">Title</Label>
+            <Label htmlFor="title" required>Title</Label>
             <Input id="title" {...register("title")} />
             {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
+            <Label htmlFor="description" required>Description</Label>
             <Textarea id="description" rows={3} {...register("description")} />
             {errors.description && (
               <p className="text-sm text-destructive">{errors.description.message}</p>
@@ -120,14 +120,14 @@ export function ChallengeFormDialog({ open, onOpenChange, challenge }: Challenge
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="category">Category</Label>
+              <Label htmlFor="category" required>Category</Label>
               <Input id="category" placeholder="e.g. Web, Crypto, Forensics" {...register("category")} />
               {errors.category && (
                 <p className="text-sm text-destructive">{errors.category.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="difficulty">Difficulty</Label>
+              <Label htmlFor="difficulty" required>Difficulty</Label>
               <Controller
                 control={control}
                 name="difficulty"
@@ -172,7 +172,7 @@ export function ChallengeFormDialog({ open, onOpenChange, challenge }: Challenge
             </div>
           )}
           <div className="space-y-2">
-            <Label htmlFor="points">Points</Label>
+            <Label htmlFor="points" required>Points</Label>
             <Input id="points" type="number" {...register("points")} />
           </div>
           {mutation.isError && (

@@ -128,21 +128,21 @@ export function CampaignFormDialog({ open, onOpenChange, campaign }: CampaignFor
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="campaignCode">Campaign code</Label>
+              <Label htmlFor="campaignCode" required>Campaign code</Label>
               <Input id="campaignCode" disabled={isEditing} {...register("campaignCode")} />
               {errors.campaignCode && (
                 <p className="text-sm text-destructive">{errors.campaignCode.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name" required>Name</Label>
               <Input id="name" {...register("name")} />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="channel">Channel</Label>
+              <Label htmlFor="channel" required>Channel</Label>
               <Controller
                 control={control}
                 name="channel"
@@ -163,7 +163,7 @@ export function CampaignFormDialog({ open, onOpenChange, campaign }: CampaignFor
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate" required>Start date</Label>
               <Input id="startDate" type="date" disabled={isEditing} {...register("startDate")} />
               {errors.startDate && (
                 <p className="text-sm text-destructive">{errors.startDate.message}</p>

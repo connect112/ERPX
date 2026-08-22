@@ -91,21 +91,21 @@ function ChangePasswordCard() {
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="currentPassword">Current password</Label>
+            <Label htmlFor="currentPassword" required>Current password</Label>
             <Input id="currentPassword" type="password" {...register("currentPassword")} />
             {errors.currentPassword && (
               <p className="text-sm text-destructive">{errors.currentPassword.message}</p>
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="newPassword">New password</Label>
+            <Label htmlFor="newPassword" required>New password</Label>
             <Input id="newPassword" type="password" {...register("newPassword")} />
             {errors.newPassword && (
               <p className="text-sm text-destructive">{errors.newPassword.message}</p>
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="confirmPassword">Confirm new password</Label>
+            <Label htmlFor="confirmPassword" required>Confirm new password</Label>
             <Input id="confirmPassword" type="password" {...register("confirmPassword")} />
             {errors.confirmPassword && (
               <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>

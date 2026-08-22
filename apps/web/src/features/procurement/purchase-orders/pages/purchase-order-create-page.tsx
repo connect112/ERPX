@@ -96,7 +96,7 @@ export function PurchaseOrderCreatePage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="vendorId">Vendor</Label>
+                <Label htmlFor="vendorId" required>Vendor</Label>
                 <Controller
                   control={control}
                   name="vendorId"
@@ -118,14 +118,14 @@ export function PurchaseOrderCreatePage() {
                 {errors.vendorId && <p className="text-sm text-destructive">{errors.vendorId.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="poNumber">PO number</Label>
+                <Label htmlFor="poNumber" required>PO number</Label>
                 <Input id="poNumber" {...register("poNumber")} />
                 {errors.poNumber && <p className="text-sm text-destructive">{errors.poNumber.message}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="orderDate">Order date</Label>
+                <Label htmlFor="orderDate" required>Order date</Label>
                 <Input id="orderDate" type="date" {...register("orderDate")} />
               </div>
               <div className="space-y-2">

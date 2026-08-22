@@ -78,7 +78,7 @@ function RegisterAttendeeDialog({ workshopId }: { workshopId: string }) {
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="contactName">Name</Label>
+            <Label htmlFor="contactName" required>Name</Label>
             <Input id="contactName" {...register("contactName")} />
             {errors.contactName && (
               <p className="text-sm text-destructive">{errors.contactName.message}</p>

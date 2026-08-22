@@ -133,19 +133,19 @@ export function ReferralProgramsPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name" required>Name</Label>
                 <Input id="name" {...register("name")} />
                 {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="code">Code</Label>
+                <Label htmlFor="code" required>Code</Label>
                 <Input id="code" {...register("code")} />
                 {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="referrerRewardAmount">Referrer reward</Label>
+                <Label htmlFor="referrerRewardAmount" required>Referrer reward</Label>
                 <Input id="referrerRewardAmount" type="number" step="0.01" {...register("referrerRewardAmount")} />
                 {errors.referrerRewardAmount && (
                   <p className="text-sm text-destructive">{errors.referrerRewardAmount.message}</p>
@@ -162,7 +162,7 @@ export function ReferralProgramsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="validFrom">Valid from</Label>
+                <Label htmlFor="validFrom" required>Valid from</Label>
                 <Input id="validFrom" type="date" {...register("validFrom")} />
                 {errors.validFrom && (
                   <p className="text-sm text-destructive">{errors.validFrom.message}</p>

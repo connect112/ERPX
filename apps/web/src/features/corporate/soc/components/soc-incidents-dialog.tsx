@@ -152,13 +152,13 @@ export function SOCIncidentsDialog({ open, onOpenChange, serviceId }: SOCInciden
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="severity">Severity</Label>
+                <Label htmlFor="severity" required>Severity</Label>
                 <Controller
                   control={control}
                   name="severity"
@@ -179,7 +179,7 @@ export function SOCIncidentsDialog({ open, onOpenChange, serviceId }: SOCInciden
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="detectedAt">Detected at</Label>
+                <Label htmlFor="detectedAt" required>Detected at</Label>
                 <Input id="detectedAt" type="datetime-local" {...register("detectedAt")} />
                 {errors.detectedAt && (
                   <p className="text-sm text-destructive">{errors.detectedAt.message}</p>
@@ -187,7 +187,7 @@ export function SOCIncidentsDialog({ open, onOpenChange, serviceId }: SOCInciden
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description" required>Description</Label>
               <Textarea id="description" rows={2} {...register("description")} />
               {errors.description && (
                 <p className="text-sm text-destructive">{errors.description.message}</p>

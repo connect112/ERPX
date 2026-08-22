@@ -124,12 +124,12 @@ export function OrganizationFormDialog({ open, onOpenChange, organization }: Org
         <form onSubmit={handleSubmit(onSubmit)} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name" required>Name</Label>
               <Input id="name" {...register("name")} />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
+              <Label htmlFor="slug" required>Slug</Label>
               <Input id="slug" disabled={isEditing} placeholder="e.g. gir-technologies" {...register("slug")} />
               {errors.slug && <p className="text-sm text-destructive">{errors.slug.message}</p>}
             </div>
@@ -161,7 +161,7 @@ export function OrganizationFormDialog({ open, onOpenChange, organization }: Org
               <Input id="website" {...register("website")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="subscriptionPlan">Subscription plan</Label>
+              <Label htmlFor="subscriptionPlan" required>Subscription plan</Label>
               <Controller
                 control={control}
                 name="subscriptionPlan"

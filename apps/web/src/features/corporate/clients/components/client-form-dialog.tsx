@@ -133,14 +133,14 @@ export function ClientFormDialog({ open, onOpenChange, client }: ClientFormDialo
         <form onSubmit={handleSubmit(onSubmit)} className="max-h-[70vh] space-y-5 overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="clientCode">Client code</Label>
+              <Label htmlFor="clientCode" required>Client code</Label>
               <Input id="clientCode" disabled={isEditing} {...register("clientCode")} />
               {errors.clientCode && (
                 <p className="text-sm text-destructive">{errors.clientCode.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name" required>Name</Label>
               <Input id="name" {...register("name")} />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>

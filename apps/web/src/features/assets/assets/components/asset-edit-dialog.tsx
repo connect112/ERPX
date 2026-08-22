@@ -87,7 +87,7 @@ export function AssetEditDialog({ open, onOpenChange, asset }: AssetEditDialogPr
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Name</Label>
+            <Label htmlFor="name" required>Name</Label>
             <Input id="name" {...register("name")} />
             {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
           </div>

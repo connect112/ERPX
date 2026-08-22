@@ -118,7 +118,7 @@ export function AchievementsListPage() {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name" required>Name</Label>
               <Input id="name" {...register("name")} />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
@@ -128,7 +128,7 @@ export function AchievementsListPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="criteriaType">Criteria</Label>
+                <Label htmlFor="criteriaType" required>Criteria</Label>
                 <Controller
                   control={control}
                   name="criteriaType"
@@ -149,7 +149,7 @@ export function AchievementsListPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="criteriaValue">Threshold</Label>
+                <Label htmlFor="criteriaValue" required>Threshold</Label>
                 <Input id="criteriaValue" type="number" {...register("criteriaValue")} />
                 {errors.criteriaValue && (
                   <p className="text-sm text-destructive">{errors.criteriaValue.message}</p>

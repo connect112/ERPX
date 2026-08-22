@@ -190,13 +190,13 @@ export function VAPTFindingsDialog({ open, onOpenChange, engagementId }: VAPTFin
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="severity">Severity</Label>
+                <Label htmlFor="severity" required>Severity</Label>
                 <Controller
                   control={control}
                   name="severity"
@@ -222,21 +222,21 @@ export function VAPTFindingsDialog({ open, onOpenChange, engagementId }: VAPTFin
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description" required>Description</Label>
               <Textarea id="description" rows={2} {...register("description")} />
               {errors.description && (
                 <p className="text-sm text-destructive">{errors.description.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="recommendation">Recommendation</Label>
+              <Label htmlFor="recommendation" required>Recommendation</Label>
               <Textarea id="recommendation" rows={2} {...register("recommendation")} />
               {errors.recommendation && (
                 <p className="text-sm text-destructive">{errors.recommendation.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="reportedDate">Reported date</Label>
+              <Label htmlFor="reportedDate" required>Reported date</Label>
               <Input id="reportedDate" type="date" {...register("reportedDate")} />
             </div>
             <DialogFooter>

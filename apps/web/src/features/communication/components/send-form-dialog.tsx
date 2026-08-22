@@ -82,7 +82,7 @@ export function SendFormDialog({ open, onOpenChange }: SendFormDialogProps) {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="channel">Channel</Label>
+              <Label htmlFor="channel" required>Channel</Label>
               <Controller
                 control={control}
                 name="channel"
@@ -103,7 +103,7 @@ export function SendFormDialog({ open, onOpenChange }: SendFormDialogProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="recipient">
+              <Label htmlFor="recipient" required>
                 {channel === "email" ? "Recipient email" : "Recipient phone"}
               </Label>
               <Input
@@ -126,7 +126,7 @@ export function SendFormDialog({ open, onOpenChange }: SendFormDialogProps) {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="body">Message</Label>
+            <Label htmlFor="body" required>Message</Label>
             <Textarea id="body" rows={4} {...register("body")} />
             {errors.body && <p className="text-sm text-destructive">{errors.body.message}</p>}
           </div>

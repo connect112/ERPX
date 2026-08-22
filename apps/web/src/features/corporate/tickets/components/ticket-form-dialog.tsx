@@ -93,14 +93,14 @@ export function TicketFormDialog({ open, onOpenChange, clientId }: TicketFormDia
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="ticketNumber">Ticket number</Label>
+              <Label htmlFor="ticketNumber" required>Ticket number</Label>
               <Input id="ticketNumber" {...register("ticketNumber")} />
               {errors.ticketNumber && (
                 <p className="text-sm text-destructive">{errors.ticketNumber.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="priority">Priority</Label>
+              <Label htmlFor="priority" required>Priority</Label>
               <Controller
                 control={control}
                 name="priority"
@@ -122,12 +122,12 @@ export function TicketFormDialog({ open, onOpenChange, clientId }: TicketFormDia
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="subject">Subject</Label>
+            <Label htmlFor="subject" required>Subject</Label>
             <Input id="subject" {...register("subject")} />
             {errors.subject && <p className="text-sm text-destructive">{errors.subject.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
+            <Label htmlFor="description" required>Description</Label>
             <Textarea id="description" rows={3} {...register("description")} />
             {errors.description && (
               <p className="text-sm text-destructive">{errors.description.message}</p>

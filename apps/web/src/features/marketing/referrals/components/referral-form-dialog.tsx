@@ -80,7 +80,7 @@ export function ReferralFormDialog({ open, onOpenChange }: ReferralFormDialogPro
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="referralProgramId">Referral program</Label>
+            <Label htmlFor="referralProgramId" required>Referral program</Label>
             <Controller
               control={control}
               name="referralProgramId"
@@ -125,7 +125,7 @@ export function ReferralFormDialog({ open, onOpenChange }: ReferralFormDialogPro
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="refereeName">Referee name</Label>
+            <Label htmlFor="refereeName" required>Referee name</Label>
             <Input id="refereeName" {...register("refereeName")} />
             {errors.refereeName && (
               <p className="text-sm text-destructive">{errors.refereeName.message}</p>

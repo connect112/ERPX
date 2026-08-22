@@ -95,14 +95,14 @@ export function ContractFormDialog({ open, onOpenChange, clientId }: ContractFor
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="contractNumber">Contract number</Label>
+              <Label htmlFor="contractNumber" required>Contract number</Label>
               <Input id="contractNumber" {...register("contractNumber")} />
               {errors.contractNumber && (
                 <p className="text-sm text-destructive">{errors.contractNumber.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="contractType">Type</Label>
+              <Label htmlFor="contractType" required>Type</Label>
               <Controller
                 control={control}
                 name="contractType"
@@ -169,7 +169,7 @@ export function ContractFormDialog({ open, onOpenChange, clientId }: ContractFor
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate" required>Start date</Label>
               <Input id="startDate" type="date" {...register("startDate")} />
               {errors.startDate && (
                 <p className="text-sm text-destructive">{errors.startDate.message}</p>
@@ -180,7 +180,7 @@ export function ContractFormDialog({ open, onOpenChange, clientId }: ContractFor
               <Input id="endDate" type="date" {...register("endDate")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="contractValue">Value</Label>
+              <Label htmlFor="contractValue" required>Value</Label>
               <Input id="contractValue" type="number" step="0.01" {...register("contractValue")} />
               {errors.contractValue && (
                 <p className="text-sm text-destructive">{errors.contractValue.message}</p>

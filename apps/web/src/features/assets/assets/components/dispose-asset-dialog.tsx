@@ -66,14 +66,14 @@ export function DisposeAssetDialog({ open, onOpenChange, assetId }: DisposeAsset
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="disposalDate">Disposal date</Label>
+              <Label htmlFor="disposalDate" required>Disposal date</Label>
               <Input id="disposalDate" type="date" {...register("disposalDate")} />
               {errors.disposalDate && (
                 <p className="text-sm text-destructive">{errors.disposalDate.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="disposalAmount">Disposal amount</Label>
+              <Label htmlFor="disposalAmount" required>Disposal amount</Label>
               <Input id="disposalAmount" type="number" step="0.01" {...register("disposalAmount")} />
               {errors.disposalAmount && (
                 <p className="text-sm text-destructive">{errors.disposalAmount.message}</p>
@@ -81,7 +81,7 @@ export function DisposeAssetDialog({ open, onOpenChange, assetId }: DisposeAsset
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cashAccountId">Cash / bank account</Label>
+            <Label htmlFor="cashAccountId" required>Cash / bank account</Label>
             <Controller
               control={control}
               name="cashAccountId"
@@ -105,7 +105,7 @@ export function DisposeAssetDialog({ open, onOpenChange, assetId }: DisposeAsset
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="gainLossAccountId">Gain / loss account</Label>
+            <Label htmlFor="gainLossAccountId" required>Gain / loss account</Label>
             <Controller
               control={control}
               name="gainLossAccountId"

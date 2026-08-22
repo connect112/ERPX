@@ -93,7 +93,7 @@ function VivaResultsSection({ courseId, vivaId }: { courseId: string; vivaId: st
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="studentId">Student</Label>
+              <Label htmlFor="studentId" required>Student</Label>
               <Controller
                 control={control}
                 name="studentId"
@@ -117,7 +117,7 @@ function VivaResultsSection({ courseId, vivaId }: { courseId: string; vivaId: st
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="score">Score</Label>
+              <Label htmlFor="score" required>Score</Label>
               <Input id="score" type="number" {...register("score")} />
               {errors.score && <p className="text-sm text-destructive">{errors.score.message}</p>}
             </div>
@@ -240,12 +240,12 @@ export function VivaPanel({ courseId }: { courseId: string }) {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="examDate">Exam date</Label>
+              <Label htmlFor="examDate" required>Exam date</Label>
               <Input id="examDate" type="date" {...register("examDate")} />
               {errors.examDate && (
                 <p className="text-sm text-destructive">{errors.examDate.message}</p>
@@ -257,11 +257,11 @@ export function VivaPanel({ courseId }: { courseId: string }) {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="totalMarks">Total marks</Label>
+                <Label htmlFor="totalMarks" required>Total marks</Label>
                 <Input id="totalMarks" type="number" {...register("totalMarks")} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="passingMarks">Passing marks</Label>
+                <Label htmlFor="passingMarks" required>Passing marks</Label>
                 <Input id="passingMarks" type="number" {...register("passingMarks")} />
               </div>
             </div>

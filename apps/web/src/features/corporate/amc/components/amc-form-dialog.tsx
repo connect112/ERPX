@@ -86,12 +86,12 @@ export function AMCFormDialog({ open, onOpenChange, clientId }: AMCFormDialogPro
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="amcNumber">AMC number</Label>
+            <Label htmlFor="amcNumber" required>AMC number</Label>
             <Input id="amcNumber" {...register("amcNumber")} />
             {errors.amcNumber && <p className="text-sm text-destructive">{errors.amcNumber.message}</p>}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="coverageDescription">Coverage description</Label>
+            <Label htmlFor="coverageDescription" required>Coverage description</Label>
             <Textarea id="coverageDescription" rows={2} {...register("coverageDescription")} />
             {errors.coverageDescription && (
               <p className="text-sm text-destructive">{errors.coverageDescription.message}</p>
@@ -99,26 +99,26 @@ export function AMCFormDialog({ open, onOpenChange, clientId }: AMCFormDialogPro
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate" required>Start date</Label>
               <Input id="startDate" type="date" {...register("startDate")} />
               {errors.startDate && (
                 <p className="text-sm text-destructive">{errors.startDate.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="endDate">End date</Label>
+              <Label htmlFor="endDate" required>End date</Label>
               <Input id="endDate" type="date" {...register("endDate")} />
               {errors.endDate && <p className="text-sm text-destructive">{errors.endDate.message}</p>}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="amount">Amount</Label>
+              <Label htmlFor="amount" required>Amount</Label>
               <Input id="amount" type="number" step="0.01" {...register("amount")} />
               {errors.amount && <p className="text-sm text-destructive">{errors.amount.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="billingFrequency">Billing</Label>
+              <Label htmlFor="billingFrequency" required>Billing</Label>
               <Controller
                 control={control}
                 name="billingFrequency"

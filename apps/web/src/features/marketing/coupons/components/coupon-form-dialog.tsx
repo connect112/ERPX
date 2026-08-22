@@ -95,7 +95,7 @@ export function CouponFormDialog({ open, onOpenChange }: CouponFormDialogProps) 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="code">Code</Label>
+              <Label htmlFor="code" required>Code</Label>
               <Input id="code" {...register("code")} />
               {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
             </div>
@@ -127,7 +127,7 @@ export function CouponFormDialog({ open, onOpenChange }: CouponFormDialogProps) 
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="discountType">Discount type</Label>
+              <Label htmlFor="discountType" required>Discount type</Label>
               <Controller
                 control={control}
                 name="discountType"
@@ -148,7 +148,7 @@ export function CouponFormDialog({ open, onOpenChange }: CouponFormDialogProps) 
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="discountValue">Discount value</Label>
+              <Label htmlFor="discountValue" required>Discount value</Label>
               <Input id="discountValue" type="number" step="0.01" {...register("discountValue")} />
               {errors.discountValue && (
                 <p className="text-sm text-destructive">{errors.discountValue.message}</p>
@@ -177,14 +177,14 @@ export function CouponFormDialog({ open, onOpenChange }: CouponFormDialogProps) 
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="validFrom">Valid from</Label>
+              <Label htmlFor="validFrom" required>Valid from</Label>
               <Input id="validFrom" type="date" {...register("validFrom")} />
               {errors.validFrom && (
                 <p className="text-sm text-destructive">{errors.validFrom.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="validUntil">Valid until</Label>
+              <Label htmlFor="validUntil" required>Valid until</Label>
               <Input id="validUntil" type="date" {...register("validUntil")} />
               {errors.validUntil && (
                 <p className="text-sm text-destructive">{errors.validUntil.message}</p>
