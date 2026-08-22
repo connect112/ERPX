@@ -108,27 +108,27 @@ export function LabFormDialog({ open, onOpenChange, lab }: LabFormDialogProps) {
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="title">Title</Label>
+            <Label htmlFor="title" required>Title</Label>
             <Input id="title" {...register("title")} />
             {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
           </div>
           {!isEditing && (
             <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
+              <Label htmlFor="slug" required>Slug</Label>
               <Input id="slug" placeholder="e.g. sql-injection-101" {...register("slug")} />
               {errors.slug && <p className="text-sm text-destructive">{errors.slug.message}</p>}
             </div>
           )}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="category">Category</Label>
+              <Label htmlFor="category" required>Category</Label>
               <Input id="category" placeholder="e.g. Web Exploitation" {...register("category")} />
               {errors.category && (
                 <p className="text-sm text-destructive">{errors.category.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="difficulty">Difficulty</Label>
+              <Label htmlFor="difficulty" required>Difficulty</Label>
               <Controller
                 control={control}
                 name="difficulty"
@@ -154,7 +154,7 @@ export function LabFormDialog({ open, onOpenChange, lab }: LabFormDialogProps) {
             <Textarea id="description" rows={3} {...register("description")} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="environmentImage">Environment image</Label>
+            <Label htmlFor="environmentImage" required>Environment image</Label>
             <Input
               id="environmentImage"
               placeholder="e.g. pentrix/web-sqli:latest"
@@ -166,11 +166,11 @@ export function LabFormDialog({ open, onOpenChange, lab }: LabFormDialogProps) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="points">Points</Label>
+              <Label htmlFor="points" required>Points</Label>
               <Input id="points" type="number" {...register("points")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="defaultDurationMinutes">Duration (min)</Label>
+              <Label htmlFor="defaultDurationMinutes" required>Duration (min)</Label>
               <Input id="defaultDurationMinutes" type="number" {...register("defaultDurationMinutes")} />
             </div>
           </div>

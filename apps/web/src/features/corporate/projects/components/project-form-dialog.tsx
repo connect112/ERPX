@@ -93,21 +93,21 @@ export function ProjectFormDialog({ open, onOpenChange, clientId }: ProjectFormD
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="projectCode">Project code</Label>
+              <Label htmlFor="projectCode" required>Project code</Label>
               <Input id="projectCode" {...register("projectCode")} />
               {errors.projectCode && (
                 <p className="text-sm text-destructive">{errors.projectCode.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name" required>Name</Label>
               <Input id="name" {...register("name")} />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="projectType">Type</Label>
+              <Label htmlFor="projectType" required>Type</Label>
               <Controller
                 control={control}
                 name="projectType"
@@ -151,7 +151,7 @@ export function ProjectFormDialog({ open, onOpenChange, clientId }: ProjectFormD
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate" required>Start date</Label>
               <Input id="startDate" type="date" {...register("startDate")} />
               {errors.startDate && (
                 <p className="text-sm text-destructive">{errors.startDate.message}</p>

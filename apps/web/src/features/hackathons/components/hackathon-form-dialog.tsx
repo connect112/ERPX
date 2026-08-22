@@ -102,12 +102,12 @@ export function HackathonFormDialog({ open, onOpenChange, hackathon }: Hackathon
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="code">Code</Label>
+              <Label htmlFor="code" required>Code</Label>
               <Input id="code" disabled={isEditing} {...register("code")} />
               {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
@@ -125,21 +125,21 @@ export function HackathonFormDialog({ open, onOpenChange, hackathon }: Hackathon
 
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="registrationDeadline">Registration deadline</Label>
+              <Label htmlFor="registrationDeadline" required>Registration deadline</Label>
               <Input id="registrationDeadline" type="date" {...register("registrationDeadline")} />
               {errors.registrationDeadline && (
                 <p className="text-sm text-destructive">{errors.registrationDeadline.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate" required>Start date</Label>
               <Input id="startDate" type="date" {...register("startDate")} />
               {errors.startDate && (
                 <p className="text-sm text-destructive">{errors.startDate.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="endDate">End date</Label>
+              <Label htmlFor="endDate" required>End date</Label>
               <Input id="endDate" type="date" {...register("endDate")} />
               {errors.endDate && <p className="text-sm text-destructive">{errors.endDate.message}</p>}
             </div>

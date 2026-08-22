@@ -50,7 +50,7 @@ export function RenewContractDialog({ open, onOpenChange, contractId }: RenewCon
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="newEndDate">New end date</Label>
+            <Label htmlFor="newEndDate" required>New end date</Label>
             <Input id="newEndDate" type="date" {...register("newEndDate")} />
             {errors.newEndDate && (
               <p className="text-sm text-destructive">{errors.newEndDate.message}</p>

@@ -102,7 +102,7 @@ export function QuotationFormDialog({ open, onOpenChange, clientId }: QuotationF
         <form onSubmit={handleSubmit(onSubmit)} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="quotationNumber">Quotation number</Label>
+              <Label htmlFor="quotationNumber" required>Quotation number</Label>
               <Input id="quotationNumber" {...register("quotationNumber")} />
               {errors.quotationNumber && (
                 <p className="text-sm text-destructive">{errors.quotationNumber.message}</p>
@@ -132,11 +132,11 @@ export function QuotationFormDialog({ open, onOpenChange, clientId }: QuotationF
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="quotationDate">Quotation date</Label>
+              <Label htmlFor="quotationDate" required>Quotation date</Label>
               <Input id="quotationDate" type="date" {...register("quotationDate")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="validUntil">Valid until</Label>
+              <Label htmlFor="validUntil" required>Valid until</Label>
               <Input id="validUntil" type="date" {...register("validUntil")} />
               {errors.validUntil && (
                 <p className="text-sm text-destructive">{errors.validUntil.message}</p>

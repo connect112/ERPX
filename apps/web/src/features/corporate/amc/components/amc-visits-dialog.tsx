@@ -161,14 +161,14 @@ export function AMCVisitsDialog({ open, onOpenChange, contractId }: AMCVisitsDia
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="visitDate">Visit date</Label>
+              <Label htmlFor="visitDate" required>Visit date</Label>
               <Input id="visitDate" type="date" {...register("visitDate")} />
               {errors.visitDate && (
                 <p className="text-sm text-destructive">{errors.visitDate.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="purpose">Purpose</Label>
+              <Label htmlFor="purpose" required>Purpose</Label>
               <Textarea id="purpose" rows={2} {...register("purpose")} />
               {errors.purpose && <p className="text-sm text-destructive">{errors.purpose.message}</p>}
             </div>

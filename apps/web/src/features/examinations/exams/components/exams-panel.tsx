@@ -216,12 +216,12 @@ export function ExamsPanel({ courseId }: { courseId: string }) {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="examDate">Exam date</Label>
+              <Label htmlFor="examDate" required>Exam date</Label>
               <Input id="examDate" type="datetime-local" {...register("examDate")} />
               {errors.examDate && (
                 <p className="text-sm text-destructive">{errors.examDate.message}</p>
@@ -229,11 +229,11 @@ export function ExamsPanel({ courseId }: { courseId: string }) {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="durationMinutes">Duration (min)</Label>
+                <Label htmlFor="durationMinutes" required>Duration (min)</Label>
                 <Input id="durationMinutes" type="number" {...register("durationMinutes")} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="passingMarks">Passing marks</Label>
+                <Label htmlFor="passingMarks" required>Passing marks</Label>
                 <Input id="passingMarks" type="number" {...register("passingMarks")} />
               </div>
             </div>

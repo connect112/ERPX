@@ -101,7 +101,7 @@ export function CreateGoodsReceiptDialog({ open, onOpenChange, po }: CreateGoods
         <form onSubmit={handleSubmit(onSubmit)} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="warehouseId">Warehouse</Label>
+              <Label htmlFor="warehouseId" required>Warehouse</Label>
               <Controller
                 control={control}
                 name="warehouseId"
@@ -125,7 +125,7 @@ export function CreateGoodsReceiptDialog({ open, onOpenChange, po }: CreateGoods
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="receiptNumber">Receipt number</Label>
+              <Label htmlFor="receiptNumber" required>Receipt number</Label>
               <Input id="receiptNumber" {...register("receiptNumber")} />
               {errors.receiptNumber && (
                 <p className="text-sm text-destructive">{errors.receiptNumber.message}</p>
@@ -133,7 +133,7 @@ export function CreateGoodsReceiptDialog({ open, onOpenChange, po }: CreateGoods
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="receiptDate">Receipt date</Label>
+            <Label htmlFor="receiptDate" required>Receipt date</Label>
             <Input id="receiptDate" type="date" {...register("receiptDate")} />
           </div>
 

@@ -111,7 +111,7 @@ export function PostingFormDialog({ open, onOpenChange, posting }: PostingFormDi
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="companyId">Company</Label>
+            <Label htmlFor="companyId" required>Company</Label>
             <Controller
               control={control}
               name="companyId"
@@ -136,7 +136,7 @@ export function PostingFormDialog({ open, onOpenChange, posting }: PostingFormDi
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="title">Title</Label>
+            <Label htmlFor="title" required>Title</Label>
             <Input id="title" {...register("title")} />
             {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
           </div>

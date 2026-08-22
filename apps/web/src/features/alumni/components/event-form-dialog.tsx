@@ -102,7 +102,7 @@ export function EventFormDialog({ open, onOpenChange, event }: EventFormDialogPr
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="title">Title</Label>
+            <Label htmlFor="title" required>Title</Label>
             <Input id="title" {...register("title")} />
             {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
           </div>
@@ -114,7 +114,7 @@ export function EventFormDialog({ open, onOpenChange, event }: EventFormDialogPr
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="mode">Mode</Label>
+              <Label htmlFor="mode" required>Mode</Label>
               <Controller
                 control={control}
                 name="mode"
@@ -135,7 +135,7 @@ export function EventFormDialog({ open, onOpenChange, event }: EventFormDialogPr
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="eventDate">Event date</Label>
+              <Label htmlFor="eventDate" required>Event date</Label>
               <Input id="eventDate" type="date" {...register("eventDate")} />
               {errors.eventDate && (
                 <p className="text-sm text-destructive">{errors.eventDate.message}</p>

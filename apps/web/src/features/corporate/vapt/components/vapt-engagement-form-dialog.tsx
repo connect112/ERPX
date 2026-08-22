@@ -86,7 +86,7 @@ export function VAPTEngagementFormDialog({ open, onOpenChange, projectId }: VAPT
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="scopeDescription">Scope description</Label>
+            <Label htmlFor="scopeDescription" required>Scope description</Label>
             <Textarea id="scopeDescription" rows={2} {...register("scopeDescription")} />
             {errors.scopeDescription && (
               <p className="text-sm text-destructive">{errors.scopeDescription.message}</p>
@@ -94,7 +94,7 @@ export function VAPTEngagementFormDialog({ open, onOpenChange, projectId }: VAPT
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="engagementType">Type</Label>
+              <Label htmlFor="engagementType" required>Type</Label>
               <Controller
                 control={control}
                 name="engagementType"
@@ -142,7 +142,7 @@ export function VAPTEngagementFormDialog({ open, onOpenChange, projectId }: VAPT
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate" required>Start date</Label>
               <Input id="startDate" type="date" {...register("startDate")} />
               {errors.startDate && (
                 <p className="text-sm text-destructive">{errors.startDate.message}</p>

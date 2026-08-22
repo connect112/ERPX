@@ -106,12 +106,12 @@ export function AssetCreateDialog({ open, onOpenChange }: AssetCreateDialogProps
         <form onSubmit={handleSubmit(onSubmit)} className="max-h-[70vh] space-y-5 overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="assetCode">Asset code</Label>
+              <Label htmlFor="assetCode" required>Asset code</Label>
               <Input id="assetCode" {...register("assetCode")} />
               {errors.assetCode && <p className="text-sm text-destructive">{errors.assetCode.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name" required>Name</Label>
               <Input id="name" {...register("name")} />
               {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
             </div>
@@ -166,7 +166,7 @@ export function AssetCreateDialog({ open, onOpenChange }: AssetCreateDialogProps
               GL accounts
             </p>
             <div className="space-y-2">
-              <Label htmlFor="assetAccountId">Fixed asset account</Label>
+              <Label htmlFor="assetAccountId" required>Fixed asset account</Label>
               <Controller
                 control={control}
                 name="assetAccountId"
@@ -190,7 +190,7 @@ export function AssetCreateDialog({ open, onOpenChange }: AssetCreateDialogProps
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="accumulatedDepreciationAccountId">Accumulated depreciation account</Label>
+              <Label htmlFor="accumulatedDepreciationAccountId" required>Accumulated depreciation account</Label>
               <Controller
                 control={control}
                 name="accumulatedDepreciationAccountId"
@@ -216,7 +216,7 @@ export function AssetCreateDialog({ open, onOpenChange }: AssetCreateDialogProps
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="depreciationExpenseAccountId">Depreciation expense account</Label>
+              <Label htmlFor="depreciationExpenseAccountId" required>Depreciation expense account</Label>
               <Controller
                 control={control}
                 name="depreciationExpenseAccountId"
@@ -249,14 +249,14 @@ export function AssetCreateDialog({ open, onOpenChange }: AssetCreateDialogProps
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="purchaseDate">Purchase date</Label>
+                <Label htmlFor="purchaseDate" required>Purchase date</Label>
                 <Input id="purchaseDate" type="date" {...register("purchaseDate")} />
                 {errors.purchaseDate && (
                   <p className="text-sm text-destructive">{errors.purchaseDate.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="purchaseCost">Purchase cost</Label>
+                <Label htmlFor="purchaseCost" required>Purchase cost</Label>
                 <Input id="purchaseCost" type="number" step="0.01" {...register("purchaseCost")} />
                 {errors.purchaseCost && (
                   <p className="text-sm text-destructive">{errors.purchaseCost.message}</p>
@@ -269,14 +269,14 @@ export function AssetCreateDialog({ open, onOpenChange }: AssetCreateDialogProps
                 <Input id="salvageValue" type="number" step="0.01" {...register("salvageValue")} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="usefulLifeYears">Useful life (years)</Label>
+                <Label htmlFor="usefulLifeYears" required>Useful life (years)</Label>
                 <Input id="usefulLifeYears" type="number" {...register("usefulLifeYears")} />
                 {errors.usefulLifeYears && (
                   <p className="text-sm text-destructive">{errors.usefulLifeYears.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="depreciationMethod">Method</Label>
+                <Label htmlFor="depreciationMethod" required>Method</Label>
                 <Controller
                   control={control}
                   name="depreciationMethod"

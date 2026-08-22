@@ -180,7 +180,7 @@ export function QuestionBankPage() {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="questionText">Question text</Label>
+              <Label htmlFor="questionText" required>Question text</Label>
               <Textarea id="questionText" rows={3} {...register("questionText")} />
               {errors.questionText && (
                 <p className="text-sm text-destructive">{errors.questionText.message}</p>
@@ -209,7 +209,7 @@ export function QuestionBankPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="questionType">Type</Label>
+                <Label htmlFor="questionType" required>Type</Label>
                 <Controller
                   control={control}
                   name="questionType"
@@ -244,14 +244,14 @@ export function QuestionBankPage() {
             )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="defaultMarks">Default marks</Label>
+                <Label htmlFor="defaultMarks" required>Default marks</Label>
                 <Input id="defaultMarks" type="number" {...register("defaultMarks")} />
                 {errors.defaultMarks && (
                   <p className="text-sm text-destructive">{errors.defaultMarks.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="difficulty">Difficulty</Label>
+                <Label htmlFor="difficulty" required>Difficulty</Label>
                 <Controller
                   control={control}
                   name="difficulty"

@@ -140,26 +140,26 @@ export function AssetCategoriesPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name" required>Name</Label>
                 <Input id="name" {...register("name")} />
                 {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="code">Code</Label>
+                <Label htmlFor="code" required>Code</Label>
                 <Input id="code" {...register("code")} />
                 {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="defaultUsefulLifeYears">Useful life (years)</Label>
+                <Label htmlFor="defaultUsefulLifeYears" required>Useful life (years)</Label>
                 <Input id="defaultUsefulLifeYears" type="number" {...register("defaultUsefulLifeYears")} />
                 {errors.defaultUsefulLifeYears && (
                   <p className="text-sm text-destructive">{errors.defaultUsefulLifeYears.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="defaultDepreciationMethod">Depreciation method</Label>
+                <Label htmlFor="defaultDepreciationMethod" required>Depreciation method</Label>
                 <Controller
                   control={control}
                   name="defaultDepreciationMethod"

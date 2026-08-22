@@ -87,7 +87,7 @@ export function SOCFormDialog({ open, onOpenChange, clientId }: SOCFormDialogPro
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="serviceType">Service type</Label>
+              <Label htmlFor="serviceType" required>Service type</Label>
               <Controller
                 control={control}
                 name="serviceType"
@@ -131,7 +131,7 @@ export function SOCFormDialog({ open, onOpenChange, clientId }: SOCFormDialogPro
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate" required>Start date</Label>
               <Input id="startDate" type="date" {...register("startDate")} />
               {errors.startDate && (
                 <p className="text-sm text-destructive">{errors.startDate.message}</p>

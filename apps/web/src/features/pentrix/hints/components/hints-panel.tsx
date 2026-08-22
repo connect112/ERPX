@@ -141,7 +141,7 @@ export function HintsPanel({ challengeId }: { challengeId: string }) {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="hintText">Hint text</Label>
+              <Label htmlFor="hintText" required>Hint text</Label>
               <Textarea id="hintText" rows={3} {...register("hintText")} />
               {errors.hintText && (
                 <p className="text-sm text-destructive">{errors.hintText.message}</p>
@@ -149,11 +149,11 @@ export function HintsPanel({ challengeId }: { challengeId: string }) {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="pointCost">Point cost</Label>
+                <Label htmlFor="pointCost" required>Point cost</Label>
                 <Input id="pointCost" type="number" {...register("pointCost")} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="orderIndex">Order</Label>
+                <Label htmlFor="orderIndex" required>Order</Label>
                 <Input id="orderIndex" type="number" {...register("orderIndex")} />
                 {errors.orderIndex && (
                   <p className="text-sm text-destructive">{errors.orderIndex.message}</p>

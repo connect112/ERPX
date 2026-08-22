@@ -47,7 +47,7 @@ export function ForgotPasswordPage() {
           ) : (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" required>Email</Label>
                 <Input id="email" type="email" {...register("email")} />
                 {errors.email && (
                   <p className="text-sm text-destructive">{errors.email.message}</p>

@@ -104,12 +104,12 @@ export function LandingPageFormDialog({ open, onOpenChange, page }: LandingPageF
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
+              <Label htmlFor="slug" required>Slug</Label>
               <Input id="slug" disabled={isEditing} placeholder="e.g. summer-sale" {...register("slug")} />
               {errors.slug && <p className="text-sm text-destructive">{errors.slug.message}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
+              <Label htmlFor="title" required>Title</Label>
               <Input id="title" {...register("title")} />
               {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
             </div>
@@ -140,7 +140,7 @@ export function LandingPageFormDialog({ open, onOpenChange, page }: LandingPageF
             <Textarea id="metaDescription" rows={2} {...register("metaDescription")} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="content">Content</Label>
+            <Label htmlFor="content" required>Content</Label>
             <Textarea id="content" rows={6} {...register("content")} />
             {errors.content && <p className="text-sm text-destructive">{errors.content.message}</p>}
           </div>
