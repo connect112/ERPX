@@ -137,6 +137,9 @@ export function ExpenseFormDialog({ open, onOpenChange }: ExpenseFormDialogProps
             <div className="space-y-2">
               <Label htmlFor="expenseDate" required>Date</Label>
               <Input id="expenseDate" type="date" {...register("expenseDate")} />
+              {errors.expenseDate && (
+                <p className="text-sm text-destructive">{errors.expenseDate.message}</p>
+              )}
             </div>
           </div>
           <div className="space-y-2">

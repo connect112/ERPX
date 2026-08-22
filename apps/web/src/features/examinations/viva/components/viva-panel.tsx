@@ -259,10 +259,16 @@ export function VivaPanel({ courseId }: { courseId: string }) {
               <div className="space-y-2">
                 <Label htmlFor="totalMarks" required>Total marks</Label>
                 <Input id="totalMarks" type="number" {...register("totalMarks")} />
+                {errors.totalMarks && (
+                  <p className="text-sm text-destructive">{errors.totalMarks.message}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="passingMarks" required>Passing marks</Label>
                 <Input id="passingMarks" type="number" {...register("passingMarks")} />
+                {errors.passingMarks && (
+                  <p className="text-sm text-destructive">{errors.passingMarks.message}</p>
+                )}
               </div>
             </div>
             <DialogFooter>

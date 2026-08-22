@@ -238,6 +238,9 @@ export function VAPTFindingsDialog({ open, onOpenChange, engagementId }: VAPTFin
             <div className="space-y-2">
               <Label htmlFor="reportedDate" required>Reported date</Label>
               <Input id="reportedDate" type="date" {...register("reportedDate")} />
+              {errors.reportedDate && (
+                <p className="text-sm text-destructive">{errors.reportedDate.message}</p>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>

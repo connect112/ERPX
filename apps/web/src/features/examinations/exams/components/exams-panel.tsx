@@ -231,10 +231,16 @@ export function ExamsPanel({ courseId }: { courseId: string }) {
               <div className="space-y-2">
                 <Label htmlFor="durationMinutes" required>Duration (min)</Label>
                 <Input id="durationMinutes" type="number" {...register("durationMinutes")} />
+                {errors.durationMinutes && (
+                  <p className="text-sm text-destructive">{errors.durationMinutes.message}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="passingMarks" required>Passing marks</Label>
                 <Input id="passingMarks" type="number" {...register("passingMarks")} />
+                {errors.passingMarks && (
+                  <p className="text-sm text-destructive">{errors.passingMarks.message}</p>
+                )}
               </div>
             </div>
             <DialogFooter>

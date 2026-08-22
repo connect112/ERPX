@@ -127,6 +127,9 @@ export function PurchaseOrderCreatePage() {
               <div className="space-y-2">
                 <Label htmlFor="orderDate" required>Order date</Label>
                 <Input id="orderDate" type="date" {...register("orderDate")} />
+                {errors.orderDate && (
+                  <p className="text-sm text-destructive">{errors.orderDate.message}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="expectedDeliveryDate">Expected delivery date</Label>

@@ -174,6 +174,7 @@ export function ChallengeFormDialog({ open, onOpenChange, challenge }: Challenge
           <div className="space-y-2">
             <Label htmlFor="points" required>Points</Label>
             <Input id="points" type="number" {...register("points")} />
+            {errors.points && <p className="text-sm text-destructive">{errors.points.message}</p>}
           </div>
           {mutation.isError && (
             <p className="text-sm text-destructive">

@@ -165,6 +165,9 @@ export function PaymentFormDialog({ open, onOpenChange }: PaymentFormDialogProps
             <div className="space-y-2">
               <Label htmlFor="paymentDate" required>Date</Label>
               <Input id="paymentDate" type="date" {...register("paymentDate")} />
+              {errors.paymentDate && (
+                <p className="text-sm text-destructive">{errors.paymentDate.message}</p>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">

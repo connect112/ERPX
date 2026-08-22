@@ -151,6 +151,9 @@ export function HintsPanel({ challengeId }: { challengeId: string }) {
               <div className="space-y-2">
                 <Label htmlFor="pointCost" required>Point cost</Label>
                 <Input id="pointCost" type="number" {...register("pointCost")} />
+                {errors.pointCost && (
+                  <p className="text-sm text-destructive">{errors.pointCost.message}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="orderIndex" required>Order</Label>

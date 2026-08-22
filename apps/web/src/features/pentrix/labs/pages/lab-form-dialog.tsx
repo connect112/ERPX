@@ -168,10 +168,14 @@ export function LabFormDialog({ open, onOpenChange, lab }: LabFormDialogProps) {
             <div className="space-y-2">
               <Label htmlFor="points" required>Points</Label>
               <Input id="points" type="number" {...register("points")} />
+              {errors.points && <p className="text-sm text-destructive">{errors.points.message}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="defaultDurationMinutes" required>Duration (min)</Label>
               <Input id="defaultDurationMinutes" type="number" {...register("defaultDurationMinutes")} />
+              {errors.defaultDurationMinutes && (
+                <p className="text-sm text-destructive">{errors.defaultDurationMinutes.message}</p>
+              )}
             </div>
           </div>
           {mutation.isError && (

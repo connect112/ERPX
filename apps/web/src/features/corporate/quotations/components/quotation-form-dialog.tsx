@@ -134,6 +134,9 @@ export function QuotationFormDialog({ open, onOpenChange, clientId }: QuotationF
             <div className="space-y-2">
               <Label htmlFor="quotationDate" required>Quotation date</Label>
               <Input id="quotationDate" type="date" {...register("quotationDate")} />
+              {errors.quotationDate && (
+                <p className="text-sm text-destructive">{errors.quotationDate.message}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="validUntil" required>Valid until</Label>

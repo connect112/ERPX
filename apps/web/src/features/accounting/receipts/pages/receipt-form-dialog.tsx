@@ -183,6 +183,9 @@ export function ReceiptFormDialog({ open, onOpenChange }: ReceiptFormDialogProps
             <div className="space-y-2">
               <Label htmlFor="receiptDate" required>Date</Label>
               <Input id="receiptDate" type="date" {...register("receiptDate")} />
+              {errors.receiptDate && (
+                <p className="text-sm text-destructive">{errors.receiptDate.message}</p>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">

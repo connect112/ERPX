@@ -135,6 +135,9 @@ export function CreateGoodsReceiptDialog({ open, onOpenChange, po }: CreateGoods
           <div className="space-y-2">
             <Label htmlFor="receiptDate" required>Receipt date</Label>
             <Input id="receiptDate" type="date" {...register("receiptDate")} />
+            {errors.receiptDate && (
+              <p className="text-sm text-destructive">{errors.receiptDate.message}</p>
+            )}
           </div>
 
           <div className="space-y-2">
