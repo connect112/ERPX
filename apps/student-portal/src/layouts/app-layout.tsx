@@ -1,4 +1,18 @@
-import { Award, Bookmark, GraduationCap, LayoutDashboard, LogOut, Moon, Sun } from "lucide-react";
+import {
+  Award,
+  Bookmark,
+  Briefcase,
+  CalendarClock,
+  FlaskConical,
+  GraduationCap,
+  LayoutDashboard,
+  LogOut,
+  Moon,
+  PartyPopper,
+  Sun,
+  Trophy,
+  Wrench,
+} from "lucide-react";
 import { Suspense } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
@@ -9,9 +23,33 @@ import { useLogout } from "@/features/auth/api/auth-hooks";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 
-const navItems = [
+interface NavItem {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  end: boolean;
+  /**
+   * Permission code required for this nav item to render. Omitted for
+   * items backed entirely by ownership-gated ("me") endpoints — any
+   * authenticated, linked student can reach those regardless of role, so
+   * there is no permission code to check (see Task 1's RBAC audit). Set
+   * for the Pentrix-backed items, which really are permission-gated
+   * server-side and so should only ever appear for a role that holds them.
+   */
+  permission?: string;
+}
+
+const navItems: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/courses", label: "My Courses", icon: GraduationCap, end: false },
+  { to: "/cyber-range", label: "Cyber Range", icon: FlaskConical, end: false, permission: "pentrix.labs.view" },
+  { to: "/leaderboard", label: "Leaderboard", icon: Trophy, end: false, permission: "pentrix.leaderboard.view" },
+  { to: "/achievements", label: "Achievements", icon: Award, end: false, permission: "pentrix.achievements.view" },
+  { to: "/schedule", label: "My Schedule", icon: CalendarClock, end: false },
+  { to: "/workshops", label: "Workshops", icon: Wrench, end: false },
+  { to: "/hackathons", label: "Hackathons", icon: PartyPopper, end: false },
+  { to: "/internships", label: "Internships", icon: Briefcase, end: false },
+  { to: "/placements", label: "Placements", icon: Briefcase, end: false },
   { to: "/bookmarks", label: "My Bookmarks", icon: Bookmark, end: false },
   { to: "/transcript", label: "My Transcript", icon: Award, end: false },
 ];
@@ -26,14 +64,17 @@ function initials(name: string): string {
 }
 
 function AppSidebar() {
+  const permissions = useAuthStore((s) => s.permissions);
+  const visibleItems = navItems.filter((item) => !item.permission || permissions.includes(item.permission));
+
   return (
     <aside className="flex w-64 flex-col border-r bg-card">
       <div className="flex h-16 items-center border-b px-6">
         <span className="text-lg font-semibold">ERPX</span>
         <span className="ml-2 text-sm text-muted-foreground">Student</span>
       </div>
-      <nav className="flex-1 space-y-1 p-3">
-        {navItems.map((item) => (
+      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+        {visibleItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

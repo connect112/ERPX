@@ -32,6 +32,19 @@ export function isTwoFactorRequired(
   return "two_factor_required" in response;
 }
 
+export interface RolePublic {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+}
+
+export interface MyRolesResponse {
+  user_id: string;
+  roles: RolePublic[];
+  effective_permissions: string[];
+}
+
 export const authApi = {
   login: (payload: { email: string; password: string; otp_code?: string }) =>
     apiClient.post<LoginResponse>("/auth/login", payload).then((r) => r.data),
@@ -40,4 +53,9 @@ export const authApi = {
     apiClient.post("/auth/logout", { refresh_token }).then((r) => r.data),
 
   me: () => apiClient.get<UserPublic>("/auth/me").then((r) => r.data),
+
+  myRoles: () => apiClient.get<MyRolesResponse>("/authorization/me").then((r) => r.data),
+
+  resetPassword: (payload: { token: string; new_password: string }) =>
+    apiClient.post("/auth/reset-password", payload).then((r) => r.data),
 };

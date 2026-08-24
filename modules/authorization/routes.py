@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from modules.authentication.dependencies import get_current_active_user
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.authorization.schemas import (
@@ -26,6 +27,27 @@ from modules.authorization.schemas import (
 from modules.authorization.service import AuthorizationService
 
 router = APIRouter()
+
+
+@router.get("/me", response_model=UserRolesResponse)
+async def get_my_roles(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The caller's own roles + effective permission codes — no permission
+    required, since a token holder reading their own grants is exactly the
+    ownership-is-the-authorization pattern this codebase already uses for
+    `/me` endpoints elsewhere (see modules/students/dependencies.py). Client
+    apps (e.g. apps/student-portal) fetch this once on login to drive which
+    nav items and routes render, so a role's actual grant set is always the
+    single source of truth for what the UI ever shows — never hardcoded."""
+    service = AuthorizationService(db)
+    result = await service.get_user_roles_and_permissions(user.id)
+    return UserRolesResponse(
+        user_id=user.id,
+        roles=[RolePublic.model_validate(r) for r in result["roles"]],
+        effective_permissions=result["effective_permissions"],
+    )
 
 
 @router.get("/permissions", response_model=list[PermissionPublic])
