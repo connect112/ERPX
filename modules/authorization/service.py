@@ -392,6 +392,66 @@ SYSTEM_ROLES: list[tuple[str, str, str, list[str]]] = [
             "events.manage",
         ],
     ),
+    (
+        "Student",
+        "student",
+        "Self-service access to a student's own enrolled courses, Pentrix cyber-range "
+        "progress, and campus-life programs. No access to any other student's data, "
+        "any org-wide roster/listing endpoint, or any administrative module.",
+        [
+            "dashboard.view",
+            # Courses: browse/consume the catalog, not author it.
+            "courses.categories.view",
+            "courses.view",
+            "courses.learning_paths.view",
+            # LMS: consume own enrollment/progress/assignments/etc., not author or
+            # grade. `/me`-scoped endpoints across lms/courses are ownership-gated
+            # via `get_current_student` and need no permission code at all; these
+            # codes only matter for the pieces of lms/courses that do check
+            # permissions (e.g. the course catalog listing).
+            "lms.enrollment.view",
+            "lms.progress.view",
+            "lms.assignments.view",
+            "lms.assessments.view",
+            "lms.assessments.attempt",
+            "lms.certificates.view",
+            "lms.announcements.view",
+            "lms.discussions.participate",
+            "lms.badges.view",
+            "lms.transcripts.view",
+            # Examinations: attempt/view own results, not author or grade.
+            "examinations.exams.view",
+            "examinations.evaluation.attempt",
+            "examinations.practicals.view",
+            "examinations.viva.view",
+            "examinations.results.view",
+            # Pentrix: the student-usable slice of the cyber-range. Every pentrix
+            # route is permission-gated (unlike lms/courses' ownership pattern),
+            # so these grants are load-bearing — combined with the ownership
+            # check on `/students/{student_id}/...` routes (see
+            # modules/pentrix/common/dependencies.py) so a student can only ever
+            # reach their own data through them.
+            "pentrix.labs.view",
+            "pentrix.instances.view",
+            "pentrix.instances.launch",
+            "pentrix.challenges.view",
+            "pentrix.flags.submit",
+            "pentrix.leaderboard.view",
+            "pentrix.achievements.view",
+            "pentrix.certifications.view",
+            # Deliberately NOT granted: notifications.manage (admin broadcast —
+            # reading one's own tray needs no permission), communication.* (an
+            # admin-only outbound send/audit log, not a student inbox),
+            # students.view/batches.view/timetable.view/live_classes.view/
+            # workshops.view/hackathons.view/internships.view/placements.view/
+            # alumni.view (org-wide rosters and staff admin surfaces — students
+            # get browse/self access to these for free via `get_current_student`,
+            # no code needed), every *.manage/*.approve/*.grade code, and every
+            # crm/accounting/marketing/hr/payroll/inventory/corporate/employees/
+            # branches/classrooms/leave/settings/audit/backups/monitoring/
+            # workflow/integrations/assets/procurement/documents/media code.
+        ],
+    ),
 ]
 
 # Notifications broadcast is Administrator-only (not curated into Staff's

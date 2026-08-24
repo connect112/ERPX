@@ -14,6 +14,7 @@ from modules.pentrix.flags.schemas import (
     SubmissionResultResponse,
     SubmitFlagRequest,
 )
+from modules.pentrix.common.dependencies import assert_can_access_student, enforce_own_student_or_staff
 from modules.pentrix.flags.service import FlagService
 from modules.users.dependencies import get_current_user_organization_id
 
@@ -41,6 +42,9 @@ async def submit_flag(
     user: User = Depends(require_permissions("pentrix.flags.submit")),
     db: AsyncSession = Depends(get_db),
 ):
+    # `student_id` here is body-supplied — check ownership explicitly before
+    # crediting a solve to it (see `assert_can_access_student` docstring).
+    await assert_can_access_student(payload.student_id, user, db)
     flag_service = FlagService(db)
     result = await flag_service.submit(
         challenge_id, organization_id, payload.student_id, payload.flag_value
@@ -60,6 +64,7 @@ async def submit_flag(
 async def list_solves(
     student_id: uuid.UUID,
     user: User = Depends(require_permissions("pentrix.flags.submit")),
+    _ownership: None = Depends(enforce_own_student_or_staff),
     db: AsyncSession = Depends(get_db),
 ):
     service = FlagService(db)

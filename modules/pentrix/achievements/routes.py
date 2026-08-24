@@ -12,6 +12,7 @@ from modules.pentrix.achievements.schemas import (
     StudentAchievementPublic,
 )
 from modules.pentrix.achievements.service import AchievementService
+from modules.pentrix.common.dependencies import enforce_own_student_or_staff
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
@@ -44,6 +45,7 @@ async def list_achievements(
 async def list_student_achievements(
     student_id: uuid.UUID,
     user: User = Depends(require_permissions("pentrix.achievements.view")),
+    _ownership: None = Depends(enforce_own_student_or_staff),
     db: AsyncSession = Depends(get_db),
 ):
     service = AchievementService(db)

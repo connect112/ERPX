@@ -14,15 +14,41 @@ from modules.batches.schemas import (
     BatchUpdateRequest,
     BatchWithCoursePublic,
     MessageResponse,
+    MyBatchEnrollmentPublic,
 )
 from modules.batches.repository import BatchRepository
 from modules.batches.service import BatchService
 from modules.courses.repository import CourseRepository
+from modules.students.dependencies import get_current_student
+from modules.students.models import Student
 from modules.trainers.dependencies import get_current_trainer
 from modules.trainers.models import Trainer
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+@router.get("/student/me", response_model=list[MyBatchEnrollmentPublic])
+async def list_my_batches_as_student(
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """The calling student's own batch memberships. Ownership-gated via
+    `get_current_student`, no permission code — matches the ownership-only
+    convention used for every other `/me` self-service endpoint in this
+    codebase (lms, courses, students, workshops, ...)."""
+    service = BatchService(db)
+    rows = await service.list_my_batches(student.id, student.organization_id)
+    return [
+        MyBatchEnrollmentPublic(
+            id=membership.id,
+            enrolled_at=membership.enrolled_at,
+            batch=BatchWithCoursePublic(
+                **BatchPublic.model_validate(batch).model_dump(), course_title=course_title
+            ),
+        )
+        for membership, batch, course_title in rows
+    ]
 
 
 @router.get("/me", response_model=list[BatchWithCoursePublic])

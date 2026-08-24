@@ -48,6 +48,16 @@ class BatchWithCoursePublic(BatchPublic):
     course_title: str
 
 
+class MyBatchEnrollmentPublic(BaseModel):
+    """A student's own batch membership — what `GET /batches/student/me` returns."""
+
+    id: uuid.UUID
+    batch: BatchWithCoursePublic
+    enrolled_at: date
+
+    model_config = {"from_attributes": True}
+
+
 class BatchListResponse(BaseModel):
     items: list[BatchPublic]
     total: int

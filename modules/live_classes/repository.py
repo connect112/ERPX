@@ -53,6 +53,21 @@ class LiveClassRepository:
         )
         return list(result.scalars().all()), total
 
+    async def list_for_batches(
+        self, batch_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[LiveClass]:
+        if not batch_ids:
+            return []
+        result = await self.db.execute(
+            select(LiveClass)
+            .where(
+                LiveClass.batch_id.in_(batch_ids),
+                LiveClass.organization_id == organization_id,
+            )
+            .order_by(LiveClass.scheduled_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def update(self, live_class: LiveClass, **fields) -> LiveClass:
         for key, value in fields.items():
             if value is not None:

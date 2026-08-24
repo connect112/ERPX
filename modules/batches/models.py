@@ -59,3 +59,42 @@ class Batch(TimestampedBase):
     capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+
+class BatchEnrollmentStatus(str, enum.Enum):
+    ACTIVE = "active"
+    REMOVED = "removed"
+
+
+class BatchEnrollment(TimestampedBase):
+    """
+    Which students belong to which batch — kept as its own join table rather
+    than a column on `lms.Enrollment`. `Enrollment` represents a student's
+    overall academic status for a course (one row per student+course, enforced
+    by a unique constraint); batch membership is a different-cardinality
+    concept — a student can pass through more than one batch for the same
+    course over time (a retake, a reschedule), and that shouldn't imply a
+    second `Enrollment` row. This table's own uniqueness is per (batch,
+    student), independent of `Enrollment` entirely.
+    """
+
+    __tablename__ = "batch_enrollments"
+    __table_args__ = (UniqueConstraint("batch_id", "student_id", name="uq_batch_enrollment_batch_student"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("batches.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    enrolled_at: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[BatchEnrollmentStatus] = mapped_column(
+        SAEnum(BatchEnrollmentStatus, name="batch_enrollment_status", values_callable=_values),
+        default=BatchEnrollmentStatus.ACTIVE,
+        server_default=BatchEnrollmentStatus.ACTIVE.value,
+        nullable=False,
+        index=True,
+    )

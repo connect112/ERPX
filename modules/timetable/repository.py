@@ -37,6 +37,21 @@ class TimetableRepository:
         )
         return list(result.scalars().all())
 
+    async def list_for_batches(
+        self, batch_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[TimetableEntry]:
+        if not batch_ids:
+            return []
+        result = await self.db.execute(
+            select(TimetableEntry)
+            .where(
+                TimetableEntry.batch_id.in_(batch_ids),
+                TimetableEntry.organization_id == organization_id,
+            )
+            .order_by(TimetableEntry.day_of_week, TimetableEntry.start_time)
+        )
+        return list(result.scalars().all())
+
     async def find_conflicts(
         self,
         organization_id: uuid.UUID,

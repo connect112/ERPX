@@ -12,6 +12,7 @@ from modules.pentrix.certifications.schemas import (
     IssueCertificationRequest,
 )
 from modules.pentrix.certifications.service import CertificationService
+from modules.pentrix.common.dependencies import enforce_own_student_or_staff
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
@@ -40,6 +41,7 @@ async def list_certifications_for_student(
     student_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("pentrix.certifications.view")),
+    _ownership: None = Depends(enforce_own_student_or_staff),
     db: AsyncSession = Depends(get_db),
 ):
     service = CertificationService(db)
