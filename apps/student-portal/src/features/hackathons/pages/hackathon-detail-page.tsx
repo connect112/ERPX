@@ -135,7 +135,6 @@ export function HackathonDetailPage() {
                 <Label htmlFor="project-title">Title</Label>
                 <Input
                   id="project-title"
-                  defaultValue={submission?.title}
                   value={projectTitle || submission?.title || ""}
                   onChange={(e) => setProjectTitle(e.target.value)}
                 />
@@ -144,7 +143,6 @@ export function HackathonDetailPage() {
                 <Label htmlFor="project-description">Description</Label>
                 <Textarea
                   id="project-description"
-                  defaultValue={submission?.description ?? ""}
                   value={description || submission?.description || ""}
                   onChange={(e) => setDescription(e.target.value)}
                 />
