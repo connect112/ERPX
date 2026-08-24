@@ -52,6 +52,7 @@ from modules.organizations.routes import router as organizations_router
 from modules.payroll.routes import router as payroll_router
 from modules.pentrix.router import router as pentrix_router
 from modules.procurement.routes import router as procurement_router
+from modules.provisioning.routes import router as provisioning_router
 from modules.reports.routes import router as reports_router
 from modules.settings.routes import router as settings_router
 from modules.students.routes import router as students_router
@@ -89,6 +90,9 @@ api_router.include_router(payroll_router, prefix="/payroll", tags=["Payroll"])
 api_router.include_router(inventory_router, prefix="/inventory", tags=["Inventory"])
 api_router.include_router(assets_router, prefix="/assets", tags=["Assets"])
 api_router.include_router(procurement_router, prefix="/procurement", tags=["Procurement"])
+api_router.include_router(
+    provisioning_router, prefix="/internal/provisioning", tags=["Internal - Provisioning"]
+)
 api_router.include_router(corporate_router, prefix="/corporate")
 api_router.include_router(communication_router, prefix="/communication", tags=["Communication"])
 api_router.include_router(marketing_router, prefix="/marketing")

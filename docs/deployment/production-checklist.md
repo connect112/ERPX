@@ -12,6 +12,9 @@
 - [ ] Alembic migrations applied (`alembic upgrade head`) — run as a one-off Job (`infrastructure/ci-cd/deploy.sh`), never baked into a Deployment's startup command
 - [ ] `seed_default_rbac()` run once against the production database so the default permission/role catalog exists (see `modules/authorization/service.py`)
 - [ ] At least one superuser account created (bypasses permission checks — see `modules/authorization/dependencies.py`)
+- [ ] `apps/api/scripts/seed.py`'s `seed_pentrix_program()` run once so the Pentrix-share provisioning endpoint has an org/course to resolve into (see `modules/provisioning/service.py`)
+- [ ] `ERPX_INTERNAL_SERVICE_SECRET` set to a real random value matching Pentrix-share's own copy of it — without it, `POST /api/v1/internal/provisioning/students` fails closed (401) on every call, not silently open (see `modules/provisioning/dependencies.py`)
+- [ ] `STUDENT_PORTAL_URL` set to the real `apps/student-portal` origin — otherwise a provisioned student's "set your password" email links at `localhost`
 
 ## Infrastructure
 

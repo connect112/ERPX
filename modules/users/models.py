@@ -41,6 +41,15 @@ class UserProfile(TimestampedBase):
         ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # Idempotency key for server-to-server account provisioning (e.g. the
+    # Pentrix-share -> ERPX internal provisioning endpoint) — the caller's
+    # own reference (a Pentrix payment id), so a retried provisioning call
+    # is recognized and short-circuited rather than creating a duplicate
+    # user. Nullable; unset for ordinary staff/admin profiles.
+    external_reference: Mapped[str | None] = mapped_column(
+        String(255), unique=True, nullable=True, index=True
+    )
+
     employee_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     designation: Mapped[str | None] = mapped_column(String(150), nullable=True)
     department: Mapped[str | None] = mapped_column(String(150), nullable=True)
