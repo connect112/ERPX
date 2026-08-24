@@ -1,0 +1,12 @@
+# This directory exists so a local Docker build can trust an extra CA
+# certificate — e.g. a corporate proxy's or antivirus's TLS-inspection
+# root cert, on networks where one transparently re-signs outbound HTTPS
+# (pip installs against PyPI included). See apps/api/Dockerfile's builder
+# stage for how this gets copied into the image's trust store.
+#
+# Drop your own *.crt file(s) here before building if `docker build`
+# fails with "SSLCertVerificationError: unable to get local issuer
+# certificate" — nothing else needs to change. Machine-specific, so never
+# committed: everything here is ignored except this file.
+*
+!.gitignore
