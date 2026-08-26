@@ -12,6 +12,7 @@ import pytest
 # Importing the task modules registers the tasks on the shared Celery app.
 import modules.accounting.invoices.tasks  # noqa: F401
 import modules.crm.followups.tasks  # noqa: F401
+import modules.placements.tasks  # noqa: F401
 import modules.reports.tasks  # noqa: F401
 from app.core.celery_app import celery_app
 
@@ -20,6 +21,8 @@ pytestmark = pytest.mark.unit
 _HARDENED_TASKS = [
     "accounting.mark_overdue_invoices",
     "reports.run_due_scheduled_reports",
+    "placements.run_aggregation",
+    "placements.run_jooble_aggregation",
 ]
 
 
