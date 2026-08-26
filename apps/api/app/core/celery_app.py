@@ -87,6 +87,17 @@ celery_app.conf.beat_schedule = {
         "task": "backups.trigger_daily_backup",
         "schedule": crontab(hour=2, minute=0),
     },
+    "placements-run-aggregation": {
+        "task": "placements.run_aggregation",
+        "schedule": crontab(minute=0),
+    },
+    # Jooble's free tier is a 500-request *lifetime* cap, not recurring —
+    # see modules/placements/connectors/jooble.py. Its own weekly cadence,
+    # separate from the hourly entry above.
+    "placements-run-jooble-aggregation": {
+        "task": "placements.run_jooble_aggregation",
+        "schedule": crontab(day_of_week="mon", hour=3, minute=0),
+    },
 }
 
 # Modules register their Celery task modules here as they are built, e.g.:
@@ -98,5 +109,6 @@ celery_app.autodiscover_tasks(
         "modules.reports",
         "modules.crm.followups",
         "modules.backups",
+        "modules.placements",
     ]
 )
