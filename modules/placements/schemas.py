@@ -3,7 +3,12 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-from modules.placements.models import ApplicationStatus, JobPostingStatus, JobType
+from modules.placements.models import (
+    AggregationRunStatus,
+    ApplicationStatus,
+    JobPostingStatus,
+    JobType,
+)
 
 
 class CompanyCreateRequest(BaseModel):
@@ -86,6 +91,12 @@ class JobPostingPublic(BaseModel):
     required_skills: str | None
     application_deadline: date | None
     status: JobPostingStatus
+    # Aggregation-pipeline attribution fields. "manual" for every
+    # staff-created posting (the pre-existing default) — see
+    # modules/placements/aggregation_service.py.
+    source: str
+    source_url: str | None
+    last_seen_at: datetime | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -94,6 +105,33 @@ class JobPostingPublic(BaseModel):
 class JobPostingListResponse(BaseModel):
     items: list[JobPostingPublic]
     total: int
+
+
+class AggregationRunSourcePublic(BaseModel):
+    source: str
+    status: str
+    postings_fetched: int
+    request_count: int
+    error_message: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class AggregationRunPublic(BaseModel):
+    id: uuid.UUID
+    triggered_by: str
+    status: AggregationRunStatus
+    started_at: datetime | None
+    completed_at: datetime | None
+    postings_created: int
+    postings_updated: int
+    postings_closed: int
+    matches_created: int
+    error_message: str | None
+    created_at: datetime
+    sources: list[AggregationRunSourcePublic] = []
+
+    model_config = {"from_attributes": True}
 
 
 class ApplicationCreateRequest(BaseModel):
