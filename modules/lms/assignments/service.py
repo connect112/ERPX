@@ -3,11 +3,13 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError
 from app.core.logging_config import get_logger
 from modules.courses.repository import CourseRepository
 from modules.lms.assignments.models import Assignment, AssignmentSubmission, SubmissionStatus
 from modules.lms.assignments.repository import AssignmentRepository, SubmissionRepository
+from modules.lms.enrollment.repository import EnrollmentRepository
+from modules.students.models import Student
 from modules.students.repository import StudentRepository
 
 logger = get_logger(__name__)
@@ -20,6 +22,7 @@ class AssignmentService:
         self.submission_repo = SubmissionRepository(db)
         self.course_repo = CourseRepository(db)
         self.student_repo = StudentRepository(db)
+        self.enrollment_repo = EnrollmentRepository(db)
 
     async def create_assignment(
         self, course_id: uuid.UUID, organization_id: uuid.UUID, **fields
@@ -103,6 +106,34 @@ class AssignmentService:
             "assignment_submitted", submission_id=str(submission.id), assignment_id=str(assignment_id)
         )
         return submission
+
+    async def submit_mine(
+        self,
+        assignment_id: uuid.UUID,
+        course_id: uuid.UUID,
+        student: Student,
+        content_url: str | None,
+        content_text: str | None,
+    ) -> AssignmentSubmission:
+        """Student self-service submission (no on-behalf-of `student_id` —
+        the caller's own `Student` row, already resolved by
+        `get_current_student`). Submission is a write, unlike the
+        permission-gated `list_assignments`/`get_assignment` reads, so this
+        additionally confirms the student is actually enrolled in
+        `course_id` — not just that they hold a Student record somewhere in
+        the organization."""
+        enrollment = await self.enrollment_repo.get_by_student_and_course(student.id, course_id)
+        if not enrollment:
+            raise AuthorizationError("You are not enrolled in this course.")
+        return await self.submit(
+            assignment_id, course_id, student.organization_id, student.id, content_url, content_text
+        )
+
+    async def get_my_submission(
+        self, assignment_id: uuid.UUID, course_id: uuid.UUID, student: Student
+    ) -> AssignmentSubmission | None:
+        await self._get_owned_assignment(assignment_id, course_id, student.organization_id)
+        return await self.submission_repo.get_by_assignment_and_student(assignment_id, student.id)
 
     async def list_submissions(
         self, assignment_id: uuid.UUID, course_id: uuid.UUID, organization_id: uuid.UUID

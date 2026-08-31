@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AuthorizationError
+from app.core.exceptions import AuthorizationError, NotFoundError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
@@ -13,12 +13,15 @@ from modules.lms.assignments.schemas import (
     AssignmentPublic,
     AssignmentUpdateRequest,
     MessageResponse,
+    MySubmissionCreateRequest,
     SubmissionCreateRequest,
     SubmissionGradeRequest,
     SubmissionPublic,
     SubmissionWithStudentPublic,
 )
 from modules.lms.assignments.service import AssignmentService
+from modules.students.dependencies import get_current_student
+from modules.students.models import Student
 from modules.students.repository import StudentRepository
 from modules.trainers.dependencies import get_current_trainer
 from modules.trainers.models import Trainer
@@ -138,6 +141,44 @@ async def submit_assignment(
         payload.content_url,
         payload.content_text,
     )
+    return SubmissionPublic.model_validate(submission)
+
+
+@router.post(
+    _PREFIX + "/{assignment_id}/submissions/mine",
+    response_model=SubmissionPublic,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_my_assignment(
+    course_id: uuid.UUID,
+    assignment_id: uuid.UUID,
+    payload: MySubmissionCreateRequest,
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """Student self-service submission — ownership-gated via
+    `get_current_student`, no permission code needed (matches this
+    codebase's own established `/mine`/`/me` self-service convention, e.g.
+    placements' `/apply/me`). Named `/mine` rather than `/me` because
+    `.../submissions/me` below is already the trainer's grading-queue view."""
+    service = AssignmentService(db)
+    submission = await service.submit_mine(
+        assignment_id, course_id, student, payload.content_url, payload.content_text
+    )
+    return SubmissionPublic.model_validate(submission)
+
+
+@router.get(_PREFIX + "/{assignment_id}/submissions/mine", response_model=SubmissionPublic)
+async def get_my_submission(
+    course_id: uuid.UUID,
+    assignment_id: uuid.UUID,
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AssignmentService(db)
+    submission = await service.get_my_submission(assignment_id, course_id, student)
+    if not submission:
+        raise NotFoundError("Submission", assignment_id)
     return SubmissionPublic.model_validate(submission)
 
 
