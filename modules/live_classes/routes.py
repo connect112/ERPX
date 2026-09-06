@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.batches.repository import BatchEnrollmentRepository
 from modules.live_classes.models import LiveClassStatus
 from modules.live_classes.schemas import (
     LiveClassCreateRequest,
@@ -16,9 +17,27 @@ from modules.live_classes.schemas import (
     MessageResponse,
 )
 from modules.live_classes.service import LiveClassService
+from modules.students.dependencies import get_current_student
+from modules.students.models import Student
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+@router.get("/me", response_model=list[LiveClassPublic])
+async def list_my_live_classes(
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """The calling student's own live-class sessions (join link, recording),
+    scoped to the batch(es) they belong to. Ownership-gated via
+    `get_current_student`, no permission code."""
+    batch_ids = await BatchEnrollmentRepository(db).list_batch_ids_for_student(
+        student.id, student.organization_id
+    )
+    service = LiveClassService(db)
+    entries = await service.list_for_batches(batch_ids, student.organization_id)
+    return [LiveClassPublic.model_validate(e) for e in entries]
 
 
 @router.post("", response_model=LiveClassPublic, status_code=status.HTTP_201_CREATED)

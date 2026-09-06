@@ -43,6 +43,40 @@ async def test_assigning_staff_role_grants_view_access(client, staff_headers, st
     assert response.status_code == 200
 
 
+async def test_get_my_roles_requires_no_permission_and_reflects_actual_grants(
+    client, staff_headers, staff_user, db_session, rbac_seeded
+):
+    """GET /authorization/me is deliberately unlike GET /users/{id}/roles —
+    reading your OWN roles/permissions needs no authorization.roles.view/
+    users.view grant at all (ownership is the authorization), unlike
+    looking up someone else's."""
+    user, _ = staff_user
+    authz_repo = AuthorizationRepository(db_session)
+    authz_service = AuthorizationService(db_session)
+
+    # A role-less user still gets 200 (not 403) — just an empty grant set.
+    empty_response = await client.get("/api/v1/authorization/me", headers=staff_headers)
+    assert empty_response.status_code == 200
+    assert empty_response.json()["roles"] == []
+    assert empty_response.json()["effective_permissions"] == []
+
+    staff_role = await authz_repo.get_role_by_slug("staff")
+    await authz_service.assign_role(user.id, staff_role.id, assigned_by_user_id=None)
+
+    response = await client.get("/api/v1/authorization/me", headers=staff_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user_id"] == str(user.id)
+    assert any(r["slug"] == "staff" for r in body["roles"])
+    assert "employees.view" in body["effective_permissions"]
+    assert "employees.manage" not in body["effective_permissions"]
+
+
+async def test_get_my_roles_requires_authentication(client):
+    response = await client.get("/api/v1/authorization/me")
+    assert response.status_code == 401
+
+
 async def test_staff_role_does_not_grant_manage_permission(client, staff_headers, staff_user, db_session, rbac_seeded):
     """Staff gets employees.view from the default role, but not employees.manage — creating one should still be forbidden."""
     user, _ = staff_user

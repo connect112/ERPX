@@ -5,7 +5,8 @@ Run via `make seed` (docker) or `python -m scripts.seed` locally. Idempotent:
 safe to run multiple times.
 
 Seeds:
-  1. Default permissions and system roles (Super Admin, Administrator, Staff)
+  1. Default permissions and system roles (Super Admin, Administrator, Staff,
+     Student)
   2. An optional bootstrap superadmin user, if SEED_SUPERADMIN_EMAIL and
      SEED_SUPERADMIN_PASSWORD are set in the environment — this is the only
      way to get your first user into a fresh install, since registration
@@ -13,6 +14,9 @@ Seeds:
      superadmin is attached to a default "System" organization + user profile
      so the tenant-scoping dependency (get_current_user_organization_id) can
      resolve an organization for it and org-scoped endpoints work immediately.
+  3. The fixed "GIR Technologies / Pentrix Program" organization + course
+     that modules.provisioning resolves a Pentrix-share payment's
+     `program_code` against — see modules/provisioning/service.py.
 """
 
 import asyncio
@@ -32,7 +36,9 @@ from modules.authorization.service import AuthorizationService
 # fails with NoReferencedTableError unless Branch is imported (app.main pulls in
 # every model transitively; this standalone script must register it explicitly).
 from modules.branches.models import Branch  # noqa: F401
+from modules.courses.repository import CourseRepository
 from modules.organizations.repository import OrganizationRepository
+from modules.provisioning.service import PENTRIX_ORG_SLUG
 from modules.users.repository import UserProfileRepository
 
 logger = get_logger(__name__)
@@ -40,6 +46,12 @@ logger = get_logger(__name__)
 # Fixed slug so the default org is looked up (never duplicated) on re-seed.
 _SYSTEM_ORG_SLUG = "erpx-system"
 _SYSTEM_ORG_NAME = "ERPX System"
+
+# The org/course modules.provisioning provisions Pentrix-share students
+# into — a single, deliberately fixed tenant, not one org per student.
+_PENTRIX_ORG_NAME = "GIR Technologies / Pentrix Program"
+_PENTRIX_COURSE_SLUG = "pentrix-program"
+_PENTRIX_COURSE_TITLE = "Pentrix Cyber Range Program"
 
 # Bootstrap-password hardening (mirrors config._refuse_default_jwt_secret_in_production).
 # The docker-compose/.env scaffolding defaults SEED_SUPERADMIN_PASSWORD to a value
@@ -122,9 +134,41 @@ async def seed_bootstrap_superadmin() -> None:
             await authz_repo.assign_role(user.id, super_admin_role.id, assigned_by_user_id=None)
 
 
+async def seed_pentrix_program() -> None:
+    """
+    Idempotently seeds the fixed organization + course that
+    modules.provisioning.ProvisioningService resolves an inbound Pentrix
+    payment's `program_code` against (PENTRIX_ORG_SLUG,
+    imported from that module so both sides share one source of truth for
+    the slug). Kept separate from the "System" org above — Pentrix-share
+    students are a distinct tenant from ERPX's own bootstrap/admin org, not
+    a sub-part of it.
+    """
+    async with get_db_context() as db:
+        org_repo = OrganizationRepository(db)
+        course_repo = CourseRepository(db)
+
+        org = await org_repo.get_by_slug(PENTRIX_ORG_SLUG)
+        if not org:
+            org = await org_repo.create(name=_PENTRIX_ORG_NAME, slug=PENTRIX_ORG_SLUG)
+            await db.flush()
+            logger.info("seed_pentrix_org_created", slug=PENTRIX_ORG_SLUG)
+
+        course = await course_repo.get_by_slug(org.id, _PENTRIX_COURSE_SLUG)
+        if not course:
+            await course_repo.create(
+                organization_id=org.id,
+                title=_PENTRIX_COURSE_TITLE,
+                slug=_PENTRIX_COURSE_SLUG,
+                is_published=True,
+            )
+            logger.info("seed_pentrix_course_created", slug=_PENTRIX_COURSE_SLUG)
+
+
 async def main() -> None:
     await seed_rbac()
     await seed_bootstrap_superadmin()
+    await seed_pentrix_program()
     logger.info("seed_complete")
 
 

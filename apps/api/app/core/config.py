@@ -87,7 +87,8 @@ class Settings(BaseSettings):
     WHATSAPP_PHONE_NUMBER_ID: str = ""
 
     # ---- CORS ----
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    # 5173/3000 = apps/web, 5174 = apps/student-portal (see apps/student-portal/vite.config.ts).
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:5174"
 
     # ---- Rate Limiting ----
     RATE_LIMIT_DEFAULT: str = "100/minute"
@@ -99,6 +100,19 @@ class Settings(BaseSettings):
 
     # ---- Frontend ----
     FRONTEND_URL: str = "http://localhost:5173"
+    # apps/student-portal — where a provisioned student's "set your
+    # password" email link and login_url point (see modules/provisioning).
+    STUDENT_PORTAL_URL: str = "http://localhost:5174"
+
+    # ---- Internal service-to-service auth ----
+    # Shared HMAC secret verifying inbound calls to /api/v1/internal/*
+    # (currently just modules/provisioning) — mirrors the signed-body
+    # pattern Pentrix-share's own razorpay/stripe webhook adapters already
+    # use, rather than a bearer token or network-level (nginx) allowlist.
+    # Empty by default: modules/provisioning/dependencies.py fails closed
+    # (rejects every call) when this is unset, rather than silently
+    # comparing against an empty secret.
+    ERPX_INTERNAL_SERVICE_SECRET: str = ""
 
     # ---- Account Security ----
     MAX_LOGIN_ATTEMPTS: int = 5

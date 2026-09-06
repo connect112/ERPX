@@ -43,6 +43,12 @@ class UserProfileRepository:
         result = await self.db.execute(select(UserProfile).where(UserProfile.user_id == user_id))
         return result.scalar_one_or_none()
 
+    async def get_by_external_reference(self, external_reference: str) -> UserProfile | None:
+        result = await self.db.execute(
+            select(UserProfile).where(UserProfile.external_reference == external_reference)
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_id(self, profile_id: uuid.UUID) -> UserProfile | None:
         result = await self.db.execute(select(UserProfile).where(UserProfile.id == profile_id))
         return result.scalar_one_or_none()

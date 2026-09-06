@@ -13,6 +13,7 @@ from modules.pentrix.hints.schemas import (
     HintUnlockResponse,
     UnlockHintRequest,
 )
+from modules.pentrix.common.dependencies import assert_can_access_student, enforce_own_student_or_staff
 from modules.pentrix.hints.service import HintService
 from modules.users.dependencies import get_current_user_organization_id
 
@@ -38,6 +39,7 @@ async def list_hints(
     student_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("pentrix.flags.submit")),
+    _ownership: None = Depends(enforce_own_student_or_staff),
     db: AsyncSession = Depends(get_db),
 ):
     service = HintService(db)
@@ -52,5 +54,7 @@ async def unlock_hint(
     user: User = Depends(require_permissions("pentrix.flags.submit")),
     db: AsyncSession = Depends(get_db),
 ):
+    # `student_id` here is body-supplied — check ownership explicitly.
+    await assert_can_access_student(payload.student_id, user, db)
     service = HintService(db)
     return await service.unlock_hint(hint_id, organization_id, payload.student_id)

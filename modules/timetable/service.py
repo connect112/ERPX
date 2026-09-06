@@ -87,6 +87,11 @@ class TimetableService:
     ) -> list[TimetableEntry]:
         return await self.repo.list_for_batch(batch_id, organization_id)
 
+    async def list_for_batches(
+        self, batch_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[TimetableEntry]:
+        return await self.repo.list_for_batches(batch_ids, organization_id)
+
     async def update_entry(
         self, entry_id: uuid.UUID, organization_id: uuid.UUID, **fields
     ) -> TimetableEntry:

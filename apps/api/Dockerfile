@@ -15,7 +15,27 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Trust any extra CA cert(s) dropped into docker/extra-ca-certs/ (gitignored,
+# empty by default — see that directory's own .gitignore) before installing
+# from PyPI. This exists for networks where outbound HTTPS is transparently
+# re-signed by a local TLS-inspecting proxy (corporate MITM proxy, or an
+# antivirus "web shield" — e.g. Avast generates its own root CA and
+# re-signs every HTTPS cert your traffic touches, including pip's, which a
+# stock container has no reason to trust): `pip install` then fails with
+# "SSLCertVerificationError: unable to get local issuer certificate",
+# because the presented chain terminates in a root the image doesn't know.
+# Copying an *empty* directory and running update-ca-certificates over it
+# is a documented, safe no-op — every build with nothing dropped there
+# (CI, any machine without this kind of interception) trusts exactly the
+# same certs as before, byte for byte. This never disables or weakens
+# certificate verification: an added CA is trusted explicitly for what a
+# real proxy on this specific network actually presents, not "skip
+# checking."
+COPY docker/extra-ca-certs/ /usr/local/share/ca-certificates/extra/
+RUN update-ca-certificates
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
