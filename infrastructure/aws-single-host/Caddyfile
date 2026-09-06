@@ -1,0 +1,15 @@
+pentrix.in {
+	reverse_proxy pentrix_frontend:80
+}
+
+erp.pentrix.in {
+	# ERPX's production web image (apps/web/Dockerfile.prod) serves only its
+	# own static build — it doesn't proxy /api/ internally the way
+	# Pentrix-share's frontend image does, so that split happens here.
+	handle /api/* {
+		reverse_proxy erpx_api:8000
+	}
+	handle {
+		reverse_proxy erpx_web:80
+	}
+}
