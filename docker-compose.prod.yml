@@ -90,7 +90,12 @@ services:
       <<: *backend-env
     depends_on:
       - api
-    command: python -m celery -A app.core.celery_app beat --loglevel=info
+    # /app (the WORKDIR) is root-owned — apps/api/Dockerfile's COPY --chown
+    # only sets ownership on the files it copies in, not the directory
+    # itself — and this image runs as the non-root `erpx` user, so beat's
+    # default schedule file ("celerybeat-schedule" in the CWD) can't be
+    # created there. Point it at /tmp, which is world-writable.
+    command: python -m celery -A app.core.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     healthcheck:
       disable: true
     networks:
