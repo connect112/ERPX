@@ -1,0 +1,117 @@
+# Production deploy for the single-host AWS setup
+# (infrastructure/aws-single-host/) — erp.pentrix.in. Deliberately excludes
+# Elasticsearch and the whole monitoring stack (see that directory's
+# README for why) and does NOT run its own Postgres/Redis — both are the
+# shared containers defined in infrastructure/aws-single-host/docker-
+# compose.yml, reached over the external `webnet` network by container
+# name. No ports are published to the host at all: the only thing bound to
+# 80/443 on this box is Caddy, also on `webnet`.
+name: erpx-prod
+
+x-backend-env: &backend-env
+  ENVIRONMENT: production
+  DATABASE_URL: postgresql+asyncpg://erpx:${ERPX_DB_PASSWORD}@postgres:5432/erpx
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/10
+  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/11
+  CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/12
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+  MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  MINIO_SECURE: "false"
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  CORS_ORIGINS: https://erp.pentrix.in
+  STUDENT_PORTAL_URL: https://erp.pentrix.in
+  ERPX_INTERNAL_SERVICE_SECRET: ${ERPX_INTERNAL_SERVICE_SECRET}
+  SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL}
+  SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD}
+  AI_API_KEY: ${AI_API_KEY:-}
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: erpx_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - erpx_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - webnet
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: erpx_api
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "true"
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - webnet
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: erpx_celery_worker
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    depends_on:
+      - api
+    command: python -m celery -A app.core.celery_app worker --loglevel=info
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_app inspect ping -d celery@$$(hostname)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    networks:
+      - webnet
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: erpx_celery_beat
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    depends_on:
+      - api
+    command: python -m celery -A app.core.celery_app beat --loglevel=info
+    healthcheck:
+      disable: true
+    networks:
+      - webnet
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.prod
+      # No VITE_API_BASE_URL override — the Dockerfile's own default
+      # (/api/v1, a relative path) is exactly right here: Caddy proxies
+      # erp.pentrix.in/api/* to erpx_api same-origin, so the built frontend
+      # never needs an absolute API URL baked in.
+    container_name: erpx_web
+    restart: unless-stopped
+    networks:
+      - webnet
+
+networks:
+  webnet:
+    external: true
+
+volumes:
+  erpx_minio_data:
