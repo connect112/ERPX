@@ -58,3 +58,22 @@ aws ssm send-command --instance-ids <id> --document-name "AWS-RunShellScript" \
 `deploy.sh` does `git pull` in both `/opt/erpx` and `/opt/pentrix`, then
 `docker compose -f docker-compose.prod.yml up -d --build` in each — a
 single command deploys whatever is newest on each repo's default branch.
+
+## One-time content seeding (fresh database only)
+
+A brand-new Postgres has no rows, so Pentrix-share's blog is empty until
+`backend/scripts/import_blog_posts.py` (Markdown-authored posts under the
+Pentrix-share repo's own `content/blog/`) is run once against it. Not
+part of `deploy.sh` because it's an idempotent *content* import, not a
+schema migration — re-run it any time a Markdown file changes; it
+upserts by slug. The Pentrix-share backend image's build context is
+`./backend` only, so `content/` isn't baked into it — mount the full
+repo checkout instead:
+
+```
+PW=$(grep '^PENTRIX_DB_PASSWORD=' /opt/pentrix/.env | cut -d= -f2)
+docker run --rm --network webnet -v /opt/pentrix:/repo -w /repo/backend \
+  --env-file /opt/pentrix/.env -e PENTRIX_ENV=production \
+  -e PENTRIX_DATABASE_URL="postgresql://pentrix:${PW}@postgres:5432/pentrix" \
+  pentrix-prod-backend python scripts/import_blog_posts.py
+```
