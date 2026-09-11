@@ -103,6 +103,10 @@ class Settings(BaseSettings):
     # apps/student-portal — where a provisioned student's "set your
     # password" email link and login_url point (see modules/provisioning).
     STUDENT_PORTAL_URL: str = "http://localhost:5174"
+    # apps/employee-portal — where an invited employee's "set your
+    # password" email link and login_url point (see modules/employees'
+    # invite_employee).
+    EMPLOYEE_PORTAL_URL: str = "http://localhost:5175"
 
     # ---- Internal service-to-service auth ----
     # Shared HMAC secret verifying inbound calls to /api/v1/internal/*

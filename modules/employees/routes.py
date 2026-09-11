@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
-from modules.employees.models import EmploymentStatus
+from modules.employees.dependencies import get_current_employee
+from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.schemas import (
     EmployeeCreateRequest,
     EmployeePublic,
@@ -18,6 +19,14 @@ from modules.employees.service import EmployeeService
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+@router.get("/me", response_model=EmployeePublic)
+async def get_my_employee_profile(employee: Employee = Depends(get_current_employee)):
+    """The calling user's own employee record. Ownership-gated via
+    get_current_employee, no permission code — see that dependency's
+    docstring."""
+    return EmployeePublic.model_validate(employee)
 
 
 @router.post("", response_model=EmployeePublic, status_code=status.HTTP_201_CREATED)
@@ -126,3 +135,18 @@ async def delete_employee(
     service = EmployeeService(db)
     await service.delete_employee(employee_id, organization_id)
     return MessageResponse(message="Employee deleted successfully.")
+
+
+@router.post("/{employee_id}/invite", response_model=EmployeePublic)
+async def invite_employee(
+    employee_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("employees.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create employee-portal login access for an existing HR record — see
+    EmployeeService.invite_employee's docstring for why this didn't
+    already exist."""
+    service = EmployeeService(db)
+    employee = await service.invite_employee(employee_id, organization_id)
+    return EmployeePublic.model_validate(employee)

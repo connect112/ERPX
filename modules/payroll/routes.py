@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.employees.dependencies import get_current_employee
+from modules.employees.models import Employee
 from modules.payroll.models import PayrollRunStatus
 from modules.payroll.schemas import (
     MessageResponse,
@@ -215,6 +217,32 @@ async def cancel_payroll_run(
 
 
 # ---- Payslips ----
+
+
+@router.get("/payslips/me", response_model=dict)
+async def list_my_payslips(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """The calling user's own payslips. Ownership-gated via
+    get_current_employee (mirrors modules/employees/routes.py's /me), no
+    permission code — reuses the exact same service method the
+    staff-facing /payslips/employees/{employee_id} above calls, just with
+    the employee resolved from the caller's own linked record instead of
+    a path parameter. Registered before /payslips/{payslip_id} so "me"
+    isn't swallowed by that route's UUID path param."""
+    service = PayrollService(db)
+    payslips, total = await service.list_payslips_for_employee(
+        employee.id, employee.organization_id, skip=skip, limit=limit
+    )
+    return {
+        "items": [PayslipPublic.model_validate(p) for p in payslips],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.get("/payslips/{payslip_id}", response_model=PayslipPublic)

@@ -1,16 +1,28 @@
+import secrets
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
+from app.core.security import hash_password
+from modules.authentication.models import UserStatus
+from modules.authentication.repository import AuthRepository
+from modules.authentication.tasks import send_password_reset_email_task
 from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.repository import EmployeeRepository
 from modules.hr.repository import DepartmentRepository, DesignationRepository
+from modules.users.repository import UserProfileRepository
 
 logger = get_logger(__name__)
 
 _EXIT_STATUSES = {EmploymentStatus.RESIGNED, EmploymentStatus.TERMINATED, EmploymentStatus.RETIRED}
+
+# A first login shouldn't expire before the invited employee has opened
+# the email — mirrors modules/provisioning/service.py's identical
+# SET_PASSWORD_TOKEN_TTL_HOURS for the same reason.
+_INVITE_TOKEN_TTL_HOURS = 72
 
 
 class EmployeeService:
@@ -19,6 +31,8 @@ class EmployeeService:
         self.repo = EmployeeRepository(db)
         self.department_repo = DepartmentRepository(db)
         self.designation_repo = DesignationRepository(db)
+        self.auth_repo = AuthRepository(db)
+        self.profile_repo = UserProfileRepository(db)
 
     async def _validate_org_refs(
         self,
@@ -113,3 +127,52 @@ class EmployeeService:
         employee = await self.get_employee(employee_id, organization_id)
         await self.repo.soft_delete(employee)
         logger.info("employee_deleted", employee_id=str(employee_id))
+
+    async def invite_employee(self, employee_id: uuid.UUID, organization_id: uuid.UUID) -> Employee:
+        """
+        Create the employee-portal login for an existing HR record — the
+        Employee row on its own has never had a way to get one (unlike
+        Student, which modules.provisioning always creates alongside a
+        User). Mirrors provisioning's own account-creation shape: a
+        random, never-returned password, and a "set your password" email
+        via the same generic token machinery auth's own forgot-password
+        flow uses — no separate "welcome" token type invented for this.
+
+        No role is assigned: every employee-portal "me" endpoint is
+        ownership-gated the same way students' are (see
+        modules/employees/dependencies.py), so none is needed for
+        self-service to work — matching how modules/authorization/
+        service.py explains it deliberately leaves several other
+        ownership-covered permissions off the student role's grants too.
+        """
+        employee = await self.get_employee(employee_id, organization_id)
+        if employee.user_id:
+            raise ConflictError("This employee already has portal access.")
+        if not employee.email:
+            raise ValidationError("This employee has no email on file — add one before inviting them.")
+
+        existing_user = await self.auth_repo.get_user_by_email(employee.email)
+        if existing_user:
+            raise ConflictError(f"An account already exists for {employee.email}.")
+
+        user = await self.auth_repo.create_user(
+            email=employee.email,
+            hashed_password=hash_password(secrets.token_urlsafe(32)),
+            full_name=employee.full_name,
+            phone_number=employee.phone,
+        )
+        user.is_email_verified = True
+        user.status = UserStatus.ACTIVE
+        await self.db.flush()
+
+        await self.profile_repo.create(user_id=user.id, organization_id=organization_id)
+        employee = await self.repo.update(employee, user_id=user.id)
+
+        reset_token = await self.auth_repo.create_password_reset_token(
+            user.id, ttl_hours=_INVITE_TOKEN_TTL_HOURS
+        )
+        set_password_url = f"{settings.EMPLOYEE_PORTAL_URL}/reset-password?token={reset_token.token}"
+        send_password_reset_email_task.delay(user.email, user.full_name, set_password_url)
+
+        logger.info("employee_invited", employee_id=str(employee_id), user_id=str(user.id))
+        return employee
