@@ -13,11 +13,11 @@ const CyberRangePage = lazy(() => import("@/features/pentrix/pages/cyber-range-p
 const LeaderboardPage = lazy(() => import("@/features/leaderboard/pages/leaderboard-page").then((m) => ({ default: m.LeaderboardPage })));
 const AchievementsPage = lazy(() => import("@/features/achievements/pages/achievements-page").then((m) => ({ default: m.AchievementsPage })));
 const MySchedulePage = lazy(() => import("@/features/schedule/pages/my-schedule-page").then((m) => ({ default: m.MySchedulePage })));
-const WorkshopsPage = lazy(() => import("@/features/workshops/pages/workshops-page").then((m) => ({ default: m.WorkshopsPage })));
-const HackathonsPage = lazy(() => import("@/features/hackathons/pages/hackathons-page").then((m) => ({ default: m.HackathonsPage })));
-const HackathonDetailPage = lazy(() => import("@/features/hackathons/pages/hackathon-detail-page").then((m) => ({ default: m.HackathonDetailPage })));
-const InternshipsPage = lazy(() => import("@/features/internships/pages/internships-page").then((m) => ({ default: m.InternshipsPage })));
 const PlacementsPage = lazy(() => import("@/features/placements/pages/placements-page").then((m) => ({ default: m.PlacementsPage })));
+// Workshops/Hackathons/Internships routes intentionally removed — see the
+// comment in layouts/app-layout.tsx. The feature pages themselves
+// (src/features/{workshops,hackathons,internships}) are untouched, just
+// unreferenced from this router for now.
 import { ProtectedRoute } from "@/router/protected-route";
 
 export const router = createBrowserRouter([
@@ -43,10 +43,6 @@ export const router = createBrowserRouter([
       { path: "bookmarks", element: <MyBookmarksPage /> },
       { path: "transcript", element: <MyTranscriptPage /> },
       { path: "schedule", element: <MySchedulePage /> },
-      { path: "workshops", element: <WorkshopsPage /> },
-      { path: "hackathons", element: <HackathonsPage /> },
-      { path: "hackathons/:hackathonId", element: <HackathonDetailPage /> },
-      { path: "internships", element: <InternshipsPage /> },
       { path: "placements", element: <PlacementsPage /> },
       {
         path: "cyber-range",
