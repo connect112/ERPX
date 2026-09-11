@@ -1,10 +1,10 @@
-# Single-host AWS deploy (pentrix.in + erp.pentrix.in + lms.pentrix.in)
+# Single-host AWS deploy (pentrix.in + erp.pentrix.in + lms.pentrix.in + staff.pentrix.in)
 
 A deliberately small deployment target: one EC2 instance running
-Pentrix-share, ERPX's admin frontend, and ERPX's student portal (LMS)
-behind one Caddy reverse proxy, sharing one Postgres and one Redis
-container to fit a free-tier-sized box. This is **not** the same
-deployment path as
+Pentrix-share, ERPX's admin frontend, ERPX's student portal (LMS), and
+ERPX's employee portal behind one Caddy reverse proxy, sharing one
+Postgres and one Redis container to fit a free-tier-sized box. This is
+**not** the same deployment path as
 `infrastructure/terraform/` + `infrastructure/kubernetes/` (a real AWS/EKS
 production setup) — that path stays as documented, untouched, for when
 this project actually needs it. This directory is the pragmatic
@@ -25,7 +25,7 @@ reverse proxy aren't owned by either app individually.
   deploy.sh                     pulls + rebuilds both apps
 /opt/erpx/                    <- git clone of this repo
   docker-compose.prod.yml       api, celery_worker, celery_beat, web,
-                                 student_portal, minio
+                                 student_portal, employee_portal, minio
   .env                          ERPX-specific secrets
 /opt/pentrix/                  <- git clone of the Pentrix-share repo
   docker-compose.prod.yml       migrate, backend, frontend
