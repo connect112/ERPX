@@ -19,15 +19,19 @@ x-backend-env: &backend-env
   MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   MINIO_SECURE: "false"
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-  # lms.pentrix.in doesn't strictly need to be here — the student portal's
-  # own API calls are same-origin (relative /api/v1, proxied by Caddy on
-  # that domain, same pattern as erp.pentrix.in/web below) — but costs
-  # nothing to allow explicitly rather than rely on that always holding.
-  CORS_ORIGINS: https://erp.pentrix.in,https://lms.pentrix.in
+  # lms.pentrix.in / staff.pentrix.in don't strictly need to be here — both
+  # portals' own API calls are same-origin (relative /api/v1, proxied by
+  # Caddy on their own domain, same pattern as erp.pentrix.in/web below)
+  # — but costs nothing to allow explicitly rather than rely on that
+  # always holding.
+  CORS_ORIGINS: https://erp.pentrix.in,https://lms.pentrix.in,https://staff.pentrix.in
   # The actual student-facing domain: provisioning emails a "set your
   # password" link built from this, so it must point at the real student
   # portal, not the admin app.
   STUDENT_PORTAL_URL: https://lms.pentrix.in
+  # Same reasoning, for an invited employee's "set your password" link
+  # (see EmployeeService.invite_employee).
+  EMPLOYEE_PORTAL_URL: https://staff.pentrix.in
   ERPX_INTERNAL_SERVICE_SECRET: ${ERPX_INTERNAL_SERVICE_SECRET}
   SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL}
   SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD}
@@ -128,6 +132,18 @@ services:
       # Same reasoning as `web` above: no VITE_API_BASE_URL override,
       # relative /api/v1, proxied same-origin by Caddy on lms.pentrix.in.
     container_name: erpx_student_portal
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  employee_portal:
+    build:
+      context: ./apps/employee-portal
+      dockerfile: Dockerfile.prod
+      # Same reasoning as `web`/`student_portal` above: no
+      # VITE_API_BASE_URL override, relative /api/v1, proxied same-origin
+      # by Caddy on staff.pentrix.in.
+    container_name: erpx_employee_portal
     restart: unless-stopped
     networks:
       - webnet

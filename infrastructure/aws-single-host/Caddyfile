@@ -24,3 +24,15 @@ lms.pentrix.in {
 		reverse_proxy erpx_student_portal:80
 	}
 }
+
+staff.pentrix.in {
+	# The employee self-service portal (apps/employee-portal) — same split
+	# as erp.pentrix.in / lms.pentrix.in above, against the same erpx_api
+	# backend.
+	handle /api/* {
+		reverse_proxy erpx_api:8000
+	}
+	handle {
+		reverse_proxy erpx_employee_portal:80
+	}
+}
