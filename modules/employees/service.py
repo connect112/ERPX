@@ -10,9 +10,12 @@ from app.core.security import hash_password
 from modules.authentication.models import UserStatus
 from modules.authentication.repository import AuthRepository
 from modules.authentication.tasks import send_password_reset_email_task
+from modules.authorization.repository import AuthorizationRepository
+from modules.authorization.service import AuthorizationService
 from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.repository import EmployeeRepository
 from modules.hr.repository import DepartmentRepository, DesignationRepository
+from modules.trainers.repository import TrainerRepository
 from modules.users.repository import UserProfileRepository
 
 logger = get_logger(__name__)
@@ -33,6 +36,8 @@ class EmployeeService:
         self.designation_repo = DesignationRepository(db)
         self.auth_repo = AuthRepository(db)
         self.profile_repo = UserProfileRepository(db)
+        self.authz_repo = AuthorizationRepository(db)
+        self.trainer_repo = TrainerRepository(db)
 
     async def _validate_org_refs(
         self,
@@ -138,12 +143,18 @@ class EmployeeService:
         via the same generic token machinery auth's own forgot-password
         flow uses — no separate "welcome" token type invented for this.
 
-        No role is assigned: every employee-portal "me" endpoint is
+        Every employee gets the basic self-service portal regardless of
+        role or designation — every employee-portal "me" endpoint is
         ownership-gated the same way students' are (see
-        modules/employees/dependencies.py), so none is needed for
-        self-service to work — matching how modules/authorization/
-        service.py explains it deliberately leaves several other
-        ownership-covered permissions off the student role's grants too.
+        modules/employees/dependencies.py), so no role is needed just for
+        that to work. Beyond that baseline, the employee's designation
+        (if any) can grant more, per however an admin has configured it
+        on that Designation (see migration 0041 / modules/hr/service.py's
+        _validate_linked_role): a linked_role_id also assigns that RBAC
+        role, and grants_trainer_access also creates a Trainer record —
+        the prerequisite for trainer-portal login, since that portal
+        resolves User -> Employee -> Trainer the same way this one
+        resolves User -> Employee.
         """
         employee = await self.get_employee(employee_id, organization_id)
         if employee.user_id:
@@ -167,6 +178,28 @@ class EmployeeService:
 
         await self.profile_repo.create(user_id=user.id, organization_id=organization_id)
         employee = await self.repo.update(employee, user_id=user.id)
+
+        if employee.designation_id:
+            designation = await self.designation_repo.get_by_id(employee.designation_id, organization_id)
+            if designation and designation.linked_role_id:
+                await AuthorizationService(self.db).assign_role(
+                    user.id, designation.linked_role_id, assigned_by_user_id=None
+                )
+                logger.info(
+                    "employee_role_granted_via_designation",
+                    employee_id=str(employee_id),
+                    role_id=str(designation.linked_role_id),
+                )
+            if designation and designation.grants_trainer_access:
+                # employee_id is unique on Trainer — guard explicitly rather
+                # than let a rare pre-existing row (e.g. one created before
+                # this designation was linked) surface as a raw IntegrityError.
+                existing_trainer = await self.trainer_repo.get_by_employee_id(employee.id, organization_id)
+                if not existing_trainer:
+                    await self.trainer_repo.create(organization_id=organization_id, employee_id=employee.id)
+                    logger.info(
+                        "employee_trainer_access_granted_via_designation", employee_id=str(employee_id)
+                    )
 
         reset_token = await self.auth_repo.create_password_reset_token(
             user.id, ttl_hours=_INVITE_TOKEN_TTL_HOURS

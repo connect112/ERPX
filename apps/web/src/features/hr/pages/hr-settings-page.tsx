@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useRolesList } from "@/features/authorization/api/authorization-hooks";
 import {
   useCreateDepartment,
   useCreateDesignation,
@@ -29,6 +37,14 @@ import {
   departmentFormSchema,
   designationFormSchema,
 } from "@/features/hr/schemas/hr-schemas";
+
+// A designation's linked_role_id deliberately can't be "student" (meaningless
+// for an employee) or "super_admin" (auto-granting the platform's most
+// powerful role to every future employee with a given job title is a real
+// footgun — see modules/hr/service.py's identical, enforced blocklist).
+// This is the display-side mirror of that same rule, not the enforcement
+// of it: the backend rejects these regardless of what this dropdown offers.
+const DESIGNATION_LINKABLE_ROLE_BLOCKLIST = new Set(["student", "super_admin"]);
 
 function DepartmentsCard() {
   const { data: departments, isLoading, isError } = useDepartments();
@@ -125,13 +141,19 @@ function DepartmentsCard() {
 
 function DesignationsCard() {
   const { data: designations, isLoading, isError } = useDesignations();
+  const { data: roles } = useRolesList();
   const createDesignation = useCreateDesignation();
   const [formOpen, setFormOpen] = useState(false);
+
+  const linkableRoles = (roles ?? []).filter(
+    (role) => !DESIGNATION_LINKABLE_ROLE_BLOCKLIST.has(role.slug)
+  );
 
   const {
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors },
   } = useForm<DesignationFormValues>({ resolver: zodResolver(designationFormSchema) });
 
@@ -142,6 +164,8 @@ function DesignationsCard() {
         code: values.code,
         grade_level: values.gradeLevel ? Number(values.gradeLevel) : undefined,
         description: values.description || undefined,
+        linked_role_id: values.linkedRoleId || undefined,
+        grants_trainer_access: values.grantsTrainerAccess,
       },
       {
         onSuccess: () => {
@@ -167,21 +191,32 @@ function DesignationsCard() {
         {!isLoading && !isError && (designations?.length ?? 0) === 0 && (
           <p className="text-sm text-muted-foreground">No designations yet.</p>
         )}
-        {designations?.map((designation) => (
-          <div key={designation.id} className="flex items-center justify-between rounded-md border p-3">
-            <div>
-              <p className="text-sm font-medium">
-                {designation.code} — {designation.title}
-              </p>
-              {designation.grade_level && (
-                <p className="text-xs text-muted-foreground">Grade {designation.grade_level}</p>
-              )}
+        {designations?.map((designation) => {
+          const linkedRole = roles?.find((role) => role.id === designation.linked_role_id);
+          return (
+            <div key={designation.id} className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="text-sm font-medium">
+                  {designation.code} — {designation.title}
+                </p>
+                {designation.grade_level && (
+                  <p className="text-xs text-muted-foreground">Grade {designation.grade_level}</p>
+                )}
+                {(linkedRole || designation.grants_trainer_access) && (
+                  <div className="mt-1 flex gap-1">
+                    {linkedRole && <Badge variant="outline">Role: {linkedRole.name}</Badge>}
+                    {designation.grants_trainer_access && (
+                      <Badge variant="outline">Trainer access</Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+              <Badge variant={designation.is_active ? "success" : "secondary"}>
+                {designation.is_active ? "Active" : "Inactive"}
+              </Badge>
             </div>
-            <Badge variant={designation.is_active ? "success" : "secondary"}>
-              {designation.is_active ? "Active" : "Inactive"}
-            </Badge>
-          </div>
-        ))}
+          );
+        })}
       </CardContent>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
@@ -209,6 +244,49 @@ function DesignationsCard() {
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
               <Textarea id="description" rows={2} {...register("description")} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="linkedRoleId">Grants role</Label>
+              <Controller
+                name="linkedRoleId"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value || undefined} onValueChange={field.onChange}>
+                    <SelectTrigger id="linkedRoleId">
+                      <SelectValue placeholder="No additional role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {linkableRoles.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-xs text-muted-foreground">
+                Employees with this designation are also assigned this RBAC role when invited to
+                the portal — beyond the basic employee self-service access every employee gets.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Controller
+                name="grantsTrainerAccess"
+                control={control}
+                render={({ field }) => (
+                  <input
+                    id="grantsTrainerAccess"
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input"
+                    checked={field.value ?? false}
+                    onChange={(e) => field.onChange(e.target.checked)}
+                  />
+                )}
+              />
+              <Label htmlFor="grantsTrainerAccess" className="font-normal">
+                Grants trainer portal access
+              </Label>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>

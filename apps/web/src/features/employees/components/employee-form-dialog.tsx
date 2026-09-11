@@ -24,6 +24,7 @@ import type { EmployeePublic } from "@/features/employees/api/employees-api";
 import { useCreateEmployee, useEmployeesList, useUpdateEmployee } from "@/features/employees/api/employees-hooks";
 import {
   type EmployeeFormValues,
+  type Gender,
   employeeFormSchema,
   employmentTypeLabels,
   employmentTypeValues,
@@ -120,7 +121,12 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
       reporting_manager_id: values.reportingManagerId || undefined,
       email: values.email || undefined,
       phone: values.phone || undefined,
-      gender: values.gender || undefined,
+      // Cast, not a validation bypass: employeeFormSchema's own .refine
+      // already limits this to a genderValues member before onSubmit can
+      // ever run — see that schema for why gender is typed as a plain
+      // string in the form (matching departmentId/designationId's
+      // "starts blank" Select pattern) rather than z.enum(genderValues).
+      gender: (values.gender || undefined) as Gender | undefined,
       date_of_birth: values.dateOfBirth || undefined,
       address_line1: values.addressLine1 || undefined,
       city: values.city || undefined,
@@ -180,6 +186,7 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone</Label>
                 <Input id="phone" {...register("phone")} />
+                {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -203,10 +210,14 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
                     </Select>
                   )}
                 />
+                {errors.gender && <p className="text-sm text-destructive">{errors.gender.message}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="dateOfBirth">Date of birth</Label>
                 <Input id="dateOfBirth" type="date" {...register("dateOfBirth")} />
+                {errors.dateOfBirth && (
+                  <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
+                )}
               </div>
             </div>
           </div>
@@ -236,6 +247,14 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
                     </Select>
                   )}
                 />
+                {errors.departmentId && (
+                  <p className="text-sm text-destructive">{errors.departmentId.message}</p>
+                )}
+                {departments?.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No departments yet — create one under HR settings first.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="designationId">Designation</Label>
@@ -257,6 +276,14 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
                     </Select>
                   )}
                 />
+                {errors.designationId && (
+                  <p className="text-sm text-destructive">{errors.designationId.message}</p>
+                )}
+                {designations?.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No designations yet — create one under HR settings first.
+                  </p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -320,14 +347,33 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </p>
             <div className="space-y-2">
               <Input placeholder="Address line 1" {...register("addressLine1")} />
+              {errors.addressLine1 && (
+                <p className="text-sm text-destructive">{errors.addressLine1.message}</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Input placeholder="City" {...register("city")} />
-              <Input placeholder="State" {...register("state")} />
+              <div className="space-y-2">
+                <Input placeholder="City" {...register("city")} />
+                {errors.city && <p className="text-sm text-destructive">{errors.city.message}</p>}
+              </div>
+              <div className="space-y-2">
+                <Input placeholder="State" {...register("state")} />
+                {errors.state && <p className="text-sm text-destructive">{errors.state.message}</p>}
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Input placeholder="Country" {...register("country")} />
-              <Input placeholder="Postal code" {...register("postalCode")} />
+              <div className="space-y-2">
+                <Input placeholder="Country" {...register("country")} />
+                {errors.country && (
+                  <p className="text-sm text-destructive">{errors.country.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Input placeholder="Postal code" {...register("postalCode")} />
+                {errors.postalCode && (
+                  <p className="text-sm text-destructive">{errors.postalCode.message}</p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -336,8 +382,18 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
               Emergency contact
             </p>
             <div className="grid grid-cols-2 gap-4">
-              <Input placeholder="Contact name" {...register("emergencyContactName")} />
-              <Input placeholder="Contact phone" {...register("emergencyContactPhone")} />
+              <div className="space-y-2">
+                <Input placeholder="Contact name" {...register("emergencyContactName")} />
+                {errors.emergencyContactName && (
+                  <p className="text-sm text-destructive">{errors.emergencyContactName.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Input placeholder="Contact phone" {...register("emergencyContactPhone")} />
+                {errors.emergencyContactPhone && (
+                  <p className="text-sm text-destructive">{errors.emergencyContactPhone.message}</p>
+                )}
+              </div>
             </div>
           </div>
 
