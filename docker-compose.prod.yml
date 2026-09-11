@@ -19,8 +19,15 @@ x-backend-env: &backend-env
   MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   MINIO_SECURE: "false"
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-  CORS_ORIGINS: https://erp.pentrix.in
-  STUDENT_PORTAL_URL: https://erp.pentrix.in
+  # lms.pentrix.in doesn't strictly need to be here — the student portal's
+  # own API calls are same-origin (relative /api/v1, proxied by Caddy on
+  # that domain, same pattern as erp.pentrix.in/web below) — but costs
+  # nothing to allow explicitly rather than rely on that always holding.
+  CORS_ORIGINS: https://erp.pentrix.in,https://lms.pentrix.in
+  # The actual student-facing domain: provisioning emails a "set your
+  # password" link built from this, so it must point at the real student
+  # portal, not the admin app.
+  STUDENT_PORTAL_URL: https://lms.pentrix.in
   ERPX_INTERNAL_SERVICE_SECRET: ${ERPX_INTERNAL_SERVICE_SECRET}
   SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL}
   SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD}
@@ -110,6 +117,17 @@ services:
       # erp.pentrix.in/api/* to erpx_api same-origin, so the built frontend
       # never needs an absolute API URL baked in.
     container_name: erpx_web
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  student_portal:
+    build:
+      context: ./apps/student-portal
+      dockerfile: Dockerfile.prod
+      # Same reasoning as `web` above: no VITE_API_BASE_URL override,
+      # relative /api/v1, proxied same-origin by Caddy on lms.pentrix.in.
+    container_name: erpx_student_portal
     restart: unless-stopped
     networks:
       - webnet

@@ -13,3 +13,14 @@ erp.pentrix.in {
 		reverse_proxy erpx_web:80
 	}
 }
+
+lms.pentrix.in {
+	# The student-facing LMS (apps/student-portal) — same split as
+	# erp.pentrix.in above, against the same erpx_api backend.
+	handle /api/* {
+		reverse_proxy erpx_api:8000
+	}
+	handle {
+		reverse_proxy erpx_student_portal:80
+	}
+}
