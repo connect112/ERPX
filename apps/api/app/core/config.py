@@ -160,6 +160,41 @@ class Settings(BaseSettings):
     AI_MAX_TOKENS: int = 2048
     AI_REQUEST_TIMEOUT_SECONDS: int = 60
 
+    # ---- Placements: job-board aggregation (Adzuna, Jooble, Reed, Arbeitnow) ----
+    # Hourly pipeline (modules/placements/aggregation_service.py) that
+    # populates cybersecurity JobPosting rows automatically. Leave any key
+    # blank to cleanly skip that source (logged, not an error).
+    ADZUNA_APP_ID: str = ""
+    ADZUNA_APP_KEY: str = ""
+    ADZUNA_COUNTRY: str = "in"
+    # Adzuna's free tier is 25/min, 250/day, 1000/week, 2500/month (their
+    # own ToS) — this is a defensive buffer under the daily cap, not the cap
+    # itself, so a burst of manual triggers on the same day can't exceed it.
+    ADZUNA_DAILY_CALL_BUDGET: int = 240
+    JOOBLE_API_KEY: str = ""
+    JOOBLE_DEFAULT_LOCATION: str = "India"
+    # Jooble's free tier is a 500-request *lifetime* cap per key (confirmed
+    # against Jooble's own help-center docs) — not a recurring quota. This
+    # is why Jooble runs on its own weekly beat schedule, not the hourly
+    # one, and why the connector checks this budget before every call.
+    JOOBLE_LIFETIME_CALL_BUDGET: int = 450
+    REED_API_KEY: str = ""
+    ARBEITNOW_MAX_PAGES: int = 3
+    # Comma-separated; empty means the built-in cybersecurity default list
+    # (see modules/placements/aggregation_config.py) is used instead.
+    PLACEMENTS_AGGREGATION_KEYWORDS: str = ""
+    # >= this ratio: auto-matched as the same posting, no AI call needed.
+    PLACEMENTS_DEDUP_SIMILARITY_THRESHOLD: float = 0.85
+    # Below this ratio: never considered the same posting, not even via the
+    # AI fallback below (bounds how many pairs can ever trigger an AI call).
+    # Between the two: a "gray zone" — difflib's contiguous-character-run
+    # comparison is confident neither way (this is exactly where genuinely
+    # differently-worded duplicates of the same real job land, e.g. "SOC
+    # Analyst I" vs "Security Operations Center Analyst"), so these pairs
+    # get a batched same-posting judgment call to packages/ai instead of a
+    # hard string-similarity cutoff.
+    PLACEMENTS_DEDUP_AI_FALLBACK_THRESHOLD: float = 0.5
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
