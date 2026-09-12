@@ -21,9 +21,13 @@ class EmployeeCreateRequest(BaseModel):
     beyond data completeness: EmployeeService.invite_employee — the only
     way this record ever gets portal access — needs one to create the
     login, and previously had no way to fail earlier than that point.
+
+    No employee_code field: it's system-generated (EMP-00001, EMP-00002, ...)
+    by EmployeeRepository.create, the same sequential-with-retry pattern
+    StudentRepository._next_student_code uses for student_code — an admin
+    never types or sees a scheme to collide with.
     """
 
-    employee_code: str = Field(..., min_length=1, max_length=30)
     full_name: str = Field(..., min_length=2, max_length=255)
     branch_id: uuid.UUID | None = None
     department_id: uuid.UUID

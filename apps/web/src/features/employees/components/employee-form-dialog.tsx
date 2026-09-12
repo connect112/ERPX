@@ -40,7 +40,6 @@ interface EmployeeFormDialogProps {
 }
 
 const emptyValues: EmployeeFormValues = {
-  employeeCode: "",
   fullName: "",
   departmentId: "",
   designationId: "",
@@ -85,7 +84,6 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
       reset(
         employee
           ? {
-              employeeCode: employee.employee_code,
               fullName: employee.full_name,
               departmentId: employee.department_id ?? "",
               designationId: employee.designation_id ?? "",
@@ -143,7 +141,7 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
       updateEmployee.mutate(shared, { onSuccess: () => onOpenChange(false) });
     } else {
       createEmployee.mutate(
-        { ...shared, employee_code: values.employeeCode, date_of_joining: values.dateOfJoining },
+        { ...shared, date_of_joining: values.dateOfJoining },
         { onSuccess: () => onOpenChange(false) }
       );
     }
@@ -163,18 +161,20 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="employeeCode">Employee code</Label>
-                <Input id="employeeCode" disabled={isEditing} {...register("employeeCode")} />
-                {errors.employeeCode && (
-                  <p className="text-sm text-destructive">{errors.employeeCode.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
                 <Label htmlFor="fullName">Full name</Label>
                 <Input id="fullName" {...register("fullName")} />
                 {errors.fullName && (
                   <p className="text-sm text-destructive">{errors.fullName.message}</p>
                 )}
+              </div>
+              <div className="space-y-2">
+                <Label>Employee code</Label>
+                {/* Not a form field — EmployeeRepository.create assigns the
+                    next sequential code (EMP-00001, EMP-00002, ...) itself;
+                    there's nothing here for an admin to type or edit. */}
+                <p className="flex h-10 items-center text-sm text-muted-foreground">
+                  {isEditing ? employee.employee_code : "Assigned automatically on save"}
+                </p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

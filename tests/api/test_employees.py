@@ -15,7 +15,6 @@ from modules.trainers.repository import TrainerRepository
 pytestmark = pytest.mark.api
 
 _EMPLOYEE_PAYLOAD = {
-    "employee_code": "EMP-0001",
     "full_name": "Asha Verma",
     "email": "asha.verma@example.com",
     "phone": "+91-9000000000",
@@ -120,7 +119,6 @@ async def test_invite_employee_with_bare_designation_grants_no_extra_access(
         "/api/v1/employees",
         json={
             **_EMPLOYEE_PAYLOAD,
-            "employee_code": "EMP-0002",
             "email": "no-extra-access@example.com",
             "department_id": department["id"],
             "designation_id": designation["id"],

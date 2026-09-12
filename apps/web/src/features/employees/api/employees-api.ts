@@ -51,8 +51,9 @@ export interface EmployeeListParams {
   limit?: number;
 }
 
+// No employee_code: it's system-generated (EMP-00001, EMP-00002, ...) by
+// EmployeeRepository.create — never supplied by the admin form.
 export interface EmployeeCreatePayload {
-  employee_code: string;
   full_name: string;
   branch_id?: string;
   department_id?: string;
@@ -74,7 +75,7 @@ export interface EmployeeCreatePayload {
   notes?: string;
 }
 
-export type EmployeeUpdatePayload = Partial<Omit<EmployeeCreatePayload, "employee_code" | "date_of_joining">>;
+export type EmployeeUpdatePayload = Partial<Omit<EmployeeCreatePayload, "date_of_joining">>;
 
 export const employeesApi = {
   list: (params: EmployeeListParams) =>
