@@ -202,7 +202,6 @@ async def test_selecting_application_creates_internship_and_mentor_can_be_assign
 
     mentor = await EmployeeRepository(db_session).create(
         organization_id=organization.id,
-        employee_code=f"EMP-{uuid.uuid4().hex[:8]}",
         full_name="Mentor Employee",
         date_of_joining=date(2024, 1, 1),
     )

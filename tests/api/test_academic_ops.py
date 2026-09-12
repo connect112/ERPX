@@ -20,10 +20,8 @@ pytestmark = pytest.mark.api
 @pytest.fixture
 async def employee(db_session, organization):
     repo = EmployeeRepository(db_session)
-    unique = uuid.uuid4().hex[:8]
     emp = await repo.create(
         organization_id=organization.id,
-        employee_code=f"EMP-{unique}",
         full_name="Jamie Trainer",
         date_of_joining=date(2024, 1, 1),
     )

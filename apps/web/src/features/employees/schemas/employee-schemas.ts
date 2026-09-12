@@ -47,8 +47,11 @@ export const genderLabels: Record<Gender, string> = {
 // with a 422 for a missing field. See that file's own docstring for the
 // full reasoning, including why branch_id/address_line2 (not in this form
 // at all) are excluded from that list too.
+// employeeCode is deliberately absent: it's system-generated
+// (EMP-00001, EMP-00002, ...) by EmployeeRepository.create, mirroring
+// modules/employees/schemas.py's EmployeeCreateRequest — an admin never
+// types or sees a scheme to collide with.
 export const employeeFormSchema = z.object({
-  employeeCode: z.string().min(1, "Code is required."),
   fullName: z.string().min(2, "Full name is required."),
   departmentId: z.string().min(1, "Department is required."),
   designationId: z.string().min(1, "Designation is required."),

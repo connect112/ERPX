@@ -62,13 +62,10 @@ class EmployeeService:
             if not manager:
                 raise NotFoundError("Reporting manager", reporting_manager_id)
 
-    async def create_employee(
-        self, organization_id: uuid.UUID, employee_code: str, **fields
-    ) -> Employee:
-        existing = await self.repo.get_by_code(organization_id, employee_code)
-        if existing:
-            raise ConflictError(f"An employee with code '{employee_code}' already exists.")
-
+    async def create_employee(self, organization_id: uuid.UUID, **fields) -> Employee:
+        """employee_code is not accepted here — EmployeeRepository.create
+        assigns the next sequential code itself (EMP-00001, EMP-00002, ...),
+        so there's nothing for this method to validate or pass through."""
         await self._validate_org_refs(
             organization_id,
             fields.get("department_id"),
@@ -76,10 +73,8 @@ class EmployeeService:
             fields.get("reporting_manager_id"),
         )
 
-        employee = await self.repo.create(
-            organization_id=organization_id, employee_code=employee_code, **fields
-        )
-        logger.info("employee_created", employee_id=str(employee.id), employee_code=employee_code)
+        employee = await self.repo.create(organization_id=organization_id, **fields)
+        logger.info("employee_created", employee_id=str(employee.id), employee_code=employee.employee_code)
         return employee
 
     async def get_employee(self, employee_id: uuid.UUID, organization_id: uuid.UUID) -> Employee:

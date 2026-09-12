@@ -90,7 +90,6 @@ async def test_staff_role_does_not_grant_manage_permission(client, staff_headers
         "/api/v1/employees",
         headers=staff_headers,
         json={
-            "employee_code": "EMP-001",
             "full_name": "Should Not Be Created",
             "employment_type": "full_time",
             "date_of_joining": "2026-01-01",
