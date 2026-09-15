@@ -8,6 +8,7 @@ const MyBatchesPage = lazy(() => import("@/features/batches/pages/my-batches-pag
 const BatchDetailPage = lazy(() => import("@/features/batches/pages/batch-detail-page").then((m) => ({ default: m.BatchDetailPage })));
 const AssignmentGradingPage = lazy(() => import("@/features/batches/pages/assignment-grading-page").then((m) => ({ default: m.AssignmentGradingPage })));
 const AttendancePage = lazy(() => import("@/features/attendance/pages/attendance-page").then((m) => ({ default: m.AttendancePage })));
+const MyLiveClassesPage = lazy(() => import("@/features/live-classes/pages/my-live-classes-page").then((m) => ({ default: m.MyLiveClassesPage })));
 import { ProtectedRoute } from "@/router/protected-route";
 
 export const router = createBrowserRouter([
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: "batches/:batchId", element: <BatchDetailPage /> },
       { path: "batches/:batchId/assignments/:assignmentId", element: <AssignmentGradingPage /> },
       { path: "attendance", element: <AttendancePage /> },
+      { path: "live-classes", element: <MyLiveClassesPage /> },
     ],
   },
 ]);
