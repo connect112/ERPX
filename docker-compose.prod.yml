@@ -36,6 +36,20 @@ x-backend-env: &backend-env
   SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL}
   SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD}
   AI_API_KEY: ${AI_API_KEY:-}
+  # Gmail SMTP relay, not SES: pentrix.in's SES domain identity is
+  # unverified (DNS records never propagated) and the account's
+  # production-access request was denied, so SES can't yet deliver to
+  # arbitrary recipient addresses at all (sandbox mode only allows
+  # pre-verified recipients). Swapping in a Gmail app-password relay here
+  # unblocks real delivery immediately — packages/email/service.py's
+  # SMTP client is provider-agnostic (aiosmtplib against SMTP_HOST/PORT),
+  # so this is a pure config change. Revisit once SES is actually approved.
+  SMTP_HOST: ${SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT}
+  SMTP_USER: ${SMTP_USER}
+  SMTP_PASSWORD: ${SMTP_PASSWORD}
+  SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
+  SMTP_FROM_NAME: ${SMTP_FROM_NAME}
 
 services:
   minio:
