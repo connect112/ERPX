@@ -9,6 +9,7 @@ employee holds.
 
 import pytest
 
+from modules.authentication.repository import AuthRepository
 from modules.authorization.repository import AuthorizationRepository
 from modules.trainers.repository import TrainerRepository
 
@@ -29,6 +30,14 @@ _EMPLOYEE_PAYLOAD = {
     "emergency_contact_phone": "+91-9111111111",
     "employment_type": "full_time",
     "date_of_joining": "2026-01-15",
+}
+
+# What an admin actually fills in now — see EmployeeCreateRequest's own
+# docstring for why everything personal is gone from this list.
+_MINIMAL_EMPLOYEE_PAYLOAD = {
+    "full_name": "Priya Nair",
+    "email": "priya.nair@example.com",
+    "date_of_joining": "2026-02-01",
 }
 
 
@@ -160,5 +169,134 @@ async def test_designation_rejects_linking_super_admin_role(client, auth_headers
             "linked_role_id": super_admin["id"],
         },
         headers=auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_create_employee_without_personal_fields_succeeds(client, auth_headers, rbac_seeded):
+    """The admin form only ever collects name/department/designation/
+    email/date_of_joining now (see EmployeeCreateRequest's docstring) —
+    a create request with none of the personal fields must not 422."""
+    department, designation = await _create_department_and_designation(
+        client, auth_headers, code="MIN"
+    )
+
+    create_resp = await client.post(
+        "/api/v1/employees",
+        json={
+            **_MINIMAL_EMPLOYEE_PAYLOAD,
+            "department_id": department["id"],
+            "designation_id": designation["id"],
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    employee = create_resp.json()
+    assert employee["phone"] is None
+    assert employee["gender"] is None
+    assert employee["address_line1"] is None
+
+
+async def test_complete_registration_sets_password_and_profile(
+    client, auth_headers, db_session, rbac_seeded
+):
+    """The employee's own side of the flow: invite_employee hands out a
+    token via email (unreachable from a test — reading it straight from
+    the same PasswordResetToken row the app itself would look up mirrors
+    what clicking the emailed link does), and complete-registration
+    should both set the password AND save the fields nobody but the
+    employee ever filled in."""
+    department, designation = await _create_department_and_designation(
+        client, auth_headers, code="CREG"
+    )
+    create_resp = await client.post(
+        "/api/v1/employees",
+        json={
+            **_MINIMAL_EMPLOYEE_PAYLOAD,
+            "email": "complete-me@example.com",
+            "department_id": department["id"],
+            "designation_id": designation["id"],
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    employee_id = create_resp.json()["id"]
+
+    invite_resp = await client.post(f"/api/v1/employees/{employee_id}/invite", headers=auth_headers)
+    assert invite_resp.status_code == 200, invite_resp.text
+    user_id = invite_resp.json()["user_id"]
+
+    auth_repo = AuthRepository(db_session)
+    user = await auth_repo.get_user_by_id(user_id)
+    reset_token = await auth_repo.create_password_reset_token(user.id)
+
+    complete_resp = await client.post(
+        "/api/v1/employees/complete-registration",
+        json={
+            "token": reset_token.token,
+            "new_password": "NewStrongPass1!",
+            "phone": "+91-9222222222",
+            "gender": "female",
+            "date_of_birth": "1998-03-20",
+            "address_line1": "12 MG Road",
+            "city": "Pune",
+            "state": "Maharashtra",
+            "country": "India",
+            "postal_code": "411001",
+            "emergency_contact_name": "Anita Nair",
+            "emergency_contact_phone": "+91-9333333333",
+        },
+    )
+    assert complete_resp.status_code == 200, complete_resp.text
+    completed = complete_resp.json()
+    assert completed["phone"] == "+91-9222222222"
+    assert completed["address_line1"] == "12 MG Road"
+    assert completed["emergency_contact_name"] == "Anita Nair"
+
+    # The new password actually works, end to end.
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "complete-me@example.com", "password": "NewStrongPass1!"},
+    )
+    assert login_resp.status_code == 200, login_resp.text
+
+    # The token is single-use, same as ordinary reset-password.
+    replay_resp = await client.post(
+        "/api/v1/employees/complete-registration",
+        json={
+            "token": reset_token.token,
+            "new_password": "AnotherPass2!",
+            "phone": "+91-9222222222",
+            "gender": "female",
+            "date_of_birth": "1998-03-20",
+            "address_line1": "12 MG Road",
+            "city": "Pune",
+            "state": "Maharashtra",
+            "country": "India",
+            "postal_code": "411001",
+            "emergency_contact_name": "Anita Nair",
+            "emergency_contact_phone": "+91-9333333333",
+        },
+    )
+    assert replay_resp.status_code == 422, replay_resp.text
+
+
+async def test_complete_registration_rejects_invalid_token(client):
+    resp = await client.post(
+        "/api/v1/employees/complete-registration",
+        json={
+            "token": "not-a-real-token",
+            "new_password": "NewStrongPass1!",
+            "phone": "+91-9222222222",
+            "gender": "female",
+            "date_of_birth": "1998-03-20",
+            "address_line1": "12 MG Road",
+            "city": "Pune",
+            "state": "Maharashtra",
+            "country": "India",
+            "postal_code": "411001",
+            "emergency_contact_name": "Anita Nair",
+            "emergency_contact_phone": "+91-9333333333",
+        },
     )
     assert resp.status_code == 422, resp.text

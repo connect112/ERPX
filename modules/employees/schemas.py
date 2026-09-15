@@ -1,26 +1,29 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from modules.authentication.schemas import _validate_password_strength
 from modules.employees.models import EmploymentStatus, EmploymentType
 from modules.users.models import Gender
 
 
 class EmployeeCreateRequest(BaseModel):
     """
-    Required on every field except reporting_manager_id (the top of an org
-    chart reports to no one — forcing this would make it impossible to
-    ever create that employee) and notes (inherently free-form; there is
-    sometimes genuinely nothing to note). branch_id and address_line2 stay
-    optional too — neither is exposed in the admin "New employee" form at
-    all, and forcing them here without a UI path to fill them in would
-    just be an unreachable validation error.
-
-    email in particular being required (it used to be optional) matters
-    beyond data completeness: EmployeeService.invite_employee — the only
-    way this record ever gets portal access — needs one to create the
+    Required: the handful of fields HR actually knows on day one — name,
+    org placement, a login-capable email, and a start date. Everything
+    personal (phone, gender, DOB, address, emergency contact) is
+    deliberately optional here and NOT collected from the admin at all —
+    see EmployeeCompleteRegistrationRequest below. An admin invites an
+    employee with just this much, the employee clicks the emailed link,
+    sets their own password, and fills in the rest of their own profile
+    themselves. That's also why email is required (unlike the personal
+    fields): EmployeeService.invite_employee needs one to create the
     login, and previously had no way to fail earlier than that point.
+
+    reporting_manager_id stays optional for its own reason (the top of an
+    org chart reports to no one), and branch_id/notes are inherently
+    optional/free-form.
 
     No employee_code field: it's system-generated (EMP-00001, EMP-00002, ...)
     by EmployeeRepository.create, the same sequential-with-retry pattern
@@ -34,17 +37,17 @@ class EmployeeCreateRequest(BaseModel):
     designation_id: uuid.UUID
     reporting_manager_id: uuid.UUID | None = None
     email: EmailStr
-    phone: str = Field(..., min_length=1, max_length=32)
-    gender: Gender
-    date_of_birth: date
-    address_line1: str = Field(..., min_length=1, max_length=255)
+    phone: str | None = Field(default=None, max_length=32)
+    gender: Gender | None = None
+    date_of_birth: date | None = None
+    address_line1: str | None = Field(default=None, max_length=255)
     address_line2: str | None = None
-    city: str = Field(..., min_length=1, max_length=100)
-    state: str = Field(..., min_length=1, max_length=100)
-    country: str = Field(..., min_length=1, max_length=100)
-    postal_code: str = Field(..., min_length=1, max_length=20)
-    emergency_contact_name: str = Field(..., min_length=1, max_length=255)
-    emergency_contact_phone: str = Field(..., min_length=1, max_length=32)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    country: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=20)
+    emergency_contact_name: str | None = Field(default=None, max_length=255)
+    emergency_contact_phone: str | None = Field(default=None, max_length=32)
     employment_type: EmploymentType = EmploymentType.FULL_TIME
     date_of_joining: date
     notes: str | None = None
@@ -70,6 +73,38 @@ class EmployeeUpdateRequest(BaseModel):
     emergency_contact_phone: str | None = None
     employment_type: EmploymentType | None = None
     notes: str | None = None
+
+
+class EmployeeCompleteRegistrationRequest(BaseModel):
+    """
+    The public, token-authenticated counterpart to EmployeeCreateRequest's
+    deliberately-thin admin form: everything personal that the admin
+    *didn't* collect gets filled in here, by the employee themselves, in
+    the same step as setting their own password. `token` is the same
+    PasswordResetToken EmployeeService.invite_employee already generates —
+    no new token type — so this reuses AuthService.reset_password's own
+    validation (invalid/expired/already-used all rejected there) rather
+    than duplicating it.
+    """
+
+    token: str
+    new_password: str = Field(..., min_length=8, max_length=128)
+    phone: str = Field(..., min_length=1, max_length=32)
+    gender: Gender
+    date_of_birth: date
+    address_line1: str = Field(..., min_length=1, max_length=255)
+    address_line2: str | None = None
+    city: str = Field(..., min_length=1, max_length=100)
+    state: str = Field(..., min_length=1, max_length=100)
+    country: str = Field(..., min_length=1, max_length=100)
+    postal_code: str = Field(..., min_length=1, max_length=20)
+    emergency_contact_name: str = Field(..., min_length=1, max_length=255)
+    emergency_contact_phone: str = Field(..., min_length=1, max_length=32)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class EmployeeStatusChangeRequest(BaseModel):

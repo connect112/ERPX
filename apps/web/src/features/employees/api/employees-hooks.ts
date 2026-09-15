@@ -62,3 +62,11 @@ export function useDeleteEmployee() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: employeesKeys.all }),
   });
 }
+
+export function useInviteEmployee() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => employeesApi.invite(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: employeesKeys.all }),
+  });
+}

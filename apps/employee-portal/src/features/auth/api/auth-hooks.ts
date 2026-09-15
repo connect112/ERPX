@@ -1,6 +1,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-import { authApi, isTwoFactorRequired } from "@/features/auth/api/auth-api";
+import {
+  authApi,
+  isTwoFactorRequired,
+  type CompleteRegistrationPayload,
+} from "@/features/auth/api/auth-api";
 import { useAuthStore } from "@/store/auth-store";
 
 export function useLoginMutation() {
@@ -50,6 +54,12 @@ export function useCurrentUser() {
 export function useResetPasswordMutation() {
   return useMutation({
     mutationFn: (payload: { token: string; new_password: string }) => authApi.resetPassword(payload),
+  });
+}
+
+export function useCompleteRegistrationMutation() {
+  return useMutation({
+    mutationFn: (payload: CompleteRegistrationPayload) => authApi.completeRegistration(payload),
   });
 }
 

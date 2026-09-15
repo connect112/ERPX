@@ -2,6 +2,7 @@ import { lazy } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
 import { AppLayout } from "@/layouts/app-layout";
+import { CompleteRegistrationPage } from "@/features/auth/pages/complete-registration-page";
 import { LoginPage } from "@/features/auth/pages/login-page";
 import { ResetPasswordPage } from "@/features/auth/pages/reset-password-page";
 import { ProtectedRoute } from "@/router/protected-route";
@@ -17,6 +18,10 @@ export const router = createBrowserRouter([
   {
     path: "/reset-password",
     element: <ResetPasswordPage />,
+  },
+  {
+    path: "/complete-registration",
+    element: <CompleteRegistrationPage />,
   },
   {
     path: "/",

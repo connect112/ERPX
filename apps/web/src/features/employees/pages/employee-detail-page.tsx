@@ -1,7 +1,8 @@
-import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Pencil, Send, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -27,6 +28,7 @@ import {
   useDeleteEmployee,
   useEmployee,
   useEmployeesList,
+  useInviteEmployee,
 } from "@/features/employees/api/employees-hooks";
 import { EmployeeFormDialog } from "@/features/employees/components/employee-form-dialog";
 import { EmployeeStatusBadge } from "@/features/employees/components/employee-status-badge";
@@ -57,6 +59,7 @@ export function EmployeeDetailPage() {
   const { data: employee, isLoading } = useEmployee(employeeId);
   const changeStatus = useChangeEmployeeStatus(employeeId ?? "");
   const deleteEmployee = useDeleteEmployee();
+  const inviteEmployee = useInviteEmployee();
   const { data: departments } = useDepartments();
   const { data: designations } = useDesignations();
   const { data: allEmployees } = useEmployeesList({ limit: 200 });
@@ -187,6 +190,44 @@ export function EmployeeDetailPage() {
                   label="Date of exit"
                   value={new Date(employee.date_of_exit).toLocaleDateString()}
                 />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Portal access</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {employee.user_id ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  Portal access active
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Not yet invited. Sends a link to {employee.email ?? "their email"} where they
+                    set their own password and fill in their profile.
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => inviteEmployee.mutate(employee.id)}
+                    disabled={inviteEmployee.isPending || !employee.email}
+                  >
+                    <Send className="h-4 w-4" />
+                    {inviteEmployee.isPending ? "Sending invite..." : "Send invite"}
+                  </Button>
+                  {inviteEmployee.isError && (
+                    <p className="text-sm text-destructive">
+                      {(inviteEmployee.error as { response?: { data?: { error?: { message?: string } } } })
+                        ?.response?.data?.error?.message ?? "Failed to send invite. Please try again."}
+                    </p>
+                  )}
+                  {inviteEmployee.isSuccess && (
+                    <Badge variant="success">Invite sent</Badge>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

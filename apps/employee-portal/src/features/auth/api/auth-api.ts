@@ -45,6 +45,22 @@ export interface MyRolesResponse {
   effective_permissions: string[];
 }
 
+export interface CompleteRegistrationPayload {
+  token: string;
+  new_password: string;
+  phone: string;
+  gender: string;
+  date_of_birth: string;
+  address_line1: string;
+  address_line2?: string;
+  city: string;
+  state: string;
+  country: string;
+  postal_code: string;
+  emergency_contact_name: string;
+  emergency_contact_phone: string;
+}
+
 export const authApi = {
   login: (payload: { email: string; password: string; otp_code?: string }) =>
     apiClient.post<LoginResponse>("/auth/login", payload).then((r) => r.data),
@@ -58,4 +74,10 @@ export const authApi = {
 
   resetPassword: (payload: { token: string; new_password: string }) =>
     apiClient.post("/auth/reset-password", payload).then((r) => r.data),
+
+  // Where an invited employee lands from their invite email — sets their
+  // password and fills in the personal fields the admin never collected.
+  // See modules/employees/routes.py's complete_employee_registration.
+  completeRegistration: (payload: CompleteRegistrationPayload) =>
+    apiClient.post("/employees/complete-registration", payload).then((r) => r.data),
 };
