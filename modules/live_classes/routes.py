@@ -3,10 +3,11 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
-from modules.batches.repository import BatchEnrollmentRepository
+from modules.batches.repository import BatchEnrollmentRepository, BatchRepository
 from modules.live_classes.models import LiveClassStatus
 from modules.live_classes.schemas import (
     LiveClassCreateRequest,
@@ -19,6 +20,8 @@ from modules.live_classes.schemas import (
 from modules.live_classes.service import LiveClassService
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
+from modules.trainers.dependencies import get_current_trainer
+from modules.trainers.models import Trainer
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
@@ -38,6 +41,49 @@ async def list_my_live_classes(
     service = LiveClassService(db)
     entries = await service.list_for_batches(batch_ids, student.organization_id)
     return [LiveClassPublic.model_validate(e) for e in entries]
+
+
+@router.get("/trainer/me", response_model=list[LiveClassPublic])
+async def list_my_live_classes_as_trainer(
+    trainer: Trainer = Depends(get_current_trainer),
+    db: AsyncSession = Depends(get_db),
+):
+    """The calling trainer's own live-class sessions, scoped to the
+    batch(es) they teach. Ownership-gated via `get_current_trainer`, no
+    permission code — mirrors list_my_live_classes' student version above
+    and modules/batches/routes.py's own /me for trainers."""
+    batches = await BatchRepository(db).list_for_trainer(trainer.id, trainer.organization_id)
+    batch_ids = [b.id for b in batches]
+    service = LiveClassService(db)
+    entries = await service.list_for_batches(batch_ids, trainer.organization_id)
+    return [LiveClassPublic.model_validate(e) for e in entries]
+
+
+@router.post("/trainer/{live_class_id}/status", response_model=LiveClassPublic)
+async def change_live_class_status_as_trainer(
+    live_class_id: uuid.UUID,
+    payload: LiveClassStatusChangeRequest,
+    trainer: Trainer = Depends(get_current_trainer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Same status machine as the admin /{live_class_id}/status endpoint
+    below, but ownership-gated instead of permission-gated: a trainer may
+    start/complete/cancel a live class only for a batch they actually
+    teach. 404 (not 403) on a class outside that set, same reasoning as
+    every other ownership check in this codebase — don't confirm the
+    class exists to someone who has no business knowing that."""
+    service = LiveClassService(db)
+    batches = await BatchRepository(db).list_for_trainer(trainer.id, trainer.organization_id)
+    batch_ids = {b.id for b in batches}
+
+    live_class = await service.get_live_class(live_class_id, trainer.organization_id)
+    if live_class.batch_id not in batch_ids:
+        raise NotFoundError("Live class", live_class_id)
+
+    updated = await service.change_status(
+        live_class_id, trainer.organization_id, payload.status, payload.recording_url
+    )
+    return LiveClassPublic.model_validate(updated)
 
 
 @router.post("", response_model=LiveClassPublic, status_code=status.HTTP_201_CREATED)

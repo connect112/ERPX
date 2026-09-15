@@ -1,4 +1,4 @@
-import { CalendarCheck, LayoutDashboard, LogOut, Moon, Sun, Users } from "lucide-react";
+import { CalendarCheck, LayoutDashboard, LogOut, Moon, Sun, Users, Video } from "lucide-react";
 import { Suspense } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/batches", label: "My Batches", icon: Users, end: false },
+  { to: "/live-classes", label: "Live Classes", icon: Video, end: false },
   { to: "/attendance", label: "Attendance", icon: CalendarCheck, end: false },
 ];
 
