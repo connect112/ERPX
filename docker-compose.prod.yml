@@ -19,12 +19,12 @@ x-backend-env: &backend-env
   MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   MINIO_SECURE: "false"
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-  # lms.pentrix.in / staff.pentrix.in don't strictly need to be here — both
-  # portals' own API calls are same-origin (relative /api/v1, proxied by
-  # Caddy on their own domain, same pattern as erp.pentrix.in/web below)
-  # — but costs nothing to allow explicitly rather than rely on that
-  # always holding.
-  CORS_ORIGINS: https://erp.pentrix.in,https://lms.pentrix.in,https://staff.pentrix.in
+  # lms.pentrix.in / staff.pentrix.in / trainer.pentrix.in don't strictly
+  # need to be here — every portal's own API calls are same-origin
+  # (relative /api/v1, proxied by Caddy on their own domain, same pattern
+  # as erp.pentrix.in/web below) — but costs nothing to allow explicitly
+  # rather than rely on that always holding.
+  CORS_ORIGINS: https://erp.pentrix.in,https://lms.pentrix.in,https://staff.pentrix.in,https://trainer.pentrix.in
   # The actual student-facing domain: provisioning emails a "set your
   # password" link built from this, so it must point at the real student
   # portal, not the admin app.
@@ -158,6 +158,18 @@ services:
       # VITE_API_BASE_URL override, relative /api/v1, proxied same-origin
       # by Caddy on staff.pentrix.in.
     container_name: erpx_employee_portal
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  trainer_portal:
+    build:
+      context: ./apps/trainer-portal
+      dockerfile: Dockerfile.prod
+      # Same reasoning as `web`/`student_portal`/`employee_portal` above:
+      # no VITE_API_BASE_URL override, relative /api/v1, proxied
+      # same-origin by Caddy on trainer.pentrix.in.
+    container_name: erpx_trainer_portal
     restart: unless-stopped
     networks:
       - webnet
