@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,21 @@ interface EmployeeFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   employee?: EmployeePublic;
+}
+
+// Marks a field as required inline on its own Label, rather than a
+// separate legend — every field below is mandatory except
+// reportingManagerId and notes (see employeeFormSchema's own docstring
+// for why), so the asterisk only needs to appear on the fields that can
+// actually reject an empty submission. Employment type is exempted too:
+// its Select always carries a real value (defaulted, no blank/placeholder
+// state), so it can never surface as empty in the first place.
+function RequiredLabel({ htmlFor, children }: { htmlFor?: string; children: ReactNode }) {
+  return (
+    <Label htmlFor={htmlFor}>
+      {children} <span className="text-destructive">*</span>
+    </Label>
+  );
 }
 
 const emptyValues: EmployeeFormValues = {
@@ -153,6 +168,9 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
         <DialogHeader>
           <DialogTitle>{isEditing ? "Edit employee" : "New employee"}</DialogTitle>
         </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          <span className="text-destructive">*</span> Required
+        </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="max-h-[70vh] space-y-5 overflow-y-auto pr-1">
           <div className="space-y-3">
@@ -161,17 +179,19 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="fullName">Full name</Label>
+                <RequiredLabel htmlFor="fullName">Full name</RequiredLabel>
                 <Input id="fullName" {...register("fullName")} />
                 {errors.fullName && (
                   <p className="text-sm text-destructive">{errors.fullName.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label>Employee code</Label>
                 {/* Not a form field — EmployeeRepository.create assigns the
                     next sequential code (EMP-00001, EMP-00002, ...) itself;
-                    there's nothing here for an admin to type or edit. */}
+                    there's nothing here for an admin to type or edit, so
+                    this is plain text rather than a Label (nothing to
+                    associate it with). */}
+                <p className="text-sm font-medium leading-none">Employee code</p>
                 <p className="flex h-10 items-center text-sm text-muted-foreground">
                   {isEditing ? employee.employee_code : "Assigned automatically on save"}
                 </p>
@@ -179,19 +199,19 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <RequiredLabel htmlFor="email">Email</RequiredLabel>
                 <Input id="email" type="email" {...register("email")} />
                 {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
+                <RequiredLabel htmlFor="phone">Phone</RequiredLabel>
                 <Input id="phone" {...register("phone")} />
                 {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="gender">Gender</Label>
+                <RequiredLabel htmlFor="gender">Gender</RequiredLabel>
                 <Controller
                   control={control}
                   name="gender"
@@ -213,7 +233,7 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
                 {errors.gender && <p className="text-sm text-destructive">{errors.gender.message}</p>}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Date of birth</Label>
+                <RequiredLabel htmlFor="dateOfBirth">Date of birth</RequiredLabel>
                 <Input id="dateOfBirth" type="date" {...register("dateOfBirth")} />
                 {errors.dateOfBirth && (
                   <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
@@ -228,7 +248,7 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="departmentId">Department</Label>
+                <RequiredLabel htmlFor="departmentId">Department</RequiredLabel>
                 <Controller
                   control={control}
                   name="departmentId"
@@ -257,7 +277,7 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="designationId">Designation</Label>
+                <RequiredLabel htmlFor="designationId">Designation</RequiredLabel>
                 <Controller
                   control={control}
                   name="designationId"
@@ -332,7 +352,7 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </div>
             {!isEditing && (
               <div className="space-y-2">
-                <Label htmlFor="dateOfJoining">Date of joining</Label>
+                <RequiredLabel htmlFor="dateOfJoining">Date of joining</RequiredLabel>
                 <Input id="dateOfJoining" type="date" {...register("dateOfJoining")} />
                 {errors.dateOfJoining && (
                   <p className="text-sm text-destructive">{errors.dateOfJoining.message}</p>
@@ -346,30 +366,35 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
               Address
             </p>
             <div className="space-y-2">
-              <Input placeholder="Address line 1" {...register("addressLine1")} />
+              <RequiredLabel htmlFor="addressLine1">Address line 1</RequiredLabel>
+              <Input id="addressLine1" {...register("addressLine1")} />
               {errors.addressLine1 && (
                 <p className="text-sm text-destructive">{errors.addressLine1.message}</p>
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Input placeholder="City" {...register("city")} />
+                <RequiredLabel htmlFor="city">City</RequiredLabel>
+                <Input id="city" {...register("city")} />
                 {errors.city && <p className="text-sm text-destructive">{errors.city.message}</p>}
               </div>
               <div className="space-y-2">
-                <Input placeholder="State" {...register("state")} />
+                <RequiredLabel htmlFor="state">State</RequiredLabel>
+                <Input id="state" {...register("state")} />
                 {errors.state && <p className="text-sm text-destructive">{errors.state.message}</p>}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Input placeholder="Country" {...register("country")} />
+                <RequiredLabel htmlFor="country">Country</RequiredLabel>
+                <Input id="country" {...register("country")} />
                 {errors.country && (
                   <p className="text-sm text-destructive">{errors.country.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Input placeholder="Postal code" {...register("postalCode")} />
+                <RequiredLabel htmlFor="postalCode">Postal code</RequiredLabel>
+                <Input id="postalCode" {...register("postalCode")} />
                 {errors.postalCode && (
                   <p className="text-sm text-destructive">{errors.postalCode.message}</p>
                 )}
@@ -383,13 +408,15 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Input placeholder="Contact name" {...register("emergencyContactName")} />
+                <RequiredLabel htmlFor="emergencyContactName">Contact name</RequiredLabel>
+                <Input id="emergencyContactName" {...register("emergencyContactName")} />
                 {errors.emergencyContactName && (
                   <p className="text-sm text-destructive">{errors.emergencyContactName.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Input placeholder="Contact phone" {...register("emergencyContactPhone")} />
+                <RequiredLabel htmlFor="emergencyContactPhone">Contact phone</RequiredLabel>
+                <Input id="emergencyContactPhone" {...register("emergencyContactPhone")} />
                 {errors.emergencyContactPhone && (
                   <p className="text-sm text-destructive">{errors.emergencyContactPhone.message}</p>
                 )}
