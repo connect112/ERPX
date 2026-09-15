@@ -9,6 +9,7 @@ from app.core.logging_config import get_logger
 from app.core.security import hash_password
 from modules.authentication.models import UserStatus
 from modules.authentication.repository import AuthRepository
+from modules.authentication.service import AuthService
 from modules.authentication.tasks import send_password_reset_email_task
 from modules.authorization.repository import AuthorizationRepository
 from modules.authorization.service import AuthorizationService
@@ -199,8 +200,40 @@ class EmployeeService:
         reset_token = await self.auth_repo.create_password_reset_token(
             user.id, ttl_hours=_INVITE_TOKEN_TTL_HOURS
         )
-        set_password_url = f"{settings.EMPLOYEE_PORTAL_URL}/reset-password?token={reset_token.token}"
+        # /complete-registration, not /reset-password: the admin form only
+        # ever collected name/department/designation/email/date_of_joining
+        # (see EmployeeCreateRequest's own docstring) — this link is where
+        # the employee sets their password AND fills in the personal
+        # fields nobody's collected yet. Same token, same underlying
+        # PasswordResetToken row; complete_registration below is what
+        # actually consumes it.
+        set_password_url = f"{settings.EMPLOYEE_PORTAL_URL}/complete-registration?token={reset_token.token}"
         send_password_reset_email_task.delay(user.email, user.full_name, set_password_url)
 
         logger.info("employee_invited", employee_id=str(employee_id), user_id=str(user.id))
+        return employee
+
+    async def complete_registration(self, token: str, new_password: str, **profile_fields) -> Employee:
+        """
+        Public, token-authenticated counterpart to invite_employee: the
+        employee lands here from their invite email, sets their own
+        password, and fills in the personal fields the admin never
+        collected. Reuses AuthService.reset_password for the actual
+        password change (same validity/expiry/already-used checks, same
+        refresh-token revocation) rather than duplicating that logic —
+        this method's own job is just resolving the token to *its*
+        Employee record and saving the profile fields alongside it.
+        """
+        token_row = await self.auth_repo.get_password_reset_token(token)
+        if not token_row or not token_row.is_valid:
+            raise ValidationError("This registration link is invalid or has expired.")
+
+        employee = await self.repo.get_by_user_id(token_row.user_id)
+        if not employee:
+            raise NotFoundError("Employee")
+
+        employee = await self.repo.update(employee, **profile_fields)
+        await AuthService(self.db).reset_password(token, new_password)
+
+        logger.info("employee_registration_completed", employee_id=str(employee.id))
         return employee

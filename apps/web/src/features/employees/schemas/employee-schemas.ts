@@ -40,43 +40,49 @@ export const genderLabels: Record<Gender, string> = {
   prefer_not_to_say: "Prefer not to say",
 };
 
-// Required on every field except reportingManagerId (the top of an org
-// chart reports to no one) and notes (inherently free-form) — mirrors
-// modules/employees/schemas.py's EmployeeCreateRequest exactly, so a
-// submission that passes this validation never bounces off the backend
-// with a 422 for a missing field. See that file's own docstring for the
-// full reasoning, including why branch_id/address_line2 (not in this form
-// at all) are excluded from that list too.
+// Required: only what HR actually knows on day one — mirrors
+// modules/employees/schemas.py's EmployeeCreateRequest exactly (full
+// name, department, designation, a login-capable email, date of
+// joining), so a submission that passes this validation never bounces
+// off the backend with a 422 for a missing field. reportingManagerId is
+// optional for its own reason (the top of an org chart reports to no
+// one); notes is inherently free-form.
+//
+// Every personal field below (phone/gender/DOB/address/emergency
+// contact) is deliberately optional here too, NOT because they're
+// unimportant, but because the admin never fills them in at all anymore
+// — see EmployeeCompleteRegistrationRequest in that same backend file.
+// The employee-portal's own complete-registration page collects these
+// from the employee themselves, in the same step as setting their
+// password, after clicking their invite email. This form only ever
+// shows them (still editable, never required) when editing an existing
+// record — see employee-form-dialog.tsx's `isEditing` gating.
+//
 // employeeCode is deliberately absent: it's system-generated
-// (EMP-00001, EMP-00002, ...) by EmployeeRepository.create, mirroring
-// modules/employees/schemas.py's EmployeeCreateRequest — an admin never
-// types or sees a scheme to collide with.
+// (EMP-00001, EMP-00002, ...) by EmployeeRepository.create — an admin
+// never types or sees a scheme to collide with.
 export const employeeFormSchema = z.object({
   fullName: z.string().min(2, "Full name is required."),
   departmentId: z.string().min(1, "Department is required."),
   designationId: z.string().min(1, "Designation is required."),
   reportingManagerId: z.string().optional().or(z.literal("")),
   email: z.string().min(1, "Email is required.").email("Enter a valid email address."),
-  phone: z.string().min(1, "Phone is required."),
-  // z.string() rather than z.enum(genderValues) here — unlike
-  // employmentType (which always has a real default so the Select is
-  // never blank), this Select starts unselected like departmentId/
-  // designationId above, and needs "" as a valid (if invalid-on-submit)
-  // intermediate form value for that blank state to type-check.
+  phone: z.string().optional().or(z.literal("")),
   gender: z
     .string()
-    .min(1, "Gender is required.")
-    .refine((value) => (genderValues as readonly string[]).includes(value), {
+    .optional()
+    .or(z.literal(""))
+    .refine((value) => !value || (genderValues as readonly string[]).includes(value), {
       message: "Select a valid gender.",
     }),
-  dateOfBirth: z.string().min(1, "Date of birth is required."),
-  addressLine1: z.string().min(1, "Address is required."),
-  city: z.string().min(1, "City is required."),
-  state: z.string().min(1, "State is required."),
-  country: z.string().min(1, "Country is required."),
-  postalCode: z.string().min(1, "Postal code is required."),
-  emergencyContactName: z.string().min(1, "Emergency contact name is required."),
-  emergencyContactPhone: z.string().min(1, "Emergency contact phone is required."),
+  dateOfBirth: z.string().optional().or(z.literal("")),
+  addressLine1: z.string().optional().or(z.literal("")),
+  city: z.string().optional().or(z.literal("")),
+  state: z.string().optional().or(z.literal("")),
+  country: z.string().optional().or(z.literal("")),
+  postalCode: z.string().optional().or(z.literal("")),
+  emergencyContactName: z.string().optional().or(z.literal("")),
+  emergencyContactPhone: z.string().optional().or(z.literal("")),
   employmentType: z.enum(employmentTypeValues),
   dateOfJoining: z.string().min(1, "Date of joining is required."),
   notes: z.string().optional().or(z.literal("")),

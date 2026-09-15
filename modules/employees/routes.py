@@ -1,14 +1,16 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.limiter import limiter
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.employees.dependencies import get_current_employee
 from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.schemas import (
+    EmployeeCompleteRegistrationRequest,
     EmployeeCreateRequest,
     EmployeePublic,
     EmployeeStatusChangeRequest,
@@ -19,6 +21,27 @@ from modules.employees.service import EmployeeService
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+# The one public route in this file — token-authenticated, not user-
+# authenticated, like /auth/reset-password. Placed before /{employee_id}
+# on principle (a fixed path ahead of a parameterized one, same reason
+# /me sits first) even though no actual collision exists: every other
+# POST on a single path segment in this file is "" (create), not
+# "/{employee_id}".
+@router.post("/complete-registration", response_model=EmployeePublic)
+@limiter.limit("5/minute")
+async def complete_employee_registration(
+    payload: EmployeeCompleteRegistrationRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Where an invited employee lands from their email: sets their own
+    password and fills in the personal fields the admin never collected
+    — see EmployeeService.complete_registration's docstring."""
+    service = EmployeeService(db)
+    employee = await service.complete_registration(
+        payload.token, payload.new_password, **payload.model_dump(exclude={"token", "new_password"})
+    )
+    return EmployeePublic.model_validate(employee)
 
 
 @router.get("/me", response_model=EmployeePublic)

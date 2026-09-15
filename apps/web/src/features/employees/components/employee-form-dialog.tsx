@@ -170,6 +170,8 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
           <span className="text-destructive">*</span> Required
+          {!isEditing &&
+            " — that's it. Phone, address, and the rest of their profile get filled in by the employee themselves when they accept the invite."}
         </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="max-h-[70vh] space-y-5 overflow-y-auto pr-1">
@@ -197,49 +199,57 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
                 </p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="email">Email</RequiredLabel>
-                <Input id="email" type="email" {...register("email")} />
-                {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="phone">Phone</RequiredLabel>
-                <Input id="phone" {...register("phone")} />
-                {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
-              </div>
+            <div className="space-y-2">
+              <RequiredLabel htmlFor="email">Email</RequiredLabel>
+              <Input id="email" type="email" {...register("email")} />
+              {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="gender">Gender</RequiredLabel>
-                <Controller
-                  control={control}
-                  name="gender"
-                  render={({ field }) => (
-                    <Select value={field.value || undefined} onValueChange={field.onChange}>
-                      <SelectTrigger id="gender">
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {genderValues.map((g) => (
-                          <SelectItem key={g} value={g}>
-                            {genderLabels[g]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                {errors.gender && <p className="text-sm text-destructive">{errors.gender.message}</p>}
+
+            {/* Phone/gender/DOB are the employee's own to fill in via the
+                complete-registration page they land on from their invite
+                email (see employeeFormSchema's docstring) — shown here
+                only once that's happened, so an admin can view or correct
+                them, never as something to fill in at creation. */}
+            {isEditing && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input id="phone" {...register("phone")} />
+                  {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="gender">Gender</Label>
+                  <Controller
+                    control={control}
+                    name="gender"
+                    render={({ field }) => (
+                      <Select value={field.value || undefined} onValueChange={field.onChange}>
+                        <SelectTrigger id="gender">
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {genderValues.map((g) => (
+                            <SelectItem key={g} value={g}>
+                              {genderLabels[g]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {errors.gender && <p className="text-sm text-destructive">{errors.gender.message}</p>}
+                </div>
               </div>
+            )}
+            {isEditing && (
               <div className="space-y-2">
-                <RequiredLabel htmlFor="dateOfBirth">Date of birth</RequiredLabel>
+                <Label htmlFor="dateOfBirth">Date of birth</Label>
                 <Input id="dateOfBirth" type="date" {...register("dateOfBirth")} />
                 {errors.dateOfBirth && (
                   <p className="text-sm text-destructive">{errors.dateOfBirth.message}</p>
                 )}
               </div>
-            </div>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -361,68 +371,75 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
             )}
           </div>
 
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Address
-            </p>
-            <div className="space-y-2">
-              <RequiredLabel htmlFor="addressLine1">Address line 1</RequiredLabel>
-              <Input id="addressLine1" {...register("addressLine1")} />
-              {errors.addressLine1 && (
-                <p className="text-sm text-destructive">{errors.addressLine1.message}</p>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          {/* Address and emergency contact, like phone/gender/DOB above,
+              are the employee's own to fill in via complete-registration
+              — only shown here once there's something to show or correct. */}
+          {isEditing && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Address
+              </p>
               <div className="space-y-2">
-                <RequiredLabel htmlFor="city">City</RequiredLabel>
-                <Input id="city" {...register("city")} />
-                {errors.city && <p className="text-sm text-destructive">{errors.city.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="state">State</RequiredLabel>
-                <Input id="state" {...register("state")} />
-                {errors.state && <p className="text-sm text-destructive">{errors.state.message}</p>}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="country">Country</RequiredLabel>
-                <Input id="country" {...register("country")} />
-                {errors.country && (
-                  <p className="text-sm text-destructive">{errors.country.message}</p>
+                <Label htmlFor="addressLine1">Address line 1</Label>
+                <Input id="addressLine1" {...register("addressLine1")} />
+                {errors.addressLine1 && (
+                  <p className="text-sm text-destructive">{errors.addressLine1.message}</p>
                 )}
               </div>
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="postalCode">Postal code</RequiredLabel>
-                <Input id="postalCode" {...register("postalCode")} />
-                {errors.postalCode && (
-                  <p className="text-sm text-destructive">{errors.postalCode.message}</p>
-                )}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="city">City</Label>
+                  <Input id="city" {...register("city")} />
+                  {errors.city && <p className="text-sm text-destructive">{errors.city.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="state">State</Label>
+                  <Input id="state" {...register("state")} />
+                  {errors.state && <p className="text-sm text-destructive">{errors.state.message}</p>}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="country">Country</Label>
+                  <Input id="country" {...register("country")} />
+                  {errors.country && (
+                    <p className="text-sm text-destructive">{errors.country.message}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="postalCode">Postal code</Label>
+                  <Input id="postalCode" {...register("postalCode")} />
+                  {errors.postalCode && (
+                    <p className="text-sm text-destructive">{errors.postalCode.message}</p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Emergency contact
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="emergencyContactName">Contact name</RequiredLabel>
-                <Input id="emergencyContactName" {...register("emergencyContactName")} />
-                {errors.emergencyContactName && (
-                  <p className="text-sm text-destructive">{errors.emergencyContactName.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="emergencyContactPhone">Contact phone</RequiredLabel>
-                <Input id="emergencyContactPhone" {...register("emergencyContactPhone")} />
-                {errors.emergencyContactPhone && (
-                  <p className="text-sm text-destructive">{errors.emergencyContactPhone.message}</p>
-                )}
+          {isEditing && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Emergency contact
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="emergencyContactName">Contact name</Label>
+                  <Input id="emergencyContactName" {...register("emergencyContactName")} />
+                  {errors.emergencyContactName && (
+                    <p className="text-sm text-destructive">{errors.emergencyContactName.message}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="emergencyContactPhone">Contact phone</Label>
+                  <Input id="emergencyContactPhone" {...register("emergencyContactPhone")} />
+                  {errors.emergencyContactPhone && (
+                    <p className="text-sm text-destructive">{errors.emergencyContactPhone.message}</p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="notes">Notes</Label>

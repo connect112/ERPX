@@ -98,4 +98,10 @@ export const employeesApi = {
       .then((r) => r.data),
 
   remove: (id: string) => apiClient.delete(`/employees/${id}`).then((r) => r.data),
+
+  // Creates the employee's portal login and emails them the
+  // complete-registration link — see EmployeeService.invite_employee.
+  // Only callable once per employee: a second call 409s (employee.user_id
+  // already set), which the UI avoids by hiding this action once invited.
+  invite: (id: string) => apiClient.post<EmployeePublic>(`/employees/${id}/invite`).then((r) => r.data),
 };
