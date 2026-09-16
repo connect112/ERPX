@@ -25,6 +25,14 @@ x-backend-env: &backend-env
   # as erp.pentrix.in/web below) — but costs nothing to allow explicitly
   # rather than rely on that always holding.
   CORS_ORIGINS: https://erp.pentrix.in,https://lms.pentrix.in,https://staff.pentrix.in,https://trainer.pentrix.in
+  # Cross-subdomain single sign-on: modules/authentication/routes.py mirrors
+  # the refresh token into a cookie scoped to this domain (and every
+  # subdomain of it) at /login and /refresh, so a person who authenticates
+  # on any one of erp./lms./staff./trainer.pentrix.in lands already signed
+  # in on the others too — no second login. Empty/unset disables the
+  # cookie entirely (see Settings.SSO_COOKIE_DOMAIN), which is why local
+  # dev and every test run are unaffected by this.
+  SSO_COOKIE_DOMAIN: .pentrix.in
   # The actual student-facing domain: provisioning emails a "set your
   # password" link built from this, so it must point at the real student
   # portal, not the admin app.

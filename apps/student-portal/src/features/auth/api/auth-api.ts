@@ -58,4 +58,10 @@ export const authApi = {
 
   resetPassword: (payload: { token: string; new_password: string }) =>
     apiClient.post("/auth/reset-password", payload).then((r) => r.data),
+
+  // Exchanges the shared `erpx_sso` cookie (see modules/authentication/
+  // routes.py) for a fresh session — no body, no Authorization header;
+  // the cookie is same-origin here regardless of which ERPX subdomain
+  // originally set it. See features/auth/lib/use-sso-bootstrap.ts.
+  ssoBootstrap: () => apiClient.post<TokenResponse>("/auth/sso/bootstrap").then((r) => r.data),
 };
