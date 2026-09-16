@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging_config import get_logger
 from modules.batches.repository import BatchRepository
+from modules.live_classes.jitsi import build_meeting_link, jitsi_enabled
 from modules.live_classes.models import LiveClass, LiveClassStatus
 from modules.live_classes.repository import LiveClassRepository
 from modules.trainers.repository import TrainerRepository
@@ -31,6 +32,7 @@ class LiveClassService:
         organization_id: uuid.UUID,
         batch_id: uuid.UUID,
         trainer_id: uuid.UUID | None,
+        meeting_link: str | None = None,
         **fields,
     ) -> LiveClass:
         batch = await self.batch_repo.get_by_id(batch_id, organization_id)
@@ -41,8 +43,25 @@ class LiveClassService:
             if not trainer:
                 raise NotFoundError("Trainer", trainer_id)
 
+        if not meeting_link:
+            if not jitsi_enabled():
+                raise ValidationError(
+                    "No meeting link was provided and self-hosted video isn't configured "
+                    "(JITSI_PUBLIC_URL unset). Provide a meeting_link explicitly."
+                )
+            # Generated up front rather than left to the DB's own default so
+            # the room name (derived from this id) is known before insert —
+            # see jitsi.build_room_name.
+            new_id = uuid.uuid4()
+            fields["id"] = new_id
+            meeting_link = build_meeting_link(new_id)
+
         live_class = await self.repo.create(
-            organization_id=organization_id, batch_id=batch_id, trainer_id=trainer_id, **fields
+            organization_id=organization_id,
+            batch_id=batch_id,
+            trainer_id=trainer_id,
+            meeting_link=meeting_link,
+            **fields,
         )
         logger.info("live_class_created", live_class_id=str(live_class.id), batch_id=str(batch_id))
         return live_class

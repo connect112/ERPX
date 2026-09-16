@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ExternalLink, Video } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,11 +14,18 @@ import {
 } from "@/components/ui/table";
 import { useMyBatches } from "@/features/batches/api/batches-hooks";
 import { LiveClassStatusBadge } from "@/features/live-classes/components/live-class-status-badge";
+import { VideoCallOverlay } from "@/features/live-classes/components/video-call-overlay";
 import {
   useChangeLiveClassStatus,
+  useJoinLiveClass,
   useMyLiveClasses,
 } from "@/features/live-classes/api/live-classes-hooks";
-import type { LiveClassPublic, LiveClassStatus } from "@/features/live-classes/api/live-classes-api";
+import type {
+  LiveClassJoinToken,
+  LiveClassPublic,
+  LiveClassStatus,
+} from "@/features/live-classes/api/live-classes-api";
+import { useAuthStore } from "@/store/auth-store";
 
 // What a trainer can do to one of their own live classes from here,
 // keyed by its current status — mirrors apps/web's admin-side
@@ -33,16 +41,29 @@ const NEXT_STATUS: Record<LiveClassStatus, { label: string; status: LiveClassSta
   cancelled: [],
 };
 
+interface ActiveCall extends LiveClassJoinToken {
+  title: string;
+}
+
 export function MyLiveClassesPage() {
   const { data: liveClasses, isLoading } = useMyLiveClasses();
   const { data: batches } = useMyBatches();
   const changeStatus = useChangeLiveClassStatus();
+  const joinLiveClass = useJoinLiveClass();
+  const displayName = useAuthStore((s) => s.user?.fullName) ?? "Trainer";
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
 
   const batchNames = new Map((batches ?? []).map((b) => [b.id, b.name]));
 
   const sorted = [...(liveClasses ?? [])].sort(
     (a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime()
   );
+
+  const handleJoin = (liveClass: LiveClassPublic) => {
+    joinLiveClass.mutate(liveClass.id, {
+      onSuccess: (token) => setActiveCall({ ...token, title: liveClass.title }),
+    });
+  };
 
   return (
     <div className="space-y-6 p-6">
@@ -84,6 +105,8 @@ export function MyLiveClassesPage() {
                     onChangeStatus={(status) =>
                       changeStatus.mutate({ id: liveClass.id, status })
                     }
+                    onJoin={() => handleJoin(liveClass)}
+                    isJoining={joinLiveClass.isPending}
                     isPending={changeStatus.isPending}
                   />
                 ))}
@@ -96,6 +119,17 @@ export function MyLiveClassesPage() {
           )}
         </CardContent>
       </Card>
+
+      {activeCall && (
+        <VideoCallOverlay
+          domain={activeCall.domain}
+          room={activeCall.room}
+          jwt={activeCall.jwt}
+          displayName={displayName}
+          title={activeCall.title}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
     </div>
   );
 }
@@ -104,11 +138,15 @@ function LiveClassRow({
   liveClass,
   batchName,
   onChangeStatus,
+  onJoin,
+  isJoining,
   isPending,
 }: {
   liveClass: LiveClassPublic;
   batchName: string;
   onChangeStatus: (status: LiveClassStatus) => void;
+  onJoin: () => void;
+  isJoining: boolean;
   isPending: boolean;
 }) {
   const canJoin = liveClass.status === "scheduled" || liveClass.status === "live";
@@ -125,11 +163,9 @@ function LiveClassRow({
       <TableCell>
         <div className="flex flex-wrap items-center gap-2">
           {canJoin && (
-            <Button size="sm" variant="outline" asChild>
-              <a href={liveClass.meeting_link} target="_blank" rel="noreferrer">
-                <Video className="h-4 w-4" />
-                Join
-              </a>
+            <Button size="sm" variant="outline" disabled={isJoining} onClick={onJoin}>
+              <Video className="h-4 w-4" />
+              Join
             </Button>
           )}
           {NEXT_STATUS[liveClass.status].map((next) => (

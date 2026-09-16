@@ -36,8 +36,19 @@ export interface LiveClassPublic {
   created_at: string;
 }
 
+export interface LiveClassJoinToken {
+  domain: string;
+  room: string;
+  jwt: string;
+}
+
 export const scheduleApi = {
   myTimetable: () => apiClient.get<TimetableEntryPublic[]>("/timetable/me").then((r) => r.data),
 
   myLiveClasses: () => apiClient.get<LiveClassPublic[]>("/live-classes/me").then((r) => r.data),
+
+  // A fresh, short-lived Jitsi JWT (non-moderator) for the embedded call
+  // — see modules/live_classes/jitsi.py. Minted per-join, not cached.
+  joinLiveClass: (id: string) =>
+    apiClient.post<LiveClassJoinToken>(`/live-classes/${id}/join-token`).then((r) => r.data),
 };

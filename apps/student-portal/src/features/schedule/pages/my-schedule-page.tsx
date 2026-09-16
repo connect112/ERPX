@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { format, parseISO } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
@@ -5,8 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useMyLiveClasses, useMyTimetable } from "@/features/schedule/api/schedule-hooks";
-import type { DayOfWeek } from "@/features/schedule/api/schedule-api";
+import { VideoCallOverlay } from "@/features/schedule/components/video-call-overlay";
+import {
+  useJoinLiveClass,
+  useMyLiveClasses,
+  useMyTimetable,
+} from "@/features/schedule/api/schedule-hooks";
+import type { DayOfWeek, LiveClassJoinToken, LiveClassPublic } from "@/features/schedule/api/schedule-api";
+import { useAuthStore } from "@/store/auth-store";
 
 const DAY_ORDER: DayOfWeek[] = [
   "monday",
@@ -34,9 +41,16 @@ const statusVariant: Record<string, "default" | "success" | "secondary" | "outli
   cancelled: "outline",
 };
 
+interface ActiveCall extends LiveClassJoinToken {
+  title: string;
+}
+
 export function MySchedulePage() {
   const { data: timetable, isLoading: timetableLoading } = useMyTimetable();
   const { data: liveClasses, isLoading: liveClassesLoading } = useMyLiveClasses();
+  const joinLiveClass = useJoinLiveClass();
+  const displayName = useAuthStore((s) => s.user?.fullName) ?? "Student";
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
 
   const sortedTimetable = [...(timetable ?? [])].sort((a, b) => {
     const dayDiff = DAY_ORDER.indexOf(a.day_of_week) - DAY_ORDER.indexOf(b.day_of_week);
@@ -46,6 +60,12 @@ export function MySchedulePage() {
   const upcomingLiveClasses = [...(liveClasses ?? [])].sort(
     (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
   );
+
+  const handleJoin = (liveClass: LiveClassPublic) => {
+    joinLiveClass.mutate(liveClass.id, {
+      onSuccess: (token) => setActiveCall({ ...token, title: liveClass.title }),
+    });
+  };
 
   return (
     <div className="space-y-6 p-6">
@@ -130,10 +150,12 @@ export function MySchedulePage() {
                       </Button>
                     ) : (liveClass.status === "scheduled" || liveClass.status === "live") &&
                       liveClass.meeting_link ? (
-                      <Button asChild size="sm">
-                        <a href={liveClass.meeting_link} target="_blank" rel="noreferrer">
-                          Join
-                        </a>
+                      <Button
+                        size="sm"
+                        disabled={joinLiveClass.isPending}
+                        onClick={() => handleJoin(liveClass)}
+                      >
+                        Join
                       </Button>
                     ) : null}
                   </div>
@@ -147,6 +169,17 @@ export function MySchedulePage() {
           )}
         </CardContent>
       </Card>
+
+      {activeCall && (
+        <VideoCallOverlay
+          domain={activeCall.domain}
+          room={activeCall.room}
+          jwt={activeCall.jwt}
+          displayName={displayName}
+          title={activeCall.title}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
     </div>
   );
 }

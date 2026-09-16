@@ -16,6 +16,12 @@ export interface LiveClassPublic {
   created_at: string;
 }
 
+export interface LiveClassJoinToken {
+  domain: string;
+  room: string;
+  jwt: string;
+}
+
 export const liveClassesApi = {
   // Ownership-gated (see modules/live_classes/routes.py's
   // list_my_live_classes_as_trainer) — every live class scheduled for a
@@ -26,5 +32,12 @@ export const liveClassesApi = {
   changeStatus: (id: string, payload: { status: LiveClassStatus; recording_url?: string }) =>
     apiClient
       .post<LiveClassPublic>(`/live-classes/trainer/${id}/status`, payload)
+      .then((r) => r.data),
+
+  // A fresh, short-lived Jitsi JWT (moderator access) for the embedded
+  // call — see modules/live_classes/jitsi.py. Minted per-join, not cached.
+  joinToken: (id: string) =>
+    apiClient
+      .post<LiveClassJoinToken>(`/live-classes/trainer/${id}/join-token`)
       .then((r) => r.data),
 };
