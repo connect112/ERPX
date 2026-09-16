@@ -25,6 +25,15 @@ x-backend-env: &backend-env
   # as erp.pentrix.in/web below) — but costs nothing to allow explicitly
   # rather than rely on that always holding.
   CORS_ORIGINS: https://erp.pentrix.in,https://lms.pentrix.in,https://staff.pentrix.in,https://trainer.pentrix.in
+  # Was never set here before, so every environment fell back to the
+  # Settings default (http://localhost:5173) in production — every
+  # registration's verify-email link and every /forgot-password reset link
+  # (modules/authentication/service.py) was pointing at a dev machine's
+  # localhost, not a real reachable URL. apps/web (erp.pentrix.in) is the
+  # right target: it's the one portal every account type can reach (see
+  # portal-resolution.ts), and it already has both /verify-email and
+  # /reset-password routes.
+  FRONTEND_URL: https://erp.pentrix.in
   # Cross-subdomain single sign-on: modules/authentication/routes.py mirrors
   # the refresh token into a cookie scoped to this domain (and every
   # subdomain of it) at /login and /refresh, so a person who authenticates
