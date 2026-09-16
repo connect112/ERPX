@@ -4,6 +4,7 @@ import { Navigate } from "react-router-dom";
 import { PageLoader } from "@/components/ui/page-loader";
 import { WrongPortalScreen } from "@/features/auth/components/wrong-portal-screen";
 import { useHomePortal } from "@/features/auth/lib/use-home-portal";
+import { useSsoBootstrap } from "@/features/auth/lib/use-sso-bootstrap";
 import { useAuthStore } from "@/store/auth-store";
 
 interface ProtectedRouteProps {
@@ -25,9 +26,17 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, permission }: ProtectedRouteProps) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const permissions = useAuthStore((state) => state.permissions);
+  // If there's no local session, first try a silent cross-subdomain login
+  // via the shared `erpx_sso` cookie (use-sso-bootstrap.ts) before giving
+  // up and redirecting to /login — lets someone who already logged in on a
+  // *different* ERPX subdomain land here already authenticated.
+  const { isLoading: isBootstrapping } = useSsoBootstrap(!isAuthenticated);
   const { data: homePortal, isLoading } = useHomePortal(isAuthenticated);
 
   if (!isAuthenticated) {
+    if (isBootstrapping) {
+      return <PageLoader />;
+    }
     return <Navigate to="/login" replace />;
   }
 

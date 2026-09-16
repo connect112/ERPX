@@ -168,6 +168,25 @@ class AuthService:
     async def refresh(
         self, refresh_token: str, user_agent: str | None, ip_address: str | None
     ) -> RefreshTokenResponse:
+        tokens = await self._rotate_refresh_token(refresh_token, user_agent, ip_address)
+        return _to_refresh_response(tokens)
+
+    async def sso_bootstrap(
+        self, session_token: str, user_agent: str | None, ip_address: str | None
+    ) -> TokenResponse:
+        """
+        Same validate-and-rotate logic as `refresh()`, but for the shared
+        `erpx_sso` cookie rather than a token handed in the request body —
+        and returning the full TokenResponse (user included), since the
+        caller (POST /auth/sso/bootstrap) is standing up a brand new session
+        on a subdomain that has never seen this user before, not just
+        renewing an existing one that already has the profile cached.
+        """
+        return await self._rotate_refresh_token(session_token, user_agent, ip_address)
+
+    async def _rotate_refresh_token(
+        self, refresh_token: str, user_agent: str | None, ip_address: str | None
+    ) -> TokenResponse:
         try:
             payload = decode_token(refresh_token, TokenType.REFRESH)
         except TokenPayloadError as exc:
@@ -187,8 +206,7 @@ class AuthService:
 
         # Rotate: revoke the old refresh token, issue a brand new pair.
         await self.repo.revoke_refresh_token(payload["jti"])
-        tokens = await self._issue_tokens(user, user_agent, ip_address)
-        return _to_refresh_response(tokens)
+        return await self._issue_tokens(user, user_agent, ip_address)
 
     async def logout(self, refresh_token: str) -> None:
         try:

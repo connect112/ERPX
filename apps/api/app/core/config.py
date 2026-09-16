@@ -90,6 +90,15 @@ class Settings(BaseSettings):
     # 5173/3000 = apps/web, 5174 = apps/student-portal (see apps/student-portal/vite.config.ts).
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:5174"
 
+    # ---- Single sign-on (cross-subdomain) ----
+    # Domain attribute for the `erpx_sso` cookie modules/authentication/routes.py
+    # sets at /login and /refresh — e.g. ".pentrix.in" in production, so the
+    # same cookie is visible to erp./lms./staff./trainer.pentrix.in and
+    # /auth/sso/bootstrap on any of them can silently pick up a session
+    # started on any other. Empty (the default) disables the cookie
+    # entirely — local dev and every test run behave exactly as before.
+    SSO_COOKIE_DOMAIN: str = ""
+
     # ---- Rate Limiting ----
     RATE_LIMIT_DEFAULT: str = "100/minute"
     # Per-IP cap for the anonymous landing-page view beacon

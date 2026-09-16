@@ -1,6 +1,8 @@
 import type { ReactElement } from "react";
 import { Navigate } from "react-router-dom";
 
+import { PageLoader } from "@/components/ui/page-loader";
+import { useSsoBootstrap } from "@/features/auth/lib/use-sso-bootstrap";
 import { useAuthStore } from "@/store/auth-store";
 
 interface ProtectedRouteProps {
@@ -19,11 +21,25 @@ interface ProtectedRouteProps {
   permission?: string;
 }
 
+/**
+ * No portal-mismatch check here (unlike web/trainer-portal/student-portal's
+ * ProtectedRoute): every account with an Employee record — which is every
+ * CEO, trainer, accountant, everyone — belongs on the Employee Portal, so
+ * staff.pentrix.in is always a valid landing spot. Still worth a silent
+ * cross-subdomain login attempt first, though: someone who authenticated
+ * on a *different* ERPX subdomain and lands here with nothing in this
+ * origin's localStorage should still get in via the shared `erpx_sso`
+ * cookie (use-sso-bootstrap.ts) rather than being asked to log in again.
+ */
 export function ProtectedRoute({ children, permission }: ProtectedRouteProps) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const permissions = useAuthStore((state) => state.permissions);
+  const { isLoading: isBootstrapping } = useSsoBootstrap(!isAuthenticated);
 
   if (!isAuthenticated) {
+    if (isBootstrapping) {
+      return <PageLoader />;
+    }
     return <Navigate to="/login" replace />;
   }
 
