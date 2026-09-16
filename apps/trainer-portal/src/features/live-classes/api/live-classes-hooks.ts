@@ -26,3 +26,9 @@ export function useChangeLiveClassStatus() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: liveClassesKey }),
   });
 }
+
+export function useJoinLiveClass() {
+  return useMutation({
+    mutationFn: (id: string) => liveClassesApi.joinToken(id),
+  });
+}
