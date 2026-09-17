@@ -12,7 +12,18 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -61,7 +72,35 @@ class Company(TimestampedBase, SoftDeleteMixin):
 
 
 class JobPosting(TimestampedBase):
+    """
+    `source`/`external_id`/`source_url`/`last_seen_at`/`absence_streak` exist
+    for the automated job-aggregation pipeline (`aggregation_service.py`) —
+    every staff-created posting keeps `source="manual"` and never touches the
+    other four fields, so nothing about the existing CRUD/self-service
+    surface changes shape or behavior.
+
+    The `(organization_id, source, external_id)` partial-unique index is the
+    upsert key the pipeline dedupes against per source, per organization —
+    it's partial (`source IS NOT NULL AND external_id IS NOT NULL`) rather
+    than a plain composite unique constraint mostly for self-documentation:
+    `external_id` is NULL for every manual posting, and Postgres already
+    treats each NULL as distinct in an ordinary unique index, so a plain
+    index would behave the same in practice. The explicit WHERE clause makes
+    that intent legible to a future reader instead of relying on that
+    Postgres NULL-handling detail being remembered.
+    """
+
     __tablename__ = "placement_job_postings"
+    __table_args__ = (
+        Index(
+            "uq_placement_job_postings_org_source_external_id",
+            "organization_id",
+            "source",
+            "external_id",
+            unique=True,
+            postgresql_where=text("source IS NOT NULL AND external_id IS NOT NULL"),
+        ),
+    )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -89,6 +128,98 @@ class JobPosting(TimestampedBase):
         nullable=False,
         index=True,
     )
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="manual", server_default="manual", index=True)
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    absence_streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+
+class JobPostingMatch(TimestampedBase):
+    """
+    Links two `JobPosting` rows the aggregation pipeline's dedup step
+    (`aggregation_service.py::_dedupe`) determined are the same real-world
+    posting appearing on different sources. `duplicate_posting_id` stays a
+    full, independently-queryable `JobPosting` — its own `source`/
+    `source_url`/`external_id` are preserved for attribution — it's simply
+    excluded from the default student/staff listing once matched, in favor
+    of `canonical_posting_id`.
+    """
+
+    __tablename__ = "placement_job_posting_matches"
+    __table_args__ = (
+        UniqueConstraint(
+            "canonical_posting_id", "duplicate_posting_id", name="uq_job_posting_match_pair"
+        ),
+    )
+
+    canonical_posting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("placement_job_postings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    duplicate_posting_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("placement_job_postings.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    similarity_score: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
+    matched_fields: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AggregationRunStatus(str, enum.Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED_NO_AI = "skipped_no_ai"
+
+
+class AggregationRun(TimestampedBase):
+    """
+    One row per hourly (or manually-triggered, or weekly Jooble-only) pull
+    of the job-aggregation pipeline. Not organization-scoped — like
+    `modules.backups.models.BackupJob`, the run itself is a whole-platform
+    operation even though its output (`JobPosting` rows) fans out per
+    organization; see `AggregationRunSource` for the per-connector detail
+    this run-level row can't express on its own.
+    """
+
+    __tablename__ = "placements_aggregation_runs"
+
+    triggered_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[AggregationRunStatus] = mapped_column(
+        SAEnum(AggregationRunStatus, name="placements_aggregation_run_status", values_callable=_values),
+        default=AggregationRunStatus.QUEUED,
+        server_default=AggregationRunStatus.QUEUED.value,
+        nullable=False,
+        index=True,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    postings_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    postings_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    postings_closed: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    matches_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AggregationRunSource(TimestampedBase):
+    """
+    Per-connector outcome for one `AggregationRun` — the whole reason this
+    is a separate table (not a JSON column on `AggregationRun`) is so
+    per-source failures stay individually queryable/filterable, and so
+    `request_count` can be summed with a plain `SELECT SUM(...)` for the
+    Adzuna daily-budget and Jooble lifetime-budget checks in
+    `connectors/adzuna.py` / `connectors/jooble.py`.
+    """
+
+    __tablename__ = "placements_aggregation_run_sources"
+
+    aggregation_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("placements_aggregation_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    postings_fetched: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Application(TimestampedBase):
