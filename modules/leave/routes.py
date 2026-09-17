@@ -4,14 +4,18 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.employees.dependencies import get_current_employee
+from modules.employees.models import Employee
 from modules.leave.models import LeaveApplicationStatus
 from modules.leave.schemas import (
     LeaveApplicationCreateRequest,
     LeaveApplicationPublic,
     LeaveApplicationRejectRequest,
+    LeaveApplicationSelfCreateRequest,
     LeaveBalanceResponse,
     LeaveTypeCreateRequest,
     LeaveTypePublic,
@@ -22,6 +26,87 @@ from modules.leave.service import LeaveApplicationService, LeaveTypeService
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+# ---- Employee self-service ----
+#
+# Everything above /types and /applications below is permission-gated —
+# including applying for leave, which meant no employee could ever apply
+# for their *own* leave without an admin/HR-granted permission. These are
+# ownership-gated instead (get_current_employee), the same "owning the
+# record is the authorization" pattern as modules/attendance's employee/me
+# routes and modules/students, modules/employees's own "me" endpoints.
+
+
+@router.get("/types/me", response_model=list[LeaveTypePublic])
+async def list_leave_types_as_employee(employee: Employee = Depends(get_current_employee), db: AsyncSession = Depends(get_db)):
+    """Active leave types only — what any employee needs to pick from
+    when applying, nothing an employee shouldn't see (inactive types are
+    an HR housekeeping concern)."""
+    service = LeaveTypeService(db)
+    leave_types = await service.list_leave_types(employee.organization_id, is_active=True)
+    return [LeaveTypePublic.model_validate(lt) for lt in leave_types]
+
+
+@router.post("/applications/me", response_model=LeaveApplicationPublic, status_code=status.HTTP_201_CREATED)
+async def apply_leave_as_employee(
+    payload: LeaveApplicationSelfCreateRequest,
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    service = LeaveApplicationService(db)
+    application = await service.apply_leave(
+        employee.organization_id, employee_id=employee.id, **payload.model_dump()
+    )
+    return LeaveApplicationPublic.model_validate(application)
+
+
+@router.get("/applications/me", response_model=dict)
+async def list_my_leave_applications(
+    status_filter: LeaveApplicationStatus | None = Query(default=None, alias="status"),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    service = LeaveApplicationService(db)
+    applications, total = await service.list_for_employee(
+        employee.id, employee.organization_id, status=status_filter, skip=skip, limit=limit
+    )
+    return {
+        "items": [LeaveApplicationPublic.model_validate(a) for a in applications],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
+
+
+@router.post("/applications/{application_id}/cancel/me", response_model=LeaveApplicationPublic)
+async def cancel_my_leave_application(
+    application_id: uuid.UUID,
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    service = LeaveApplicationService(db)
+    application = await service.get_application(application_id, employee.organization_id)
+    if application.employee_id != employee.id:
+        # 404, not 403 — same reasoning as every other ownership check in
+        # this codebase: don't confirm someone else's leave application
+        # exists to an employee who has no business knowing that.
+        raise NotFoundError("Leave application", application_id)
+    updated = await service.cancel_leave(application_id, employee.organization_id)
+    return LeaveApplicationPublic.model_validate(updated)
+
+
+@router.get("/balances/me", response_model=list[LeaveBalanceResponse])
+async def list_my_leave_balances(
+    year: int = Query(..., ge=2000, le=2100),
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    service = LeaveApplicationService(db)
+    balances = await service.list_balances_for_employee(employee.id, employee.organization_id, year)
+    return [LeaveBalanceResponse(**b) for b in balances]
 
 
 # ---- Leave Types ----
