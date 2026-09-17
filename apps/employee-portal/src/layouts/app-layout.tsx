@@ -1,4 +1,4 @@
-import { LayoutDashboard, LogOut, Moon, Sun, Wallet } from "lucide-react";
+import { CalendarClock, Clock, LayoutDashboard, LogOut, Moon, Sun, Wallet } from "lucide-react";
 import { Suspense } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
@@ -23,6 +23,8 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/payslips", label: "My Payslips", icon: Wallet, end: false },
+  { to: "/attendance", label: "Attendance", icon: Clock, end: false },
+  { to: "/leave", label: "Leave", icon: CalendarClock, end: false },
 ];
 
 function initials(name: string): string {

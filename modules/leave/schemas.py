@@ -47,6 +47,18 @@ class LeaveApplicationCreateRequest(BaseModel):
     reason: str = Field(..., min_length=2)
 
 
+class LeaveApplicationSelfCreateRequest(BaseModel):
+    """Same as LeaveApplicationCreateRequest but for POST /leave/applications/me
+    — employee_id is never taken from the caller, only ever the calling
+    employee's own (see get_current_employee), so nobody can file leave on
+    someone else's behalf through this route."""
+
+    leave_type_id: uuid.UUID
+    start_date: date
+    end_date: date
+    reason: str = Field(..., min_length=2)
+
+
 class LeaveApplicationRejectRequest(BaseModel):
     rejection_reason: str = Field(..., min_length=2)
 

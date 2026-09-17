@@ -9,6 +9,8 @@ import { ProtectedRoute } from "@/router/protected-route";
 
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-page").then((m) => ({ default: m.DashboardPage })));
 const MyPayslipsPage = lazy(() => import("@/features/payslips/pages/my-payslips-page").then((m) => ({ default: m.MyPayslipsPage })));
+const AttendancePage = lazy(() => import("@/features/attendance/pages/attendance-page").then((m) => ({ default: m.AttendancePage })));
+const MyLeavePage = lazy(() => import("@/features/leave/pages/my-leave-page").then((m) => ({ default: m.MyLeavePage })));
 
 export const router = createBrowserRouter([
   {
@@ -33,6 +35,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: "payslips", element: <MyPayslipsPage /> },
+      { path: "attendance", element: <AttendancePage /> },
+      { path: "leave", element: <MyLeavePage /> },
     ],
   },
 ]);
