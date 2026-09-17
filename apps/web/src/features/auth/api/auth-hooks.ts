@@ -98,6 +98,7 @@ export function useDisableTwoFactorMutation() {
 export function useLogout() {
   const logout = useAuthStore((s) => s.logout);
   const refreshToken = useAuthStore((s) => s.refreshToken);
+  const queryClient = useQueryClient();
 
   return async () => {
     if (refreshToken) {
@@ -108,5 +109,11 @@ export function useLogout() {
       }
     }
     logout();
+    // Every query is keyed generically (["auth","home-portal"],
+    // ["authorization","me"], ...), not per-user — without this, a
+    // second account logging in in the same tab right after can get
+    // served the first account's cached results (home-portal
+    // resolution, roles, ...) until each query's own staleTime expires.
+    queryClient.clear();
   };
 }
