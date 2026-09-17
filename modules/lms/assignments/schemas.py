@@ -38,6 +38,18 @@ class SubmissionCreateRequest(BaseModel):
     content_text: str | None = None
 
 
+class MySubmissionCreateRequest(BaseModel):
+    """Student self-service submission — no `student_id` field, unlike
+    `SubmissionCreateRequest` (the staff/on-behalf-of route). The caller's
+    own student record is resolved via `get_current_student`, matching the
+    ownership-inferred convention used by every other `/mine`- or `/me`-
+    suffixed self-service endpoint in this codebase (e.g. placements'
+    `/apply/me`)."""
+
+    content_url: str | None = None
+    content_text: str | None = None
+
+
 class SubmissionGradeRequest(BaseModel):
     score: int = Field(..., ge=0)
     feedback: str | None = None
