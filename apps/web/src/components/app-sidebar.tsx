@@ -1,9 +1,22 @@
 import { NavLink } from "react-router-dom";
 
 import { navSections } from "@/components/nav-config";
+import { useMyRoles } from "@/features/auth/api/authorization-hooks";
 import { cn } from "@/lib/utils";
 
 export function AppSidebar() {
+  const { data } = useMyRoles();
+  // Super Admin is the platform-operator role (onboard/offboard tenants —
+  // see modules/organizations/routes.py's require_superuser()), not a
+  // business user of any one tenant's own data. Business Modules is
+  // every tenant-scoped module (CRM, courses, accounting, HR, ...) — none
+  // of it is Super Admin's job, so it's hidden entirely for that role
+  // rather than shown-but-mostly-403ing.
+  const isSuperAdmin = data?.roles.some((r) => r.slug === "super_admin") ?? false;
+  const visibleSections = isSuperAdmin
+    ? navSections.filter((section) => section.title !== "Business Modules")
+    : navSections;
+
   return (
     <aside className="hidden w-64 shrink-0 border-r bg-card md:flex md:flex-col">
       <div className="flex h-16 items-center border-b px-6">
@@ -11,7 +24,7 @@ export function AppSidebar() {
       </div>
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-        {navSections.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.title}>
             <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {section.title}

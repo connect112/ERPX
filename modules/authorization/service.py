@@ -238,6 +238,16 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
 # organization's data), stored third-party API keys, and infrastructure
 # health/connection-pool internals are all Administrator/Super Admin only.
 
+# Cross-tenant permissions: they exist in DEFAULT_PERMISSIONS (so they're
+# real, assignable, auditable codes — e.g. for a bespoke role someone
+# deliberately wants to grant this to) but are deliberately excluded from
+# the Administrator role's default grant below. Seeing or managing
+# organizations *other than your own* is platform-operator (Super Admin)
+# territory, not something every customer's own tenant admin should hold
+# by default — modules/organizations/routes.py's require_superuser() gate
+# enforces the same boundary at the route level, not just here.
+_PLATFORM_ONLY_PERMISSIONS = {"organizations.view", "organizations.manage"}
+
 # System roles that ship with the platform and cannot be deleted.
 SYSTEM_ROLES: list[tuple[str, str, str, list[str]]] = [
     (
@@ -249,8 +259,8 @@ SYSTEM_ROLES: list[tuple[str, str, str, list[str]]] = [
     (
         "Administrator",
         "administrator",
-        "Broad administrative access across modules.",
-        [code for code, _, _ in DEFAULT_PERMISSIONS],
+        "Broad administrative access across modules, scoped to your own organization.",
+        [code for code, _, _ in DEFAULT_PERMISSIONS if code not in _PLATFORM_ONLY_PERMISSIONS],
     ),
     (
         "Staff",
