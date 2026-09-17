@@ -13,9 +13,39 @@ from modules.lms.announcements.schemas import (
     MessageResponse,
 )
 from modules.lms.announcements.service import AnnouncementService
+from modules.students.dependencies import get_current_student
+from modules.students.models import Student
+from modules.trainers.dependencies import get_current_trainer
+from modules.trainers.models import Trainer
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+@router.get("/me", response_model=list[AnnouncementPublic])
+async def list_my_announcements_as_student(
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every org-wide announcement plus every one scoped to a course this
+    student is actually enrolled in (via an active batch enrollment) —
+    ownership-gated, no lms.announcements.view permission needed. See
+    AnnouncementService.list_for_student."""
+    service = AnnouncementService(db)
+    announcements = await service.list_for_student(student.id, student.organization_id)
+    return [AnnouncementPublic.model_validate(a) for a in announcements]
+
+
+@router.get("/trainer/me", response_model=list[AnnouncementPublic])
+async def list_my_announcements_as_trainer(
+    trainer: Trainer = Depends(get_current_trainer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Same as list_my_announcements_as_student above, but scoped to the
+    courses this trainer actually teaches a batch of."""
+    service = AnnouncementService(db)
+    announcements = await service.list_for_trainer(trainer.id, trainer.organization_id)
+    return [AnnouncementPublic.model_validate(a) for a in announcements]
 
 
 @router.post("", response_model=AnnouncementPublic, status_code=status.HTTP_201_CREATED)
