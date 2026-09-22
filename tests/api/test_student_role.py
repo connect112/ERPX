@@ -70,7 +70,9 @@ async def _create_student_with_role(client, db_session, organization, rbac_seede
 
     student_role = await AuthorizationRepository(db_session).get_role_by_slug("student")
     assert student_role is not None, "seed_default_rbac should have created the system 'student' role"
-    await AuthorizationService(db_session).assign_role(user.id, student_role.id, assigned_by_user_id=None)
+    await AuthorizationService(db_session).assign_role(
+        user.id, student_role.id, organization.id, assigned_by_user_id=None
+    )
     await db_session.flush()
 
     login_response = await client.post("/api/v1/auth/login", json={"email": email, "password": password})

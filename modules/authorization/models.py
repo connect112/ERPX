@@ -26,9 +26,20 @@ from modules.authentication.models import User  # noqa: F401  (relationship targ
 
 class Role(TimestampedBase):
     __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("organization_id", "slug", name="uq_role_org_slug"),)
 
+    # NULL = a system-wide role template (Super Admin, Administrator,
+    # Staff, Student, Trainer, ...), visible read-only to every
+    # organization and never owned by one. Set = a custom role an org's
+    # own admin created, visible and assignable only within that org —
+    # another organization's admin should never see, edit, or assign it.
+    # See modules/authorization/routes.py's ownership checks, which
+    # enforce this same boundary at the route level, not just here.
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # System roles (Super Admin, etc.) ship with the platform and cannot be

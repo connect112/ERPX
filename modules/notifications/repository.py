@@ -3,7 +3,9 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.authorization.models import Role, UserRole
 from modules.notifications.models import Notification
+from modules.organizations.models import Organization
 from modules.users.models import UserProfile
 
 
@@ -91,3 +93,26 @@ class NotificationRepository:
             select(UserProfile.user_id).where(UserProfile.organization_id == organization_id)
         )
         return [row[0] for row in result.all()]
+
+    async def list_administrator_recipients(
+        self, exclude_org_slug: str
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        """(user_id, organization_id) for every user holding the
+        'administrator' role in any real, non-deleted organization —
+        excludes the platform's own internal bootstrap org. This is what
+        Super Admin's broadcast reaches instead of its own (empty)
+        organization: every customer organization's own admin, never
+        their rank-and-file staff/students."""
+        result = await self.db.execute(
+            select(UserProfile.user_id, UserProfile.organization_id)
+            .join(UserRole, UserRole.user_id == UserProfile.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .join(Organization, Organization.id == UserProfile.organization_id)
+            .where(
+                Role.slug == "administrator",
+                Organization.slug != exclude_org_slug,
+                Organization.deleted_at.is_(None),
+            )
+            .distinct()
+        )
+        return [(row[0], row[1]) for row in result.all()]

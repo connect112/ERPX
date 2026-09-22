@@ -13,6 +13,9 @@ export interface RolePublic {
   slug: string;
   description: string | null;
   is_system: boolean;
+  // null = a system role template shared read-only across every
+  // organization; set = a custom role owned by this organization.
+  organization_id: string | null;
   created_at: string;
 }
 

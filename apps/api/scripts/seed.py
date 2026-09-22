@@ -38,13 +38,12 @@ from modules.authorization.service import AuthorizationService
 from modules.branches.models import Branch  # noqa: F401
 from modules.courses.repository import CourseRepository
 from modules.organizations.repository import OrganizationRepository
+from modules.organizations.service import SYSTEM_ORG_SLUG as _SYSTEM_ORG_SLUG
 from modules.provisioning.service import PENTRIX_ORG_SLUG
 from modules.users.repository import UserProfileRepository
 
 logger = get_logger(__name__)
 
-# Fixed slug so the default org is looked up (never duplicated) on re-seed.
-_SYSTEM_ORG_SLUG = "erpx-system"
 _SYSTEM_ORG_NAME = "ERPX System"
 
 # The org/course modules.provisioning provisions Pentrix-share students

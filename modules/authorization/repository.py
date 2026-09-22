@@ -21,8 +21,12 @@ class AuthorizationRepository:
 
     # ---- Roles ----
 
-    async def create_role(self, name: str, slug: str, description: str | None) -> Role:
-        role = Role(name=name, slug=slug, description=description, is_system=False)
+    async def create_role(
+        self, name: str, slug: str, description: str | None, organization_id: uuid.UUID | None = None
+    ) -> Role:
+        role = Role(
+            name=name, slug=slug, description=description, is_system=False, organization_id=organization_id
+        )
         self.db.add(role)
         await self.db.flush()
         await self.db.refresh(role)
@@ -32,12 +36,26 @@ class AuthorizationRepository:
         result = await self.db.execute(select(Role).where(Role.id == role_id))
         return result.scalar_one_or_none()
 
-    async def get_role_by_slug(self, slug: str) -> Role | None:
-        result = await self.db.execute(select(Role).where(Role.slug == slug))
+    async def get_role_by_slug(self, slug: str, organization_id: uuid.UUID | None = None) -> Role | None:
+        result = await self.db.execute(
+            select(Role).where(Role.slug == slug, Role.organization_id == organization_id)
+        )
         return result.scalar_one_or_none()
 
     async def list_roles(self) -> list[Role]:
+        """Every role, any org — seed script / true platform use only.
+        Regular routes use list_roles_for_organization below instead."""
         result = await self.db.execute(select(Role).order_by(Role.name))
+        return list(result.scalars().all())
+
+    async def list_roles_for_organization(self, organization_id: uuid.UUID) -> list[Role]:
+        """System role templates (organization_id IS NULL) plus this org's
+        own custom roles — never another org's."""
+        result = await self.db.execute(
+            select(Role)
+            .where((Role.organization_id.is_(None)) | (Role.organization_id == organization_id))
+            .order_by(Role.name)
+        )
         return list(result.scalars().all())
 
     async def update_role(self, role: Role, name: str | None, description: str | None) -> Role:

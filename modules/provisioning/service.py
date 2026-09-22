@@ -133,7 +133,7 @@ class ProvisioningService:
         )
 
         await AuthorizationService(self.db).assign_role(
-            user.id, student_role.id, assigned_by_user_id=None
+            user.id, student_role.id, org.id, assigned_by_user_id=None
         )
 
         student = await self.student_repo.create(

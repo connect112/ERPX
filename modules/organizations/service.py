@@ -10,6 +10,14 @@ from modules.settings.service import SettingsService
 
 logger = get_logger(__name__)
 
+# The bootstrap organization apps/api/scripts/seed.py creates purely to
+# give the SEED_SUPERADMIN account a profile/organization_id to resolve
+# (see get_current_user_organization_id) — it holds no real customer data
+# and was never meant to be a selectable tenant. Without this filter it
+# shows up as a second, confusing entry in Super Admin's Organizations
+# list alongside actual customer organizations.
+SYSTEM_ORG_SLUG = "erpx-system"
+
 
 class OrganizationService:
     def __init__(self, db: AsyncSession):
@@ -32,7 +40,7 @@ class OrganizationService:
         return org
 
     async def list_organizations(self, skip: int, limit: int) -> list[Organization]:
-        return await self.repo.list_all(skip, limit)
+        return await self.repo.list_all(skip, limit, exclude_slug=SYSTEM_ORG_SLUG)
 
     async def update_organization(self, org_id: uuid.UUID, **fields) -> Organization:
         org = await self.repo.get_by_id(org_id)

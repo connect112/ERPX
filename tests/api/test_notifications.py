@@ -106,17 +106,52 @@ async def test_staff_without_permission_cannot_broadcast(client, staff_headers):
     assert response.status_code == 403
 
 
-async def test_broadcast_reaches_every_org_member(client, db_session, organization, auth_headers):
+async def _create_administrator_with_login(client, db_session, organization):
+    """A real (non-superuser) tenant admin — holds the "administrator"
+    system role, same as a real customer's own admin account would."""
+    from modules.authentication.repository import AuthRepository
+    from modules.authorization.repository import AuthorizationRepository
+    from modules.users.repository import UserProfileRepository
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"notif-admin.{unique}@erpx.example.com"
+    password = "TenantAdmin1!"
+
+    register_response = await client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password, "full_name": "Tenant Admin"},
+    )
+    assert register_response.status_code == 201
+
+    auth_repo = AuthRepository(db_session)
+    user = await auth_repo.get_user_by_email(email)
+    await auth_repo.mark_email_verified(user)
+    await UserProfileRepository(db_session).create(user_id=user.id, organization_id=organization.id)
+
+    authz_repo = AuthorizationRepository(db_session)
+    admin_role = await authz_repo.get_role_by_slug("administrator")
+    await authz_repo.assign_role(user.id, admin_role.id, assigned_by_user_id=None)
+    await db_session.flush()
+
+    login_response = await client.post("/api/v1/auth/login", json={"email": email, "password": password})
+    assert login_response.status_code == 200
+    return user, {"Authorization": f"Bearer {login_response.json()['access_token']}"}
+
+
+async def test_broadcast_reaches_every_org_member(client, db_session, organization, rbac_seeded):
+    """A real tenant admin's broadcast reaches every member of THEIR OWN
+    organization — the ordinary (non-superuser) path."""
+    _admin, admin_headers = await _create_administrator_with_login(client, db_session, organization)
     _user_b, headers_b = await _make_user(client, db_session, organization, "User B")
     _user_c, headers_c = await _make_user(client, db_session, organization, "User C")
 
     broadcast_response = await client.post(
         "/api/v1/notifications/broadcast",
         json={"title": "Platform maintenance", "body": "Downtime at midnight.", "notification_type": "warning"},
-        headers=auth_headers,
+        headers=admin_headers,
     )
     assert broadcast_response.status_code == 200
-    # superuser + user_b + user_c
+    # admin + user_b + user_c
     assert broadcast_response.json()["notified_count"] >= 3
 
     for headers in (headers_b, headers_c):
@@ -124,3 +159,28 @@ async def test_broadcast_reaches_every_org_member(client, db_session, organizati
         assert list_response.status_code == 200
         items = list_response.json()["items"]
         assert any(n["title"] == "Platform maintenance" and n["notification_type"] == "warning" for n in items)
+
+
+async def test_superuser_broadcast_reaches_org_admins_not_own_org(
+    client, db_session, organization, auth_headers, rbac_seeded
+):
+    """Super Admin's own organization is the internal platform bootstrap
+    org — broadcasting "to your own org" would reach nobody real. Its
+    broadcast instead reaches every real organization's own
+    Administrator(s), never rank-and-file staff/students."""
+    _admin, admin_headers = await _create_administrator_with_login(client, db_session, organization)
+    _staff, staff_headers_local = await _make_user(client, db_session, organization, "Plain Staff")
+
+    broadcast_response = await client.post(
+        "/api/v1/notifications/broadcast",
+        json={"title": "Platform-wide announcement", "notification_type": "info"},
+        headers=auth_headers,
+    )
+    assert broadcast_response.status_code == 200
+    assert broadcast_response.json()["notified_count"] >= 1
+
+    admin_list = await client.get("/api/v1/notifications/me", headers=admin_headers)
+    assert any(n["title"] == "Platform-wide announcement" for n in admin_list.json()["items"])
+
+    staff_list = await client.get("/api/v1/notifications/me", headers=staff_headers_local)
+    assert not any(n["title"] == "Platform-wide announcement" for n in staff_list.json()["items"])
