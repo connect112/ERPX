@@ -14,6 +14,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useBroadcastNotification } from "@/features/notifications/api/notifications-hooks";
 import type { NotificationType } from "@/features/notifications/api/notifications-api";
+import { useMyRoles } from "@/features/auth/api/authorization-hooks";
 
 const typeOptions: { value: NotificationType; label: string }[] = [
   { value: "info", label: "Info" },
@@ -24,6 +25,8 @@ const typeOptions: { value: NotificationType; label: string }[] = [
 ];
 
 export function BroadcastPage() {
+  const { data: myRoles } = useMyRoles();
+  const isSuperAdmin = myRoles?.roles.some((r) => r.slug === "super_admin") ?? false;
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -56,7 +59,9 @@ export function BroadcastPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Broadcast Notification</h1>
         <p className="mt-1 text-muted-foreground">
-          Send an in-app notification to every member of your organization.
+          {isSuperAdmin
+            ? "Send an in-app notification to every organization's Administrator(s)."
+            : "Send an in-app notification to every member of your organization."}
         </p>
       </div>
 

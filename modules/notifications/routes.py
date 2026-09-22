@@ -77,11 +77,25 @@ async def broadcast(
     db: AsyncSession = Depends(get_db),
 ):
     service = NotificationService(db)
-    count = await service.broadcast_to_organization(
-        organization_id,
-        title=payload.title,
-        body=payload.body,
-        notification_type=payload.notification_type,
-        link_url=payload.link_url,
-    )
+    # A Super Admin's own organization is the internal platform bootstrap
+    # org (see modules/organizations/service.py's SYSTEM_ORG_SLUG) —
+    # broadcasting "to your own organization" would reach nobody real.
+    # Super Admin's broadcast instead reaches every customer
+    # organization's own Administrator(s), who can then relay it to
+    # their own org if it's relevant there.
+    if user.is_superuser:
+        count = await service.broadcast_to_organization_admins(
+            title=payload.title,
+            body=payload.body,
+            notification_type=payload.notification_type,
+            link_url=payload.link_url,
+        )
+    else:
+        count = await service.broadcast_to_organization(
+            organization_id,
+            title=payload.title,
+            body=payload.body,
+            notification_type=payload.notification_type,
+            link_url=payload.link_url,
+        )
     return BroadcastResponse(notified_count=count)

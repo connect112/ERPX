@@ -179,7 +179,7 @@ class EmployeeService:
             designation = await self.designation_repo.get_by_id(employee.designation_id, organization_id)
             if designation and designation.linked_role_id:
                 await AuthorizationService(self.db).assign_role(
-                    user.id, designation.linked_role_id, assigned_by_user_id=None
+                    user.id, designation.linked_role_id, organization_id, assigned_by_user_id=None
                 )
                 logger.info(
                     "employee_role_granted_via_designation",

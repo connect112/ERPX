@@ -29,14 +29,13 @@ class OrganizationRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_all(self, skip: int = 0, limit: int = 50) -> list[Organization]:
-        result = await self.db.execute(
-            select(Organization)
-            .where(Organization.deleted_at.is_(None))
-            .order_by(Organization.name)
-            .offset(skip)
-            .limit(limit)
-        )
+    async def list_all(
+        self, skip: int = 0, limit: int = 50, exclude_slug: str | None = None
+    ) -> list[Organization]:
+        query = select(Organization).where(Organization.deleted_at.is_(None))
+        if exclude_slug is not None:
+            query = query.where(Organization.slug != exclude_slug)
+        result = await self.db.execute(query.order_by(Organization.name).offset(skip).limit(limit))
         return list(result.scalars().all())
 
     async def update(self, org: Organization, **fields) -> Organization:

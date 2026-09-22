@@ -5,16 +5,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from modules.authentication.models import User
-from modules.authorization.dependencies import require_permissions
+from modules.authorization.dependencies import require_superuser
 from modules.backups.schemas import BackupDownloadResponse, BackupJobListResponse, BackupJobPublic
 from modules.backups.service import BackupService
 
 router = APIRouter()
 
+# A backup job dumps the ENTIRE shared database — every organization's
+# data at once, with no per-tenant scoping possible (there's no such
+# thing as "just my organization's backup" in a co-located Postgres
+# instance). That makes this platform-operator territory only, gated by
+# true is_superuser (require_superuser()) rather than a grantable
+# permission code — an organization's own Administrator, even with every
+# permission granted, must never be able to trigger or download a
+# whole-platform data dump. See modules/organizations/routes.py for the
+# same require_superuser() pattern applied to platform-only actions.
+
 
 @router.post("", response_model=BackupJobPublic, status_code=status.HTTP_201_CREATED)
 async def trigger_backup(
-    user: User = Depends(require_permissions("backups.manage")),
+    user: User = Depends(require_superuser()),
     db: AsyncSession = Depends(get_db),
 ):
     service = BackupService(db)
@@ -26,7 +36,7 @@ async def trigger_backup(
 async def list_backups(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
-    user: User = Depends(require_permissions("backups.view")),
+    user: User = Depends(require_superuser()),
     db: AsyncSession = Depends(get_db),
 ):
     service = BackupService(db)
@@ -37,7 +47,7 @@ async def list_backups(
 @router.get("/{job_id}", response_model=BackupJobPublic)
 async def get_backup(
     job_id: uuid.UUID,
-    user: User = Depends(require_permissions("backups.view")),
+    user: User = Depends(require_superuser()),
     db: AsyncSession = Depends(get_db),
 ):
     service = BackupService(db)
@@ -48,7 +58,7 @@ async def get_backup(
 @router.get("/{job_id}/download-url", response_model=BackupDownloadResponse)
 async def get_backup_download_url(
     job_id: uuid.UUID,
-    user: User = Depends(require_permissions("backups.manage")),
+    user: User = Depends(require_superuser()),
     db: AsyncSession = Depends(get_db),
 ):
     service = BackupService(db)

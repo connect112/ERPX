@@ -10,6 +10,7 @@ from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
 from modules.authorization.models import Role
 from modules.authorization.repository import AuthorizationRepository
+from modules.users.repository import UserProfileRepository
 
 logger = get_logger(__name__)
 
@@ -238,15 +239,26 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
 # organization's data), stored third-party API keys, and infrastructure
 # health/connection-pool internals are all Administrator/Super Admin only.
 
-# Cross-tenant permissions: they exist in DEFAULT_PERMISSIONS (so they're
-# real, assignable, auditable codes — e.g. for a bespoke role someone
-# deliberately wants to grant this to) but are deliberately excluded from
-# the Administrator role's default grant below. Seeing or managing
-# organizations *other than your own* is platform-operator (Super Admin)
-# territory, not something every customer's own tenant admin should hold
-# by default — modules/organizations/routes.py's require_superuser() gate
-# enforces the same boundary at the route level, not just here.
-_PLATFORM_ONLY_PERMISSIONS = {"organizations.view", "organizations.manage"}
+# Platform-only permissions: they exist in DEFAULT_PERMISSIONS (so they're
+# real, assignable, auditable codes) but are deliberately excluded from
+# the Administrator role's default grant below, and their routes are
+# gated by require_superuser() (true is_superuser), not one of these
+# codes — so granting them to a custom role would have no effect anyway.
+# organizations.*: seeing/managing organizations other than your own is
+#   platform-operator territory (modules/organizations/routes.py).
+# backups.*: a backup job dumps the ENTIRE shared database, every
+#   organization at once — no per-tenant scoping is possible
+#   (modules/backups/routes.py).
+# monitoring.view: infrastructure health + platform-wide stats across
+#   every tenant, not any one organization's own data
+#   (modules/monitoring/routes.py).
+_PLATFORM_ONLY_PERMISSIONS = {
+    "organizations.view",
+    "organizations.manage",
+    "backups.view",
+    "backups.manage",
+    "monitoring.view",
+}
 
 # System roles that ship with the platform and cannot be deleted.
 SYSTEM_ROLES: list[tuple[str, str, str, list[str]]] = [
@@ -474,52 +486,75 @@ class AuthorizationService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repo = AuthorizationRepository(db)
+        self.profile_repo = UserProfileRepository(db)
 
     # ---- Roles ----
+    #
+    # A role is either a system template (organization_id IS NULL —
+    # Super Admin/Administrator/Staff/... shipped by the platform, visible
+    # read-only everywhere) or owned by exactly one organization. Every
+    # method below that touches a specific role_id/user_id re-verifies
+    # ownership itself — the route's own require_permissions(...) check
+    # only proves the caller has *a* role-management permission
+    # somewhere, never that this particular role/user is theirs to touch.
 
-    async def create_role(self, name: str, slug: str, description: str | None) -> Role:
-        existing = await self.repo.get_role_by_slug(slug)
+    async def create_role(
+        self, organization_id: uuid.UUID, name: str, slug: str, description: str | None
+    ) -> Role:
+        existing = await self.repo.get_role_by_slug(slug, organization_id)
         if existing:
-            raise ConflictError(f"A role with slug '{slug}' already exists.")
-        role = await self.repo.create_role(name, slug, description)
-        logger.info("role_created", role_id=str(role.id), slug=slug)
+            raise ConflictError(f"A role with slug '{slug}' already exists in this organization.")
+        role = await self.repo.create_role(name, slug, description, organization_id=organization_id)
+        logger.info("role_created", role_id=str(role.id), slug=slug, organization_id=str(organization_id))
         return role
 
-    async def update_role(self, role_id: uuid.UUID, name: str | None, description: str | None) -> Role:
+    async def _get_owned_role(self, role_id: uuid.UUID, organization_id: uuid.UUID) -> Role:
         role = await self.repo.get_role_by_id(role_id)
-        if not role:
+        if not role or (role.organization_id is not None and role.organization_id != organization_id):
+            # 404, not 403 — don't confirm another org's custom role even
+            # exists, same reasoning as every other ownership check in
+            # this codebase.
             raise NotFoundError("Role", role_id)
+        return role
+
+    async def update_role(
+        self, role_id: uuid.UUID, organization_id: uuid.UUID, name: str | None, description: str | None
+    ) -> Role:
+        role = await self._get_owned_role(role_id, organization_id)
         if role.is_system and name is not None:
             raise ValidationError("System roles cannot be renamed.")
         return await self.repo.update_role(role, name, description)
 
-    async def delete_role(self, role_id: uuid.UUID) -> None:
-        role = await self.repo.get_role_by_id(role_id)
-        if not role:
-            raise NotFoundError("Role", role_id)
+    async def delete_role(self, role_id: uuid.UUID, organization_id: uuid.UUID) -> None:
+        role = await self._get_owned_role(role_id, organization_id)
         if role.is_system:
             raise ValidationError("System roles cannot be deleted.")
         await self.repo.delete_role(role)
         logger.info("role_deleted", role_id=str(role_id))
 
-    async def get_role_with_permissions(self, role_id: uuid.UUID) -> Role:
+    async def get_role_with_permissions(self, role_id: uuid.UUID, organization_id: uuid.UUID) -> Role:
+        await self._get_owned_role(role_id, organization_id)
         role = await self.repo.get_role_with_permissions(role_id)
         if not role:
             raise NotFoundError("Role", role_id)
         return role
 
-    async def list_roles(self) -> list[Role]:
-        return await self.repo.list_roles()
+    async def list_roles(self, organization_id: uuid.UUID) -> list[Role]:
+        """System role templates plus this organization's own custom
+        roles — never another organization's."""
+        return await self.repo.list_roles_for_organization(organization_id)
 
     async def list_permissions(self):
         return await self.repo.list_permissions()
 
     # ---- Role <-> Permission ----
 
-    async def set_role_permissions(self, role_id: uuid.UUID, permission_codes: list[str]) -> Role:
-        role = await self.repo.get_role_by_id(role_id)
-        if not role:
-            raise NotFoundError("Role", role_id)
+    async def set_role_permissions(
+        self, role_id: uuid.UUID, organization_id: uuid.UUID, permission_codes: list[str]
+    ) -> Role:
+        role = await self._get_owned_role(role_id, organization_id)
+        if role.is_system:
+            raise ValidationError("System roles' permissions cannot be edited by an organization admin.")
 
         permissions = await self.repo.get_permissions_by_codes(permission_codes)
         found_codes = {p.code for p in permissions}
@@ -533,20 +568,37 @@ class AuthorizationService:
 
     # ---- User <-> Role ----
 
+    async def _require_same_organization(self, user_id: uuid.UUID, organization_id: uuid.UUID) -> None:
+        profile = await self.profile_repo.get_by_user_id(user_id)
+        if not profile or profile.organization_id != organization_id:
+            raise NotFoundError("User", user_id)
+
     async def assign_role(
-        self, user_id: uuid.UUID, role_id: uuid.UUID, assigned_by_user_id: uuid.UUID | None
+        self,
+        user_id: uuid.UUID,
+        role_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        assigned_by_user_id: uuid.UUID | None,
     ) -> None:
-        role = await self.repo.get_role_by_id(role_id)
-        if not role:
-            raise NotFoundError("Role", role_id)
+        await self._require_same_organization(user_id, organization_id)
+        await self._get_owned_role(role_id, organization_id)
         await self.repo.assign_role(user_id, role_id, assigned_by_user_id)
         logger.info("role_assigned", user_id=str(user_id), role_id=str(role_id))
 
-    async def revoke_role(self, user_id: uuid.UUID, role_id: uuid.UUID) -> None:
+    async def revoke_role(self, user_id: uuid.UUID, role_id: uuid.UUID, organization_id: uuid.UUID) -> None:
+        await self._require_same_organization(user_id, organization_id)
         await self.repo.revoke_role(user_id, role_id)
         logger.info("role_revoked", user_id=str(user_id), role_id=str(role_id))
 
-    async def get_user_roles_and_permissions(self, user_id: uuid.UUID) -> dict:
+    async def get_user_roles_and_permissions(
+        self, user_id: uuid.UUID, organization_id: uuid.UUID | None = None
+    ) -> dict:
+        """organization_id omitted entirely for the self-service /me route
+        (a token holder reading their own grants needs no ownership
+        check — there's nothing to check against). Passed by the
+        admin-facing /users/{id}/roles route, which does need it."""
+        if organization_id is not None:
+            await self._require_same_organization(user_id, organization_id)
         roles = await self.repo.get_roles_for_user(user_id)
         permissions = await self.repo.get_permission_codes_for_user(user_id)
         return {"roles": roles, "effective_permissions": sorted(permissions)}

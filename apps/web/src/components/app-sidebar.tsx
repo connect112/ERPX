@@ -13,8 +13,20 @@ export function AppSidebar() {
   // of it is Super Admin's job, so it's hidden entirely for that role
   // rather than shown-but-mostly-403ing.
   const isSuperAdmin = data?.roles.some((r) => r.slug === "super_admin") ?? false;
+  // "Users" and "Roles" are per-organization membership/RBAC screens — a
+  // platform operator managing dozens of customer organizations has no
+  // single "users" or "roles" list of its own to view; that's each
+  // organization's own admin's job (see modules/users/routes.py and
+  // modules/authorization/routes.py, both now organization-scoped).
+  const SUPER_ADMIN_HIDDEN_HREFS = new Set(["/administration/users", "/administration/roles"]);
   const visibleSections = isSuperAdmin
-    ? navSections.filter((section) => section.title !== "Business Modules")
+    ? navSections
+        .filter((section) => section.title !== "Business Modules")
+        .map((section) =>
+          section.title === "Administration"
+            ? { ...section, items: section.items.filter((item) => !SUPER_ADMIN_HIDDEN_HREFS.has(item.href)) }
+            : section
+        )
     : navSections;
 
   return (
