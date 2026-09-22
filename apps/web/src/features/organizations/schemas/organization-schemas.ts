@@ -10,7 +10,7 @@ export const subscriptionPlanLabels: Record<SubscriptionPlan, string> = {
   enterprise: "Enterprise",
 };
 
-export const organizationFormSchema = z.object({
+const sharedFields = {
   name: z.string().min(2, "Name is required."),
   slug: z
     .string()
@@ -27,5 +27,22 @@ export const organizationFormSchema = z.object({
   country: z.string().optional().or(z.literal("")),
   postalCode: z.string().optional().or(z.literal("")),
   subscriptionPlan: z.enum(subscriptionPlanValues),
-});
-export type OrganizationFormValues = z.infer<typeof organizationFormSchema>;
+};
+
+// Editing an existing organization never touches its admin account —
+// only creation does (see organization-form-dialog.tsx), which always
+// provisions the org's first Administrator and emails them a
+// set-password link, so there's no separate "now add an admin" step
+// afterward. Both branches below infer the exact same TS type (adminFullName/
+// adminEmail are always plain `string`, never optional) so the dialog's
+// single useForm<OrganizationFormValues> can swap resolvers by mode
+// without a type mismatch — only the runtime validation strictness
+// differs.
+export function organizationFormSchema(mode: "create" | "edit") {
+  return z.object({
+    ...sharedFields,
+    adminFullName: mode === "create" ? z.string().min(2, "Admin name is required.") : z.string(),
+    adminEmail: mode === "create" ? z.string().email("Enter a valid email address.") : z.string(),
+  });
+}
+export type OrganizationFormValues = z.infer<ReturnType<typeof organizationFormSchema>>;

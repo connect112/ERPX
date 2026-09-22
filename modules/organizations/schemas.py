@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from modules.organizations.models import SubscriptionPlan
 
@@ -9,6 +9,13 @@ from modules.organizations.models import SubscriptionPlan
 class OrganizationCreateRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
     slug: str = Field(..., min_length=2, max_length=150, pattern=r"^[a-z0-9-]+$")
+    # Onboarding a new customer means giving them an admin, not just a
+    # database row — creating an organization always provisions its first
+    # Administrator account and emails them a set-password link, so
+    # there's no separate "now go create an admin" step. See
+    # modules/organizations/service.py's create_organization.
+    admin_full_name: str = Field(..., min_length=2, max_length=255)
+    admin_email: EmailStr
     legal_name: str | None = None
     industry: str | None = None
     email: str | None = None
