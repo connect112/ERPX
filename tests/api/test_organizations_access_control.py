@@ -94,7 +94,14 @@ async def test_tenant_administrator_cannot_create_organization(
     headers = await _create_administrator_with_login(client, db_session, organization, rbac_seeded)
 
     resp = await client.post(
-        "/api/v1/organizations", json={"name": "Sneaky Org", "slug": f"sneaky-{uuid.uuid4().hex[:8]}"}, headers=headers
+        "/api/v1/organizations",
+        json={
+            "name": "Sneaky Org",
+            "slug": f"sneaky-{uuid.uuid4().hex[:8]}",
+            "admin_full_name": "Sneaky Admin",
+            "admin_email": f"sneaky-admin.{uuid.uuid4().hex[:8]}@erpx.example.com",
+        },
+        headers=headers,
     )
     assert resp.status_code == 403, resp.text
 
@@ -123,3 +130,68 @@ async def test_superuser_can_list_and_view_any_organization(
 
     get_resp = await client.get(f"/api/v1/organizations/{other_organization.id}", headers=auth_headers)
     assert get_resp.status_code == 200, get_resp.text
+
+
+async def test_creating_organization_provisions_and_invites_its_administrator(
+    client, db_session, auth_headers, rbac_seeded
+):
+    """Onboarding a customer is one step, not two: creating the org also
+    creates its first Administrator account (unusable until they set
+    their own password via the emailed link) — see
+    modules/organizations/service.py's _invite_organization_admin."""
+    from modules.authentication.repository import AuthRepository
+    from modules.users.repository import UserProfileRepository
+
+    unique = uuid.uuid4().hex[:8]
+    admin_email = f"new-org-admin.{unique}@erpx.example.com"
+
+    create_resp = await client.post(
+        "/api/v1/organizations",
+        json={
+            "name": f"Brand New Org {unique}",
+            "slug": f"brand-new-org-{unique}",
+            "admin_full_name": "Brand New Admin",
+            "admin_email": admin_email,
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    org_id = create_resp.json()["id"]
+
+    auth_repo = AuthRepository(db_session)
+    admin_user = await auth_repo.get_user_by_email(admin_email)
+    assert admin_user is not None
+    assert admin_user.is_email_verified is True
+
+    profile = await UserProfileRepository(db_session).get_by_user_id(admin_user.id)
+    assert profile is not None
+    assert str(profile.organization_id) == org_id
+
+    authz_repo = AuthorizationRepository(db_session)
+    roles_response = await authz_repo.get_roles_for_user(admin_user.id)
+    assert any(r.slug == "administrator" for r in roles_response)
+
+    # The invite is real and usable: the admin's own token resolves and
+    # lets them set a real password, same as an employee/student invite.
+    reset_token = await auth_repo.create_password_reset_token(admin_user.id)
+    complete_resp = await client.post(
+        "/api/v1/auth/reset-password", json={"token": reset_token.token, "new_password": "BrandNewPass1!"}
+    )
+    assert complete_resp.status_code == 200, complete_resp.text
+
+
+async def test_creating_organization_rejects_email_already_in_use(
+    client, db_session, auth_headers, staff_user, rbac_seeded
+):
+    existing_user, _ = staff_user
+    resp = await client.post(
+        "/api/v1/organizations",
+        json={
+            "name": "Duplicate Admin Org",
+            "slug": f"duplicate-admin-org-{uuid.uuid4().hex[:8]}",
+            "admin_full_name": "Duplicate Admin",
+            "admin_email": existing_user.email,
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
