@@ -19,15 +19,19 @@ export function AppSidebar() {
   // organization's own admin's job (see modules/users/routes.py and
   // modules/authorization/routes.py, both now organization-scoped).
   const SUPER_ADMIN_HIDDEN_HREFS = new Set(["/administration/users", "/administration/roles"]);
-  const visibleSections = isSuperAdmin
-    ? navSections
-        .filter((section) => section.title !== "Business Modules")
-        .map((section) =>
-          section.title === "Administration"
-            ? { ...section, items: section.items.filter((item) => !SUPER_ADMIN_HIDDEN_HREFS.has(item.href)) }
-            : section
-        )
-    : navSections;
+  // Inverse of the above: "Organizations" is the one Administration item
+  // that's Super Admin ONLY (modules/organizations/routes.py's
+  // require_superuser()) — a tenant's own admin has no other org to view
+  // and would just get a 403 list, so the link is hidden rather than
+  // shown-but-broken for everyone else.
+  const NON_SUPER_ADMIN_HIDDEN_HREFS = new Set(["/organizations"]);
+  const visibleSections = navSections
+    .filter((section) => !(isSuperAdmin && section.title === "Business Modules"))
+    .map((section) => {
+      if (section.title !== "Administration") return section;
+      const hidden = isSuperAdmin ? SUPER_ADMIN_HIDDEN_HREFS : NON_SUPER_ADMIN_HIDDEN_HREFS;
+      return { ...section, items: section.items.filter((item) => !hidden.has(item.href)) };
+    });
 
   return (
     <aside className="hidden w-64 shrink-0 border-r bg-card md:flex md:flex-col">
