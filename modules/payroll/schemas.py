@@ -114,6 +114,11 @@ class PayslipPublic(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PayslipAddLineRequest(BaseModel):
+    salary_component_id: uuid.UUID
+    amount: float = Field(..., gt=0)
+
+
 class PayrollRunPublic(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID

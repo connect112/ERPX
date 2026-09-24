@@ -33,11 +33,13 @@ import { useAccountsList } from "@/features/accounting/ledger/api/accounts-hooks
 import { useBankAccounts } from "@/features/accounting/bank/api/bank-hooks";
 import { useEmployeesList } from "@/features/employees/api/employees-hooks";
 import {
+  useAddPayslipLine,
   useCancelPayrollRun,
   useFinalizePayrollRun,
   useMarkPayrollRunPaid,
   usePayrollRun,
   useRunPayslips,
+  useSalaryComponents,
 } from "@/features/payroll/api/payroll-hooks";
 import { PayrollRunStatusBadge } from "@/features/payroll/components/payroll-run-status-badge";
 
@@ -67,10 +69,12 @@ export function PayrollRunDetailPage() {
   const { data: employees } = useEmployeesList({ limit: 200 });
   const { data: accounts } = useAccountsList({ limit: 200 });
   const { data: bankAccounts } = useBankAccounts(true);
+  const { data: components } = useSalaryComponents(true);
 
   const finalizeRun = useFinalizePayrollRun(runId ?? "");
   const markPaid = useMarkPayrollRunPaid(runId ?? "");
   const cancelRun = useCancelPayrollRun(runId ?? "");
+  const addPayslipLine = useAddPayslipLine(runId ?? "");
 
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const [netPayableAccountId, setNetPayableAccountId] = useState("");
@@ -78,8 +82,25 @@ export function PayrollRunDetailPage() {
   const [bankAccountId, setBankAccountId] = useState("");
   const [paymentDate, setPaymentDate] = useState(todayIso());
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [addLinePayslipId, setAddLinePayslipId] = useState<string | null>(null);
+  const [addLineComponentId, setAddLineComponentId] = useState("");
+  const [addLineAmount, setAddLineAmount] = useState("");
 
   const employeeName = (id: string) => employees?.items.find((e) => e.id === id)?.full_name ?? id;
+
+  const handleAddLine = () => {
+    if (!addLinePayslipId || !addLineComponentId || !addLineAmount) return;
+    addPayslipLine.mutate(
+      { payslipId: addLinePayslipId, payload: { salary_component_id: addLineComponentId, amount: Number(addLineAmount) } },
+      {
+        onSuccess: () => {
+          setAddLinePayslipId(null);
+          setAddLineComponentId("");
+          setAddLineAmount("");
+        },
+      }
+    );
+  };
 
   if (isLoading || !run) {
     return (
@@ -184,6 +205,7 @@ export function PayrollRunDetailPage() {
                   <TableHead>Gross</TableHead>
                   <TableHead>Deductions</TableHead>
                   <TableHead>Net</TableHead>
+                  {run.status === "draft" && <TableHead />}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -199,6 +221,13 @@ export function PayrollRunDetailPage() {
                       {payslip.total_deductions.toLocaleString()}
                     </TableCell>
                     <TableCell className="font-medium">{payslip.net_amount.toLocaleString()}</TableCell>
+                    {run.status === "draft" && (
+                      <TableCell>
+                        <Button variant="ghost" size="sm" onClick={() => setAddLinePayslipId(payslip.id)}>
+                          Add line
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -292,6 +321,61 @@ export function PayrollRunDetailPage() {
             </Button>
             <Button variant="destructive" onClick={handleCancel} disabled={cancelRun.isPending}>
               {cancelRun.isPending ? "Cancelling..." : "Cancel run"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!addLinePayslipId} onOpenChange={(open) => !open && setAddLinePayslipId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add a one-off line</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Applies to this employee's payslip for this run only — e.g. a reimbursement that
+            isn't part of their regular salary structure.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="addLineComponent">Component</Label>
+            <Select value={addLineComponentId || undefined} onValueChange={setAddLineComponentId}>
+              <SelectTrigger id="addLineComponent">
+                <SelectValue placeholder="Select component" />
+              </SelectTrigger>
+              <SelectContent>
+                {components?.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} ({c.component_type})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="addLineAmount">Amount</Label>
+            <Input
+              id="addLineAmount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={addLineAmount}
+              onChange={(e) => setAddLineAmount(e.target.value)}
+            />
+          </div>
+          {addPayslipLine.isError && (
+            <p className="text-sm text-destructive">
+              {(addPayslipLine.error as { response?: { data?: { error?: { message?: string } } } })?.response
+                ?.data?.error?.message ?? "Could not add this line."}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddLinePayslipId(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddLine}
+              disabled={!addLineComponentId || !addLineAmount || addPayslipLine.isPending}
+            >
+              {addPayslipLine.isPending ? "Adding..." : "Add line"}
             </Button>
           </DialogFooter>
         </DialogContent>

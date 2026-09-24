@@ -299,6 +299,95 @@ class PayrollService:
             raise NotFoundError("Employee", employee_id)
         return await self.payslip_repo.list_for_employee(employee_id, **filters)
 
+    async def add_payslip_line(
+        self,
+        payslip_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        salary_component_id: uuid.UUID,
+        amount: float,
+    ) -> Payslip:
+        """A one-off addition to a single employee's payslip for this run
+        only — e.g. a reimbursement that isn't part of their recurring
+        salary structure. Deliberately reuses the same SalaryComponent
+        concept as a structure line (not a free-text amount) so it's
+        still a real, auditable, GL-mapped component — just applied to
+        one payslip instead of every future one. Only while the parent
+        run is still Draft: once finalized, the run's journal entry has
+        already been posted from these exact totals."""
+        payslip = await self.get_payslip(payslip_id)
+        run = await self.get_run(payslip.payroll_run_id, organization_id)
+        if run.status != PayrollRunStatus.DRAFT:
+            raise ValidationError("Payslip lines can only be added while the payroll run is still in Draft.")
+
+        component = await self.component_repo.get_by_id(salary_component_id, organization_id)
+        if not component:
+            raise NotFoundError("Salary component", salary_component_id)
+        if not component.is_active:
+            raise ValidationError(f"Salary component '{component.name}' is not active.")
+
+        amount = round(float(amount), 2)
+        old_gross, old_deductions, old_net = (
+            float(payslip.gross_amount),
+            float(payslip.total_deductions),
+            float(payslip.net_amount),
+        )
+        if component.component_type == SalaryComponentType.EARNING:
+            new_gross, new_deductions = round(old_gross + amount, 2), old_deductions
+        else:
+            new_gross, new_deductions = old_gross, round(old_deductions + amount, 2)
+        new_net = round(new_gross - new_deductions, 2)
+
+        await self.payslip_repo.add_line(
+            payslip,
+            salary_component_id=component.id,
+            component_type=component.component_type,
+            amount=amount,
+        )
+        updated_payslip = await self.payslip_repo.update(
+            payslip, gross_amount=new_gross, total_deductions=new_deductions, net_amount=new_net
+        )
+        await self.run_repo.update(
+            run,
+            total_gross_amount=round(float(run.total_gross_amount) + (new_gross - old_gross), 2),
+            total_deductions_amount=round(float(run.total_deductions_amount) + (new_deductions - old_deductions), 2),
+            total_net_amount=round(float(run.total_net_amount) + (new_net - old_net), 2),
+        )
+        logger.info(
+            "payslip_line_added",
+            payslip_id=str(payslip_id),
+            component_id=str(component.id),
+            amount=amount,
+        )
+        return updated_payslip
+
+    async def auto_generate_monthly_draft(
+        self, organization_id: uuid.UUID, today: date | None = None
+    ) -> PayrollRun | None:
+        """Called daily by modules/payroll/tasks.py's scheduled job — a
+        no-op every day except the last working day (Mon-Fri) of the
+        month, or if this org already has a run for the current period
+        (a real "Generate run" click beat the schedule to it, or the
+        schedule already ran once today). Returns the newly-created
+        Draft run only when one was actually generated, so the caller
+        knows whether to notify anyone. `today` is injectable so tests
+        don't depend on actually running on the last working day."""
+        today = today or date.today()
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        last_working_day = date(today.year, today.month, last_day)
+        while last_working_day.weekday() >= 5:  # Saturday=5, Sunday=6
+            last_working_day -= timedelta(days=1)
+        if today != last_working_day:
+            return None
+
+        existing = await self.run_repo.get_for_period(organization_id, today.year, today.month, None)
+        if existing is not None:
+            return None
+
+        run, _processed, _skipped = await self.generate_run(
+            organization_id, today.year, today.month, run_date=today, created_by_user_id=None
+        )
+        return run
+
     async def finalize_run(
         self,
         run_id: uuid.UUID,
