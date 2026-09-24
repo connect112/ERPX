@@ -7,7 +7,7 @@ working day of the month.
 
 import calendar
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -69,6 +69,20 @@ async def _create_employee(client, auth_headers, department, designation, unique
             "date_of_joining": "2026-01-01",
             "department_id": department["id"],
             "designation_id": designation["id"],
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def _create_bank_account(client, auth_headers, gl_account_id, unique):
+    resp = await client.post(
+        "/api/v1/accounting/bank/accounts",
+        json={
+            "gl_account_id": gl_account_id,
+            "account_name": f"Bank {unique}",
+            "account_number": f"ACC{unique}",
         },
         headers=auth_headers,
     )
@@ -191,6 +205,51 @@ async def test_add_payslip_line_rejected_once_run_is_finalized(
         headers=auth_headers,
     )
     assert add_line_resp.status_code == 422, add_line_resp.text
+
+
+async def test_mark_paid_sets_paid_at_to_the_entered_payment_date(
+    client, auth_headers, db_session, organization, payroll_setup
+):
+    """Backfilling a historical payroll run needs paid_at to reflect the
+    real-world payment date the admin enters, not the moment they happened
+    to click the button in the app — otherwise the payslip's own date is
+    wrong for something like a bank loan verification."""
+    await _mark_present_for_month(db_session, organization.id, payroll_setup["employee"]["id"], 2026, 5)
+
+    unique = uuid.uuid4().hex[:8]
+    bank_gl_account = await _create_account(client, auth_headers, f"1{unique[:3]}", "Bank", "asset")
+    bank_account = await _create_bank_account(client, auth_headers, bank_gl_account["id"], unique)
+
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 5, "run_date": "2026-05-31"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+    run = generate_resp.json()["run"]
+
+    finalize_resp = await client.post(
+        f"/api/v1/payroll/runs/{run['id']}/finalize",
+        json={"net_payable_account_id": payroll_setup["payable_account"]["id"]},
+        headers=auth_headers,
+    )
+    assert finalize_resp.status_code == 200, finalize_resp.text
+
+    mark_paid_resp = await client.post(
+        f"/api/v1/payroll/runs/{run['id']}/mark-paid",
+        json={"bank_account_id": bank_account["id"], "payment_date": "2026-06-05"},
+        headers=auth_headers,
+    )
+    assert mark_paid_resp.status_code == 200, mark_paid_resp.text
+    paid_run = mark_paid_resp.json()
+    assert paid_run["status"] == "paid"
+    # The entered payment_date is naive and lands on a timezone-aware column,
+    # so it round-trips as the same instant as entry_date/transaction_date
+    # (which use payment_date the same way) rather than a bare date string —
+    # what matters here is that it's the entered date, not datetime.now().
+    paid_at = datetime.fromisoformat(paid_run["paid_at"].replace("Z", "+00:00"))
+    assert paid_at.date() in (date(2026, 6, 4), date(2026, 6, 5))
+    assert not paid_run["paid_at"].startswith(date.today().isoformat())
 
 
 async def test_deleting_a_cancelled_run_frees_its_period_for_regeneration(client, auth_headers, payroll_setup):
