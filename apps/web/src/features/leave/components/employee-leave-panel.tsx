@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ export function EmployeeLeavePanel({ employeeId }: { employeeId: string }) {
   const [year, setYear] = useState(now.getFullYear());
   const [applyOpen, setApplyOpen] = useState(false);
 
+  const [exceptionOpen, setExceptionOpen] = useState(false);
   const { data: balances, isLoading: balancesLoading } = useLeaveBalances(employeeId, year);
   const { data: applications, isLoading: applicationsLoading } = useEmployeeLeaveApplications(employeeId, {
     limit: 50,
@@ -34,23 +36,18 @@ export function EmployeeLeavePanel({ employeeId }: { employeeId: string }) {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Leave balances</CardTitle>
-          <div className="flex items-center gap-2">
-            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-              <SelectTrigger className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {years.map((y) => (
-                  <SelectItem key={y} value={String(y)}>
-                    {y}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button size="sm" onClick={() => setApplyOpen(true)}>
-              Apply for leave
-            </Button>
-          </div>
+          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <SelectTrigger className="w-24">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((y) => (
+                <SelectItem key={y} value={String(y)}>
+                  {y}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardHeader>
         <CardContent>
           {balancesLoading && <Skeleton className="h-16 w-full" />}
@@ -141,6 +138,28 @@ export function EmployeeLeavePanel({ employeeId }: { employeeId: string }) {
           )}
         </CardContent>
       </Card>
+
+      <div className="rounded-md border">
+        <button
+          type="button"
+          onClick={() => setExceptionOpen((open) => !open)}
+          className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          {exceptionOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          Exception — apply for leave on their behalf
+        </button>
+        {exceptionOpen && (
+          <div className="space-y-3 border-t px-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Employees should normally apply for their own leave from their portal. Only use this
+              if they can't — no portal access, or they called in and asked you to record it.
+            </p>
+            <Button size="sm" variant="outline" onClick={() => setApplyOpen(true)}>
+              Apply for leave
+            </Button>
+          </div>
+        )}
+      </div>
 
       <ApplyLeaveDialog open={applyOpen} onOpenChange={setApplyOpen} defaultEmployeeId={employeeId} />
     </div>
