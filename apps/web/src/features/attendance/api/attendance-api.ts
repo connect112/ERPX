@@ -52,48 +52,11 @@ export interface MonthlyAttendanceSummary {
   total_work_hours: number;
 }
 
-export interface MarkAttendancePayload {
-  employee_id: string;
-  attendance_date: string;
-  status: AttendanceStatus;
-  remarks?: string;
-}
-
-export interface CheckInPayload {
-  employee_id: string;
-  check_in_time?: string;
-}
-
-export interface CheckOutPayload {
-  employee_id: string;
-  check_out_time?: string;
-}
-
 export interface RegularizeAttendancePayload {
   check_in_time?: string;
   check_out_time?: string;
   status?: AttendanceStatus;
   regularization_reason: string;
-}
-
-export interface BulkMarkAttendanceException {
-  start_date: string;
-  end_date: string;
-  status: AttendanceStatus;
-  remarks?: string;
-}
-
-export interface BulkMarkAttendancePayload {
-  employee_id: string;
-  start_date: string;
-  end_date: string;
-  default_status: AttendanceStatus;
-  auto_week_off_sundays: boolean;
-  exceptions: BulkMarkAttendanceException[];
-}
-
-export interface BulkMarkAttendanceResult {
-  days_marked: number;
 }
 
 export const attendanceApi = {
@@ -112,20 +75,8 @@ export const attendanceApi = {
       })
       .then((r) => r.data),
 
-  mark: (payload: MarkAttendancePayload) =>
-    apiClient.post<AttendanceRecordPublic>("/attendance/mark", payload).then((r) => r.data),
-
-  checkIn: (payload: CheckInPayload) =>
-    apiClient.post<AttendanceRecordPublic>("/attendance/check-in", payload).then((r) => r.data),
-
-  checkOut: (payload: CheckOutPayload) =>
-    apiClient.post<AttendanceRecordPublic>("/attendance/check-out", payload).then((r) => r.data),
-
   regularize: (id: string, payload: RegularizeAttendancePayload) =>
     apiClient
       .post<AttendanceRecordPublic>(`/attendance/${id}/regularize`, payload)
       .then((r) => r.data),
-
-  bulkMark: (payload: BulkMarkAttendancePayload) =>
-    apiClient.post<BulkMarkAttendanceResult>("/attendance/bulk-mark", payload).then((r) => r.data),
 };

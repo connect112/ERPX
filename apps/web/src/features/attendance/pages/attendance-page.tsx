@@ -1,4 +1,3 @@
-import { ChevronDown, ChevronRight, LogIn, LogOut, Plus } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -22,9 +21,6 @@ import {
 } from "@/components/ui/table";
 import { useAttendanceList } from "@/features/attendance/api/attendance-hooks";
 import { AttendanceStatusBadge } from "@/features/attendance/components/attendance-status-badge";
-import { BulkMarkAttendanceDialog } from "@/features/attendance/components/bulk-mark-attendance-dialog";
-import { CheckInOutDialog } from "@/features/attendance/components/check-in-out-dialog";
-import { MarkAttendanceDialog } from "@/features/attendance/components/mark-attendance-dialog";
 import type { AttendanceRecordPublic } from "@/features/attendance/api/attendance-api";
 import { RegularizeAttendanceDialog } from "@/features/attendance/components/regularize-attendance-dialog";
 import {
@@ -44,10 +40,6 @@ export function AttendancePage() {
   const [date, setDate] = useState(todayIso());
   const [status, setStatus] = useState<AttendanceStatus | "all">("all");
   const [skip, setSkip] = useState(0);
-  const [markOpen, setMarkOpen] = useState(false);
-  const [bulkMarkOpen, setBulkMarkOpen] = useState(false);
-  const [exceptionActionsOpen, setExceptionActionsOpen] = useState(false);
-  const [checkDialog, setCheckDialog] = useState<"check-in" | "check-out" | null>(null);
   const [regularizeTarget, setRegularizeTarget] = useState<AttendanceRecordPublic | null>(null);
 
   const { data, isLoading, isError } = useAttendanceList({
@@ -69,51 +61,9 @@ export function AttendancePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Attendance</h1>
         <p className="mt-1 text-muted-foreground">
-          Employees check themselves in and out from their own portal — this page is for viewing
-          records and handling the exceptions below.
+          Employees check themselves in and out from their own portal. This page is for viewing
+          records and regularizing a mistaken entry.
         </p>
-      </div>
-
-      <div className="rounded-md border">
-        <button
-          type="button"
-          onClick={() => setExceptionActionsOpen((open) => !open)}
-          className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground"
-        >
-          {exceptionActionsOpen ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-          Exception actions — check-in/out, marking, or backfilling on an employee's behalf
-        </button>
-        {exceptionActionsOpen && (
-          <div className="space-y-3 border-t px-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              Only for when an employee can't do this themselves — no portal access yet, or
-              backfilling history from before they were in ERPX. Otherwise, attendance should
-              come from the employee's own check-in/check-out.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setCheckDialog("check-in")}>
-                <LogIn className="h-4 w-4" />
-                Check in
-              </Button>
-              <Button variant="outline" onClick={() => setCheckDialog("check-out")}>
-                <LogOut className="h-4 w-4" />
-                Check out
-              </Button>
-              <Button variant="outline" onClick={() => setBulkMarkOpen(true)}>
-                <Plus className="h-4 w-4" />
-                Bulk mark
-              </Button>
-              <Button variant="outline" onClick={() => setMarkOpen(true)}>
-                <Plus className="h-4 w-4" />
-                Mark attendance
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
 
       <Card>
@@ -245,13 +195,6 @@ export function AttendancePage() {
         </CardContent>
       </Card>
 
-      <MarkAttendanceDialog open={markOpen} onOpenChange={setMarkOpen} />
-      <BulkMarkAttendanceDialog open={bulkMarkOpen} onOpenChange={setBulkMarkOpen} />
-      <CheckInOutDialog
-        open={!!checkDialog}
-        onOpenChange={(open) => !open && setCheckDialog(null)}
-        mode={checkDialog ?? "check-in"}
-      />
       <RegularizeAttendanceDialog
         open={!!regularizeTarget}
         onOpenChange={(open) => !open && setRegularizeTarget(null)}

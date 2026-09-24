@@ -6,20 +6,6 @@ from pydantic import BaseModel, Field
 from modules.attendance.models import AttendanceStatus
 
 
-class CheckInRequest(BaseModel):
-    employee_id: uuid.UUID
-    check_in_time: datetime | None = Field(
-        default=None, description="Defaults to the current server time if omitted."
-    )
-
-
-class CheckOutRequest(BaseModel):
-    employee_id: uuid.UUID
-    check_out_time: datetime | None = Field(
-        default=None, description="Defaults to the current server time if omitted."
-    )
-
-
 class SelfCheckInRequest(BaseModel):
     check_in_time: datetime | None = Field(
         default=None, description="Defaults to the current server time if omitted."
@@ -30,37 +16,6 @@ class SelfCheckOutRequest(BaseModel):
     check_out_time: datetime | None = Field(
         default=None, description="Defaults to the current server time if omitted."
     )
-
-
-class MarkAttendanceRequest(BaseModel):
-    employee_id: uuid.UUID
-    attendance_date: date
-    status: AttendanceStatus
-    remarks: str | None = None
-
-
-class BulkMarkAttendanceException(BaseModel):
-    """A sub-range within a bulk-mark request's overall span that gets a
-    different status than the default — e.g. a block of unpaid absence
-    inside an otherwise "mark present" range."""
-
-    start_date: date
-    end_date: date
-    status: AttendanceStatus
-    remarks: str | None = None
-
-
-class BulkMarkAttendanceRequest(BaseModel):
-    employee_id: uuid.UUID
-    start_date: date
-    end_date: date
-    default_status: AttendanceStatus = AttendanceStatus.PRESENT
-    auto_week_off_sundays: bool = True
-    exceptions: list[BulkMarkAttendanceException] = Field(default_factory=list)
-
-
-class BulkMarkAttendanceResult(BaseModel):
-    days_marked: int
 
 
 class RegularizeAttendanceRequest(BaseModel):
