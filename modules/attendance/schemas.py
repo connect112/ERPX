@@ -39,6 +39,30 @@ class MarkAttendanceRequest(BaseModel):
     remarks: str | None = None
 
 
+class BulkMarkAttendanceException(BaseModel):
+    """A sub-range within a bulk-mark request's overall span that gets a
+    different status than the default — e.g. a block of unpaid absence
+    inside an otherwise "mark present" range."""
+
+    start_date: date
+    end_date: date
+    status: AttendanceStatus
+    remarks: str | None = None
+
+
+class BulkMarkAttendanceRequest(BaseModel):
+    employee_id: uuid.UUID
+    start_date: date
+    end_date: date
+    default_status: AttendanceStatus = AttendanceStatus.PRESENT
+    auto_week_off_sundays: bool = True
+    exceptions: list[BulkMarkAttendanceException] = Field(default_factory=list)
+
+
+class BulkMarkAttendanceResult(BaseModel):
+    days_marked: int
+
+
 class RegularizeAttendanceRequest(BaseModel):
     check_in_time: datetime | None = None
     check_out_time: datetime | None = None

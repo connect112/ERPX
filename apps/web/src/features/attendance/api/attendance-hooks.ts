@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   type AttendanceListParams,
+  type BulkMarkAttendancePayload,
   type CheckInPayload,
   type CheckOutPayload,
   type EmployeeAttendanceListParams,
@@ -48,6 +49,14 @@ export function useMarkAttendance() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: MarkAttendancePayload) => attendanceApi.mark(payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
+  });
+}
+
+export function useBulkMarkAttendance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: BulkMarkAttendancePayload) => attendanceApi.bulkMark(payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
   });
 }

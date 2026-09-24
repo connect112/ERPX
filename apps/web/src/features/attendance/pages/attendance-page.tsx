@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { useAttendanceList } from "@/features/attendance/api/attendance-hooks";
 import { AttendanceStatusBadge } from "@/features/attendance/components/attendance-status-badge";
+import { BulkMarkAttendanceDialog } from "@/features/attendance/components/bulk-mark-attendance-dialog";
 import { CheckInOutDialog } from "@/features/attendance/components/check-in-out-dialog";
 import { MarkAttendanceDialog } from "@/features/attendance/components/mark-attendance-dialog";
 import type { AttendanceRecordPublic } from "@/features/attendance/api/attendance-api";
@@ -44,6 +45,7 @@ export function AttendancePage() {
   const [status, setStatus] = useState<AttendanceStatus | "all">("all");
   const [skip, setSkip] = useState(0);
   const [markOpen, setMarkOpen] = useState(false);
+  const [bulkMarkOpen, setBulkMarkOpen] = useState(false);
   const [checkDialog, setCheckDialog] = useState<"check-in" | "check-out" | null>(null);
   const [regularizeTarget, setRegularizeTarget] = useState<AttendanceRecordPublic | null>(null);
 
@@ -78,6 +80,10 @@ export function AttendancePage() {
           <Button variant="outline" onClick={() => setCheckDialog("check-out")}>
             <LogOut className="h-4 w-4" />
             Check out
+          </Button>
+          <Button variant="outline" onClick={() => setBulkMarkOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Bulk mark
           </Button>
           <Button onClick={() => setMarkOpen(true)}>
             <Plus className="h-4 w-4" />
@@ -216,6 +222,7 @@ export function AttendancePage() {
       </Card>
 
       <MarkAttendanceDialog open={markOpen} onOpenChange={setMarkOpen} />
+      <BulkMarkAttendanceDialog open={bulkMarkOpen} onOpenChange={setBulkMarkOpen} />
       <CheckInOutDialog
         open={!!checkDialog}
         onOpenChange={(open) => !open && setCheckDialog(null)}

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,6 +104,65 @@ class AttendanceService:
         )
         logger.info("attendance_marked", employee_id=str(employee_id), status=status.value)
         return record
+
+    async def bulk_mark_attendance(
+        self,
+        organization_id: uuid.UUID,
+        employee_id: uuid.UUID,
+        start_date: date,
+        end_date: date,
+        default_status: AttendanceStatus,
+        auto_week_off_sundays: bool,
+        exceptions: list[dict],
+    ) -> int:
+        """One-time/occasional backfill for a whole date range (e.g. a
+        new employee's history predating their ERPX record, or a
+        correction), rather than clicking through modules.attendance's
+        single-day /mark for every day individually. `exceptions` are
+        sub-ranges (e.g. an extended-leave block) that override
+        `default_status` for just those days; last one wins if ranges
+        overlap. Sundays get WEEK_OFF automatically unless
+        auto_week_off_sundays is False, taking priority over
+        default_status but not over an explicit exception."""
+        if end_date < start_date:
+            raise ValidationError("end_date must be on or after start_date.")
+        await self._get_employee_or_raise(employee_id, organization_id)
+
+        day_status: dict[date, AttendanceStatus] = {}
+        current = start_date
+        while current <= end_date:
+            day_status[current] = default_status
+            current += timedelta(days=1)
+
+        if auto_week_off_sundays:
+            for day in day_status:
+                if day.weekday() == 6:  # Monday=0 .. Sunday=6
+                    day_status[day] = AttendanceStatus.WEEK_OFF
+
+        for exception in exceptions:
+            ex_start, ex_end, ex_status = (
+                exception["start_date"],
+                exception["end_date"],
+                exception["status"],
+            )
+            current = max(ex_start, start_date)
+            last = min(ex_end, end_date)
+            while current <= last:
+                day_status[current] = ex_status
+                current += timedelta(days=1)
+
+        count = 0
+        for day, status in day_status.items():
+            await self.mark_attendance(organization_id, employee_id, day, status)
+            count += 1
+        logger.info(
+            "attendance_bulk_marked",
+            employee_id=str(employee_id),
+            start_date=str(start_date),
+            end_date=str(end_date),
+            days_marked=count,
+        )
+        return count
 
     async def get_record(self, record_id: uuid.UUID, organization_id: uuid.UUID) -> AttendanceRecord:
         record = await self.repo.get_by_id(record_id, organization_id)
