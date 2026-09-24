@@ -360,15 +360,13 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
                 />
               </div>
             </div>
-            {!isEditing && (
-              <div className="space-y-2">
-                <RequiredLabel htmlFor="dateOfJoining">Date of joining</RequiredLabel>
-                <Input id="dateOfJoining" type="date" {...register("dateOfJoining")} />
-                {errors.dateOfJoining && (
-                  <p className="text-sm text-destructive">{errors.dateOfJoining.message}</p>
-                )}
-              </div>
-            )}
+            <div className="space-y-2">
+              <RequiredLabel htmlFor="dateOfJoining">Date of joining</RequiredLabel>
+              <Input id="dateOfJoining" type="date" {...register("dateOfJoining")} />
+              {errors.dateOfJoining && (
+                <p className="text-sm text-destructive">{errors.dateOfJoining.message}</p>
+              )}
+            </div>
           </div>
 
           {/* Address and emergency contact, like phone/gender/DOB above,
