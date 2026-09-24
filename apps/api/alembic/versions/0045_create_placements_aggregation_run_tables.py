@@ -1,7 +1,7 @@
 """create placements_aggregation_runs and placements_aggregation_run_sources tables
 
-Revision ID: 0043
-Revises: 0042
+Revision ID: 0045
+Revises: 0044
 Create Date: 2026-08-25
 
 """
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0043"
-down_revision: Union[str, None] = "0042"
+revision: str = "0045"
+down_revision: Union[str, None] = "0044"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

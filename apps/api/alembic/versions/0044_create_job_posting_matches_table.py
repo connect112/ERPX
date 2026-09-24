@@ -1,7 +1,7 @@
 """create placement_job_posting_matches table
 
-Revision ID: 0042
-Revises: 0041
+Revision ID: 0044
+Revises: 0043
 Create Date: 2026-08-25
 
 """
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0042"
-down_revision: Union[str, None] = "0041"
+revision: str = "0044"
+down_revision: Union[str, None] = "0043"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

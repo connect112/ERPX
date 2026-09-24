@@ -1,7 +1,7 @@
 """add job-aggregation fields to placement_job_postings
 
-Revision ID: 0041
-Revises: 0040
+Revision ID: 0043
+Revises: 0042
 Create Date: 2026-08-25
 
 """
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0041"
-down_revision: Union[str, None] = "0040"
+revision: str = "0043"
+down_revision: Union[str, None] = "0042"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
