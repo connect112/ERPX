@@ -514,3 +514,14 @@ class PayrollService:
         updated = await self.run_repo.update(run, status=PayrollRunStatus.CANCELLED)
         logger.info("payroll_run_cancelled", run_id=str(run_id))
         return updated
+
+    async def delete_run(self, run_id: uuid.UUID, organization_id: uuid.UUID) -> None:
+        """Only a cancelled run can be deleted — its journal effects were
+        already reversed on cancellation, so nothing else depends on it.
+        This frees up its period for a fresh run, which the DRAFT/FINALIZED/
+        PAID states intentionally don't allow (cancel first)."""
+        run = await self.get_run(run_id, organization_id)
+        if run.status != PayrollRunStatus.CANCELLED:
+            raise ValidationError("Only a cancelled payroll run can be deleted.")
+        await self.run_repo.delete(run)
+        logger.info("payroll_run_deleted", run_id=str(run_id))

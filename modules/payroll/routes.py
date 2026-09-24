@@ -217,6 +217,17 @@ async def cancel_payroll_run(
     return PayrollRunPublic.model_validate(run)
 
 
+@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_payroll_run(
+    run_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("payroll.runs.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PayrollService(db)
+    await service.delete_run(run_id, organization_id)
+
+
 # ---- Payslips ----
 
 

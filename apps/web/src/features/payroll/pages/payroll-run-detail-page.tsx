@@ -35,6 +35,7 @@ import { useEmployeesList } from "@/features/employees/api/employees-hooks";
 import {
   useAddPayslipLine,
   useCancelPayrollRun,
+  useDeletePayrollRun,
   useFinalizePayrollRun,
   useMarkPayrollRunPaid,
   usePayrollRun,
@@ -74,6 +75,7 @@ export function PayrollRunDetailPage() {
   const finalizeRun = useFinalizePayrollRun(runId ?? "");
   const markPaid = useMarkPayrollRunPaid(runId ?? "");
   const cancelRun = useCancelPayrollRun(runId ?? "");
+  const deleteRun = useDeletePayrollRun(runId ?? "");
   const addPayslipLine = useAddPayslipLine(runId ?? "");
 
   const [finalizeOpen, setFinalizeOpen] = useState(false);
@@ -82,6 +84,7 @@ export function PayrollRunDetailPage() {
   const [bankAccountId, setBankAccountId] = useState("");
   const [paymentDate, setPaymentDate] = useState(todayIso());
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [addLinePayslipId, setAddLinePayslipId] = useState<string | null>(null);
   const [addLineComponentId, setAddLineComponentId] = useState("");
   const [addLineAmount, setAddLineAmount] = useState("");
@@ -128,6 +131,10 @@ export function PayrollRunDetailPage() {
     cancelRun.mutate(undefined, { onSuccess: () => setCancelOpen(false) });
   };
 
+  const handleDelete = () => {
+    deleteRun.mutate(undefined, { onSuccess: () => navigate("/payroll/runs") });
+  };
+
   return (
     <div className="space-y-6 p-8">
       <div className="flex items-center justify-between">
@@ -164,6 +171,11 @@ export function PayrollRunDetailPage() {
                 Cancel
               </Button>
             </>
+          )}
+          {run.status === "cancelled" && (
+            <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+              Delete
+            </Button>
           )}
         </div>
       </div>
@@ -321,6 +333,27 @@ export function PayrollRunDetailPage() {
             </Button>
             <Button variant="destructive" onClick={handleCancel} disabled={cancelRun.isPending}>
               {cancelRun.isPending ? "Cancelling..." : "Cancel run"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete payroll run</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Permanently deletes this cancelled run and its payslips, and frees up its period so
+            you can generate a fresh run for {monthNames[run.period_month - 1]} {run.period_year}.
+            This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              Keep run
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteRun.isPending}>
+              {deleteRun.isPending ? "Deleting..." : "Delete run"}
             </Button>
           </DialogFooter>
         </DialogContent>
