@@ -193,6 +193,54 @@ async def test_add_payslip_line_rejected_once_run_is_finalized(
     assert add_line_resp.status_code == 422, add_line_resp.text
 
 
+async def test_deleting_a_cancelled_run_frees_its_period_for_regeneration(client, auth_headers, payroll_setup):
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 3, "run_date": "2026-03-31"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+    run = generate_resp.json()["run"]
+
+    regenerate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 3, "run_date": "2026-03-31"},
+        headers=auth_headers,
+    )
+    assert regenerate_resp.status_code == 409, regenerate_resp.text
+
+    cancel_resp = await client.post(f"/api/v1/payroll/runs/{run['id']}/cancel", headers=auth_headers)
+    assert cancel_resp.status_code == 200, cancel_resp.text
+    assert cancel_resp.json()["status"] == "cancelled"
+
+    delete_resp = await client.delete(f"/api/v1/payroll/runs/{run['id']}", headers=auth_headers)
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    get_resp = await client.get(f"/api/v1/payroll/runs/{run['id']}", headers=auth_headers)
+    assert get_resp.status_code == 404
+
+    regenerate_after_delete_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 3, "run_date": "2026-03-31"},
+        headers=auth_headers,
+    )
+    assert regenerate_after_delete_resp.status_code == 201, regenerate_after_delete_resp.text
+
+
+async def test_deleting_a_non_cancelled_run_is_rejected(client, auth_headers, payroll_setup):
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 4, "run_date": "2026-04-30"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+    run = generate_resp.json()["run"]
+    assert run["status"] == "draft"
+
+    delete_resp = await client.delete(f"/api/v1/payroll/runs/{run['id']}", headers=auth_headers)
+    assert delete_resp.status_code == 422, delete_resp.text
+
+
 async def test_auto_generate_monthly_draft_only_on_last_working_day(client, db_session, organization, payroll_setup):
     def _last_working_day(year: int, month: int) -> date:
         last = calendar.monthrange(year, month)[1]

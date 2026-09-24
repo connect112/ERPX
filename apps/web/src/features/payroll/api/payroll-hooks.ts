@@ -134,6 +134,14 @@ export function useCancelPayrollRun(id: string) {
   });
 }
 
+export function useDeletePayrollRun(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => payrollApi.deleteRun(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: runsKeys.all }),
+  });
+}
+
 export function useEmployeePayslips(employeeId: string | undefined, params: { skip?: number; limit?: number }) {
   return useQuery({
     queryKey: employeePayslipsKey(employeeId ?? "", params),

@@ -187,6 +187,8 @@ export const payrollApi = {
   cancelRun: (id: string) =>
     apiClient.post<PayrollRunPublic>(`/payroll/runs/${id}/cancel`).then((r) => r.data),
 
+  deleteRun: (id: string) => apiClient.delete<void>(`/payroll/runs/${id}`).then((r) => r.data),
+
   getPayslip: (id: string) => apiClient.get<PayslipPublic>(`/payroll/payslips/${id}`).then((r) => r.data),
 
   addPayslipLine: (payslipId: string, payload: PayslipAddLinePayload) =>
