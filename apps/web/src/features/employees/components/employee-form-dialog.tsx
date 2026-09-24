@@ -149,16 +149,16 @@ export function EmployeeFormDialog({ open, onOpenChange, employee }: EmployeeFor
       emergency_contact_name: values.emergencyContactName || undefined,
       emergency_contact_phone: values.emergencyContactPhone || undefined,
       employment_type: values.employmentType,
+      date_of_joining: values.dateOfJoining || undefined,
       notes: values.notes || undefined,
     };
 
     if (isEditing) {
       updateEmployee.mutate(shared, { onSuccess: () => onOpenChange(false) });
     } else {
-      createEmployee.mutate(
-        { ...shared, date_of_joining: values.dateOfJoining },
-        { onSuccess: () => onOpenChange(false) }
-      );
+      createEmployee.mutate({ ...shared, date_of_joining: values.dateOfJoining }, {
+        onSuccess: () => onOpenChange(false),
+      });
     }
   };
 

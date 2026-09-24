@@ -197,6 +197,38 @@ async def test_create_employee_without_personal_fields_succeeds(client, auth_hea
     assert employee["address_line1"] is None
 
 
+async def test_update_employee_can_correct_date_of_joining(client, auth_headers, rbac_seeded):
+    """date_of_joining is set once at invite time, but HR needs to be
+    able to correct it afterward (a typo, backfilling a real historical
+    hire date, ...) — EmployeeUpdateRequest previously omitted the field
+    entirely, so PATCH silently ignored it."""
+    department, designation = await _create_department_and_designation(
+        client, auth_headers, code="DOJ"
+    )
+
+    create_resp = await client.post(
+        "/api/v1/employees",
+        json={
+            **_MINIMAL_EMPLOYEE_PAYLOAD,
+            "email": "doj-test@example.com",
+            "department_id": department["id"],
+            "designation_id": designation["id"],
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    employee_id = create_resp.json()["id"]
+    assert create_resp.json()["date_of_joining"] == "2026-02-01"
+
+    update_resp = await client.patch(
+        f"/api/v1/employees/{employee_id}",
+        json={"date_of_joining": "2025-09-01"},
+        headers=auth_headers,
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    assert update_resp.json()["date_of_joining"] == "2025-09-01"
+
+
 async def test_complete_registration_sets_password_and_profile(
     client, auth_headers, db_session, rbac_seeded
 ):
