@@ -2,11 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   type AttendanceListParams,
-  type BulkMarkAttendancePayload,
-  type CheckInPayload,
-  type CheckOutPayload,
   type EmployeeAttendanceListParams,
-  type MarkAttendancePayload,
   type RegularizeAttendancePayload,
   attendanceApi,
 } from "@/features/attendance/api/attendance-api";
@@ -42,38 +38,6 @@ export function useAttendanceSummary(employeeId: string | undefined, year: numbe
     queryKey: attendanceKeys.summary(employeeId ?? "", year, month),
     queryFn: () => attendanceApi.summary(employeeId as string, year, month),
     enabled: !!employeeId,
-  });
-}
-
-export function useMarkAttendance() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: MarkAttendancePayload) => attendanceApi.mark(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
-  });
-}
-
-export function useBulkMarkAttendance() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: BulkMarkAttendancePayload) => attendanceApi.bulkMark(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
-  });
-}
-
-export function useCheckIn() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CheckInPayload) => attendanceApi.checkIn(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
-  });
-}
-
-export function useCheckOut() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CheckOutPayload) => attendanceApi.checkOut(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: attendanceKeys.all }),
   });
 }
 
