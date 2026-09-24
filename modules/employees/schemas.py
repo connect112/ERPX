@@ -72,6 +72,7 @@ class EmployeeUpdateRequest(BaseModel):
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
     employment_type: EmploymentType | None = None
+    date_of_joining: date | None = None
     notes: str | None = None
 
 

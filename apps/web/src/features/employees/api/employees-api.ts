@@ -75,7 +75,7 @@ export interface EmployeeCreatePayload {
   notes?: string;
 }
 
-export type EmployeeUpdatePayload = Partial<Omit<EmployeeCreatePayload, "date_of_joining">>;
+export type EmployeeUpdatePayload = Partial<EmployeeCreatePayload>;
 
 export const employeesApi = {
   list: (params: EmployeeListParams) =>
