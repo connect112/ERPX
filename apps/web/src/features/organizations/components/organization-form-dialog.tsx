@@ -37,6 +37,8 @@ interface OrganizationFormDialogProps {
 const emptyValues: OrganizationFormValues = {
   name: "",
   slug: "",
+  adminFullName: "",
+  adminEmail: "",
   legalName: "",
   industry: "",
   email: "",
@@ -55,6 +57,11 @@ export function OrganizationFormDialog({ open, onOpenChange, organization }: Org
   const createOrganization = useCreateOrganization();
   const updateOrganization = useUpdateOrganization(organization?.id ?? "");
 
+  // Editing never touches the admin account (only creation provisions
+  // one), so the two admin fields are validated as required only in
+  // create mode — isEditing is fixed for this dialog's whole lifetime
+  // (organizations-list-page always creates, organization-detail-page
+  // always edits), so picking the schema once here is safe.
   const {
     register,
     control,
@@ -62,7 +69,7 @@ export function OrganizationFormDialog({ open, onOpenChange, organization }: Org
     reset,
     formState: { errors },
   } = useForm<OrganizationFormValues>({
-    resolver: zodResolver(organizationFormSchema),
+    resolver: zodResolver(organizationFormSchema(isEditing ? "edit" : "create")),
     defaultValues: emptyValues,
   });
 
@@ -73,6 +80,8 @@ export function OrganizationFormDialog({ open, onOpenChange, organization }: Org
           ? {
               name: organization.name,
               slug: organization.slug,
+              adminFullName: "",
+              adminEmail: "",
               legalName: organization.legal_name ?? "",
               industry: organization.industry ?? "",
               email: organization.email ?? "",
@@ -111,7 +120,15 @@ export function OrganizationFormDialog({ open, onOpenChange, organization }: Org
     if (isEditing) {
       updateOrganization.mutate(shared, { onSuccess: () => onOpenChange(false) });
     } else {
-      createOrganization.mutate({ ...shared, slug: values.slug }, { onSuccess: () => onOpenChange(false) });
+      createOrganization.mutate(
+        {
+          ...shared,
+          slug: values.slug,
+          admin_full_name: values.adminFullName,
+          admin_email: values.adminEmail,
+        },
+        { onSuccess: () => onOpenChange(false) }
+      );
     }
   };
 
@@ -134,6 +151,34 @@ export function OrganizationFormDialog({ open, onOpenChange, organization }: Org
               {errors.slug && <p className="text-sm text-destructive">{errors.slug.message}</p>}
             </div>
           </div>
+
+          {!isEditing && (
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Organization admin
+              </p>
+              <p className="text-xs text-muted-foreground">
+                We'll create their account and email them a link to set their own password.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="adminFullName">Admin full name</Label>
+                  <Input id="adminFullName" {...register("adminFullName")} />
+                  {errors.adminFullName && (
+                    <p className="text-sm text-destructive">{errors.adminFullName.message}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adminEmail">Admin email</Label>
+                  <Input id="adminEmail" type="email" {...register("adminEmail")} />
+                  {errors.adminEmail && (
+                    <p className="text-sm text-destructive">{errors.adminEmail.message}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="legalName">Legal name</Label>

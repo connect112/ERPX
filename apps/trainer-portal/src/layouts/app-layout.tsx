@@ -1,4 +1,4 @@
-import { CalendarCheck, LayoutDashboard, LogOut, Moon, Sun, Users } from "lucide-react";
+import { CalendarCheck, LayoutDashboard, LogOut, Megaphone, Moon, Sun, Users, Video } from "lucide-react";
 import { Suspense } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
@@ -6,13 +6,16 @@ import { useTheme } from "@/components/theme-provider";
 import { PageLoader } from "@/components/ui/page-loader";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api/auth-hooks";
+import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/batches", label: "My Batches", icon: Users, end: false },
+  { to: "/live-classes", label: "Live Classes", icon: Video, end: false },
   { to: "/attendance", label: "Attendance", icon: CalendarCheck, end: false },
+  { to: "/announcements", label: "Announcements", icon: Megaphone, end: false },
 ];
 
 function initials(name: string): string {
@@ -70,6 +73,7 @@ function AppTopbar() {
     <header className="flex h-16 items-center justify-between border-b bg-card px-6">
       <div />
       <div className="flex items-center gap-2">
+        <NotificationBell />
         <Button
           variant="ghost"
           size="icon"

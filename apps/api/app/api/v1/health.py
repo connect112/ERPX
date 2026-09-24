@@ -119,7 +119,7 @@ DEPENDENCY_CHECKS: dict[str, tuple[str, bool]] = {
 
 @router.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "service": settings.PROJECT_NAME}
+    return {"status": "ok", "service": settings.PROJECT_NAME, "environment": settings.ENVIRONMENT}
 
 
 @router.get("/health/ready")

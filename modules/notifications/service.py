@@ -71,6 +71,40 @@ class NotificationService:
         logger.info("notification_broadcast", organization_id=str(organization_id), count=len(created))
         return len(created)
 
+    async def broadcast_to_organization_admins(
+        self,
+        title: str,
+        body: str | None = None,
+        notification_type: NotificationType = NotificationType.INFO,
+        link_url: str | None = None,
+        source: str | None = "broadcast",
+    ) -> int:
+        """Super Admin's broadcast: reaches every real organization's own
+        Administrator(s), not the caller's own (near-empty, internal)
+        organization — see modules/notifications/routes.py, which routes
+        here instead of broadcast_to_organization() specifically for
+        is_superuser callers."""
+        from modules.organizations.service import SYSTEM_ORG_SLUG
+
+        recipients = await self.repo.list_administrator_recipients(exclude_org_slug=SYSTEM_ORG_SLUG)
+        if not recipients:
+            return 0
+        rows = [
+            {
+                "organization_id": organization_id,
+                "user_id": user_id,
+                "title": title,
+                "body": body,
+                "notification_type": notification_type,
+                "link_url": link_url,
+                "source": source,
+            }
+            for user_id, organization_id in recipients
+        ]
+        created = await self.repo.bulk_create(rows)
+        logger.info("notification_broadcast_to_admins", count=len(created))
+        return len(created)
+
     async def list_for_user(self, user_id: uuid.UUID, **filters):
         return await self.repo.list_for_user(user_id, **filters)
 

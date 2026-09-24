@@ -90,6 +90,33 @@ class Settings(BaseSettings):
     # 5173/3000 = apps/web, 5174 = apps/student-portal (see apps/student-portal/vite.config.ts).
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:5174"
 
+    # ---- Live classes (self-hosted Jitsi Meet) ----
+    # The dedicated Jitsi server (infrastructure/aws-single-host — a
+    # separate EC2 instance from the main ERPX host, since JVB needs real
+    # CPU for media relay). Empty JITSI_PUBLIC_URL (the default) means
+    # live classes fall back to a trainer-supplied meeting_link instead of
+    # an auto-provisioned room — local dev and every test run are
+    # unaffected by this.
+    JITSI_PUBLIC_URL: str = ""
+    # Must exactly match JWT_APP_ID / JWT_APP_SECRET in the Jitsi server's
+    # own .env (see modules/live_classes/jitsi.py) — Prosody's token auth
+    # plugin verifies every join JWT against this same secret.
+    JITSI_APP_ID: str = "erpx"
+    JITSI_APP_SECRET: str = ""
+    # How long a minted join JWT stays valid — generous over a typical
+    # class's duration_minutes so a long session doesn't get cut off
+    # mid-call; the token only grants access to one specific room anyway.
+    JITSI_TOKEN_EXPIRE_MINUTES: int = 240
+
+    # ---- Single sign-on (cross-subdomain) ----
+    # Domain attribute for the `erpx_sso` cookie modules/authentication/routes.py
+    # sets at /login and /refresh — e.g. ".pentrix.in" in production, so the
+    # same cookie is visible to erp./lms./staff./trainer.pentrix.in and
+    # /auth/sso/bootstrap on any of them can silently pick up a session
+    # started on any other. Empty (the default) disables the cookie
+    # entirely — local dev and every test run behave exactly as before.
+    SSO_COOKIE_DOMAIN: str = ""
+
     # ---- Rate Limiting ----
     RATE_LIMIT_DEFAULT: str = "100/minute"
     # Per-IP cap for the anonymous landing-page view beacon
@@ -103,6 +130,10 @@ class Settings(BaseSettings):
     # apps/student-portal — where a provisioned student's "set your
     # password" email link and login_url point (see modules/provisioning).
     STUDENT_PORTAL_URL: str = "http://localhost:5174"
+    # apps/employee-portal — where an invited employee's "set your
+    # password" email link and login_url point (see modules/employees'
+    # invite_employee).
+    EMPLOYEE_PORTAL_URL: str = "http://localhost:5175"
 
     # ---- Internal service-to-service auth ----
     # Shared HMAC secret verifying inbound calls to /api/v1/internal/*

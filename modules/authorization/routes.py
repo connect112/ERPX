@@ -25,6 +25,7 @@ from modules.authorization.schemas import (
     UserRolesResponse,
 )
 from modules.authorization.service import AuthorizationService
+from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
 
@@ -62,33 +63,36 @@ async def list_permissions(
 
 @router.get("/roles", response_model=list[RolePublic])
 async def list_roles(
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    roles = await service.list_roles()
+    roles = await service.list_roles(organization_id)
     return [RolePublic.model_validate(r) for r in roles]
 
 
 @router.post("/roles", response_model=RolePublic, status_code=status.HTTP_201_CREATED)
 async def create_role(
     payload: RoleCreateRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    role = await service.create_role(payload.name, payload.slug, payload.description)
+    role = await service.create_role(organization_id, payload.name, payload.slug, payload.description)
     return RolePublic.model_validate(role)
 
 
 @router.get("/roles/{role_id}", response_model=RoleWithPermissions)
 async def get_role(
     role_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    role = await service.get_role_with_permissions(role_id)
+    role = await service.get_role_with_permissions(role_id, organization_id)
     return RoleWithPermissions(
         **RolePublic.model_validate(role).model_dump(),
         permissions=[PermissionPublic.model_validate(rp.permission) for rp in role.role_permissions],
@@ -99,22 +103,24 @@ async def get_role(
 async def update_role(
     role_id: uuid.UUID,
     payload: RoleUpdateRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    role = await service.update_role(role_id, payload.name, payload.description)
+    role = await service.update_role(role_id, organization_id, payload.name, payload.description)
     return RolePublic.model_validate(role)
 
 
 @router.delete("/roles/{role_id}", response_model=MessageResponse)
 async def delete_role(
     role_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    await service.delete_role(role_id)
+    await service.delete_role(role_id, organization_id)
     return MessageResponse(message="Role deleted successfully.")
 
 
@@ -122,11 +128,12 @@ async def delete_role(
 async def set_role_permissions(
     role_id: uuid.UUID,
     payload: AssignPermissionsRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    role = await service.set_role_permissions(role_id, payload.permission_codes)
+    role = await service.set_role_permissions(role_id, organization_id, payload.permission_codes)
     return RoleWithPermissions(
         **RolePublic.model_validate(role).model_dump(),
         permissions=[PermissionPublic.model_validate(rp.permission) for rp in role.role_permissions],
@@ -136,33 +143,36 @@ async def set_role_permissions(
 @router.post("/user-roles", response_model=MessageResponse)
 async def assign_role_to_user(
     payload: AssignRoleRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.assign")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    await service.assign_role(payload.user_id, payload.role_id, assigned_by_user_id=user.id)
+    await service.assign_role(payload.user_id, payload.role_id, organization_id, assigned_by_user_id=user.id)
     return MessageResponse(message="Role assigned successfully.")
 
 
 @router.delete("/user-roles", response_model=MessageResponse)
 async def revoke_role_from_user(
     payload: AssignRoleRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.assign")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    await service.revoke_role(payload.user_id, payload.role_id)
+    await service.revoke_role(payload.user_id, payload.role_id, organization_id)
     return MessageResponse(message="Role revoked successfully.")
 
 
 @router.get("/users/{user_id}/roles", response_model=UserRolesResponse)
 async def get_user_roles(
     user_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("authorization.roles.view", "users.view", require_all=False)),
     db: AsyncSession = Depends(get_db),
 ):
     service = AuthorizationService(db)
-    result = await service.get_user_roles_and_permissions(user_id)
+    result = await service.get_user_roles_and_permissions(user_id, organization_id)
     return UserRolesResponse(
         user_id=user_id,
         roles=[RolePublic.model_validate(r) for r in result["roles"]],

@@ -1,22 +1,29 @@
 """
 API tests for the Integrations module: a config registry plus a real
 connection test (an actual outbound HTTP request to the configured
-base_url, not a simulated result). The success case points at the local
-MinIO health endpoint (already running for this test session — see
-tests/README.md); the failure case points at a port nothing listens on,
-so both are genuine, deterministic real network outcomes.
+base_url, not a simulated result). The success case points at the
+MinIO health endpoint of the actually-configured test instance (via
+settings.MINIO_ENDPOINT — see tests/README.md); the failure case points
+at a port nothing listens on, so both are genuine, deterministic real
+network outcomes.
 """
 
 import pytest
 
+from app.core.config import settings
+
 pytestmark = pytest.mark.api
+
+MINIO_HEALTH_URL = (
+    f"{'https' if settings.MINIO_SECURE else 'http'}://{settings.MINIO_ENDPOINT}/minio/health/live"
+)
 
 
 async def _create_integration(client, auth_headers, **overrides):
     payload = {
         "provider": "custom",
         "name": "Internal health check",
-        "base_url": "http://127.0.0.1:9000/minio/health/live",
+        "base_url": MINIO_HEALTH_URL,
         "api_key": "sk-test-1234567890abcd",
     }
     payload.update(overrides)

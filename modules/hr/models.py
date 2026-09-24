@@ -50,3 +50,14 @@ class Designation(TimestampedBase):
     grade_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # What EmployeeService.invite_employee grants beyond the basic
+    # employee-portal login, for any employee holding this designation —
+    # see migration 0041 for the full rationale. Both optional: most
+    # designations (Accountant, HR Executive, ...) grant neither, and
+    # every employee gets the basic self-service portal regardless of
+    # designation, or lack of one.
+    linked_role_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("roles.id", ondelete="SET NULL"), nullable=True
+    )
+    grants_trainer_access: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

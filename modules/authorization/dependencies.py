@@ -58,6 +58,26 @@ def require_permissions(*permission_codes: str, require_all: bool = True):
     return dependency
 
 
+def require_superuser():
+    """
+    Unlike require_permissions/require_role, this never checks the
+    database for a granted permission or role — it only ever accepts
+    User.is_superuser. Permission codes (even ones named
+    "organizations.manage") could in principle be granted to any custom
+    role by an org's own Administrator; true platform-operator actions
+    (cross-tenant organization management — see
+    modules/organizations/routes.py) need a check nothing short of
+    is_superuser itself can satisfy.
+    """
+
+    async def dependency(user: User = Depends(get_current_active_user)) -> User:
+        if not user.is_superuser:
+            raise AuthorizationError("This action requires platform Super Admin access.")
+        return user
+
+    return dependency
+
+
 def require_role(*role_slugs: str):
     """Coarser-grained alternative to permission checks, for simple role gates."""
 

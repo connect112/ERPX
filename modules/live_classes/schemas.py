@@ -12,7 +12,11 @@ class LiveClassCreateRequest(BaseModel):
     title: str = Field(..., min_length=2, max_length=255)
     scheduled_at: datetime
     duration_minutes: int = Field(default=60, ge=5, le=480)
-    meeting_link: str = Field(..., min_length=1, max_length=512)
+    # Omit to auto-provision a self-hosted Jitsi room (see
+    # modules/live_classes/jitsi.py) — the normal path. Only set this to
+    # use an external link (Zoom/Meet/etc.) instead, or when Jitsi isn't
+    # configured (JITSI_PUBLIC_URL unset, e.g. local dev).
+    meeting_link: str | None = Field(default=None, min_length=1, max_length=512)
 
 
 class LiveClassUpdateRequest(BaseModel):
@@ -51,3 +55,12 @@ class LiveClassListResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class LiveClassJoinToken(BaseModel):
+    """What a trainer/student portal needs to open the embedded Jitsi
+    IFrame for a live class — see modules/live_classes/jitsi.py."""
+
+    domain: str
+    room: str
+    jwt: str

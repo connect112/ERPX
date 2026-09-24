@@ -57,7 +57,6 @@ async def _create_trainer_with_login(client, db_session, organization, full_name
     employee = await EmployeeRepository(db_session).create(
         organization_id=organization.id,
         user_id=user.id,
-        employee_code=f"EMP-{unique}",
         full_name=full_name,
         date_of_joining=date(2024, 1, 1),
     )

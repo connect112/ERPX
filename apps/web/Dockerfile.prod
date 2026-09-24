@@ -15,6 +15,11 @@ RUN npm ci
 COPY . .
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+# Node auto-sizes its heap off the memory the container reports, which on a
+# small/burstable host (e.g. a 1GB free-tier instance) makes the Vite/Rollup
+# build OOM well before real memory is exhausted. Raise the ceiling
+# explicitly so the build can use swap instead of crashing.
+ENV NODE_OPTIONS=--max-old-space-size=2048
 RUN npm run build
 
 FROM nginx:1.27-alpine AS production

@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.lms.announcements.models import Announcement
@@ -33,6 +33,23 @@ class AnnouncementRepository:
             conditions.append(Announcement.course_id == course_id)
         result = await self.db.execute(
             select(Announcement).where(*conditions).order_by(Announcement.published_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_for_courses_or_org_wide(
+        self, organization_id: uuid.UUID, course_ids: list[uuid.UUID]
+    ) -> list[Announcement]:
+        """Every org-wide announcement (course_id NULL) plus every
+        course-scoped one for a course in `course_ids` — the audience a
+        student/trainer actually belongs to, not everything in the org.
+        See modules.lms.announcements.routes' /me and /trainer/me."""
+        conditions = [Announcement.course_id.is_(None)]
+        if course_ids:
+            conditions.append(Announcement.course_id.in_(course_ids))
+        result = await self.db.execute(
+            select(Announcement)
+            .where(Announcement.organization_id == organization_id, or_(*conditions))
+            .order_by(Announcement.published_at.desc())
         )
         return list(result.scalars().all())
 

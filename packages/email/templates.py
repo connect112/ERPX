@@ -31,6 +31,30 @@ def verification_email(full_name: str, verification_url: str) -> tuple[str, str,
     return subject, text, html
 
 
+def payroll_draft_ready_email(full_name: str, period_label: str, review_url: str) -> tuple[str, str, str]:
+    subject = f"Payroll draft for {period_label} is ready for review"
+    text = (
+        f"Hi {full_name},\n\n"
+        f"The {period_label} payroll draft has been generated automatically and is ready "
+        f"for your review. Add any one-off amounts (e.g. reimbursements) and finalize it "
+        f"here:\n\n{review_url}\n\n"
+        f"Nothing has been finalized or paid yet — this is a draft awaiting your review."
+    )
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>Payroll draft ready: {period_label}</h2>
+      <p>Hi {full_name}, the {period_label} payroll draft has been generated automatically
+      and is ready for your review.</p>
+      <p><a href="{review_url}"
+            style="background:#2563eb;color:#fff;padding:10px 20px;
+                   border-radius:6px;text-decoration:none">Review payroll run</a></p>
+      <p style="color:#6b7280;font-size:13px">Nothing has been finalized or paid yet —
+      this is a draft awaiting your review.</p>
+    </div>
+    """
+    return subject, text, html
+
+
 def password_reset_email(full_name: str, reset_url: str) -> tuple[str, str, str]:
     subject = "Reset your ERPX password"
     text = (

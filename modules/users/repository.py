@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.authentication.models import User
+from modules.students.models import Student
 from modules.users.models import UserProfile
 
 
@@ -22,10 +23,22 @@ class UserProfileRepository:
     async def list_with_users_for_organization(
         self, organization_id: uuid.UUID, skip: int = 0, limit: int = 50
     ) -> list[tuple[User, UserProfile]]:
+        # A self-service-provisioned Pentrix student (modules/provisioning)
+        # also gets a UserProfile so tenant-scoping dependencies resolve
+        # for them, but they're not a "team member" in the sense this
+        # page means — that's what the dedicated Students module/page is
+        # for. Exclude anyone with a (non-deleted) Student record.
+        student_user_ids = select(Student.user_id).where(
+            Student.user_id.is_not(None), Student.deleted_at.is_(None)
+        )
         result = await self.db.execute(
             select(User, UserProfile)
             .join(UserProfile, UserProfile.user_id == User.id)
-            .where(UserProfile.organization_id == organization_id, User.deleted_at.is_(None))
+            .where(
+                UserProfile.organization_id == organization_id,
+                User.deleted_at.is_(None),
+                User.id.not_in(student_user_ids),
+            )
             .order_by(User.full_name)
             .offset(skip)
             .limit(limit)

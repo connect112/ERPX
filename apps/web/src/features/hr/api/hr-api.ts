@@ -20,6 +20,11 @@ export interface DesignationPublic {
   grade_level: number | null;
   description: string | null;
   is_active: boolean;
+  // What EmployeeService.invite_employee grants an employee holding this
+  // designation, beyond the basic employee-portal login every employee
+  // gets regardless — see migration 0041.
+  linked_role_id: string | null;
+  grants_trainer_access: boolean;
   created_at: string;
 }
 
@@ -44,6 +49,8 @@ export interface DesignationCreatePayload {
   code: string;
   grade_level?: number;
   description?: string;
+  linked_role_id?: string;
+  grants_trainer_access?: boolean;
 }
 
 export interface DesignationUpdatePayload {
@@ -51,6 +58,8 @@ export interface DesignationUpdatePayload {
   grade_level?: number;
   description?: string;
   is_active?: boolean;
+  linked_role_id?: string | null;
+  grants_trainer_access?: boolean;
 }
 
 export const hrApi = {

@@ -30,6 +30,14 @@ class BatchRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_for_ids(self, batch_ids: list[uuid.UUID], organization_id: uuid.UUID) -> list[Batch]:
+        if not batch_ids:
+            return []
+        result = await self.db.execute(
+            select(Batch).where(Batch.id.in_(batch_ids), Batch.organization_id == organization_id)
+        )
+        return list(result.scalars().all())
+
     async def list_for_organization(
         self,
         organization_id: uuid.UUID,

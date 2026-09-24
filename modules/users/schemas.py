@@ -7,8 +7,11 @@ from modules.users.models import Gender
 
 
 class UserProfileCreateRequest(BaseModel):
+    # organization_id is deliberately NOT a client-supplied field here — it
+    # always comes from the caller's own organization (see routes.py's
+    # get_current_user_organization_id), so one org's admin can never
+    # attach a new user's profile to a different organization.
     user_id: uuid.UUID
-    organization_id: uuid.UUID
     branch_id: uuid.UUID | None = None
     employee_code: str | None = None
     designation: str | None = None

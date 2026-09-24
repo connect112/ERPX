@@ -34,6 +34,11 @@ class RolePublic(BaseModel):
     slug: str
     description: str | None
     is_system: bool
+    # None = a system role template shared read-only across every
+    # organization; set = a custom role owned by (and editable only
+    # within) that one organization. Lets the frontend show/hide
+    # edit/delete controls without a second lookup.
+    organization_id: uuid.UUID | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

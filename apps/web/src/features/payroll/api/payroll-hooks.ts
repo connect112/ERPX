@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import {
   type PayrollRunGeneratePayload,
   type PayrollRunListParams,
+  type PayslipAddLinePayload,
   type SalaryComponentCreatePayload,
   type SalaryComponentUpdatePayload,
   type SalaryStructureCreatePayload,
@@ -110,6 +111,18 @@ export function useMarkPayrollRunPaid(id: string) {
     mutationFn: ({ bankAccountId, paymentDate }: { bankAccountId: string; paymentDate: string }) =>
       payrollApi.markRunPaid(id, bankAccountId, paymentDate),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: runsKeys.all }),
+  });
+}
+
+export function useAddPayslipLine(runId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ payslipId, payload }: { payslipId: string; payload: PayslipAddLinePayload }) =>
+      payrollApi.addPayslipLine(payslipId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: runsKeys.payslips(runId) });
+      queryClient.invalidateQueries({ queryKey: runsKeys.detail(runId) });
+    },
   });
 }
 

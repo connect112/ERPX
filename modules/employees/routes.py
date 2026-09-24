@@ -1,13 +1,16 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.limiter import limiter
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
-from modules.employees.models import EmploymentStatus
+from modules.employees.dependencies import get_current_employee
+from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.schemas import (
+    EmployeeCompleteRegistrationRequest,
     EmployeeCreateRequest,
     EmployeePublic,
     EmployeeStatusChangeRequest,
@@ -18,6 +21,35 @@ from modules.employees.service import EmployeeService
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+# The one public route in this file — token-authenticated, not user-
+# authenticated, like /auth/reset-password. Placed before /{employee_id}
+# on principle (a fixed path ahead of a parameterized one, same reason
+# /me sits first) even though no actual collision exists: every other
+# POST on a single path segment in this file is "" (create), not
+# "/{employee_id}".
+@router.post("/complete-registration", response_model=EmployeePublic)
+@limiter.limit("5/minute")
+async def complete_employee_registration(
+    payload: EmployeeCompleteRegistrationRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Where an invited employee lands from their email: sets their own
+    password and fills in the personal fields the admin never collected
+    — see EmployeeService.complete_registration's docstring."""
+    service = EmployeeService(db)
+    employee = await service.complete_registration(
+        payload.token, payload.new_password, **payload.model_dump(exclude={"token", "new_password"})
+    )
+    return EmployeePublic.model_validate(employee)
+
+
+@router.get("/me", response_model=EmployeePublic)
+async def get_my_employee_profile(employee: Employee = Depends(get_current_employee)):
+    """The calling user's own employee record. Ownership-gated via
+    get_current_employee, no permission code — see that dependency's
+    docstring."""
+    return EmployeePublic.model_validate(employee)
 
 
 @router.post("", response_model=EmployeePublic, status_code=status.HTTP_201_CREATED)
@@ -126,3 +158,18 @@ async def delete_employee(
     service = EmployeeService(db)
     await service.delete_employee(employee_id, organization_id)
     return MessageResponse(message="Employee deleted successfully.")
+
+
+@router.post("/{employee_id}/invite", response_model=EmployeePublic)
+async def invite_employee(
+    employee_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("employees.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create employee-portal login access for an existing HR record — see
+    EmployeeService.invite_employee's docstring for why this didn't
+    already exist."""
+    service = EmployeeService(db)
+    employee = await service.invite_employee(employee_id, organization_id)
+    return EmployeePublic.model_validate(employee)

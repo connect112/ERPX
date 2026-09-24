@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { authApi, isTwoFactorRequired } from "@/features/auth/api/auth-api";
 import { useAuthStore } from "@/store/auth-store";
@@ -56,6 +56,7 @@ export function useResetPasswordMutation() {
 export function useLogout() {
   const logout = useAuthStore((s) => s.logout);
   const refreshToken = useAuthStore((s) => s.refreshToken);
+  const queryClient = useQueryClient();
 
   return async () => {
     if (refreshToken) {
@@ -66,5 +67,10 @@ export function useLogout() {
       }
     }
     logout();
+    // Every query is keyed generically, not per-user — without this, a
+    // second account logging in in the same tab right after can get
+    // served the first account's cached results until each query's own
+    // staleTime expires.
+    queryClient.clear();
   };
 }

@@ -30,6 +30,8 @@ export interface OrganizationListParams {
 export interface OrganizationCreatePayload {
   name: string;
   slug: string;
+  admin_full_name: string;
+  admin_email: string;
   legal_name?: string;
   industry?: string;
   email?: string;

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.core.logging_config import get_logger
+from modules.batches.repository import BatchEnrollmentRepository, BatchRepository
 from modules.courses.repository import CourseRepository
 from modules.lms.announcements.models import Announcement
 from modules.lms.announcements.repository import AnnouncementRepository
@@ -16,6 +17,8 @@ class AnnouncementService:
         self.db = db
         self.repo = AnnouncementRepository(db)
         self.course_repo = CourseRepository(db)
+        self.batch_repo = BatchRepository(db)
+        self.batch_enrollment_repo = BatchEnrollmentRepository(db)
 
     async def create_announcement(
         self, organization_id: uuid.UUID, created_by_user_id: uuid.UUID, course_id: uuid.UUID | None, **fields
@@ -44,6 +47,17 @@ class AnnouncementService:
         self, organization_id: uuid.UUID, course_id: uuid.UUID | None
     ) -> list[Announcement]:
         return await self.repo.list_for_organization(organization_id, course_id)
+
+    async def list_for_student(self, student_id: uuid.UUID, organization_id: uuid.UUID) -> list[Announcement]:
+        batch_ids = await self.batch_enrollment_repo.list_batch_ids_for_student(student_id, organization_id)
+        batches = await self.batch_repo.list_for_ids(batch_ids, organization_id)
+        course_ids = list({b.course_id for b in batches})
+        return await self.repo.list_for_courses_or_org_wide(organization_id, course_ids)
+
+    async def list_for_trainer(self, trainer_id: uuid.UUID, organization_id: uuid.UUID) -> list[Announcement]:
+        batches = await self.batch_repo.list_for_trainer(trainer_id, organization_id)
+        course_ids = list({b.course_id for b in batches})
+        return await self.repo.list_for_courses_or_org_wide(organization_id, course_ids)
 
     async def update_announcement(
         self, announcement_id: uuid.UUID, organization_id: uuid.UUID, **fields

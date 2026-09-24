@@ -39,6 +39,11 @@ class DesignationCreateRequest(BaseModel):
     code: str = Field(..., min_length=1, max_length=30)
     grade_level: int | None = Field(default=None, ge=1)
     description: str | None = None
+    # What EmployeeService.invite_employee grants beyond the basic
+    # employee-portal login, for any employee holding this designation —
+    # see migration 0041. Both optional; most designations set neither.
+    linked_role_id: uuid.UUID | None = None
+    grants_trainer_access: bool = False
 
 
 class DesignationUpdateRequest(BaseModel):
@@ -46,6 +51,8 @@ class DesignationUpdateRequest(BaseModel):
     grade_level: int | None = Field(default=None, ge=1)
     description: str | None = None
     is_active: bool | None = None
+    linked_role_id: uuid.UUID | None = None
+    grants_trainer_access: bool | None = None
 
 
 class DesignationPublic(BaseModel):
@@ -56,6 +63,8 @@ class DesignationPublic(BaseModel):
     grade_level: int | None
     description: str | None
     is_active: bool
+    linked_role_id: uuid.UUID | None
+    grants_trainer_access: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}

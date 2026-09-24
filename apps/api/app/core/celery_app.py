@@ -98,6 +98,16 @@ celery_app.conf.beat_schedule = {
         "task": "placements.run_jooble_aggregation",
         "schedule": crontab(day_of_week="mon", hour=3, minute=0),
     },
+    # Runs daily (not monthly) because "the last working day of the
+    # month" isn't a fixed calendar date — the task itself checks
+    # whether today qualifies for each organization and no-ops otherwise
+    # (see PayrollService.auto_generate_monthly_draft). 13:30 UTC =
+    # 19:00 IST, matching every customer's timezone today; revisit if
+    # ERPX ever serves organizations outside India.
+    "payroll-auto-generate-monthly-drafts": {
+        "task": "payroll.auto_generate_monthly_drafts",
+        "schedule": crontab(hour=13, minute=30),
+    },
 }
 
 # Modules register their Celery task modules here as they are built, e.g.:
@@ -110,5 +120,6 @@ celery_app.autodiscover_tasks(
         "modules.crm.followups",
         "modules.backups",
         "modules.placements",
+        "modules.payroll",
     ]
 )

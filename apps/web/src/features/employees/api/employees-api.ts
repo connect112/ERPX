@@ -51,8 +51,9 @@ export interface EmployeeListParams {
   limit?: number;
 }
 
+// No employee_code: it's system-generated (EMP-00001, EMP-00002, ...) by
+// EmployeeRepository.create — never supplied by the admin form.
 export interface EmployeeCreatePayload {
-  employee_code: string;
   full_name: string;
   branch_id?: string;
   department_id?: string;
@@ -74,7 +75,7 @@ export interface EmployeeCreatePayload {
   notes?: string;
 }
 
-export type EmployeeUpdatePayload = Partial<Omit<EmployeeCreatePayload, "employee_code" | "date_of_joining">>;
+export type EmployeeUpdatePayload = Partial<EmployeeCreatePayload>;
 
 export const employeesApi = {
   list: (params: EmployeeListParams) =>
@@ -97,4 +98,10 @@ export const employeesApi = {
       .then((r) => r.data),
 
   remove: (id: string) => apiClient.delete(`/employees/${id}`).then((r) => r.data),
+
+  // Creates the employee's portal login and emails them the
+  // complete-registration link — see EmployeeService.invite_employee.
+  // Only callable once per employee: a second call 409s (employee.user_id
+  // already set), which the UI avoids by hiding this action once invited.
+  invite: (id: string) => apiClient.post<EmployeePublic>(`/employees/${id}/invite`).then((r) => r.data),
 };

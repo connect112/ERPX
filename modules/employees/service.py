@@ -1,16 +1,32 @@
+import secrets
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
+from app.core.security import hash_password
+from modules.authentication.models import UserStatus
+from modules.authentication.repository import AuthRepository
+from modules.authentication.service import AuthService
+from modules.authentication.tasks import send_password_reset_email_task
+from modules.authorization.repository import AuthorizationRepository
+from modules.authorization.service import AuthorizationService
 from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.repository import EmployeeRepository
 from modules.hr.repository import DepartmentRepository, DesignationRepository
+from modules.trainers.repository import TrainerRepository
+from modules.users.repository import UserProfileRepository
 
 logger = get_logger(__name__)
 
 _EXIT_STATUSES = {EmploymentStatus.RESIGNED, EmploymentStatus.TERMINATED, EmploymentStatus.RETIRED}
+
+# A first login shouldn't expire before the invited employee has opened
+# the email — mirrors modules/provisioning/service.py's identical
+# SET_PASSWORD_TOKEN_TTL_HOURS for the same reason.
+_INVITE_TOKEN_TTL_HOURS = 72
 
 
 class EmployeeService:
@@ -19,6 +35,10 @@ class EmployeeService:
         self.repo = EmployeeRepository(db)
         self.department_repo = DepartmentRepository(db)
         self.designation_repo = DesignationRepository(db)
+        self.auth_repo = AuthRepository(db)
+        self.profile_repo = UserProfileRepository(db)
+        self.authz_repo = AuthorizationRepository(db)
+        self.trainer_repo = TrainerRepository(db)
 
     async def _validate_org_refs(
         self,
@@ -43,13 +63,10 @@ class EmployeeService:
             if not manager:
                 raise NotFoundError("Reporting manager", reporting_manager_id)
 
-    async def create_employee(
-        self, organization_id: uuid.UUID, employee_code: str, **fields
-    ) -> Employee:
-        existing = await self.repo.get_by_code(organization_id, employee_code)
-        if existing:
-            raise ConflictError(f"An employee with code '{employee_code}' already exists.")
-
+    async def create_employee(self, organization_id: uuid.UUID, **fields) -> Employee:
+        """employee_code is not accepted here — EmployeeRepository.create
+        assigns the next sequential code itself (EMP-00001, EMP-00002, ...),
+        so there's nothing for this method to validate or pass through."""
         await self._validate_org_refs(
             organization_id,
             fields.get("department_id"),
@@ -57,10 +74,8 @@ class EmployeeService:
             fields.get("reporting_manager_id"),
         )
 
-        employee = await self.repo.create(
-            organization_id=organization_id, employee_code=employee_code, **fields
-        )
-        logger.info("employee_created", employee_id=str(employee.id), employee_code=employee_code)
+        employee = await self.repo.create(organization_id=organization_id, **fields)
+        logger.info("employee_created", employee_id=str(employee.id), employee_code=employee.employee_code)
         return employee
 
     async def get_employee(self, employee_id: uuid.UUID, organization_id: uuid.UUID) -> Employee:
@@ -113,3 +128,112 @@ class EmployeeService:
         employee = await self.get_employee(employee_id, organization_id)
         await self.repo.soft_delete(employee)
         logger.info("employee_deleted", employee_id=str(employee_id))
+
+    async def invite_employee(self, employee_id: uuid.UUID, organization_id: uuid.UUID) -> Employee:
+        """
+        Create the employee-portal login for an existing HR record — the
+        Employee row on its own has never had a way to get one (unlike
+        Student, which modules.provisioning always creates alongside a
+        User). Mirrors provisioning's own account-creation shape: a
+        random, never-returned password, and a "set your password" email
+        via the same generic token machinery auth's own forgot-password
+        flow uses — no separate "welcome" token type invented for this.
+
+        Every employee gets the basic self-service portal regardless of
+        role or designation — every employee-portal "me" endpoint is
+        ownership-gated the same way students' are (see
+        modules/employees/dependencies.py), so no role is needed just for
+        that to work. Beyond that baseline, the employee's designation
+        (if any) can grant more, per however an admin has configured it
+        on that Designation (see migration 0041 / modules/hr/service.py's
+        _validate_linked_role): a linked_role_id also assigns that RBAC
+        role, and grants_trainer_access also creates a Trainer record —
+        the prerequisite for trainer-portal login, since that portal
+        resolves User -> Employee -> Trainer the same way this one
+        resolves User -> Employee.
+        """
+        employee = await self.get_employee(employee_id, organization_id)
+        if employee.user_id:
+            raise ConflictError("This employee already has portal access.")
+        if not employee.email:
+            raise ValidationError("This employee has no email on file — add one before inviting them.")
+
+        existing_user = await self.auth_repo.get_user_by_email(employee.email)
+        if existing_user:
+            raise ConflictError(f"An account already exists for {employee.email}.")
+
+        user = await self.auth_repo.create_user(
+            email=employee.email,
+            hashed_password=hash_password(secrets.token_urlsafe(32)),
+            full_name=employee.full_name,
+            phone_number=employee.phone,
+        )
+        user.is_email_verified = True
+        user.status = UserStatus.ACTIVE
+        await self.db.flush()
+
+        await self.profile_repo.create(user_id=user.id, organization_id=organization_id)
+        employee = await self.repo.update(employee, user_id=user.id)
+
+        if employee.designation_id:
+            designation = await self.designation_repo.get_by_id(employee.designation_id, organization_id)
+            if designation and designation.linked_role_id:
+                await AuthorizationService(self.db).assign_role(
+                    user.id, designation.linked_role_id, organization_id, assigned_by_user_id=None
+                )
+                logger.info(
+                    "employee_role_granted_via_designation",
+                    employee_id=str(employee_id),
+                    role_id=str(designation.linked_role_id),
+                )
+            if designation and designation.grants_trainer_access:
+                # employee_id is unique on Trainer — guard explicitly rather
+                # than let a rare pre-existing row (e.g. one created before
+                # this designation was linked) surface as a raw IntegrityError.
+                existing_trainer = await self.trainer_repo.get_by_employee_id(employee.id, organization_id)
+                if not existing_trainer:
+                    await self.trainer_repo.create(organization_id=organization_id, employee_id=employee.id)
+                    logger.info(
+                        "employee_trainer_access_granted_via_designation", employee_id=str(employee_id)
+                    )
+
+        reset_token = await self.auth_repo.create_password_reset_token(
+            user.id, ttl_hours=_INVITE_TOKEN_TTL_HOURS
+        )
+        # /complete-registration, not /reset-password: the admin form only
+        # ever collected name/department/designation/email/date_of_joining
+        # (see EmployeeCreateRequest's own docstring) — this link is where
+        # the employee sets their password AND fills in the personal
+        # fields nobody's collected yet. Same token, same underlying
+        # PasswordResetToken row; complete_registration below is what
+        # actually consumes it.
+        set_password_url = f"{settings.EMPLOYEE_PORTAL_URL}/complete-registration?token={reset_token.token}"
+        send_password_reset_email_task.delay(user.email, user.full_name, set_password_url)
+
+        logger.info("employee_invited", employee_id=str(employee_id), user_id=str(user.id))
+        return employee
+
+    async def complete_registration(self, token: str, new_password: str, **profile_fields) -> Employee:
+        """
+        Public, token-authenticated counterpart to invite_employee: the
+        employee lands here from their invite email, sets their own
+        password, and fills in the personal fields the admin never
+        collected. Reuses AuthService.reset_password for the actual
+        password change (same validity/expiry/already-used checks, same
+        refresh-token revocation) rather than duplicating that logic —
+        this method's own job is just resolving the token to *its*
+        Employee record and saving the profile fields alongside it.
+        """
+        token_row = await self.auth_repo.get_password_reset_token(token)
+        if not token_row or not token_row.is_valid:
+            raise ValidationError("This registration link is invalid or has expired.")
+
+        employee = await self.repo.get_by_user_id(token_row.user_id)
+        if not employee:
+            raise NotFoundError("Employee")
+
+        employee = await self.repo.update(employee, **profile_fields)
+        await AuthService(self.db).reset_password(token, new_password)
+
+        logger.info("employee_registration_completed", employee_id=str(employee.id))
+        return employee

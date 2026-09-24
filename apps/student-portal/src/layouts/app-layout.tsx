@@ -7,11 +7,10 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Moon,
-  PartyPopper,
   Sun,
   Trophy,
-  Wrench,
 } from "lucide-react";
 import { Suspense } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
@@ -20,6 +19,7 @@ import { useTheme } from "@/components/theme-provider";
 import { PageLoader } from "@/components/ui/page-loader";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api/auth-hooks";
+import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 
@@ -46,9 +46,17 @@ const navItems: NavItem[] = [
   { to: "/leaderboard", label: "Leaderboard", icon: Trophy, end: false, permission: "pentrix.leaderboard.view" },
   { to: "/achievements", label: "Achievements", icon: Award, end: false, permission: "pentrix.achievements.view" },
   { to: "/schedule", label: "My Schedule", icon: CalendarClock, end: false },
-  { to: "/workshops", label: "Workshops", icon: Wrench, end: false },
-  { to: "/hackathons", label: "Hackathons", icon: PartyPopper, end: false },
-  { to: "/internships", label: "Internships", icon: Briefcase, end: false },
+  { to: "/announcements", label: "Announcements", icon: Megaphone, end: false },
+  // Workshops/Hackathons/Internships deliberately not shown here: this
+  // student-portal instance serves one commercial course, and these were
+  // built (with no permission gate — see the ownership-endpoint note
+  // above) for a multi-program institute context where a student might
+  // reasonably browse open workshops/hackathons/internships across the
+  // org. Not deleted — apps/web's admin pages for all three are untouched
+  // — just re-add these two lines whenever a program that actually wants
+  // this exists: { to: "/workshops", label: "Workshops", icon: Wrench },
+  // { to: "/hackathons", label: "Hackathons", icon: PartyPopper }, plus
+  // internships below.
   { to: "/placements", label: "Placements", icon: Briefcase, end: false },
   { to: "/bookmarks", label: "My Bookmarks", icon: Bookmark, end: false },
   { to: "/transcript", label: "My Transcript", icon: Award, end: false },
@@ -112,6 +120,7 @@ function AppTopbar() {
     <header className="flex h-16 items-center justify-between border-b bg-card px-6">
       <div />
       <div className="flex items-center gap-2">
+        <NotificationBell />
         <Button
           variant="ghost"
           size="icon"

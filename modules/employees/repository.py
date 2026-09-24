@@ -1,6 +1,7 @@
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.employees.models import Employee, EmploymentStatus
@@ -10,12 +11,35 @@ class EmployeeRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(self, **fields) -> Employee:
-        employee = Employee(**fields)
-        self.db.add(employee)
-        await self.db.flush()
-        await self.db.refresh(employee)
-        return employee
+    async def _next_employee_code(self, organization_id: uuid.UUID) -> str:
+        result = await self.db.execute(
+            select(func.count()).select_from(Employee).where(Employee.organization_id == organization_id)
+        )
+        count = result.scalar_one()
+        return f"EMP-{count + 1:05d}"
+
+    async def create(self, organization_id: uuid.UUID, **fields) -> Employee:
+        """
+        Generates the next sequential employee code and retries on a rare
+        concurrent-insert collision (two employees created in the same org
+        at the exact same moment), rather than trusting a single count
+        query under concurrency — same approach as
+        StudentRepository._next_student_code.
+        """
+        last_error: Exception | None = None
+        for _ in range(5):
+            code = await self._next_employee_code(organization_id)
+            employee = Employee(organization_id=organization_id, employee_code=code, **fields)
+            self.db.add(employee)
+            try:
+                await self.db.flush()
+                await self.db.refresh(employee)
+                return employee
+            except IntegrityError as exc:
+                await self.db.rollback()
+                last_error = exc
+                continue
+        raise last_error or RuntimeError("Failed to allocate a unique employee code.")
 
     async def get_by_id(self, employee_id: uuid.UUID, organization_id: uuid.UUID) -> Employee | None:
         result = await self.db.execute(

@@ -20,11 +20,68 @@ from modules.attendance.schemas import (
 from modules.attendance.service import AttendanceService
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.employees.dependencies import get_current_employee
+from modules.employees.models import Employee
 from modules.trainers.dependencies import get_current_trainer
 from modules.trainers.models import Trainer
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+# ---- Employee self-service ----
+#
+# The /me, /check-in/me, /check-out/me routes further down are trainer-only
+# (get_current_trainer) — fine for a trainer, but a plain employee with no
+# Trainer record (Accountant, HR, Ops staff — anyone whose designation
+# doesn't grant_trainer_access) had no self-check-in path anywhere at all.
+# These mirror them exactly, just ownership-gated via get_current_employee
+# instead, so every employee — trainer or not — can check themselves in.
+
+
+@router.post(
+    "/employee/check-in/me", response_model=AttendanceRecordPublic, status_code=status.HTTP_201_CREATED
+)
+async def self_check_in_as_employee(
+    payload: SelfCheckInRequest,
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AttendanceService(db)
+    record = await service.check_in(employee.organization_id, employee.id, payload.check_in_time)
+    return AttendanceRecordPublic.model_validate(record)
+
+
+@router.post("/employee/check-out/me", response_model=AttendanceRecordPublic)
+async def self_check_out_as_employee(
+    payload: SelfCheckOutRequest,
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AttendanceService(db)
+    record = await service.check_out(employee.organization_id, employee.id, payload.check_out_time)
+    return AttendanceRecordPublic.model_validate(record)
+
+
+@router.get("/employee/me", response_model=dict)
+async def list_my_attendance_as_employee(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AttendanceService(db)
+    records, total = await service.list_for_employee(
+        employee.id, employee.organization_id, date_from=date_from, date_to=date_to, skip=skip, limit=limit
+    )
+    return {
+        "items": [AttendanceRecordPublic.model_validate(r) for r in records],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.post("/check-in/me", response_model=AttendanceRecordPublic, status_code=status.HTTP_201_CREATED)

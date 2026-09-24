@@ -228,3 +228,15 @@ class PayslipRepository:
             .limit(limit)
         )
         return list(result.scalars().all()), total
+
+    async def add_line(self, payslip: Payslip, **fields) -> None:
+        self.db.add(PayslipLine(payslip_id=payslip.id, **fields))
+        await self.db.flush()
+
+    async def update(self, payslip: Payslip, **fields) -> Payslip:
+        for key, value in fields.items():
+            if value is not None:
+                setattr(payslip, key, value)
+        await self.db.flush()
+        await self.db.refresh(payslip)
+        return payslip

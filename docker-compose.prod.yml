@@ -1,0 +1,207 @@
+# Production deploy for the single-host AWS setup
+# (infrastructure/aws-single-host/) — erp.pentrix.in. Deliberately excludes
+# Elasticsearch and the whole monitoring stack (see that directory's
+# README for why) and does NOT run its own Postgres/Redis — both are the
+# shared containers defined in infrastructure/aws-single-host/docker-
+# compose.yml, reached over the external `webnet` network by container
+# name. No ports are published to the host at all: the only thing bound to
+# 80/443 on this box is Caddy, also on `webnet`.
+name: erpx-prod
+
+x-backend-env: &backend-env
+  ENVIRONMENT: production
+  DATABASE_URL: postgresql+asyncpg://erpx:${ERPX_DB_PASSWORD}@postgres:5432/erpx
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/10
+  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/11
+  CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/12
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+  MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  MINIO_SECURE: "false"
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  # lms.pentrix.in / staff.pentrix.in / trainer.pentrix.in don't strictly
+  # need to be here — every portal's own API calls are same-origin
+  # (relative /api/v1, proxied by Caddy on their own domain, same pattern
+  # as erp.pentrix.in/web below) — but costs nothing to allow explicitly
+  # rather than rely on that always holding.
+  CORS_ORIGINS: https://erp.pentrix.in,https://lms.pentrix.in,https://staff.pentrix.in,https://trainer.pentrix.in
+  # Self-hosted Jitsi Meet (infrastructure/aws-single-host — a separate
+  # dedicated EC2 instance, since the JVB media bridge needs real CPU
+  # headroom for relaying live audio/video, not shared with this host).
+  # JITSI_APP_SECRET must exactly match JWT_APP_SECRET in that instance's
+  # own docker-jitsi-meet .env — see modules/live_classes/jitsi.py.
+  JITSI_PUBLIC_URL: https://meet.pentrix.in
+  JITSI_APP_ID: erpx
+  JITSI_APP_SECRET: ${JITSI_APP_SECRET}
+  # Was never set here before, so every environment fell back to the
+  # Settings default (http://localhost:5173) in production — every
+  # registration's verify-email link and every /forgot-password reset link
+  # (modules/authentication/service.py) was pointing at a dev machine's
+  # localhost, not a real reachable URL. apps/web (erp.pentrix.in) is the
+  # right target: it's the one portal every account type can reach (see
+  # portal-resolution.ts), and it already has both /verify-email and
+  # /reset-password routes.
+  FRONTEND_URL: https://erp.pentrix.in
+  # Cross-subdomain single sign-on: modules/authentication/routes.py mirrors
+  # the refresh token into a cookie scoped to this domain (and every
+  # subdomain of it) at /login and /refresh, so a person who authenticates
+  # on any one of erp./lms./staff./trainer.pentrix.in lands already signed
+  # in on the others too — no second login. Empty/unset disables the
+  # cookie entirely (see Settings.SSO_COOKIE_DOMAIN), which is why local
+  # dev and every test run are unaffected by this.
+  SSO_COOKIE_DOMAIN: .pentrix.in
+  # The actual student-facing domain: provisioning emails a "set your
+  # password" link built from this, so it must point at the real student
+  # portal, not the admin app.
+  STUDENT_PORTAL_URL: https://lms.pentrix.in
+  # Same reasoning, for an invited employee's "set your password" link
+  # (see EmployeeService.invite_employee).
+  EMPLOYEE_PORTAL_URL: https://staff.pentrix.in
+  ERPX_INTERNAL_SERVICE_SECRET: ${ERPX_INTERNAL_SERVICE_SECRET}
+  SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL}
+  SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD}
+  AI_API_KEY: ${AI_API_KEY:-}
+  # Gmail SMTP relay, not SES: pentrix.in's SES domain identity is
+  # unverified (DNS records never propagated) and the account's
+  # production-access request was denied, so SES can't yet deliver to
+  # arbitrary recipient addresses at all (sandbox mode only allows
+  # pre-verified recipients). Swapping in a Gmail app-password relay here
+  # unblocks real delivery immediately — packages/email/service.py's
+  # SMTP client is provider-agnostic (aiosmtplib against SMTP_HOST/PORT),
+  # so this is a pure config change. Revisit once SES is actually approved.
+  SMTP_HOST: ${SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT}
+  SMTP_USER: ${SMTP_USER}
+  SMTP_PASSWORD: ${SMTP_PASSWORD}
+  SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
+  SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: erpx_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - erpx_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - webnet
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: erpx_api
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "true"
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - webnet
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: erpx_celery_worker
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    depends_on:
+      - api
+    command: python -m celery -A app.core.celery_app worker --loglevel=info
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_app inspect ping -d celery@$$(hostname)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    networks:
+      - webnet
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: erpx_celery_beat
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    depends_on:
+      - api
+    # /app (the WORKDIR) is root-owned — apps/api/Dockerfile's COPY --chown
+    # only sets ownership on the files it copies in, not the directory
+    # itself — and this image runs as the non-root `erpx` user, so beat's
+    # default schedule file ("celerybeat-schedule" in the CWD) can't be
+    # created there. Point it at /tmp, which is world-writable.
+    command: python -m celery -A app.core.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    healthcheck:
+      disable: true
+    networks:
+      - webnet
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.prod
+      # No VITE_API_BASE_URL override — the Dockerfile's own default
+      # (/api/v1, a relative path) is exactly right here: Caddy proxies
+      # erp.pentrix.in/api/* to erpx_api same-origin, so the built frontend
+      # never needs an absolute API URL baked in.
+    container_name: erpx_web
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  student_portal:
+    build:
+      context: ./apps/student-portal
+      dockerfile: Dockerfile.prod
+      # Same reasoning as `web` above: no VITE_API_BASE_URL override,
+      # relative /api/v1, proxied same-origin by Caddy on lms.pentrix.in.
+    container_name: erpx_student_portal
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  employee_portal:
+    build:
+      context: ./apps/employee-portal
+      dockerfile: Dockerfile.prod
+      # Same reasoning as `web`/`student_portal` above: no
+      # VITE_API_BASE_URL override, relative /api/v1, proxied same-origin
+      # by Caddy on staff.pentrix.in.
+    container_name: erpx_employee_portal
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  trainer_portal:
+    build:
+      context: ./apps/trainer-portal
+      dockerfile: Dockerfile.prod
+      # Same reasoning as `web`/`student_portal`/`employee_portal` above:
+      # no VITE_API_BASE_URL override, relative /api/v1, proxied
+      # same-origin by Caddy on trainer.pentrix.in.
+    container_name: erpx_trainer_portal
+    restart: unless-stopped
+    networks:
+      - webnet
+
+networks:
+  webnet:
+    external: true
+
+volumes:
+  erpx_minio_data:
