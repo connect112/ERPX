@@ -16,6 +16,7 @@ from modules.payroll.schemas import (
     PayrollRunGenerationResult,
     PayrollRunMarkPaidRequest,
     PayrollRunPublic,
+    PayslipAddLineRequest,
     PayslipPublic,
     SalaryComponentCreateRequest,
     SalaryComponentPublic,
@@ -253,6 +254,24 @@ async def get_payslip(
 ):
     service = PayrollService(db)
     payslip = await service.get_payslip(payslip_id)
+    return PayslipPublic.model_validate(payslip)
+
+
+@router.post("/payslips/{payslip_id}/lines", response_model=PayslipPublic)
+async def add_payslip_line(
+    payslip_id: uuid.UUID,
+    payload: PayslipAddLineRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("payroll.runs.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """A one-off addition to a single payslip (e.g. a reimbursement) —
+    only while its parent run is still Draft. See
+    PayrollService.add_payslip_line's docstring for why."""
+    service = PayrollService(db)
+    payslip = await service.add_payslip_line(
+        payslip_id, organization_id, payload.salary_component_id, payload.amount
+    )
     return PayslipPublic.model_validate(payslip)
 
 

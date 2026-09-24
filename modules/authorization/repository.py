@@ -8,7 +8,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from modules.authentication.models import User
 from modules.authorization.models import Permission, Role, RolePermission, UserRole
+from modules.users.models import UserProfile
 
 
 class AuthorizationRepository:
@@ -149,3 +151,24 @@ class AuthorizationRepository:
             .where(UserRole.user_id == user_id)
         )
         return set(result.scalars().all())
+
+    async def list_users_with_role_in_organization(
+        self, organization_id: uuid.UUID, role_slug: str
+    ) -> list[User]:
+        """Every user holding `role_slug` within this specific
+        organization — used to target notifications/emails at "this
+        org's admins" (e.g. modules/payroll/tasks.py's auto-generated
+        draft run alert) without a separate per-caller lookup."""
+        result = await self.db.execute(
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .join(UserProfile, UserProfile.user_id == User.id)
+            .where(
+                Role.slug == role_slug,
+                UserProfile.organization_id == organization_id,
+                User.deleted_at.is_(None),
+            )
+            .distinct()
+        )
+        return list(result.scalars().all())

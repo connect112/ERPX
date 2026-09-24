@@ -104,8 +104,14 @@ export interface PayrollRunGenerationResult {
 }
 
 export interface PayslipLinePublic {
+  id: string;
   salary_component_id: string;
   component_type: SalaryComponentType;
+  amount: number;
+}
+
+export interface PayslipAddLinePayload {
+  salary_component_id: string;
   amount: number;
 }
 
@@ -182,6 +188,9 @@ export const payrollApi = {
     apiClient.post<PayrollRunPublic>(`/payroll/runs/${id}/cancel`).then((r) => r.data),
 
   getPayslip: (id: string) => apiClient.get<PayslipPublic>(`/payroll/payslips/${id}`).then((r) => r.data),
+
+  addPayslipLine: (payslipId: string, payload: PayslipAddLinePayload) =>
+    apiClient.post<PayslipPublic>(`/payroll/payslips/${payslipId}/lines`, payload).then((r) => r.data),
 
   listPayslipsByEmployee: (employeeId: string, params: { skip?: number; limit?: number }) =>
     apiClient
