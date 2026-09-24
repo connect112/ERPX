@@ -1,4 +1,4 @@
-import { LogIn, LogOut, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, LogIn, LogOut, Plus } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ export function AttendancePage() {
   const [skip, setSkip] = useState(0);
   const [markOpen, setMarkOpen] = useState(false);
   const [bulkMarkOpen, setBulkMarkOpen] = useState(false);
+  const [exceptionActionsOpen, setExceptionActionsOpen] = useState(false);
   const [checkDialog, setCheckDialog] = useState<"check-in" | "check-out" | null>(null);
   const [regularizeTarget, setRegularizeTarget] = useState<AttendanceRecordPublic | null>(null);
 
@@ -65,31 +66,54 @@ export function AttendancePage() {
 
   return (
     <div className="space-y-6 p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Attendance</h1>
-          <p className="mt-1 text-muted-foreground">
-            Track daily check-ins, check-outs, and attendance status.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setCheckDialog("check-in")}>
-            <LogIn className="h-4 w-4" />
-            Check in
-          </Button>
-          <Button variant="outline" onClick={() => setCheckDialog("check-out")}>
-            <LogOut className="h-4 w-4" />
-            Check out
-          </Button>
-          <Button variant="outline" onClick={() => setBulkMarkOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Bulk mark
-          </Button>
-          <Button onClick={() => setMarkOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Mark attendance
-          </Button>
-        </div>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Attendance</h1>
+        <p className="mt-1 text-muted-foreground">
+          Employees check themselves in and out from their own portal — this page is for viewing
+          records and handling the exceptions below.
+        </p>
+      </div>
+
+      <div className="rounded-md border">
+        <button
+          type="button"
+          onClick={() => setExceptionActionsOpen((open) => !open)}
+          className="flex w-full items-center gap-2 px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          {exceptionActionsOpen ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
+          Exception actions — check-in/out, marking, or backfilling on an employee's behalf
+        </button>
+        {exceptionActionsOpen && (
+          <div className="space-y-3 border-t px-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Only for when an employee can't do this themselves — no portal access yet, or
+              backfilling history from before they were in ERPX. Otherwise, attendance should
+              come from the employee's own check-in/check-out.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setCheckDialog("check-in")}>
+                <LogIn className="h-4 w-4" />
+                Check in
+              </Button>
+              <Button variant="outline" onClick={() => setCheckDialog("check-out")}>
+                <LogOut className="h-4 w-4" />
+                Check out
+              </Button>
+              <Button variant="outline" onClick={() => setBulkMarkOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Bulk mark
+              </Button>
+              <Button variant="outline" onClick={() => setMarkOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Mark attendance
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Card>
