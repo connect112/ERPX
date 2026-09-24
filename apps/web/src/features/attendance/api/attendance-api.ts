@@ -76,6 +76,26 @@ export interface RegularizeAttendancePayload {
   regularization_reason: string;
 }
 
+export interface BulkMarkAttendanceException {
+  start_date: string;
+  end_date: string;
+  status: AttendanceStatus;
+  remarks?: string;
+}
+
+export interface BulkMarkAttendancePayload {
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  default_status: AttendanceStatus;
+  auto_week_off_sundays: boolean;
+  exceptions: BulkMarkAttendanceException[];
+}
+
+export interface BulkMarkAttendanceResult {
+  days_marked: number;
+}
+
 export const attendanceApi = {
   list: (params: AttendanceListParams) =>
     apiClient.get<AttendanceListResponse>("/attendance", { params }).then((r) => r.data),
@@ -105,4 +125,7 @@ export const attendanceApi = {
     apiClient
       .post<AttendanceRecordPublic>(`/attendance/${id}/regularize`, payload)
       .then((r) => r.data),
+
+  bulkMark: (payload: BulkMarkAttendancePayload) =>
+    apiClient.post<BulkMarkAttendanceResult>("/attendance/bulk-mark", payload).then((r) => r.data),
 };

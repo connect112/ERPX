@@ -8,6 +8,8 @@ from app.db.session import get_db
 from modules.attendance.models import AttendanceStatus
 from modules.attendance.schemas import (
     AttendanceRecordPublic,
+    BulkMarkAttendanceRequest,
+    BulkMarkAttendanceResult,
     CheckInRequest,
     CheckOutRequest,
     MarkAttendanceRequest,
@@ -163,6 +165,29 @@ async def mark_attendance(
         organization_id, payload.employee_id, payload.attendance_date, payload.status, payload.remarks
     )
     return AttendanceRecordPublic.model_validate(record)
+
+
+@router.post("/bulk-mark", response_model=BulkMarkAttendanceResult)
+async def bulk_mark_attendance(
+    payload: BulkMarkAttendanceRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("attendance.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Backfill/correct a whole date range in one call instead of one
+    /mark request per day — e.g. a new employee's pre-ERPX history, or
+    an extended-leave block within an otherwise normal range."""
+    service = AttendanceService(db)
+    count = await service.bulk_mark_attendance(
+        organization_id,
+        payload.employee_id,
+        payload.start_date,
+        payload.end_date,
+        payload.default_status,
+        payload.auto_week_off_sundays,
+        [e.model_dump() for e in payload.exceptions],
+    )
+    return BulkMarkAttendanceResult(days_marked=count)
 
 
 @router.get("", response_model=dict)
