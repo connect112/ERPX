@@ -492,7 +492,7 @@ class PayrollService:
             status=PayrollRunStatus.PAID,
             bank_account_id=bank_account_id,
             payment_journal_entry_id=entry.id,
-            paid_at=datetime.now(timezone.utc),
+            paid_at=payment_date,
         )
         logger.info("payroll_run_paid", run_id=str(run_id))
         return updated
