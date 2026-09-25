@@ -15,6 +15,7 @@ from modules.authorization.repository import AuthorizationRepository
 from modules.authorization.service import AuthorizationService
 from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.repository import EmployeeRepository
+from modules.hr.models import Designation
 from modules.hr.repository import DepartmentRepository, DesignationRepository
 from modules.trainers.repository import TrainerRepository
 from modules.users.repository import UserProfileRepository
@@ -103,8 +104,47 @@ class EmployeeService:
             employee_id=employee_id,
         )
         updated = await self.repo.update(employee, **fields)
+
+        # Assigning a designation to an ALREADY-INVITED employee (portal
+        # access already exists) used to never re-check that designation's
+        # grants — only invite_employee ever applied them, once, at invite
+        # time. An employee moved onto a trainer-access designation after
+        # being invited was silently stuck with no Trainer record and no
+        # error telling anyone why trainer-portal access wasn't working.
+        if "designation_id" in fields and updated.designation_id and updated.user_id:
+            designation = await self.designation_repo.get_by_id(updated.designation_id, organization_id)
+            if designation:
+                await self.apply_designation_grants(updated, designation, organization_id)
+
         logger.info("employee_updated", employee_id=str(employee_id))
         return updated
+
+    async def apply_designation_grants(
+        self, employee: Employee, designation: Designation, organization_id: uuid.UUID
+    ) -> None:
+        """Grants an already-invited employee whatever their designation
+        currently promises (an RBAC role, trainer-portal access). Shared by
+        invite_employee (grant at invite time), update_employee (grant when
+        an already-invited employee's designation changes), and
+        DesignationService.update_designation (grant retroactively to every
+        employee already holding a designation when it's edited to add a
+        grant it didn't have before). Idempotent either way — safe to call
+        for an employee who already has the grant."""
+        if not employee.user_id:
+            return
+        if designation.linked_role_id:
+            await AuthorizationService(self.db).assign_role(
+                employee.user_id, designation.linked_role_id, organization_id, assigned_by_user_id=None
+            )
+        if designation.grants_trainer_access:
+            # employee_id is unique on Trainer — guard explicitly rather
+            # than let a rare pre-existing row surface as a raw IntegrityError.
+            existing_trainer = await self.trainer_repo.get_by_employee_id(employee.id, organization_id)
+            if not existing_trainer:
+                await self.trainer_repo.create(organization_id=organization_id, employee_id=employee.id)
+                logger.info(
+                    "employee_trainer_access_granted_via_designation", employee_id=str(employee.id)
+                )
 
     async def change_status(
         self,
@@ -177,25 +217,8 @@ class EmployeeService:
 
         if employee.designation_id:
             designation = await self.designation_repo.get_by_id(employee.designation_id, organization_id)
-            if designation and designation.linked_role_id:
-                await AuthorizationService(self.db).assign_role(
-                    user.id, designation.linked_role_id, organization_id, assigned_by_user_id=None
-                )
-                logger.info(
-                    "employee_role_granted_via_designation",
-                    employee_id=str(employee_id),
-                    role_id=str(designation.linked_role_id),
-                )
-            if designation and designation.grants_trainer_access:
-                # employee_id is unique on Trainer — guard explicitly rather
-                # than let a rare pre-existing row (e.g. one created before
-                # this designation was linked) surface as a raw IntegrityError.
-                existing_trainer = await self.trainer_repo.get_by_employee_id(employee.id, organization_id)
-                if not existing_trainer:
-                    await self.trainer_repo.create(organization_id=organization_id, employee_id=employee.id)
-                    logger.info(
-                        "employee_trainer_access_granted_via_designation", employee_id=str(employee_id)
-                    )
+            if designation:
+                await self.apply_designation_grants(employee, designation, organization_id)
 
         reset_token = await self.auth_repo.create_password_reset_token(
             user.id, ttl_hours=_INVITE_TOKEN_TTL_HOURS
