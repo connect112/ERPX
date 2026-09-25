@@ -239,6 +239,71 @@ async def test_get_payslip_pdf_404s_for_a_payslip_in_another_organization(
     assert pdf_resp.status_code == 404, pdf_resp.text
 
 
+async def test_employee_can_download_own_payslip_pdf_but_not_someone_elses(
+    client, auth_headers, db_session, organization, payroll_setup
+):
+    await _mark_present_for_month(db_session, organization.id, payroll_setup["employee"]["id"], 2026, 8)
+
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 8, "run_date": "2026-08-31"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+    run = generate_resp.json()["run"]
+    payslips_resp = await client.get(f"/api/v1/payroll/runs/{run['id']}/payslips", headers=auth_headers)
+    payslip = payslips_resp.json()[0]
+
+    invite_resp = await client.post(
+        f"/api/v1/employees/{payroll_setup['employee']['id']}/invite", headers=auth_headers
+    )
+    assert invite_resp.status_code == 200, invite_resp.text
+    employee_user_id = invite_resp.json()["user_id"]
+
+    from app.core.security import create_access_token
+
+    employee_headers = {"Authorization": f"Bearer {create_access_token(employee_user_id)}"}
+
+    own_pdf_resp = await client.get(
+        f"/api/v1/payroll/payslips/me/{payslip['id']}/pdf", headers=employee_headers
+    )
+    assert own_pdf_resp.status_code == 200, own_pdf_resp.text
+    assert own_pdf_resp.headers["content-type"] == "application/pdf"
+    assert own_pdf_resp.content.startswith(b"%PDF")
+
+    # A second employee (no relation to this payslip) can't download it via
+    # the self-service route, even within the same organization.
+    unique = uuid.uuid4().hex[:8]
+    dept_resp = await client.get("/api/v1/hr/departments", headers=auth_headers)
+    department_id = dept_resp.json()[0]["id"]
+    designation_resp = await client.get("/api/v1/hr/designations", headers=auth_headers)
+    designation_id = designation_resp.json()[0]["id"]
+    other_employee_resp = await client.post(
+        "/api/v1/employees",
+        json={
+            "full_name": f"Other Employee {unique}",
+            "email": f"other-employee.{unique}@example.com",
+            "date_of_joining": "2026-01-01",
+            "department_id": department_id,
+            "designation_id": designation_id,
+        },
+        headers=auth_headers,
+    )
+    assert other_employee_resp.status_code == 201, other_employee_resp.text
+    other_invite_resp = await client.post(
+        f"/api/v1/employees/{other_employee_resp.json()['id']}/invite", headers=auth_headers
+    )
+    assert other_invite_resp.status_code == 200, other_invite_resp.text
+    other_employee_headers = {
+        "Authorization": f"Bearer {create_access_token(other_invite_resp.json()['user_id'])}"
+    }
+
+    other_pdf_resp = await client.get(
+        f"/api/v1/payroll/payslips/me/{payslip['id']}/pdf", headers=other_employee_headers
+    )
+    assert other_pdf_resp.status_code == 404, other_pdf_resp.text
+
+
 async def test_add_payslip_line_rejected_once_run_is_finalized(
     client, auth_headers, db_session, organization, payroll_setup
 ):

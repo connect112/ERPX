@@ -31,4 +31,9 @@ export interface PayslipListResponse {
 
 export const payslipsApi = {
   myPayslips: () => apiClient.get<PayslipListResponse>("/payroll/payslips/me").then((r) => r.data),
+
+  getPayslipPdf: (payslipId: string) =>
+    apiClient
+      .get(`/payroll/payslips/me/${payslipId}/pdf`, { responseType: "blob" })
+      .then((r) => r.data as Blob),
 };

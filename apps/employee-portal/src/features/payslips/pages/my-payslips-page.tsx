@@ -1,10 +1,11 @@
 import { format, parseISO } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useMyPayslips } from "@/features/payslips/api/payslips-hooks";
+import { useMyPayslips, useOpenPayslipPdf } from "@/features/payslips/api/payslips-hooks";
 import type { Payslip } from "@/features/payslips/api/payslips-api";
 
 function formatAmount(value: number): string {
@@ -16,6 +17,7 @@ function formatAmount(value: number): string {
 function PayslipRow({ payslip }: { payslip: Payslip }) {
   const earnings = payslip.lines.filter((l) => l.component_type === "earning");
   const deductions = payslip.lines.filter((l) => l.component_type === "deduction");
+  const openPayslipPdf = useOpenPayslipPdf();
 
   return (
     <TableRow>
@@ -42,6 +44,16 @@ function PayslipRow({ payslip }: { payslip: Payslip }) {
             </Badge>
           ))}
         </div>
+      </TableCell>
+      <TableCell className="text-right">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => openPayslipPdf.mutate(payslip.id)}
+          disabled={openPayslipPdf.isPending}
+        >
+          View PDF
+        </Button>
       </TableCell>
     </TableRow>
   );
@@ -84,6 +96,7 @@ export function MyPayslipsPage() {
                   <TableHead>Deductions</TableHead>
                   <TableHead>Net pay</TableHead>
                   <TableHead>Breakdown</TableHead>
+                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
