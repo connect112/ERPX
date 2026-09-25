@@ -70,5 +70,15 @@ class DesignationPublic(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HrSettingsUpdateRequest(BaseModel):
+    # Python's date.weekday() convention: Monday=0 .. Sunday=6.
+    week_off_days: list[int] = Field(..., min_length=0, max_length=7)
+
+
+class HrSettingsPublic(BaseModel):
+    organization_id: uuid.UUID
+    week_off_days: list[int]
+
+
 class MessageResponse(BaseModel):
     message: str

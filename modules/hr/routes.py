@@ -13,9 +13,11 @@ from modules.hr.schemas import (
     DesignationCreateRequest,
     DesignationPublic,
     DesignationUpdateRequest,
+    HrSettingsPublic,
+    HrSettingsUpdateRequest,
     MessageResponse,
 )
-from modules.hr.service import DepartmentService, DesignationService
+from modules.hr.service import DepartmentService, DesignationService, HrSettingsService
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
@@ -127,3 +129,29 @@ async def update_designation(
         designation_id, organization_id, **payload.model_dump(exclude_unset=True)
     )
     return DesignationPublic.model_validate(designation)
+
+
+# ---- Settings ----
+
+
+@router.get("/settings", response_model=HrSettingsPublic)
+async def get_hr_settings(
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hr.settings.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = HrSettingsService(db)
+    org = await service.get_settings(organization_id)
+    return HrSettingsPublic(organization_id=org.id, week_off_days=org.week_off_days)
+
+
+@router.patch("/settings", response_model=HrSettingsPublic)
+async def update_hr_settings(
+    payload: HrSettingsUpdateRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hr.settings.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = HrSettingsService(db)
+    org = await service.update_settings(organization_id, payload.week_off_days)
+    return HrSettingsPublic(organization_id=org.id, week_off_days=org.week_off_days)

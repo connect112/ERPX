@@ -62,6 +62,12 @@ export interface DesignationUpdatePayload {
   grants_trainer_access?: boolean;
 }
 
+export interface HrSettingsPublic {
+  organization_id: string;
+  // Python's date.weekday() convention: Monday=0 .. Sunday=6.
+  week_off_days: number[];
+}
+
 export const hrApi = {
   listDepartments: (isActive?: boolean) =>
     apiClient
@@ -84,4 +90,11 @@ export const hrApi = {
 
   updateDesignation: (id: string, payload: DesignationUpdatePayload) =>
     apiClient.patch<DesignationPublic>(`/hr/designations/${id}`, payload).then((r) => r.data),
+
+  getSettings: () => apiClient.get<HrSettingsPublic>("/hr/settings").then((r) => r.data),
+
+  updateSettings: (weekOffDays: number[]) =>
+    apiClient
+      .patch<HrSettingsPublic>("/hr/settings", { week_off_days: weekOffDays })
+      .then((r) => r.data),
 };

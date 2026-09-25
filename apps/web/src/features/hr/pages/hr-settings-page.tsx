@@ -30,6 +30,8 @@ import {
   useCreateDesignation,
   useDepartments,
   useDesignations,
+  useHrSettings,
+  useUpdateHrSettings,
 } from "@/features/hr/api/hr-hooks";
 import {
   type DepartmentFormValues,
@@ -303,6 +305,82 @@ function DesignationsCard() {
   );
 }
 
+const WEEKDAY_LABELS: { value: number; label: string }[] = [
+  { value: 0, label: "Monday" },
+  { value: 1, label: "Tuesday" },
+  { value: 2, label: "Wednesday" },
+  { value: 3, label: "Thursday" },
+  { value: 4, label: "Friday" },
+  { value: 5, label: "Saturday" },
+  { value: 6, label: "Sunday" },
+];
+
+function WeeklyOffsCard() {
+  const { data: settings, isLoading, isError } = useHrSettings();
+  const updateSettings = useUpdateHrSettings();
+  const [selected, setSelected] = useState<number[] | null>(null);
+
+  const weekOffDays = selected ?? settings?.week_off_days ?? [];
+  const isDirty = selected !== null;
+
+  const toggleDay = (day: number) => {
+    const current = selected ?? settings?.week_off_days ?? [];
+    setSelected(
+      current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort()
+    );
+  };
+
+  const handleSave = () => {
+    if (selected === null) return;
+    updateSettings.mutate(selected, { onSuccess: () => setSelected(null) });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Weekly offs</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          These days are automatically treated as a paid Week Off in attendance and payroll for
+          any day with no attendance record — an employee checking themselves in doesn&apos;t
+          need to also record their weekly day off.
+        </p>
+        {isLoading && <Skeleton className="h-16 w-full" />}
+        {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
+        {!isLoading && !isError && (
+          <div className="flex flex-wrap gap-3">
+            {WEEKDAY_LABELS.map(({ value, label }) => (
+              <label key={value} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input"
+                  checked={weekOffDays.includes(value)}
+                  onChange={() => toggleDay(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        )}
+        {updateSettings.isError && (
+          <p className="text-sm text-destructive">Could not save. Please try again.</p>
+        )}
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={handleSave} disabled={!isDirty || updateSettings.isPending}>
+            {updateSettings.isPending ? "Saving..." : "Save"}
+          </Button>
+          {isDirty && (
+            <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>
+              Discard changes
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function HRSettingsPage() {
   return (
     <div className="space-y-6 p-8">
@@ -316,6 +394,7 @@ export function HRSettingsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <DepartmentsCard />
         <DesignationsCard />
+        <WeeklyOffsCard />
       </div>
     </div>
   );

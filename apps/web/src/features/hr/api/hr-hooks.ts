@@ -10,6 +10,7 @@ import {
 
 const departmentsKey = ["hr", "departments"] as const;
 const designationsKey = ["hr", "designations"] as const;
+const settingsKey = ["hr", "settings"] as const;
 
 export function useDepartments(isActive?: boolean) {
   return useQuery({
@@ -56,5 +57,20 @@ export function useUpdateDesignation() {
     mutationFn: ({ id, payload }: { id: string; payload: DesignationUpdatePayload }) =>
       hrApi.updateDesignation(id, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: designationsKey }),
+  });
+}
+
+export function useHrSettings() {
+  return useQuery({
+    queryKey: settingsKey,
+    queryFn: () => hrApi.getSettings(),
+  });
+}
+
+export function useUpdateHrSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (weekOffDays: number[]) => hrApi.updateSettings(weekOffDays),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: settingsKey }),
   });
 }
