@@ -15,6 +15,8 @@ from modules.accounting.ledger.repository import AccountRepository
 from modules.attendance.service import AttendanceService
 from modules.employees.models import EmploymentStatus
 from modules.employees.repository import EmployeeRepository
+from modules.hr.repository import DepartmentRepository, DesignationRepository
+from modules.organizations.repository import OrganizationRepository
 from modules.payroll.models import (
     Payslip,
     PayrollRun,
@@ -23,6 +25,7 @@ from modules.payroll.models import (
     SalaryComponentType,
     SalaryStructure,
 )
+from modules.payroll.pdf import generate_payslip_pdf
 from modules.payroll.repository import (
     PayrollRunRepository,
     PayslipRepository,
@@ -165,6 +168,9 @@ class PayrollService:
         self.attendance_service = AttendanceService(db)
         self.bank_service = BankService(db)
         self.journal_service = JournalService(db)
+        self.designation_repo = DesignationRepository(db)
+        self.department_repo = DepartmentRepository(db)
+        self.org_repo = OrganizationRepository(db)
 
     async def generate_run(
         self,
@@ -292,6 +298,38 @@ class PayrollService:
         if not payslip:
             raise NotFoundError("Payslip", payslip_id)
         return payslip
+
+    async def get_payslip_pdf(self, payslip_id: uuid.UUID, organization_id: uuid.UUID) -> bytes:
+        payslip = await self.payslip_repo.get_by_id(payslip_id)
+        # payslip_repo.get_by_id isn't itself organization-scoped, so
+        # ownership is enforced here instead: both the employee and the
+        # parent run must resolve within the caller's own organization, or
+        # this is treated as not found rather than leaking that a payslip
+        # with this id exists in some other organization.
+        employee = await self.employee_repo.get_by_id(payslip.employee_id, organization_id) if payslip else None
+        run = await self.run_repo.get_by_id(payslip.payroll_run_id, organization_id) if payslip else None
+        if not payslip or not employee or not run:
+            raise NotFoundError("Payslip", payslip_id)
+
+        organization = await self.org_repo.get_by_id(organization_id)
+        designation = (
+            await self.designation_repo.get_by_id(employee.designation_id, organization_id)
+            if employee.designation_id
+            else None
+        )
+        department = (
+            await self.department_repo.get_by_id(employee.department_id, organization_id)
+            if employee.department_id
+            else None
+        )
+        component_names = {}
+        for line in payslip.lines:
+            if line.salary_component_id in component_names:
+                continue
+            component = await self.component_repo.get_by_id(line.salary_component_id, organization_id)
+            component_names[line.salary_component_id] = component.name if component else "—"
+
+        return generate_payslip_pdf(payslip, run, employee, organization, designation, department, component_names)
 
     async def list_payslips_for_employee(self, employee_id: uuid.UUID, organization_id: uuid.UUID, **filters):
         employee = await self.employee_repo.get_by_id(employee_id, organization_id)

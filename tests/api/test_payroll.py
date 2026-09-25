@@ -176,6 +176,69 @@ async def test_add_payslip_line_on_draft_run_updates_totals(client, auth_headers
     assert updated_run["total_net_amount"] == round(run["total_net_amount"] + 1005.90, 2)
 
 
+async def test_get_payslip_pdf_returns_a_real_pdf(client, auth_headers, db_session, organization, payroll_setup):
+    await _mark_present_for_month(db_session, organization.id, payroll_setup["employee"]["id"], 2026, 6)
+
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 6, "run_date": "2026-06-30"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+    run = generate_resp.json()["run"]
+
+    payslips_resp = await client.get(f"/api/v1/payroll/runs/{run['id']}/payslips", headers=auth_headers)
+    payslip = payslips_resp.json()[0]
+
+    pdf_resp = await client.get(f"/api/v1/payroll/payslips/{payslip['id']}/pdf", headers=auth_headers)
+    assert pdf_resp.status_code == 200, pdf_resp.text
+    assert pdf_resp.headers["content-type"] == "application/pdf"
+    assert pdf_resp.content.startswith(b"%PDF")
+
+
+async def test_get_payslip_pdf_404s_for_a_payslip_in_another_organization(
+    client, auth_headers, db_session, organization, payroll_setup
+):
+    await _mark_present_for_month(db_session, organization.id, payroll_setup["employee"]["id"], 2026, 7)
+
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 7, "run_date": "2026-07-31"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+    run = generate_resp.json()["run"]
+    payslips_resp = await client.get(f"/api/v1/payroll/runs/{run['id']}/payslips", headers=auth_headers)
+    payslip = payslips_resp.json()[0]
+
+    from app.core.security import create_access_token, hash_password
+    from modules.authentication.models import UserStatus
+    from modules.authentication.repository import AuthRepository
+    from modules.organizations.repository import OrganizationRepository
+    from modules.users.repository import UserProfileRepository
+
+    other_org = await OrganizationRepository(db_session).create(
+        name="Other Org", slug=f"other-org-{uuid.uuid4().hex[:8]}"
+    )
+    other_admin = await AuthRepository(db_session).create_user(
+        email=f"otheradmin.{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password=hash_password("Test1234!"),
+        full_name="Other Admin",
+    )
+    other_admin.status = UserStatus.ACTIVE
+    other_admin.is_email_verified = True
+    other_admin.is_superuser = True
+    await db_session.flush()
+    await UserProfileRepository(db_session).create(user_id=other_admin.id, organization_id=other_org.id)
+    await db_session.flush()
+    other_headers = {"Authorization": f"Bearer {create_access_token(str(other_admin.id))}"}
+
+    pdf_resp = await client.get(
+        f"/api/v1/payroll/payslips/{payslip['id']}/pdf", headers=other_headers
+    )
+    assert pdf_resp.status_code == 404, pdf_resp.text
+
+
 async def test_add_payslip_line_rejected_once_run_is_finalized(
     client, auth_headers, db_session, organization, payroll_setup
 ):

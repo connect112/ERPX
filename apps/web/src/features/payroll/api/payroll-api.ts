@@ -191,6 +191,11 @@ export const payrollApi = {
 
   getPayslip: (id: string) => apiClient.get<PayslipPublic>(`/payroll/payslips/${id}`).then((r) => r.data),
 
+  getPayslipPdf: (id: string) =>
+    apiClient
+      .get(`/payroll/payslips/${id}/pdf`, { responseType: "blob" })
+      .then((r) => r.data as Blob),
+
   addPayslipLine: (payslipId: string, payload: PayslipAddLinePayload) =>
     apiClient.post<PayslipPublic>(`/payroll/payslips/${payslipId}/lines`, payload).then((r) => r.data),
 

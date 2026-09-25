@@ -38,6 +38,7 @@ import {
   useDeletePayrollRun,
   useFinalizePayrollRun,
   useMarkPayrollRunPaid,
+  useOpenPayslipPdf,
   usePayrollRun,
   useRunPayslips,
   useSalaryComponents,
@@ -76,6 +77,7 @@ export function PayrollRunDetailPage() {
   const markPaid = useMarkPayrollRunPaid(runId ?? "");
   const cancelRun = useCancelPayrollRun(runId ?? "");
   const deleteRun = useDeletePayrollRun(runId ?? "");
+  const openPayslipPdf = useOpenPayslipPdf();
   const addPayslipLine = useAddPayslipLine(runId ?? "");
 
   const [finalizeOpen, setFinalizeOpen] = useState(false);
@@ -217,7 +219,7 @@ export function PayrollRunDetailPage() {
                   <TableHead>Gross</TableHead>
                   <TableHead>Deductions</TableHead>
                   <TableHead>Net</TableHead>
-                  {run.status === "draft" && <TableHead />}
+                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -233,13 +235,23 @@ export function PayrollRunDetailPage() {
                       {payslip.total_deductions.toLocaleString()}
                     </TableCell>
                     <TableCell className="font-medium">{payslip.net_amount.toLocaleString()}</TableCell>
-                    {run.status === "draft" && (
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => setAddLinePayslipId(payslip.id)}>
-                          Add line
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openPayslipPdf.mutate(payslip.id)}
+                          disabled={openPayslipPdf.isPending}
+                        >
+                          View PDF
                         </Button>
-                      </TableCell>
-                    )}
+                        {run.status === "draft" && (
+                          <Button variant="ghost" size="sm" onClick={() => setAddLinePayslipId(payslip.id)}>
+                            Add line
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
