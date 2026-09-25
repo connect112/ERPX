@@ -219,16 +219,24 @@ class PayrollService:
             summary = await self.attendance_service.monthly_summary(
                 employee.id, organization_id, period_year, period_month
             )
+            # Salary is earned per working day, not per calendar day: a
+            # weekly off (Sunday, or whatever the org configures) is
+            # excluded from both sides of the ratio entirely, rather than
+            # counted as a "paid" day that inflates both paid_days and the
+            # denominator. An employee absent the whole month gets 0 pay,
+            # not partial pay for the Sundays they were never going to work
+            # anyway; an employee who worked every working day gets 100%
+            # regardless of how many Sundays fell in the month.
+            working_days_in_month = max(days_in_month - summary["week_off_days"], 0)
             paid_days = (
                 summary["present_days"]
                 + summary["half_days"] * 0.5
                 + summary["leave_days"]
                 + summary["holiday_days"]
-                + summary["week_off_days"]
             )
-            paid_days = min(paid_days, days_in_month)
-            lop_days = round(days_in_month - paid_days, 1)
-            proration_factor = paid_days / days_in_month if days_in_month else 1.0
+            paid_days = min(paid_days, working_days_in_month)
+            lop_days = round(working_days_in_month - paid_days, 1)
+            proration_factor = paid_days / working_days_in_month if working_days_in_month else 1.0
 
             payslip_lines = []
             gross_amount = 0.0
