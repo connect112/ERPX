@@ -257,6 +257,25 @@ async def list_my_payslips(
     }
 
 
+@router.get("/payslips/me/{payslip_id}/pdf")
+async def get_my_payslip_pdf(
+    payslip_id: uuid.UUID,
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service counterpart of get_payslip_pdf below — ownership-gated
+    via get_current_employee like list_my_payslips above, not an admin
+    permission. Registered before /payslips/{payslip_id} for the same
+    reason list_my_payslips is."""
+    service = PayrollService(db)
+    pdf_bytes = await service.get_own_payslip_pdf(payslip_id, employee)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="payslip-{payslip_id}.pdf"'},
+    )
+
+
 @router.get("/payslips/{payslip_id}", response_model=PayslipPublic)
 async def get_payslip(
     payslip_id: uuid.UUID,

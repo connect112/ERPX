@@ -13,7 +13,7 @@ from modules.accounting.journals.models import JournalSourceModule
 from modules.accounting.journals.service import JournalService
 from modules.accounting.ledger.repository import AccountRepository
 from modules.attendance.service import AttendanceService
-from modules.employees.models import EmploymentStatus
+from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.repository import EmployeeRepository
 from modules.hr.repository import DepartmentRepository, DesignationRepository
 from modules.organizations.repository import OrganizationRepository
@@ -310,7 +310,25 @@ class PayrollService:
         run = await self.run_repo.get_by_id(payslip.payroll_run_id, organization_id) if payslip else None
         if not payslip or not employee or not run:
             raise NotFoundError("Payslip", payslip_id)
+        return await self._build_payslip_pdf(payslip, run, employee, organization_id)
 
+    async def get_own_payslip_pdf(self, payslip_id: uuid.UUID, employee: Employee) -> bytes:
+        """Self-service counterpart of get_payslip_pdf: ownership-gated by
+        the payslip's employee_id matching the caller's own employee
+        record (mirrors /payslips/me's list_payslips_for_employee), not by
+        an admin permission -- any employee can download their own
+        payslip, nobody else's."""
+        payslip = await self.payslip_repo.get_by_id(payslip_id)
+        if not payslip or payslip.employee_id != employee.id:
+            raise NotFoundError("Payslip", payslip_id)
+        run = await self.run_repo.get_by_id(payslip.payroll_run_id, employee.organization_id)
+        if not run:
+            raise NotFoundError("Payslip", payslip_id)
+        return await self._build_payslip_pdf(payslip, run, employee, employee.organization_id)
+
+    async def _build_payslip_pdf(
+        self, payslip: Payslip, run: PayrollRun, employee: Employee, organization_id: uuid.UUID
+    ) -> bytes:
         organization = await self.org_repo.get_by_id(organization_id)
         designation = (
             await self.designation_repo.get_by_id(employee.designation_id, organization_id)
