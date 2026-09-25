@@ -414,6 +414,66 @@ async def test_generate_run_treats_unmarked_sundays_as_paid_week_off(
     assert payslip["gross_amount"] == 15000
 
 
+async def test_generate_run_gives_zero_pay_for_zero_attendance_not_partial_credit_for_sundays(
+    client, auth_headers, payroll_setup
+):
+    """Salary is earned per working day, not per calendar day. An
+    employee with no attendance records at all for the month (not even a
+    single check-in) must get 0 pay -- not partial pay for the Sundays
+    they were never going to work anyway, which the old calendar-day
+    proration (paid_days / days_in_month, counting week-offs as paid)
+    used to silently grant."""
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 9, "run_date": "2026-09-30"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+    run = generate_resp.json()["run"]
+
+    payslips_resp = await client.get(f"/api/v1/payroll/runs/{run['id']}/payslips", headers=auth_headers)
+    payslip = payslips_resp.json()[0]
+    assert payslip["gross_amount"] == 0
+    assert payslip["net_amount"] == 0
+    # September 2026 has 4 Sundays; the other 26 working days are all LOP.
+    assert payslip["lop_days"] == 26
+
+
+async def test_generate_run_prorates_by_working_days_only_for_partial_attendance(
+    client, auth_headers, db_session, organization, payroll_setup
+):
+    """Present for exactly half the working days (13 of 26 in September
+    2026, 4 Sundays excluded from both sides of the ratio) should yield
+    exactly half salary -- not half-of-31 or half-plus-Sunday-credit."""
+    repo = AttendanceRepository(db_session)
+    worked = 0
+    day = 1
+    while worked < 13:
+        d = date(2026, 9, day)
+        if d.weekday() != 6:
+            await repo.create(
+                organization_id=organization.id,
+                employee_id=payroll_setup["employee"]["id"],
+                attendance_date=d,
+                status=AttendanceStatus.PRESENT,
+            )
+            worked += 1
+        day += 1
+
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": 2026, "period_month": 9, "run_date": "2026-09-30"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+    run = generate_resp.json()["run"]
+
+    payslips_resp = await client.get(f"/api/v1/payroll/runs/{run['id']}/payslips", headers=auth_headers)
+    payslip = payslips_resp.json()[0]
+    assert payslip["lop_days"] == 13
+    assert payslip["gross_amount"] == 7500  # 15000 * (13/26)
+
+
 async def test_deleting_a_cancelled_run_frees_its_period_for_regeneration(client, auth_headers, payroll_setup):
     generate_resp = await client.post(
         "/api/v1/payroll/runs",
