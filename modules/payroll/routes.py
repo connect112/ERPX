@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -266,6 +266,22 @@ async def get_payslip(
     service = PayrollService(db)
     payslip = await service.get_payslip(payslip_id)
     return PayslipPublic.model_validate(payslip)
+
+
+@router.get("/payslips/{payslip_id}/pdf")
+async def get_payslip_pdf(
+    payslip_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("payroll.runs.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PayrollService(db)
+    pdf_bytes = await service.get_payslip_pdf(payslip_id, organization_id)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="payslip-{payslip_id}.pdf"'},
+    )
 
 
 @router.post("/payslips/{payslip_id}/lines", response_model=PayslipPublic)
