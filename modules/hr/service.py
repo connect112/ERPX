@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
 from modules.authorization.repository import AuthorizationRepository
+from modules.employees.service import EmployeeService
 from modules.hr.models import Department, Designation
 from modules.hr.repository import DepartmentRepository, DesignationRepository
 from modules.organizations.models import Organization
@@ -102,6 +103,24 @@ class DesignationService:
         if "linked_role_id" in fields:
             await self._validate_linked_role(fields["linked_role_id"])
         updated = await self.repo.update(designation, **fields)
+
+        # A designation's grants only ever got applied to an employee at
+        # the moment they were invited (EmployeeService.invite_employee).
+        # An employee already invited before this designation had a
+        # linked_role_id/grants_trainer_access — or before they were even
+        # assigned this designation — was permanently missing that access,
+        # with nothing telling anyone why. Re-apply to everyone currently
+        # holding this designation whenever it's saved with either grant
+        # set; apply_designation_grants is idempotent, so this is also a
+        # safe "resave to repair" path for an admin, not just automatic.
+        if updated.linked_role_id or updated.grants_trainer_access:
+            employee_service = EmployeeService(self.db)
+            employees, _ = await employee_service.repo.list_for_organization(
+                organization_id, designation_id=designation_id, limit=10_000
+            )
+            for employee in employees:
+                await employee_service.apply_designation_grants(employee, updated, organization_id)
+
         logger.info("designation_updated", designation_id=str(designation_id))
         return updated
 

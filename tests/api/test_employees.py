@@ -152,6 +152,114 @@ async def test_invite_employee_with_bare_designation_grants_no_extra_access(
     assert trainer is None
 
 
+async def test_updating_designation_to_grant_trainer_access_retroactively_grants_already_invited_employees(
+    client, auth_headers, db_session, rbac_seeded
+):
+    """The gap this closes: a designation's grants used to only ever get
+    applied at the moment an employee was invited. An employee invited
+    while their designation had no trainer access — then the designation
+    is edited afterward to add it — used to be stuck permanently with no
+    Trainer record and no error explaining why trainer-portal access
+    didn't work, even though their designation now says they should have
+    it."""
+    authz_repo = AuthorizationRepository(db_session)
+    staff_role = await authz_repo.get_role_by_slug("staff")
+    assert staff_role is not None
+
+    department, designation = await _create_department_and_designation(client, auth_headers)
+    assert designation["linked_role_id"] is None
+    assert designation["grants_trainer_access"] is False
+
+    create_resp = await client.post(
+        "/api/v1/employees",
+        json={
+            **_EMPLOYEE_PAYLOAD,
+            "email": "retroactive-trainer@example.com",
+            "department_id": department["id"],
+            "designation_id": designation["id"],
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    employee = create_resp.json()
+
+    invite_resp = await client.post(f"/api/v1/employees/{employee['id']}/invite", headers=auth_headers)
+    assert invite_resp.status_code == 200, invite_resp.text
+    user_id = invite_resp.json()["user_id"]
+
+    trainer_repo = TrainerRepository(db_session)
+    trainer_before = await trainer_repo.get_by_employee_id(employee["id"], department["organization_id"])
+    assert trainer_before is None
+
+    update_resp = await client.patch(
+        f"/api/v1/hr/designations/{designation['id']}",
+        json={"linked_role_id": str(staff_role.id), "grants_trainer_access": True},
+        headers=auth_headers,
+    )
+    assert update_resp.status_code == 200, update_resp.text
+
+    trainer_after = await trainer_repo.get_by_employee_id(employee["id"], department["organization_id"])
+    assert trainer_after is not None
+
+    user_roles = await authz_repo.get_roles_for_user(user_id)
+    assert any(str(r.id) == str(staff_role.id) for r in user_roles)
+
+    # Idempotent: saving the already-updated designation again doesn't
+    # error or create a duplicate Trainer row.
+    resave_resp = await client.patch(
+        f"/api/v1/hr/designations/{designation['id']}",
+        json={"grants_trainer_access": True},
+        headers=auth_headers,
+    )
+    assert resave_resp.status_code == 200, resave_resp.text
+    trainer_after_resave = await trainer_repo.get_by_employee_id(employee["id"], department["organization_id"])
+    assert trainer_after_resave.id == trainer_after.id
+
+
+async def test_reassigning_an_already_invited_employees_designation_grants_trainer_access_immediately(
+    client, auth_headers, db_session, rbac_seeded
+):
+    department, bare_designation = await _create_department_and_designation(client, auth_headers, code="ISE")
+
+    create_resp = await client.post(
+        "/api/v1/employees",
+        json={
+            **_EMPLOYEE_PAYLOAD,
+            "email": "reassigned-designation@example.com",
+            "department_id": department["id"],
+            "designation_id": bare_designation["id"],
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    employee = create_resp.json()
+
+    invite_resp = await client.post(f"/api/v1/employees/{employee['id']}/invite", headers=auth_headers)
+    assert invite_resp.status_code == 200, invite_resp.text
+
+    trainer_role_designation_resp = await client.post(
+        "/api/v1/hr/designations",
+        json={"title": "Lead Trainer", "code": "TRAINER", "grants_trainer_access": True},
+        headers=auth_headers,
+    )
+    assert trainer_role_designation_resp.status_code == 201, trainer_role_designation_resp.text
+    trainer_designation = trainer_role_designation_resp.json()
+
+    trainer_repo = TrainerRepository(db_session)
+    trainer_before = await trainer_repo.get_by_employee_id(employee["id"], department["organization_id"])
+    assert trainer_before is None
+
+    reassign_resp = await client.patch(
+        f"/api/v1/employees/{employee['id']}",
+        json={"designation_id": trainer_designation["id"]},
+        headers=auth_headers,
+    )
+    assert reassign_resp.status_code == 200, reassign_resp.text
+
+    trainer_after = await trainer_repo.get_by_employee_id(employee["id"], department["organization_id"])
+    assert trainer_after is not None
+
+
 async def test_designation_rejects_linking_super_admin_role(client, auth_headers, rbac_seeded):
     """The blocklist in modules/hr/service.py's _validate_linked_role is
     what stands between a designation and silently mass-granting the
