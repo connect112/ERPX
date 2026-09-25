@@ -163,43 +163,35 @@ def generate_payslip_pdf(
         target = earning_rows if line.component_type == SalaryComponentType.EARNING else deduction_rows
         target.append((component_names.get(line.salary_component_id, "—"), line.amount))
 
-    max_rows = max(len(earning_rows), len(deduction_rows), 1)
-    breakdown_rows = [["Earnings", "Amount", "Deductions", "Amount"]]
-    for i in range(max_rows):
-        earning_name, earning_amount = earning_rows[i] if i < len(earning_rows) else ("", "")
-        deduction_name, deduction_amount = deduction_rows[i] if i < len(deduction_rows) else ("", "")
-        breakdown_rows.append(
-            [
-                earning_name,
-                _money(earning_amount) if earning_name else "",
-                deduction_name,
-                _money(deduction_amount) if deduction_name else "",
-            ]
+    def _section_table(title: str, rows: list[tuple[str, object]], total_label: str, total_amount) -> Table:
+        # Earnings and deductions stacked as their own single-column
+        # sections, rather than side by side -- padding the shorter side
+        # up to match the longer one's row count left visible blank cells.
+        data = [[title, "Amount"]] + [[name, _money(amount)] for name, amount in rows]
+        data.append([total_label, _money(total_amount)])
+        table = Table(data, colWidths=[5.15 * inch, 1.35 * inch])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                    ("LINEABOVE", (0, -1), (-1, -1), 0.75, colors.HexColor("#1f2937")),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#f9fafb")]),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
         )
-    breakdown_rows.append(
-        ["Gross", _money(payslip.gross_amount), "Total deductions", _money(payslip.total_deductions)]
-    )
+        return table
 
-    breakdown_table = Table(breakdown_rows, colWidths=[2.15 * inch, 1.35 * inch, 2.15 * inch, 1.35 * inch])
-    breakdown_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-                ("LINEABOVE", (0, -1), (-1, -1), 0.75, colors.HexColor("#1f2937")),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-                ("ALIGN", (3, 0), (3, -1), "RIGHT"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#f9fafb")]),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]
-        )
-    )
-    elements.append(breakdown_table)
+    elements.append(_section_table("Earnings", earning_rows, "Gross", payslip.gross_amount))
+    elements.append(Spacer(1, 0.15 * inch))
+    elements.append(_section_table("Deductions", deduction_rows, "Total deductions", payslip.total_deductions))
     elements.append(Spacer(1, 0.15 * inch))
 
     net_table = Table([["Net pay", _money(payslip.net_amount)]], colWidths=[5.65 * inch, 1.35 * inch])
