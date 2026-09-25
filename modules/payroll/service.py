@@ -328,8 +328,11 @@ class PayrollService:
                 continue
             component = await self.component_repo.get_by_id(line.salary_component_id, organization_id)
             component_names[line.salary_component_id] = component.name if component else "—"
+        all_components = await self.component_repo.list_for_organization(organization_id, is_active=True)
 
-        return generate_payslip_pdf(payslip, run, employee, organization, designation, department, component_names)
+        return generate_payslip_pdf(
+            payslip, run, employee, organization, designation, department, component_names, all_components
+        )
 
     async def list_payslips_for_employee(self, employee_id: uuid.UUID, organization_id: uuid.UUID, **filters):
         employee = await self.employee_repo.get_by_id(employee_id, organization_id)

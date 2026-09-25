@@ -12,6 +12,7 @@ import io
 from pathlib import Path
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
@@ -20,11 +21,12 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 from modules.employees.models import Employee
 from modules.hr.models import Department, Designation
 from modules.organizations.models import Organization
-from modules.payroll.models import Payslip, PayrollRun, SalaryComponentType
+from modules.payroll.models import Payslip, PayrollRun, SalaryComponent, SalaryComponentType
 
 _STATIC_DIR = Path(__file__).resolve().parents[2] / "apps" / "api" / "app" / "static" / "payroll"
 _STAMP_PATH = _STATIC_DIR / "stamp.png"
 _SIGNATURE_PATH = _STATIC_DIR / "signature.png"
+_LOGO_PATH = _STATIC_DIR / "logo.png"
 
 _MONTH_NAMES = [
     "January", "February", "March", "April", "May", "June",
@@ -42,9 +44,31 @@ _AUTHENTICITY_NOTICE = (
     "result in legal action."
 )
 
+_DISCREPANCY_NOTICE = (
+    "This payslip is generated based on the attendance and salary structure on record as "
+    "of the date of issue. Please report any discrepancy to HR within 7 working days."
+)
+
 
 def _money(value) -> str:
     return f"{float(value):,.2f}"
+
+
+def _make_footer_drawer(disclaimer_style: ParagraphStyle, left_margin: float, right_margin: float, page_width: float):
+    """Anchors the disclaimer to the physical bottom of every page,
+    regardless of how much content precedes it -- a payslip short enough
+    to leave blank space at the bottom of the page must not leave the
+    disclaimer floating in that gap instead of at the actual page edge."""
+    available_width = page_width - left_margin - right_margin
+    para = Paragraph(_AUTHENTICITY_NOTICE, disclaimer_style)
+    _, para_height = para.wrap(available_width, 1 * inch)
+
+    def draw(canvas, doc):
+        canvas.saveState()
+        para.drawOn(canvas, left_margin, 0.35 * inch)
+        canvas.restoreState()
+
+    return draw, para_height
 
 
 def generate_payslip_pdf(
@@ -55,23 +79,35 @@ def generate_payslip_pdf(
     designation: Designation | None,
     department: Department | None,
     component_names: dict,
+    all_components: list[SalaryComponent],
 ) -> bytes:
     buffer = io.BytesIO()
+    left_margin = right_margin = 0.7 * inch
     doc = SimpleDocTemplate(
-        buffer, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
-        leftMargin=0.7 * inch, rightMargin=0.7 * inch,
+        buffer, pagesize=letter, topMargin=0.6 * inch, bottomMargin=1.0 * inch,
+        leftMargin=left_margin, rightMargin=right_margin,
     )
     styles = getSampleStyleSheet()
     small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#4b5563"))
     disclaimer_style = ParagraphStyle(
         "Disclaimer", parent=styles["Normal"], fontSize=6.5, textColor=colors.HexColor("#6b7280"), leading=9
     )
+    draw_footer, _ = _make_footer_drawer(disclaimer_style, left_margin, right_margin, letter[0])
+    centered_title = ParagraphStyle("CenteredTitle", parent=styles["Title"], alignment=TA_CENTER)
+    centered_subtitle = ParagraphStyle("CenteredSubtitle", parent=styles["Heading3"], alignment=TA_CENTER)
 
-    elements = [
-        Paragraph(organization.name, styles["Title"]),
+    elements = []
+    if _LOGO_PATH.exists():
+        logo = Image(str(_LOGO_PATH), width=0.7 * inch, height=0.7 * inch)
+        logo.hAlign = "CENTER"
+        elements.append(logo)
+        elements.append(Spacer(1, 0.05 * inch))
+    elements.append(Paragraph(organization.name, centered_title))
+
+    elements += [
         Paragraph(
             f"Payslip for {_MONTH_NAMES[payroll_run.period_month - 1]} {payroll_run.period_year}",
-            styles["Heading3"],
+            centered_subtitle,
         ),
         Spacer(1, 0.15 * inch),
     ]
@@ -107,17 +143,39 @@ def generate_payslip_pdf(
     elements.append(info_table)
     elements.append(Spacer(1, 0.25 * inch))
 
-    earnings = [line for line in payslip.lines if line.component_type == SalaryComponentType.EARNING]
-    deductions = [line for line in payslip.lines if line.component_type == SalaryComponentType.DEDUCTION]
+    # Every earning/deduction component the organization has configured is
+    # listed, even ones this payslip has no line for (shown as 0) -- a
+    # payslip that silently omits a zero-value line (e.g. no PF deducted
+    # this month) reads as incomplete rather than confirming there's
+    # nothing owed there.
+    amounts_by_component = {line.salary_component_id: line.amount for line in payslip.lines}
+    listed_ids: set = set()
+    earning_rows: list[tuple[str, object]] = []
+    deduction_rows: list[tuple[str, object]] = []
+    for component in all_components:
+        listed_ids.add(component.id)
+        amount = amounts_by_component.get(component.id, 0)
+        target = earning_rows if component.component_type == SalaryComponentType.EARNING else deduction_rows
+        target.append((component.name, amount))
+    for line in payslip.lines:
+        if line.salary_component_id in listed_ids:
+            continue
+        target = earning_rows if line.component_type == SalaryComponentType.EARNING else deduction_rows
+        target.append((component_names.get(line.salary_component_id, "—"), line.amount))
 
-    max_rows = max(len(earnings), len(deductions), 1)
+    max_rows = max(len(earning_rows), len(deduction_rows), 1)
     breakdown_rows = [["Earnings", "Amount", "Deductions", "Amount"]]
     for i in range(max_rows):
-        earning_name = component_names.get(earnings[i].salary_component_id, "—") if i < len(earnings) else ""
-        earning_amount = _money(earnings[i].amount) if i < len(earnings) else ""
-        deduction_name = component_names.get(deductions[i].salary_component_id, "—") if i < len(deductions) else ""
-        deduction_amount = _money(deductions[i].amount) if i < len(deductions) else ""
-        breakdown_rows.append([earning_name, earning_amount, deduction_name, deduction_amount])
+        earning_name, earning_amount = earning_rows[i] if i < len(earning_rows) else ("", "")
+        deduction_name, deduction_amount = deduction_rows[i] if i < len(deduction_rows) else ("", "")
+        breakdown_rows.append(
+            [
+                earning_name,
+                _money(earning_amount) if earning_name else "",
+                deduction_name,
+                _money(deduction_amount) if deduction_name else "",
+            ]
+        )
     breakdown_rows.append(
         ["Gross", _money(payslip.gross_amount), "Total deductions", _money(payslip.total_deductions)]
     )
@@ -159,7 +217,9 @@ def generate_payslip_pdf(
         )
     )
     elements.append(net_table)
-    elements.append(Spacer(1, 0.5 * inch))
+    elements.append(Spacer(1, 0.3 * inch))
+    elements.append(Paragraph(_DISCREPANCY_NOTICE, small))
+    elements.append(Spacer(1, 0.35 * inch))
 
     stamp_cell = Image(str(_STAMP_PATH), width=0.9 * inch, height=0.9 * inch) if _STAMP_PATH.exists() else ""
     signature_cell = (
@@ -183,8 +243,6 @@ def generate_payslip_pdf(
     outer = Table([[signature_block]], colWidths=[6.9 * inch])
     outer.setStyle(TableStyle([("ALIGN", (0, 0), (0, 0), "RIGHT")]))
     elements.append(outer)
-    elements.append(Spacer(1, 0.3 * inch))
-    elements.append(Paragraph(_AUTHENTICITY_NOTICE, disclaimer_style))
 
-    doc.build(elements)
+    doc.build(elements, onFirstPage=draw_footer, onLaterPages=draw_footer)
     return buffer.getvalue()
