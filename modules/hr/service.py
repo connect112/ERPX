@@ -7,6 +7,8 @@ from app.core.logging_config import get_logger
 from modules.authorization.repository import AuthorizationRepository
 from modules.hr.models import Department, Designation
 from modules.hr.repository import DepartmentRepository, DesignationRepository
+from modules.organizations.models import Organization
+from modules.organizations.repository import OrganizationRepository
 
 logger = get_logger(__name__)
 
@@ -101,4 +103,24 @@ class DesignationService:
             await self._validate_linked_role(fields["linked_role_id"])
         updated = await self.repo.update(designation, **fields)
         logger.info("designation_updated", designation_id=str(designation_id))
+        return updated
+
+
+class HrSettingsService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.org_repo = OrganizationRepository(db)
+
+    async def get_settings(self, organization_id: uuid.UUID) -> Organization:
+        org = await self.org_repo.get_by_id(organization_id)
+        if not org:
+            raise NotFoundError("Organization", organization_id)
+        return org
+
+    async def update_settings(self, organization_id: uuid.UUID, week_off_days: list[int]) -> Organization:
+        if any(day < 0 or day > 6 for day in week_off_days):
+            raise ValidationError("week_off_days must each be between 0 (Monday) and 6 (Sunday).")
+        org = await self.get_settings(organization_id)
+        updated = await self.org_repo.update(org, week_off_days=sorted(set(week_off_days)))
+        logger.info("hr_settings_updated", organization_id=str(organization_id), week_off_days=week_off_days)
         return updated

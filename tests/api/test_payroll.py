@@ -252,6 +252,40 @@ async def test_mark_paid_sets_paid_at_to_the_entered_payment_date(
     assert not paid_run["paid_at"].startswith(date.today().isoformat())
 
 
+async def test_generate_run_treats_unmarked_sundays_as_paid_week_off(
+    client, auth_headers, db_session, organization, payroll_setup
+):
+    """Mirrors an employee who only ever self-checks-in on days they
+    actually work — no record at all gets created for Sundays. Payroll
+    proration must still treat those Sundays as paid via
+    Organization.week_off_days, not silently as unpaid LOP."""
+    year, month = 2026, 8
+    days_in_month = calendar.monthrange(year, month)[1]
+    repo = AttendanceRepository(db_session)
+    for day in range(1, days_in_month + 1):
+        if date(year, month, day).weekday() == 6:
+            continue
+        await repo.create(
+            organization_id=organization.id,
+            employee_id=payroll_setup["employee"]["id"],
+            attendance_date=date(year, month, day),
+            status=AttendanceStatus.PRESENT,
+        )
+
+    generate_resp = await client.post(
+        "/api/v1/payroll/runs",
+        json={"period_year": year, "period_month": month, "run_date": f"{year}-{month:02d}-{days_in_month}"},
+        headers=auth_headers,
+    )
+    assert generate_resp.status_code == 201, generate_resp.text
+
+    run = generate_resp.json()["run"]
+    payslips_resp = await client.get(f"/api/v1/payroll/runs/{run['id']}/payslips", headers=auth_headers)
+    payslip = payslips_resp.json()[0]
+    assert payslip["lop_days"] == 0
+    assert payslip["gross_amount"] == 15000
+
+
 async def test_deleting_a_cancelled_run_frees_its_period_for_regeneration(client, auth_headers, payroll_setup):
     generate_resp = await client.post(
         "/api/v1/payroll/runs",

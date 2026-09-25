@@ -121,6 +121,8 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("hr.departments.manage", "hr", "Create, update, and deactivate departments"),
     ("hr.designations.view", "hr", "View designations"),
     ("hr.designations.manage", "hr", "Create, update, and deactivate designations"),
+    ("hr.settings.view", "hr", "View organization-wide HR settings (e.g. weekly off days)"),
+    ("hr.settings.manage", "hr", "Update organization-wide HR settings (e.g. weekly off days)"),
     ("attendance.view", "attendance", "View attendance records"),
     ("attendance.manage", "attendance", "Record check-in/check-out, mark, and regularize attendance"),
     ("leave.types.view", "leave", "View leave types"),
