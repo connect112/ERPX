@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { usePostingsList } from "@/features/placements/api/placements-hooks";
 import { PostingFormDialog } from "@/features/placements/components/posting-form-dialog";
+import { PostingSourceBadge } from "@/features/placements/components/posting-source-badge";
 import { PostingStatusBadge } from "@/features/placements/components/posting-status-badge";
 import {
   type PostingStatus,
@@ -128,7 +129,10 @@ export function PostingsListPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{posting.location || "—"}</TableCell>
                     <TableCell>
-                      <PostingStatusBadge status={posting.status} />
+                      <div className="flex items-center gap-2">
+                        <PostingStatusBadge status={posting.status} />
+                        <PostingSourceBadge source={posting.source} />
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

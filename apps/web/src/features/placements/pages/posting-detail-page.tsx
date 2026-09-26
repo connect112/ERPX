@@ -1,4 +1,4 @@
-import { ArrowLeft, Pencil } from "lucide-react";
+import { ArrowLeft, ExternalLink, Pencil } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -19,8 +19,10 @@ import {
   usePosting,
   usePostingApplications,
 } from "@/features/placements/api/placements-hooks";
+import { AdzunaAttribution } from "@/features/placements/components/adzuna-attribution";
 import { ApplicationRow } from "@/features/placements/components/application-row";
 import { PostingFormDialog } from "@/features/placements/components/posting-form-dialog";
+import { PostingSourceBadge } from "@/features/placements/components/posting-source-badge";
 import { PostingStatusBadge } from "@/features/placements/components/posting-status-badge";
 import {
   type PostingStatus,
@@ -70,6 +72,7 @@ export function PostingDetailPage() {
             <div className="mt-1 flex items-center gap-2">
               <span className="text-xs text-muted-foreground">{company?.name ?? "Unknown company"}</span>
               <PostingStatusBadge status={posting.status} />
+              <PostingSourceBadge source={posting.source} />
             </div>
           </div>
         </div>
@@ -116,6 +119,17 @@ export function PostingDetailPage() {
                 <div className="pt-3">
                   <p className="text-sm text-muted-foreground">Description</p>
                   <p className="mt-1 whitespace-pre-wrap text-sm">{posting.description}</p>
+                </div>
+              )}
+              {posting.source_url && (
+                <div className="flex items-center justify-between border-t pt-3">
+                  <Button asChild variant="outline" size="sm">
+                    <a href={posting.source_url} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-4 w-4" />
+                      View original listing
+                    </a>
+                  </Button>
+                  {posting.source === "adzuna" && <AdzunaAttribution />}
                 </div>
               )}
             </CardContent>

@@ -6,8 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.placements.aggregation_service import AggregationService
 from modules.placements.models import JobPostingStatus
+from modules.placements.repository import AggregationRunRepository, AggregationRunSourceRepository
 from modules.placements.schemas import (
+    AggregationRunPublic,
+    AggregationRunSourcePublic,
     ApplicationCreateRequest,
     ApplicationPublic,
     ApplicationStatusChangeRequest,
@@ -23,6 +27,7 @@ from modules.placements.schemas import (
     MessageResponse,
 )
 from modules.placements.service import ApplicationService, CompanyService, JobPostingService
+from modules.placements.tasks import run_aggregation_task
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
 from modules.users.dependencies import get_current_user_organization_id
@@ -260,3 +265,50 @@ async def change_application_status(
         application_id, organization_id, payload.status, payload.notes
     )
     return ApplicationPublic.model_validate(application)
+
+
+# ---- Job-aggregation pipeline (staff) ----
+#
+# Dispatches to Celery and returns 202 rather than running inline like the
+# existing backups/reports "run now" routes — deliberate deviation, and the
+# first `.delay()`-based route in this codebase. Those two existing routes
+# are fast and single-scope; a full multi-source, multi-organization
+# aggregation pull is neither, and per-source failure visibility (each
+# connector's own AggregationRunSource row) only makes sense with async
+# dispatch — a synchronous request can't usefully expose that mid-flight.
+# See docs/architecture/placements-job-aggregation.md.
+
+
+@router.post(
+    "/aggregation/run", response_model=AggregationRunPublic, status_code=status.HTTP_202_ACCEPTED
+)
+async def trigger_aggregation_run(
+    user: User = Depends(require_permissions("placements.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = AggregationService(db)
+    run = await service.queue_run(triggered_by=f"manual:{user.id}")
+    # run_id must travel through so the task updates THIS row instead of
+    # creating a second, disconnected one — see AggregationService.queue_run's
+    # docstring.
+    run_aggregation_task.delay(triggered_by=f"manual:{user.id}", run_id=str(run.id))
+    return AggregationRunPublic.model_validate(run)
+
+
+@router.get("/aggregation/runs", response_model=list[AggregationRunPublic])
+async def list_aggregation_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(require_permissions("placements.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    run_repo = AggregationRunRepository(db)
+    source_repo = AggregationRunSourceRepository(db)
+    runs = await run_repo.list_recent(limit=limit)
+
+    results = []
+    for run in runs:
+        sources = await source_repo.list_for_run(run.id)
+        payload = AggregationRunPublic.model_validate(run)
+        payload.sources = [AggregationRunSourcePublic.model_validate(s) for s in sources]
+        results.append(payload)
+    return results
