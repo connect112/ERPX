@@ -37,6 +37,7 @@ from modules.documents.routes import router as documents_router
 from modules.employees.routes import router as employees_router
 from modules.events.routes import router as events_router
 from modules.examinations.router import router as examinations_router
+from modules.expense_claims.routes import router as expense_claims_router
 from modules.hr.routes import router as hr_router
 from modules.internships.routes import router as internships_router
 from modules.integrations.routes import router as integrations_router
@@ -87,6 +88,7 @@ api_router.include_router(hr_router, prefix="/hr", tags=["HR"])
 api_router.include_router(attendance_router, prefix="/attendance", tags=["Attendance"])
 api_router.include_router(leave_router, prefix="/leave", tags=["Leave"])
 api_router.include_router(payroll_router, prefix="/payroll", tags=["Payroll"])
+api_router.include_router(expense_claims_router, prefix="/expense-claims", tags=["Expense Claims"])
 api_router.include_router(inventory_router, prefix="/inventory", tags=["Inventory"])
 api_router.include_router(assets_router, prefix="/assets", tags=["Assets"])
 api_router.include_router(procurement_router, prefix="/procurement", tags=["Procurement"])

@@ -53,6 +53,7 @@ const EmployeesListPage = lazy(() => import("@/features/employees/pages/employee
 const HRSettingsPage = lazy(() => import("@/features/hr/pages/hr-settings-page").then((m) => ({ default: m.HRSettingsPage })));
 const AttendancePage = lazy(() => import("@/features/attendance/pages/attendance-page").then((m) => ({ default: m.AttendancePage })));
 const LeaveApplicationsPage = lazy(() => import("@/features/leave/pages/leave-applications-page").then((m) => ({ default: m.LeaveApplicationsPage })));
+const ExpenseClaimsPage = lazy(() => import("@/features/expense-claims/pages/expense-claims-page").then((m) => ({ default: m.ExpenseClaimsPage })));
 const LeaveTypesPage = lazy(() => import("@/features/leave/pages/leave-types-page").then((m) => ({ default: m.LeaveTypesPage })));
 const PayrollRunDetailPage = lazy(() => import("@/features/payroll/pages/payroll-run-detail-page").then((m) => ({ default: m.PayrollRunDetailPage })));
 const PayrollRunsPage = lazy(() => import("@/features/payroll/pages/payroll-runs-page").then((m) => ({ default: m.PayrollRunsPage })));
@@ -186,6 +187,7 @@ export const router = createBrowserRouter([
       { path: "attendance", element: <AttendancePage /> },
       { path: "leave/types", element: <LeaveTypesPage /> },
       { path: "leave/applications", element: <LeaveApplicationsPage /> },
+      { path: "expense-claims", element: <ExpenseClaimsPage /> },
       { path: "payroll/components", element: <SalaryComponentsPage /> },
       { path: "payroll/runs", element: <PayrollRunsPage /> },
       { path: "payroll/runs/:runId", element: <PayrollRunDetailPage /> },

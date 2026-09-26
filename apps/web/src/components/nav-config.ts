@@ -132,6 +132,7 @@ export const navSections: NavSection[] = [
       { label: "Attendance", href: "/attendance", icon: CalendarCheck, enabled: true },
       { label: "Leave Types", href: "/leave/types", icon: CalendarOff, enabled: true },
       { label: "Leave Applications", href: "/leave/applications", icon: CalendarDays, enabled: true },
+      { label: "Expense Claims", href: "/expense-claims", icon: HandCoins, enabled: true },
       { label: "Salary Components", href: "/payroll/components", icon: Wallet, enabled: true },
       { label: "Payroll Runs", href: "/payroll/runs", icon: CircleDollarSign, enabled: true },
       { label: "Item Categories & Warehouses", href: "/inventory/settings", icon: Warehouse, enabled: true },
