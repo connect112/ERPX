@@ -83,6 +83,39 @@ class AttendanceService:
         logger.info("employee_checked_out", employee_id=str(employee_id), work_hours=hours)
         return updated
 
+    async def mark_attendance(
+        self,
+        organization_id: uuid.UUID,
+        employee_id: uuid.UUID,
+        attendance_date: date,
+        status: AttendanceStatus,
+        remarks: str | None = None,
+    ) -> AttendanceRecord:
+        """Internal-only: sets a specific day's status directly, upserting
+        any existing record. No route exposes this to an admin (removed in
+        PR #38 — attendance marking belongs to the employee, not an admin,
+        per that decision) — this exists solely as a system-triggered side
+        effect for other services, e.g. LeaveApplicationService.approve_leave
+        marking each day of an approved leave as ON_LEAVE. That's not an
+        admin overriding attendance; it's an automatic consequence of an
+        approval action the employee themselves initiated."""
+        employee = await self._get_employee_or_raise(employee_id, organization_id)
+        existing = await self.repo.get_for_employee_date(employee_id, attendance_date)
+        if existing is not None:
+            updated = await self.repo.update(existing, status=status, remarks=remarks)
+            return updated
+
+        record = await self.repo.create(
+            organization_id=organization_id,
+            branch_id=employee.branch_id,
+            employee_id=employee_id,
+            attendance_date=attendance_date,
+            status=status,
+            remarks=remarks,
+        )
+        logger.info("attendance_marked", employee_id=str(employee_id), status=status.value)
+        return record
+
     async def get_record(self, record_id: uuid.UUID, organization_id: uuid.UUID) -> AttendanceRecord:
         record = await self.repo.get_by_id(record_id, organization_id)
         if not record:
