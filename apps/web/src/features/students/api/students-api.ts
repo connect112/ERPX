@@ -71,6 +71,17 @@ export interface StudentFromAdmissionPayload {
   enrollment_date?: string;
 }
 
+export interface StudentCreateLoginPayload {
+  course_id: string;
+  batch_id?: string;
+}
+
+export interface StudentLoginCreatedResponse {
+  user_id: string;
+  status: string;
+  login_url: string;
+}
+
 export const studentsApi = {
   list: (params: StudentListParams) =>
     apiClient.get<StudentListResponse>("/students", { params }).then((r) => r.data),
@@ -92,4 +103,12 @@ export const studentsApi = {
     apiClient
       .post<StudentPublic>(`/students/from-admission/${admissionId}`, payload)
       .then((r) => r.data),
+
+  createLoginAccount: (id: string, payload: StudentCreateLoginPayload) =>
+    apiClient
+      .post<StudentLoginCreatedResponse>(`/students/${id}/create-login-account`, payload)
+      .then((r) => r.data),
+
+  resendLoginEmail: (id: string) =>
+    apiClient.post(`/students/${id}/resend-login-email`).then((r) => r.data),
 };
