@@ -38,11 +38,23 @@ export const PORTAL_LABELS: Record<PortalKind, string> = {
  * checked after "trainer": someone with trainer access shouldn't be
  * routed to the (also-valid, but not their actual job) employee
  * self-service portal instead.
+ *
+ * The plain "student" system role is deliberately excluded from that
+ * role check — every student provisioned via modules/provisioning or
+ * modules/students::create_login_account gets it assigned alongside
+ * their Student record (see AuthorizationService.assign_role in both),
+ * so treating *any* assigned role as "this is an admin account" would
+ * misroute every real student here to erp.pentrix.in instead of their
+ * own portal. Any other assigned role (administrator, staff, accountant,
+ * or an org-custom one) still counts, matching this function's original
+ * intent — only "student" is carved out, since it's the one system role
+ * that specifically is *not* an administrative signal.
  */
 export async function resolveHomePortal(): Promise<PortalKind | null> {
   try {
     const { data } = await apiClient.get<{ roles: { slug: string }[] }>("/authorization/me");
-    if (data.roles.length > 0) return "admin";
+    const administrativeRoles = data.roles.filter((role) => role.slug !== "student");
+    if (administrativeRoles.length > 0) return "admin";
   } catch {
     // Not resolvable via role — fall through to the ownership-gated checks.
   }
