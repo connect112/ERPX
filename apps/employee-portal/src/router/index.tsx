@@ -11,6 +11,7 @@ const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-pa
 const MyPayslipsPage = lazy(() => import("@/features/payslips/pages/my-payslips-page").then((m) => ({ default: m.MyPayslipsPage })));
 const AttendancePage = lazy(() => import("@/features/attendance/pages/attendance-page").then((m) => ({ default: m.AttendancePage })));
 const MyLeavePage = lazy(() => import("@/features/leave/pages/my-leave-page").then((m) => ({ default: m.MyLeavePage })));
+const MyExpensesPage = lazy(() => import("@/features/expenses/pages/my-expenses-page").then((m) => ({ default: m.MyExpensesPage })));
 
 export const router = createBrowserRouter([
   {
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
       { path: "payslips", element: <MyPayslipsPage /> },
       { path: "attendance", element: <AttendancePage /> },
       { path: "leave", element: <MyLeavePage /> },
+      { path: "expenses", element: <MyExpensesPage /> },
     ],
   },
 ]);
