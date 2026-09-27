@@ -1,7 +1,8 @@
-import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, KeyRound, Pencil, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -20,9 +22,13 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBatchesList } from "@/features/batches/api/batches-hooks";
+import { useCoursesList } from "@/features/courses/api/courses-hooks";
 import {
   useChangeStudentStatus,
+  useCreateStudentLoginAccount,
   useDeleteStudent,
+  useResendStudentLoginEmail,
   useStudent,
 } from "@/features/students/api/students-hooks";
 import { StudentFormDialog } from "@/features/students/components/student-form-dialog";
@@ -41,6 +47,149 @@ import { StudentAchievementsPanel } from "@/features/pentrix/achievements/compon
 import { StudentCertificationsPanel } from "@/features/pentrix/certifications/components/student-certifications-panel";
 import { StudentSolvesPanel } from "@/features/pentrix/flags/components/student-solves-panel";
 import { StudentLabInstancesPanel } from "@/features/pentrix/lab-instances/components/student-lab-instances-panel";
+
+function CreateLoginAccountDialog({
+  open,
+  onOpenChange,
+  studentId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  studentId: string;
+}) {
+  const { data: courses } = useCoursesList({ limit: 200 });
+  const [courseId, setCourseId] = useState<string>("");
+  const { data: batches } = useBatchesList({ course_id: courseId || undefined, limit: 200 });
+  const [batchId, setBatchId] = useState<string>("");
+  const createLoginAccount = useCreateStudentLoginAccount(studentId);
+
+  const handleCreate = () => {
+    if (!courseId) return;
+    createLoginAccount.mutate(
+      { course_id: courseId, batch_id: batchId || undefined },
+      {
+        onSuccess: () => {
+          onOpenChange(false);
+          setCourseId("");
+          setBatchId("");
+        },
+      }
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create login account</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Creates a portal login for this student and emails them a link to set their own
+            password. Pick the course they've paid for.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="loginCourse">Course</Label>
+            <Select value={courseId || undefined} onValueChange={setCourseId}>
+              <SelectTrigger id="loginCourse">
+                <SelectValue placeholder="Select course" />
+              </SelectTrigger>
+              <SelectContent>
+                {courses?.items.map((course) => (
+                  <SelectItem key={course.id} value={course.id}>
+                    {course.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="loginBatch">Batch (optional)</Label>
+            <Select value={batchId || undefined} onValueChange={setBatchId} disabled={!courseId}>
+              <SelectTrigger id="loginBatch">
+                <SelectValue placeholder="Auto-assign if one exists" />
+              </SelectTrigger>
+              <SelectContent>
+                {batches?.items.map((batch) => (
+                  <SelectItem key={batch.id} value={batch.id}>
+                    {batch.code} — {batch.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {createLoginAccount.isError && (
+            <p className="text-sm text-destructive">
+              Could not create the login account. Please try again.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleCreate} disabled={!courseId || createLoginAccount.isPending}>
+            {createLoginAccount.isPending ? "Creating..." : "Create login account"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LoginAccessCard({ studentId, hasLogin }: { studentId: string; hasLogin: boolean }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [resent, setResent] = useState(false);
+  const resendLoginEmail = useResendStudentLoginEmail(studentId);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Login access</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {hasLogin ? (
+          <>
+            <Badge variant="success">Login active</Badge>
+            <div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setResent(false);
+                  resendLoginEmail.mutate(undefined, { onSuccess: () => setResent(true) });
+                }}
+                disabled={resendLoginEmail.isPending}
+              >
+                <KeyRound className="h-4 w-4" />
+                {resendLoginEmail.isPending ? "Sending..." : "Resend set-password email"}
+              </Button>
+            </div>
+            {resent && <p className="text-sm text-muted-foreground">Email sent.</p>}
+            {resendLoginEmail.isError && (
+              <p className="text-sm text-destructive">Could not resend. Please try again.</p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              This student doesn't have portal access yet.
+            </p>
+            <Button size="sm" onClick={() => setDialogOpen(true)}>
+              <KeyRound className="h-4 w-4" />
+              Create login account
+            </Button>
+            <CreateLoginAccountDialog
+              open={dialogOpen}
+              onOpenChange={setDialogOpen}
+              studentId={studentId}
+            />
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -194,6 +343,8 @@ export function StudentDetailPage() {
               </Select>
             </CardContent>
           </Card>
+
+          <LoginAccessCard studentId={student.id} hasLogin={!!student.user_id} />
         </div>
       </div>
 

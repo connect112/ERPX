@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  type StudentCreateLoginPayload,
   type StudentCreatePayload,
   type StudentFromAdmissionPayload,
   type StudentListParams,
@@ -75,5 +76,19 @@ export function useCreateStudentFromAdmission() {
       payload: StudentFromAdmissionPayload;
     }) => studentsApi.createFromAdmission(admissionId, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: studentsKeys.all }),
+  });
+}
+
+export function useCreateStudentLoginAccount(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: StudentCreateLoginPayload) => studentsApi.createLoginAccount(id, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: studentsKeys.detail(id) }),
+  });
+}
+
+export function useResendStudentLoginEmail(id: string) {
+  return useMutation({
+    mutationFn: () => studentsApi.resendLoginEmail(id),
   });
 }

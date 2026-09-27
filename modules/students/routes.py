@@ -9,8 +9,10 @@ from modules.authorization.dependencies import require_permissions
 from modules.students.models import StudentStatus
 from modules.students.schemas import (
     MessageResponse,
+    StudentCreateLoginRequest,
     StudentCreateRequest,
     StudentFromAdmissionRequest,
+    StudentLoginCreatedResponse,
     StudentPublic,
     StudentStatusChangeRequest,
     StudentUpdateRequest,
@@ -130,3 +132,30 @@ async def delete_student(
     service = StudentService(db)
     await service.delete_student(student_id, organization_id)
     return MessageResponse(message="Student deleted successfully.")
+
+
+@router.post("/{student_id}/create-login-account", response_model=StudentLoginCreatedResponse)
+async def create_student_login_account(
+    student_id: uuid.UUID,
+    payload: StudentCreateLoginRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = StudentService(db)
+    user_id, login_url = await service.create_login_account(
+        student_id, organization_id, payload.course_id, payload.batch_id, created_by_user_id=user.id
+    )
+    return StudentLoginCreatedResponse(user_id=user_id, status="created", login_url=login_url)
+
+
+@router.post("/{student_id}/resend-login-email", response_model=MessageResponse)
+async def resend_student_login_email(
+    student_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = StudentService(db)
+    await service.resend_login_email(student_id, organization_id)
+    return MessageResponse(message="Set-password email resent.")

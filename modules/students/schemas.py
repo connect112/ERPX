@@ -57,6 +57,17 @@ class StudentStatusChangeRequest(BaseModel):
     notes: str | None = None
 
 
+class StudentCreateLoginRequest(BaseModel):
+    course_id: uuid.UUID
+    batch_id: uuid.UUID | None = None
+
+
+class StudentLoginCreatedResponse(BaseModel):
+    user_id: uuid.UUID
+    status: str
+    login_url: str
+
+
 class StudentPublic(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
