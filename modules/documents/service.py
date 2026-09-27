@@ -49,7 +49,23 @@ class DocumentService:
         logger.info("document_upload_requested", document_id=str(document.id), entity_type=entity_type)
         return document, upload_url
 
-    async def confirm_upload(self, document_id: uuid.UUID, organization_id: uuid.UUID) -> Document:
+    async def confirm_upload(
+        self,
+        document_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        max_size_bytes: int | None = None,
+    ) -> Document:
+        """`max_size_bytes` lets a caller with a genuine need for a
+        different ceiling (e.g. messaging's photo/video attachments,
+        which need more than this generic cap) pass its own — every
+        existing caller keeps the default 25MB cap unchanged. Left as
+        None-then-resolved rather than defaulted straight to
+        MAX_UPLOAD_SIZE_BYTES so a test monkeypatching that module
+        constant is still honored on every call, not just at import
+        time (a mutable-default-style trap since Python binds a
+        parameter default once, at function definition)."""
+        if max_size_bytes is None:
+            max_size_bytes = MAX_UPLOAD_SIZE_BYTES
         document = await self.repo.get_by_id(document_id, organization_id)
         if not document:
             raise NotFoundError("Document", document_id)
@@ -67,11 +83,11 @@ class DocumentService:
         # for quota/reporting purposes, and lets us enforce the size cap
         # even though the API never saw the bytes stream through it.
         size_bytes = await self.storage.object_size(document.storage_key)
-        if size_bytes > MAX_UPLOAD_SIZE_BYTES:
+        if size_bytes > max_size_bytes:
             await self.storage.delete_object(document.storage_key)
             await self.repo.delete(document)
             raise ValidationError(
-                f"File exceeds the {MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)} MB upload limit."
+                f"File exceeds the {max_size_bytes // (1024 * 1024)} MB upload limit."
             )
 
         document = await self.repo.mark_uploaded(document, size_bytes=size_bytes)

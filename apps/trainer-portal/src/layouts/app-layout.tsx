@@ -1,11 +1,23 @@
-import { CalendarCheck, LayoutDashboard, LogOut, Megaphone, Moon, Sun, Users, Video } from "lucide-react";
+import {
+  CalendarCheck,
+  LayoutDashboard,
+  LogOut,
+  Megaphone,
+  MessageCircle,
+  Moon,
+  Sun,
+  Users,
+  Video,
+} from "lucide-react";
 import { Suspense } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+import { Badge } from "@/components/ui/badge";
 import { useTheme } from "@/components/theme-provider";
 import { PageLoader } from "@/components/ui/page-loader";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api/auth-hooks";
+import { useMessagingUnreadCount } from "@/features/messaging/api/messaging-hooks";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
@@ -16,6 +28,7 @@ const navItems = [
   { to: "/live-classes", label: "Live Classes", icon: Video, end: false },
   { to: "/attendance", label: "Attendance", icon: CalendarCheck, end: false },
   { to: "/announcements", label: "Announcements", icon: Megaphone, end: false },
+  { to: "/messages", label: "Messages", icon: MessageCircle, end: false },
 ];
 
 function initials(name: string): string {
@@ -28,6 +41,8 @@ function initials(name: string): string {
 }
 
 function AppSidebar() {
+  const { data: unreadCount } = useMessagingUnreadCount();
+
   return (
     <aside className="flex w-64 flex-col border-r bg-card">
       <div className="flex h-16 items-center border-b px-6">
@@ -51,6 +66,11 @@ function AppSidebar() {
           >
             <item.icon className="h-4 w-4" />
             {item.label}
+            {item.to === "/messages" && !!unreadCount && (
+              <Badge variant="destructive" className="ml-auto">
+                {unreadCount}
+              </Badge>
+            )}
           </NavLink>
         ))}
       </nav>

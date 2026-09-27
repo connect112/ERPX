@@ -38,6 +38,7 @@ const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-pa
 const QuestionBankPage = lazy(() => import("@/features/examinations/question-bank/pages/question-bank-page").then((m) => ({ default: m.QuestionBankPage })));
 const AnnouncementsListPage = lazy(() => import("@/features/lms/announcements/pages/announcements-list-page").then((m) => ({ default: m.AnnouncementsListPage })));
 const BadgesListPage = lazy(() => import("@/features/lms/badges/pages/badges-list-page").then((m) => ({ default: m.BadgesListPage })));
+const ConversationsPage = lazy(() => import("@/features/messaging/pages/conversations-page").then((m) => ({ default: m.ConversationsPage })));
 import { CertificateVerifyPage } from "@/features/lms/certificates/pages/certificate-verify-page";
 const AchievementsListPage = lazy(() => import("@/features/pentrix/achievements/pages/achievements-list-page").then((m) => ({ default: m.AchievementsListPage })));
 import { CertificationVerifyPage } from "@/features/pentrix/certifications/pages/certification-verify-page";
@@ -155,6 +156,7 @@ export const router = createBrowserRouter([
       { path: "classrooms", element: <ClassroomsListPage /> },
       { path: "lms/announcements", element: <AnnouncementsListPage /> },
       { path: "lms/badges", element: <BadgesListPage /> },
+      { path: "messaging", element: <ConversationsPage /> },
       { path: "examinations/question-bank", element: <QuestionBankPage /> },
       { path: "pentrix/labs", element: <LabsListPage /> },
       { path: "pentrix/labs/:labId", element: <LabDetailPage /> },
