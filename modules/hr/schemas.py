@@ -72,12 +72,21 @@ class DesignationPublic(BaseModel):
 
 class HrSettingsUpdateRequest(BaseModel):
     # Python's date.weekday() convention: Monday=0 .. Sunday=6.
-    week_off_days: list[int] = Field(..., min_length=0, max_length=7)
+    week_off_days: list[int] | None = Field(default=None, max_length=7)
+    # Both opt-in: setting both turns on payroll's automatic
+    # generate -> apply approved expenses -> finalize -> email pipeline
+    # (see modules/payroll/tasks.py). Neither can be unset back to null
+    # through this endpoint once set, same as every other FK-reference
+    # field updated this way elsewhere in this codebase.
+    default_salary_payable_account_id: uuid.UUID | None = None
+    default_expense_reimbursement_component_id: uuid.UUID | None = None
 
 
 class HrSettingsPublic(BaseModel):
     organization_id: uuid.UUID
     week_off_days: list[int]
+    default_salary_payable_account_id: uuid.UUID | None
+    default_expense_reimbursement_component_id: uuid.UUID | None
 
 
 class MessageResponse(BaseModel):

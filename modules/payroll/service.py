@@ -15,6 +15,7 @@ from modules.accounting.ledger.repository import AccountRepository
 from modules.attendance.service import AttendanceService
 from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.repository import EmployeeRepository
+from modules.expense_claims.repository import ExpenseClaimRepository
 from modules.hr.repository import DepartmentRepository, DesignationRepository
 from modules.organizations.repository import OrganizationRepository
 from modules.payroll.models import (
@@ -171,6 +172,7 @@ class PayrollService:
         self.designation_repo = DesignationRepository(db)
         self.department_repo = DepartmentRepository(db)
         self.org_repo = OrganizationRepository(db)
+        self.expense_claim_repo = ExpenseClaimRepository(db)
 
     async def generate_run(
         self,
@@ -454,6 +456,41 @@ class PayrollService:
             organization_id, today.year, today.month, run_date=today, created_by_user_id=None
         )
         return run
+
+    async def apply_approved_expense_claims_to_run(self, run: PayrollRun, organization_id: uuid.UUID) -> int:
+        """For every payslip in this still-Draft run, sweeps in that
+        employee's expense claims approved for this exact period that
+        haven't been applied to any run yet, adding each as a one-off
+        earning line via add_payslip_line -- using the organization's
+        configured reimbursement component (see
+        Organization.default_expense_reimbursement_component_id). A claim
+        approved after this run, or in an org that hasn't configured a
+        component, is simply left for a later regenerate or a manual
+        "Add line" -- not an error. Returns how many were applied."""
+        if run.status != PayrollRunStatus.DRAFT:
+            return 0
+        organization = await self.org_repo.get_by_id(organization_id)
+        if not organization or not organization.default_expense_reimbursement_component_id:
+            return 0
+
+        applied = 0
+        payslips = await self.payslip_repo.list_for_run(run.id)
+        for payslip in payslips:
+            claims = await self.expense_claim_repo.list_approved_unapplied_for_period(
+                organization_id, payslip.employee_id, run.period_year, run.period_month
+            )
+            for claim in claims:
+                await self.add_payslip_line(
+                    payslip.id,
+                    organization_id,
+                    organization.default_expense_reimbursement_component_id,
+                    float(claim.amount),
+                )
+                await self.expense_claim_repo.update(claim, applied_payroll_run_id=run.id)
+                applied += 1
+        if applied:
+            logger.info("expense_claims_applied_to_run", run_id=str(run.id), claims_applied=applied)
+        return applied
 
     async def finalize_run(
         self,

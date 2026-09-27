@@ -545,3 +545,78 @@ async def test_auto_generate_monthly_draft_only_on_last_working_day(client, db_s
 
     already_exists_result = await service.auto_generate_monthly_draft(organization.id, today=last_working_day)
     assert already_exists_result is None
+
+
+async def test_apply_approved_expense_claims_is_a_noop_without_org_configuration(
+    client, auth_headers, db_session, organization, payroll_setup
+):
+    """apply_approved_expense_claims_to_run (the piece modules/payroll/tasks.py's
+    auto-pipeline calls after generating a draft) must not touch anything
+    for an org that hasn't set default_expense_reimbursement_component_id --
+    that's what keeps the whole auto-finalize+email pipeline opt-in."""
+    await _mark_present_for_month(db_session, organization.id, payroll_setup["employee"]["id"], 2026, 5)
+    service = PayrollService(db_session)
+    run = await service.auto_generate_monthly_draft(organization.id, today=date(2026, 5, 29))
+    assert run is not None
+
+    applied = await service.apply_approved_expense_claims_to_run(run, organization.id)
+    assert applied == 0
+
+    payslips = await service.list_payslips(run.id, organization.id)
+    assert float(payslips[0].gross_amount) == 15000
+
+
+async def test_apply_approved_expense_claims_adds_them_as_payslip_lines(
+    client, auth_headers, superuser, db_session, organization, payroll_setup
+):
+    """Once the org has configured a reimbursement component, an approved,
+    not-yet-applied claim for the run's exact period gets added as a
+    payslip line, and marked so it won't be double-applied on a
+    regenerate."""
+    from modules.expense_claims.repository import ExpenseClaimRepository
+    from modules.expense_claims.service import ExpenseClaimService
+
+    org_repo_update = await client.patch(
+        "/api/v1/hr/settings",
+        json={"default_expense_reimbursement_component_id": payroll_setup["reimbursement_component"]["id"]},
+        headers=auth_headers,
+    )
+    assert org_repo_update.status_code == 200, org_repo_update.text
+
+    await _mark_present_for_month(db_session, organization.id, payroll_setup["employee"]["id"], 2026, 6)
+
+    claim_service = ExpenseClaimService(db_session)
+    claim = await claim_service.submit_claim(
+        organization.id,
+        employee_id=payroll_setup["employee"]["id"],
+        description="Client dinner",
+        amount=1005.90,
+        receipt_document_id=None,
+    )
+    # submit_claim stamps period_year/period_month from the real submission
+    # date; force it to the 2026-06 period this test is exercising so it's
+    # the target run's period, exactly as a claim actually submitted in
+    # that month would be.
+    claim_repo = ExpenseClaimRepository(db_session)
+    claim = await claim_repo.update(claim, period_year=2026, period_month=6)
+    admin_user, _ = superuser
+    approved_claim = await claim_service.approve_claim(claim.id, organization.id, reviewed_by_user_id=admin_user.id)
+    assert approved_claim.applied_payroll_run_id is None
+
+    service = PayrollService(db_session)
+    run = await service.auto_generate_monthly_draft(organization.id, today=date(2026, 6, 30))
+    assert run is not None
+
+    applied = await service.apply_approved_expense_claims_to_run(run, organization.id)
+    assert applied == 1
+
+    payslips = await service.list_payslips(run.id, organization.id)
+    assert len(payslips) == 1
+    assert float(payslips[0].gross_amount) == 15000 + 1005.90
+
+    refreshed_claim = await ExpenseClaimRepository(db_session).get_by_id(claim.id, organization.id)
+    assert refreshed_claim.applied_payroll_run_id == run.id
+
+    # Re-applying (as a naive regenerate might try) must not double-count it.
+    applied_again = await service.apply_approved_expense_claims_to_run(run, organization.id)
+    assert applied_again == 0

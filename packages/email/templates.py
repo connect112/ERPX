@@ -55,6 +55,26 @@ def payroll_draft_ready_email(full_name: str, period_label: str, review_url: str
     return subject, text, html
 
 
+def payslip_ready_email(full_name: str, period_label: str) -> tuple[str, str, str]:
+    subject = f"Your payslip for {period_label} is ready"
+    text = (
+        f"Hi {full_name},\n\n"
+        f"Your payslip for {period_label} is attached to this email as a PDF.\n\n"
+        f"This payslip is generated based on the attendance and salary structure on record "
+        f"as of the date of issue. Please report any discrepancy to HR within 7 working days."
+    )
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>Your payslip for {period_label}</h2>
+      <p>Hi {full_name}, your payslip for {period_label} is attached to this email as a PDF.</p>
+      <p style="color:#6b7280;font-size:13px">This payslip is generated based on the
+      attendance and salary structure on record as of the date of issue. Please report any
+      discrepancy to HR within 7 working days.</p>
+    </div>
+    """
+    return subject, text, html
+
+
 def password_reset_email(full_name: str, reset_url: str) -> tuple[str, str, str]:
     subject = "Reset your ERPX password"
     text = (
