@@ -4,12 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
+from modules.accounting.ledger.models import AccountType
+from modules.accounting.ledger.repository import AccountRepository
 from modules.authorization.repository import AuthorizationRepository
 from modules.employees.service import EmployeeService
 from modules.hr.models import Department, Designation
 from modules.hr.repository import DepartmentRepository, DesignationRepository
 from modules.organizations.models import Organization
 from modules.organizations.repository import OrganizationRepository
+from modules.payroll.models import SalaryComponentType
+from modules.payroll.repository import SalaryComponentRepository
 
 logger = get_logger(__name__)
 
@@ -126,9 +130,17 @@ class DesignationService:
 
 
 class HrSettingsService:
+    """Organization-wide operational settings an admin configures once —
+    weekly offs (HR) plus the payroll-automation accounts (which account
+    receives net pay on finalize, which salary component an approved
+    expense claim becomes) live here together rather than each getting
+    their own tiny settings resource."""
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self.org_repo = OrganizationRepository(db)
+        self.account_repo = AccountRepository(db)
+        self.component_repo = SalaryComponentRepository(db)
 
     async def get_settings(self, organization_id: uuid.UUID) -> Organization:
         org = await self.org_repo.get_by_id(organization_id)
@@ -136,10 +148,41 @@ class HrSettingsService:
             raise NotFoundError("Organization", organization_id)
         return org
 
-    async def update_settings(self, organization_id: uuid.UUID, week_off_days: list[int]) -> Organization:
-        if any(day < 0 or day > 6 for day in week_off_days):
-            raise ValidationError("week_off_days must each be between 0 (Monday) and 6 (Sunday).")
+    async def update_settings(
+        self,
+        organization_id: uuid.UUID,
+        week_off_days: list[int] | None = None,
+        default_salary_payable_account_id: uuid.UUID | None = None,
+        default_expense_reimbursement_component_id: uuid.UUID | None = None,
+    ) -> Organization:
         org = await self.get_settings(organization_id)
-        updated = await self.org_repo.update(org, week_off_days=sorted(set(week_off_days)))
-        logger.info("hr_settings_updated", organization_id=str(organization_id), week_off_days=week_off_days)
+        fields: dict = {}
+
+        if week_off_days is not None:
+            if any(day < 0 or day > 6 for day in week_off_days):
+                raise ValidationError("week_off_days must each be between 0 (Monday) and 6 (Sunday).")
+            fields["week_off_days"] = sorted(set(week_off_days))
+
+        if default_salary_payable_account_id is not None:
+            account = await self.account_repo.get_by_id(default_salary_payable_account_id, organization_id)
+            if not account:
+                raise NotFoundError("GL account", default_salary_payable_account_id)
+            if account.account_type != AccountType.LIABILITY:
+                raise ValidationError("The default salary payable account must be a Liability account.")
+            fields["default_salary_payable_account_id"] = default_salary_payable_account_id
+
+        if default_expense_reimbursement_component_id is not None:
+            component = await self.component_repo.get_by_id(
+                default_expense_reimbursement_component_id, organization_id
+            )
+            if not component:
+                raise NotFoundError("Salary component", default_expense_reimbursement_component_id)
+            if component.component_type != SalaryComponentType.EARNING:
+                raise ValidationError("The default expense reimbursement component must be an Earning component.")
+            if not component.is_active:
+                raise ValidationError("The default expense reimbursement component must be active.")
+            fields["default_expense_reimbursement_component_id"] = default_expense_reimbursement_component_id
+
+        updated = await self.org_repo.update(org, **fields) if fields else org
+        logger.info("hr_settings_updated", organization_id=str(organization_id), fields=list(fields.keys()))
         return updated
