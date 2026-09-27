@@ -13,7 +13,6 @@ import {
   useMyTimetable,
 } from "@/features/schedule/api/schedule-hooks";
 import type { DayOfWeek, LiveClassJoinToken, LiveClassPublic } from "@/features/schedule/api/schedule-api";
-import { useAuthStore } from "@/store/auth-store";
 
 const DAY_ORDER: DayOfWeek[] = [
   "monday",
@@ -49,7 +48,6 @@ export function MySchedulePage() {
   const { data: timetable, isLoading: timetableLoading } = useMyTimetable();
   const { data: liveClasses, isLoading: liveClassesLoading } = useMyLiveClasses();
   const joinLiveClass = useJoinLiveClass();
-  const displayName = useAuthStore((s) => s.user?.fullName) ?? "Student";
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
 
   const sortedTimetable = [...(timetable ?? [])].sort((a, b) => {
@@ -175,7 +173,6 @@ export function MySchedulePage() {
           domain={activeCall.domain}
           room={activeCall.room}
           jwt={activeCall.jwt}
-          displayName={displayName}
           title={activeCall.title}
           onClose={() => setActiveCall(null)}
         />

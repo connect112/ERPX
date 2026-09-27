@@ -66,7 +66,11 @@ async def get_live_class_join_token_as_student(
     """Mints a short-lived Jitsi JWT for the calling student to join this
     live class's embedded call — never as moderator. Ownership-gated: the
     class must belong to a batch this student is actually enrolled in,
-    same 404-not-403 reasoning as everywhere else in this file."""
+    same 404-not-403 reasoning as everywhere else in this file.
+
+    The in-call display name is the student's code (e.g. "STU-00001"),
+    not their real name — students shouldn't be identifiable to each
+    other by name inside a shared video call."""
     _require_jitsi_configured()
     service = LiveClassService(db)
     batch_ids = await BatchEnrollmentRepository(db).list_batch_ids_for_student(
@@ -78,7 +82,7 @@ async def get_live_class_join_token_as_student(
     if live_class.status not in _JOINABLE_STATUSES:
         raise ValidationError("This live class isn't currently joinable.")
 
-    token = mint_join_token(live_class_id, user.id, user.full_name, user.email, moderator=False)
+    token = mint_join_token(live_class_id, user.id, student.student_code, user.email, moderator=False)
     return LiveClassJoinToken(domain=jitsi_domain(), room=build_room_name(live_class_id), jwt=token)
 
 
@@ -134,7 +138,11 @@ async def get_live_class_join_token_as_trainer(
 ):
     """Mints a short-lived Jitsi JWT for the calling trainer to join this
     live class's embedded call, as moderator. Ownership-gated: the class
-    must belong to a batch this trainer actually teaches."""
+    must belong to a batch this trainer actually teaches.
+
+    The in-call display name is the literal word "Trainer", not their
+    real name — same anonymity the student side gets (see
+    get_live_class_join_token_as_student above)."""
     _require_jitsi_configured()
     service = LiveClassService(db)
     batches = await BatchRepository(db).list_for_trainer(trainer.id, trainer.organization_id)
@@ -146,7 +154,7 @@ async def get_live_class_join_token_as_trainer(
     if live_class.status not in _JOINABLE_STATUSES:
         raise ValidationError("This live class isn't currently joinable.")
 
-    token = mint_join_token(live_class_id, user.id, user.full_name, user.email, moderator=True)
+    token = mint_join_token(live_class_id, user.id, "Trainer", user.email, moderator=True)
     return LiveClassJoinToken(domain=jitsi_domain(), room=build_room_name(live_class_id), jwt=token)
 
 

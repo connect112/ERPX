@@ -18,7 +18,6 @@ interface VideoCallOverlayProps {
   domain: string;
   room: string;
   jwt: string;
-  displayName: string;
   title: string;
   onClose: () => void;
 }
@@ -57,7 +56,6 @@ export function VideoCallOverlay({
   domain,
   room,
   jwt,
-  displayName,
   title,
   onClose,
 }: VideoCallOverlayProps) {
@@ -76,9 +74,19 @@ export function VideoCallOverlay({
           parentNode: containerRef.current,
           width: "100%",
           height: "100%",
-          userInfo: { displayName },
+          // No userInfo.displayName here on purpose — the JWT's own
+          // context.user.name claim (a student's code, never their real
+          // name; see modules/live_classes/routes.py) is the sole source
+          // of the in-call display name, so there's no client-side value
+          // that could show or briefly flash the real name.
           configOverwrite: {
             prejoinPageEnabled: false,
+            // Students share this room with other students; a private
+            // 1:1 message between two students would bypass that
+            // isolation, so it's disabled for everyone (the trainer, who
+            // isn't anonymized, is unaffected — this only removes the
+            // per-participant "Private chat" menu item).
+            remoteVideoMenu: { disablePrivateChat: "all" },
           },
           interfaceConfigOverwrite: {
             TOOLBAR_BUTTONS: [
