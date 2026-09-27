@@ -205,6 +205,11 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("timetable.manage", "timetable", "Create, update, and delete timetable entries"),
     ("live_classes.view", "live_classes", "View live classes"),
     ("live_classes.manage", "live_classes", "Create, update, delete, and change status of live classes"),
+    (
+        "messaging.view_all",
+        "messaging",
+        "Read every student-trainer chat conversation in the organization (audit oversight)",
+    ),
     ("workshops.view", "workshops", "View workshops and their registrations"),
     ("workshops.manage", "workshops", "Create, update, delete workshops and manage registrations"),
     ("hackathons.view", "hackathons", "View hackathons, teams, and submissions"),

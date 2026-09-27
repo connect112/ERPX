@@ -15,6 +15,7 @@ const AchievementsPage = lazy(() => import("@/features/achievements/pages/achiev
 const MySchedulePage = lazy(() => import("@/features/schedule/pages/my-schedule-page").then((m) => ({ default: m.MySchedulePage })));
 const PlacementsPage = lazy(() => import("@/features/placements/pages/placements-page").then((m) => ({ default: m.PlacementsPage })));
 const AnnouncementsPage = lazy(() => import("@/features/announcements/pages/announcements-page").then((m) => ({ default: m.AnnouncementsPage })));
+const MessagingPage = lazy(() => import("@/features/messaging/pages/messaging-page").then((m) => ({ default: m.MessagingPage })));
 // Workshops/Hackathons/Internships routes intentionally removed — see the
 // comment in layouts/app-layout.tsx. The feature pages themselves
 // (src/features/{workshops,hackathons,internships}) are untouched, just
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
       { path: "schedule", element: <MySchedulePage /> },
       { path: "placements", element: <PlacementsPage /> },
       { path: "announcements", element: <AnnouncementsPage /> },
+      { path: "messages", element: <MessagingPage /> },
       {
         path: "cyber-range",
         element: (

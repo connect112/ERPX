@@ -47,6 +47,7 @@ from modules.live_classes.routes import router as live_classes_router
 from modules.lms.router import router as lms_router
 from modules.marketing.routes import router as marketing_router
 from modules.media.routes import router as media_router
+from modules.messaging.routes import router as messaging_router
 from modules.monitoring.routes import router as monitoring_router
 from modules.notifications.routes import router as notifications_router
 from modules.organizations.routes import router as organizations_router
@@ -109,6 +110,7 @@ api_router.include_router(classrooms_router, prefix="/classrooms", tags=["Classr
 api_router.include_router(batches_router, prefix="/batches", tags=["Batches"])
 api_router.include_router(timetable_router, prefix="/timetable", tags=["Timetable"])
 api_router.include_router(live_classes_router, prefix="/live-classes", tags=["Live Classes"])
+api_router.include_router(messaging_router, prefix="/messaging", tags=["Messaging"])
 api_router.include_router(workshops_router, prefix="/workshops", tags=["Workshops"])
 api_router.include_router(hackathons_router, prefix="/hackathons", tags=["Hackathons"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])
