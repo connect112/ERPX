@@ -5,6 +5,7 @@ import {
   type DepartmentUpdatePayload,
   type DesignationCreatePayload,
   type DesignationUpdatePayload,
+  type HrSettingsUpdatePayload,
   hrApi,
 } from "@/features/hr/api/hr-api";
 
@@ -70,7 +71,7 @@ export function useHrSettings() {
 export function useUpdateHrSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (weekOffDays: number[]) => hrApi.updateSettings(weekOffDays),
+    mutationFn: (payload: HrSettingsUpdatePayload) => hrApi.updateSettings(payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: settingsKey }),
   });
 }
