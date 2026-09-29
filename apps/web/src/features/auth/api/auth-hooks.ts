@@ -8,12 +8,21 @@ const meKey = ["auth", "me"] as const;
 export function useLoginMutation() {
   const setTokens = useAuthStore((s) => s.setTokens);
   const setUser = useAuthStore((s) => s.setUser);
+  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (payload: { email: string; password: string; otp_code?: string }) =>
       authApi.login(payload),
     onSuccess: (data) => {
       if (isTwoFactorRequired(data)) return;
+      // Same reason useLogout() clears the cache: every query is keyed
+      // generically (["auth","home-portal"], ["authorization","me"], ...),
+      // not per-user. Without this, logging into a *different* account in
+      // a tab that resolved the previous one's home-portal within the last
+      // staleTime window gets served that stale result — found live as a
+      // real admin login bouncing through the wrong portal once before a
+      // fresh page load self-corrected it.
+      queryClient.clear();
       setTokens(data.access_token, data.refresh_token);
       setUser({
         id: data.user.id,
