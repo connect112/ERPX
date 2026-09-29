@@ -329,6 +329,10 @@ async def test_trainer_join_token_grants_moderator_access_to_own_class(
     claims = jose_jwt.decode(body["jwt"], _JITSI_SECRET, algorithms=["HS256"], audience="erpx")
     assert claims["room"] == body["room"]
     assert claims["context"]["user"]["moderator"] is True
+    # The in-call display name is the literal word "Trainer", never the
+    # trainer's real name -- students shouldn't be able to identify who
+    # they're talking to by name either way.
+    assert claims["context"]["user"]["name"] == "Trainer"
 
 
 async def test_trainer_join_token_denied_for_another_trainers_class(
@@ -355,7 +359,7 @@ async def test_student_join_token_grants_non_moderator_access_to_own_class(
     trainer, _headers = await _create_trainer_with_login(client, db_session, organization)
     batch = await _create_batch(client, auth_headers, course, trainer.id)
     live_class = await _create_live_class(client, auth_headers, batch["id"], trainer.id, meeting_link=None)
-    _student, student_headers = await _enroll_student(
+    student, student_headers = await _enroll_student(
         client, db_session, organization, course, batch["id"], auth_headers
     )
 
@@ -365,6 +369,9 @@ async def test_student_join_token_grants_non_moderator_access_to_own_class(
 
     claims = jose_jwt.decode(body["jwt"], _JITSI_SECRET, algorithms=["HS256"], audience="erpx")
     assert claims["context"]["user"]["moderator"] is False
+    # The in-call display name is the student's code, never their real
+    # name -- students share this room with other students.
+    assert claims["context"]["user"]["name"] == student.student_code
 
 
 async def test_join_token_denied_for_unenrolled_student(
