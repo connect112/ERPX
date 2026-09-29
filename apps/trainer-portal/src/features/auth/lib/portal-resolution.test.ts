@@ -1,15 +1,24 @@
 /**
  * Unit tests for resolveHomePortal() (portal-resolution.ts) — this file is
- * byte-identical to apps/trainer-portal's and apps/web's own copies, same
+ * byte-identical to apps/student-portal's and apps/web's own copies, same
  * "duplicated but independently tested" precedent as src/api/client.test.ts.
  *
- * Regression coverage for a real bug found while live-testing the new
- * student-trainer messaging feature: a student provisioned the normal way
- * (modules/provisioning or modules/students::create_login_account) gets
- * the plain "student" system role assigned alongside their Student
- * record. Before the fix, ANY assigned role -- including "student" --
- * made this resolve to "admin", redirecting a real student to
- * erp.pentrix.in instead of their own portal.
+ * Regression coverage for two real bugs found live:
+ * 1. A student provisioned the normal way (modules/provisioning or
+ *    modules/students::create_login_account) gets the plain "student"
+ *    system role assigned alongside their Student record. Before that
+ *    fix, ANY assigned role -- including "student" -- made this resolve
+ *    to "admin", redirecting a real student to erp.pentrix.in instead
+ *    of their own portal.
+ * 2. An ISE-designated trainer holding a real, narrow org-custom role
+ *    (15 permissions, nowhere near administrative) was *still*
+ *    resolving as "admin" here -- "any role except student" was still
+ *    too broad. Only "administrator"/"super_admin" now count. This one
+ *    additionally caused an infinite redirect loop once apps/web's own
+ *    copy was fixed first and this one wasn't: apps/web correctly
+ *    resolved the account as "trainer" and bounced it here, and this
+ *    portal's still-unfixed check then treated the same ISE role as
+ *    "admin" and bounced it straight back.
  */
 
 import MockAdapter from "axios-mock-adapter";
@@ -38,14 +47,35 @@ describe("resolveHomePortal", () => {
     await expect(resolveHomePortal()).resolves.toBe("student");
   });
 
-  it("still resolves as 'admin' for a genuinely administrative role", async () => {
+  it("resolves as 'admin' for the 'administrator' role", async () => {
     mock.onGet("/authorization/me").reply(200, { roles: [{ slug: "administrator" }] });
 
     await expect(resolveHomePortal()).resolves.toBe("admin");
   });
 
-  it("resolves as 'admin' when the account holds an administrative role alongside the student role", async () => {
-    mock.onGet("/authorization/me").reply(200, { roles: [{ slug: "student" }, { slug: "staff" }] });
+  it("resolves as 'admin' for the 'super_admin' role", async () => {
+    mock.onGet("/authorization/me").reply(200, { roles: [{ slug: "super_admin" }] });
+
+    await expect(resolveHomePortal()).resolves.toBe("admin");
+  });
+
+  it("does NOT resolve as 'admin' for a narrow org-custom role (e.g. 'ise'), falling through to ownership checks instead", async () => {
+    mock.onGet("/authorization/me").reply(200, { roles: [{ slug: "ise" }] });
+    mock.onGet("/trainers/me").reply(200, {});
+
+    await expect(resolveHomePortal()).resolves.toBe("trainer");
+  });
+
+  it("does NOT resolve as 'admin' for the 'staff' role by itself", async () => {
+    mock.onGet("/authorization/me").reply(200, { roles: [{ slug: "staff" }] });
+    mock.onGet("/trainers/me").reply(404);
+    mock.onGet("/employees/me").reply(200, {});
+
+    await expect(resolveHomePortal()).resolves.toBe("employee");
+  });
+
+  it("resolves as 'admin' when the account holds 'administrator' alongside a narrower role", async () => {
+    mock.onGet("/authorization/me").reply(200, { roles: [{ slug: "ise" }, { slug: "administrator" }] });
 
     await expect(resolveHomePortal()).resolves.toBe("admin");
   });
