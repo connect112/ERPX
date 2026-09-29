@@ -98,10 +98,12 @@ export interface NavItem {
    * own data (their own batches, their own live classes), so no
    * permission code applies the way it does for the admin CRUD items
    * below — a narrow custom role and the Administrator role should both
-   * see these if the account is actually a trainer, regardless of what
-   * permissions that role happens to hold.
+   * see these if the account is actually a trainer/employee, regardless
+   * of what permissions that role happens to hold. Every trainer is also
+   * an employee (Trainer is layered on Employee), so an account can see
+   * both sets of "My X" items at once.
    */
-  ownership?: "trainer";
+  ownership?: "trainer" | "employee";
 }
 
 export interface NavSection {
@@ -122,6 +124,12 @@ export const navSections: NavSection[] = [
     items: [
       { label: "My Batches", href: "/my/batches", icon: Presentation, enabled: true, ownership: "trainer" },
       { label: "My Live Classes", href: "/my/live-classes", icon: Video, enabled: true, ownership: "trainer" },
+      { label: "My Announcements", href: "/my/announcements", icon: Megaphone, enabled: true, ownership: "trainer" },
+      { label: "My Messages", href: "/my/messages", icon: MessageCircle, enabled: true, ownership: "trainer" },
+      { label: "My Attendance", href: "/my/attendance", icon: CalendarCheck, enabled: true, ownership: "employee" },
+      { label: "My Leave", href: "/my/leave", icon: CalendarOff, enabled: true, ownership: "employee" },
+      { label: "My Payslips", href: "/my/payslips", icon: Wallet, enabled: true, ownership: "employee" },
+      { label: "My Expenses", href: "/my/expenses", icon: ReceiptText, enabled: true, ownership: "employee" },
     ],
   },
   {
