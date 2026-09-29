@@ -120,6 +120,10 @@ const BatchDetailPage = lazy(() => import("@/features/batches/pages/batch-detail
 const BatchesListPage = lazy(() => import("@/features/batches/pages/batches-list-page").then((m) => ({ default: m.BatchesListPage })));
 const ClassroomsListPage = lazy(() => import("@/features/classrooms/pages/classrooms-list-page").then((m) => ({ default: m.ClassroomsListPage })));
 const TrainersListPage = lazy(() => import("@/features/trainers/pages/trainers-list-page").then((m) => ({ default: m.TrainersListPage })));
+const MyBatchesPage = lazy(() => import("@/features/trainer-self-service/pages/my-batches-page").then((m) => ({ default: m.MyBatchesPage })));
+const MyBatchDetailPage = lazy(() => import("@/features/trainer-self-service/pages/my-batch-detail-page").then((m) => ({ default: m.MyBatchDetailPage })));
+const AssignmentGradingPage = lazy(() => import("@/features/trainer-self-service/pages/assignment-grading-page").then((m) => ({ default: m.AssignmentGradingPage })));
+const MyLiveClassesPage = lazy(() => import("@/features/trainer-self-service/pages/my-live-classes-page").then((m) => ({ default: m.MyLiveClassesPage })));
 import { AppLayout } from "@/layouts/app-layout";
 import { ProtectedRoute } from "@/router/protected-route";
 
@@ -153,6 +157,10 @@ export const router = createBrowserRouter([
       { path: "batches", element: <BatchesListPage /> },
       { path: "batches/:batchId", element: <BatchDetailPage /> },
       { path: "trainers", element: <TrainersListPage /> },
+      { path: "my/batches", element: <MyBatchesPage /> },
+      { path: "my/batches/:batchId", element: <MyBatchDetailPage /> },
+      { path: "my/batches/:batchId/assignments/:assignmentId", element: <AssignmentGradingPage /> },
+      { path: "my/live-classes", element: <MyLiveClassesPage /> },
       { path: "classrooms", element: <ClassroomsListPage /> },
       { path: "lms/announcements", element: <AnnouncementsListPage /> },
       { path: "lms/badges", element: <BadgesListPage /> },
