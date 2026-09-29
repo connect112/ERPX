@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -61,9 +61,11 @@ export function VideoCallOverlay({
 }: VideoCallOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<JitsiMeetAPI | null>(null);
+  const [hasEnded, setHasEnded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setHasEnded(false);
 
     loadJitsiScript(domain)
       .then(() => {
@@ -99,7 +101,18 @@ export function VideoCallOverlay({
           },
         });
         apiRef.current = api;
-        api.addEventListener("readyToClose", onClose);
+        // videoConferenceLeft fires the instant the local participant
+        // leaves (hangup, or being disconnected) -- well before Jitsi's
+        // own IFrame client would otherwise show its own end-of-call/
+        // feedback screen inside this container. Tearing the connection
+        // down right here and showing our own "Class ended" state means
+        // nobody sees a Jitsi-branded page and mistakes it for having
+        // left the app.
+        api.addEventListener("videoConferenceLeft", () => {
+          apiRef.current?.dispose();
+          apiRef.current = null;
+          setHasEnded(true);
+        });
       })
       .catch(() => {
         // Script failed to load (network hiccup, ad-blocker) — nothing to
@@ -111,9 +124,7 @@ export function VideoCallOverlay({
       apiRef.current?.dispose();
       apiRef.current = null;
     };
-    // Re-run only when the call identity itself changes — onClose is
-    // recreated per-render but isn't part of what a "new call" means here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Re-run only when the call identity itself changes.
   }, [domain, room, jwt]);
 
   return (
@@ -130,7 +141,16 @@ export function VideoCallOverlay({
           Close
         </Button>
       </div>
-      <div ref={containerRef} className="flex-1" />
+      {hasEnded ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-white">
+          <p className="text-lg font-medium">Class ended.</p>
+          <Button variant="outline" className="text-white hover:bg-white/10 hover:text-white" onClick={onClose}>
+            Back to dashboard
+          </Button>
+        </div>
+      ) : (
+        <div ref={containerRef} className="flex-1" />
+      )}
     </div>
   );
 }
