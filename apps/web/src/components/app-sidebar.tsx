@@ -6,32 +6,28 @@ import { cn } from "@/lib/utils";
 
 export function AppSidebar() {
   const { data } = useMyRoles();
-  // Super Admin is the platform-operator role (onboard/offboard tenants —
-  // see modules/organizations/routes.py's require_superuser()), not a
-  // business user of any one tenant's own data. Business Modules is
-  // every tenant-scoped module (CRM, courses, accounting, HR, ...) — none
-  // of it is Super Admin's job, so it's hidden entirely for that role
-  // rather than shown-but-mostly-403ing.
-  const isSuperAdmin = data?.roles.some((r) => r.slug === "super_admin") ?? false;
-  // "Users" and "Roles" are per-organization membership/RBAC screens — a
-  // platform operator managing dozens of customer organizations has no
-  // single "users" or "roles" list of its own to view; that's each
-  // organization's own admin's job (see modules/users/routes.py and
-  // modules/authorization/routes.py, both now organization-scoped).
-  const SUPER_ADMIN_HIDDEN_HREFS = new Set(["/administration/users", "/administration/roles"]);
-  // Inverse of the above: "Organizations" is the one Administration item
-  // that's Super Admin ONLY (modules/organizations/routes.py's
-  // require_superuser()) — a tenant's own admin has no other org to view
-  // and would just get a 403 list, so the link is hidden rather than
-  // shown-but-broken for everyone else.
-  const NON_SUPER_ADMIN_HIDDEN_HREFS = new Set(["/organizations"]);
+  const permissions = data?.effective_permissions ?? [];
+  const isSuperuser = data?.is_superuser ?? false;
+  // Every item is filtered against the caller's real effective_permissions
+  // (mirroring apps/student-portal's own sidebar filter) or, for the 3
+  // items with no grantable permission at all (Organizations, Database
+  // Backups, System Health — all require_superuser()-gated server-side),
+  // against is_superuser directly. A "Users"/"Roles"/etc. link an
+  // org-custom role (e.g. "ISE") doesn't actually have access to simply
+  // disappears instead of being shown-but-403ing. A platform-operator
+  // (Super Admin) account holds the zero-permission "super_admin" system
+  // role, so every ordinary permission-gated item naturally disappears
+  // for it too, leaving only the 3 superuser-only items — same end
+  // result as this file's old hardcoded "hide Business Modules for
+  // Super Admin" special case, without needing one anymore.
+  const isVisible = (item: { permission?: string; superuserOnly?: boolean }) => {
+    if (item.superuserOnly) return isSuperuser;
+    if (item.permission) return permissions.includes(item.permission);
+    return true;
+  };
   const visibleSections = navSections
-    .filter((section) => !(isSuperAdmin && section.title === "Business Modules"))
-    .map((section) => {
-      if (section.title !== "Administration") return section;
-      const hidden = isSuperAdmin ? SUPER_ADMIN_HIDDEN_HREFS : NON_SUPER_ADMIN_HIDDEN_HREFS;
-      return { ...section, items: section.items.filter((item) => !hidden.has(item.href)) };
-    });
+    .map((section) => ({ ...section, items: section.items.filter(isVisible) }))
+    .filter((section) => section.items.length > 0);
 
   return (
     <aside className="hidden w-64 shrink-0 border-r bg-card md:flex md:flex-col">
