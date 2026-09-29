@@ -86,4 +86,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 # override). Invoked via `sh` so it works regardless of the file's exec bit.
 ENTRYPOINT ["sh", "/app/scripts/entrypoint.sh"]
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers/--forwarded-allow-ips: Caddy (the only thing on this
+# box's 80/443, and the only thing that can reach this container at all —
+# it isn't published on any host port, see docker-compose.prod.yml) sits
+# in front and already sets X-Forwarded-For/-Proto; without this, uvicorn
+# reports every request's client IP as Caddy's own docker-network address
+# instead of the real visitor's, which is what request.client.host (used
+# for refresh-token/session records — modules/authentication/routes.py)
+# actually reads. "*" is safe here specifically because nothing but Caddy
+# can ever connect to this port to forge the header.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]

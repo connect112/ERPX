@@ -53,13 +53,21 @@ def _set_sso_cookie(response: Response, refresh_token: str) -> None:
     /auth/sso/bootstrap — no second login. A no-op whenever
     SSO_COOKIE_DOMAIN is unset (local dev and every test run), so nothing
     about existing behavior changes there.
+
+    Deliberately no `max_age`/`expires`: this is a browser-session cookie,
+    gone as soon as the browser is fully closed, unlike the actual login
+    session (REFRESH_TOKEN_EXPIRE_DAYS, persisted in that portal's own
+    localStorage). A shared/reused device silently signing in as whoever
+    last used it — no password, no prompt — should not survive closing
+    the browser; /auth/sso/bootstrap additionally caps how old the
+    underlying token can be (settings.SSO_BRIDGE_MAX_AGE_HOURS) as
+    defense in depth against a browser that restores its session anyway.
     """
     if not settings.SSO_COOKIE_DOMAIN:
         return
     response.set_cookie(
         key=SSO_COOKIE_NAME,
         value=refresh_token,
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
         domain=settings.SSO_COOKIE_DOMAIN,
         path="/",
         secure=True,

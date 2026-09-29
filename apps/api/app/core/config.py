@@ -116,6 +116,20 @@ class Settings(BaseSettings):
     # started on any other. Empty (the default) disables the cookie
     # entirely — local dev and every test run behave exactly as before.
     SSO_COOKIE_DOMAIN: str = ""
+    # The cookie itself carries no Max-Age (a browser-session cookie — see
+    # _set_sso_cookie), so it's gone once the browser is fully closed. This
+    # is a second, server-side cap for the case a browser restores its
+    # session across a restart anyway: a cookie whose underlying refresh
+    # token is older than this is rejected by /auth/sso/bootstrap even
+    # though the token itself hasn't hit its full REFRESH_TOKEN_EXPIRE_DAYS
+    # expiry — silently signing someone into a *different* account than
+    # whoever is sitting at the keyboard should have a much shorter window
+    # than "stay logged in on this one portal for a week", which is what a
+    # deliberately-kept session on a single portal is for. Found live: a
+    # shared/reused test browser silently bootstrapped a stale account's
+    # session on a fresh visit days after that account last explicitly
+    # used it, with zero re-authentication.
+    SSO_BRIDGE_MAX_AGE_HOURS: int = 24
 
     # ---- Rate Limiting ----
     RATE_LIMIT_DEFAULT: str = "100/minute"
