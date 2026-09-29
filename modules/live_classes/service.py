@@ -80,6 +80,11 @@ class LiveClassService:
     ) -> list[LiveClass]:
         return await self.repo.list_for_batches(batch_ids, organization_id)
 
+    async def list_for_trainer(
+        self, trainer_id: uuid.UUID, batch_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[LiveClass]:
+        return await self.repo.list_for_trainer(trainer_id, batch_ids, organization_id)
+
     async def update_live_class(
         self, live_class_id: uuid.UUID, organization_id: uuid.UUID, **fields
     ) -> LiveClass:
