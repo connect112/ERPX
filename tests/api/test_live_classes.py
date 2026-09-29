@@ -89,17 +89,15 @@ async def course(db_session, organization):
 
 
 async def _create_batch(client, auth_headers, course, trainer_id):
-    resp = await client.post(
-        "/api/v1/batches",
-        json={
-            "course_id": str(course.id),
-            "trainer_id": str(trainer_id),
-            "name": "Morning Batch",
-            "code": f"BATCH-{uuid.uuid4().hex[:8]}",
-            "start_date": "2026-09-01",
-        },
-        headers=auth_headers,
-    )
+    payload = {
+        "course_id": str(course.id),
+        "name": "Morning Batch",
+        "code": f"BATCH-{uuid.uuid4().hex[:8]}",
+        "start_date": "2026-09-01",
+    }
+    if trainer_id is not None:
+        payload["trainer_id"] = str(trainer_id)
+    resp = await client.post("/api/v1/batches", json=payload, headers=auth_headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
 
@@ -176,6 +174,36 @@ async def test_trainer_cannot_see_or_change_another_trainers_live_class(
     # 404, not 403: trainer A shouldn't be able to tell this live class
     # exists at all, same reasoning as every other ownership check.
     assert status_resp.status_code == 404, status_resp.text
+
+
+async def test_trainer_sees_own_live_class_when_batch_has_no_trainer_assigned(
+    client, db_session, organization, course, auth_headers, jitsi_configured
+):
+    """Found live: an admin scheduled a class and assigned a trainer to
+    it directly, but the batch itself had no trainer set (a batch's own
+    trainer and a live class's trainer are picked independently -- see
+    modules/live_classes/repository.py's list_for_trainer docstring).
+    The trainer couldn't see the class at all, because visibility used
+    to only check batch.trainer_id, never live_classes.trainer_id."""
+    trainer, headers = await _create_trainer_with_login(client, db_session, organization)
+    batch = await _create_batch(client, auth_headers, course, trainer_id=None)
+    live_class = await _create_live_class(client, auth_headers, batch["id"], trainer.id, meeting_link=None)
+
+    list_resp = await client.get("/api/v1/live-classes/trainer/me", headers=headers)
+    assert list_resp.status_code == 200, list_resp.text
+    assert [c["id"] for c in list_resp.json()] == [live_class["id"]]
+
+    status_resp = await client.post(
+        f"/api/v1/live-classes/trainer/{live_class['id']}/status",
+        json={"status": "live"},
+        headers=headers,
+    )
+    assert status_resp.status_code == 200, status_resp.text
+
+    join_resp = await client.post(
+        f"/api/v1/live-classes/trainer/{live_class['id']}/join-token", headers=headers
+    )
+    assert join_resp.status_code == 200, join_resp.text
 
 
 async def test_student_sees_live_class_for_own_batch(client, db_session, organization, course, auth_headers):
