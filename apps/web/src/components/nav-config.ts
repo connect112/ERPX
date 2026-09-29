@@ -58,6 +58,7 @@ import {
   Images,
   Workflow,
   ListChecks,
+  Video,
   UserCheck2,
   MessageSquare,
   Calendar,
@@ -89,6 +90,18 @@ export interface NavItem {
    * is_superuser flag instead.
    */
   superuserOnly?: boolean;
+  /**
+   * Gates this item on an ownership record instead of a permission code
+   * — "trainer" means "only if this account has a Trainer record"
+   * (GET /trainers/me succeeds), checked in app-sidebar.tsx via
+   * useIsTrainer(). These are self-service pages scoped to the caller's
+   * own data (their own batches, their own live classes), so no
+   * permission code applies the way it does for the admin CRUD items
+   * below — a narrow custom role and the Administrator role should both
+   * see these if the account is actually a trainer, regardless of what
+   * permissions that role happens to hold.
+   */
+  ownership?: "trainer";
 }
 
 export interface NavSection {
@@ -102,6 +115,13 @@ export const navSections: NavSection[] = [
     items: [
       { label: "Dashboard", href: "/", icon: LayoutDashboard, enabled: true },
       { label: "Calendar", href: "/events", icon: Calendar, enabled: true },
+    ],
+  },
+  {
+    title: "My Work",
+    items: [
+      { label: "My Batches", href: "/my/batches", icon: Presentation, enabled: true, ownership: "trainer" },
+      { label: "My Live Classes", href: "/my/live-classes", icon: Video, enabled: true, ownership: "trainer" },
     ],
   },
   {
