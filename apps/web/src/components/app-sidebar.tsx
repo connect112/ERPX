@@ -2,12 +2,14 @@ import { NavLink } from "react-router-dom";
 
 import { navSections } from "@/components/nav-config";
 import { useMyRoles } from "@/features/auth/api/authorization-hooks";
+import { useIsEmployee } from "@/features/employee-self-service/lib/use-is-employee";
 import { useIsTrainer } from "@/features/trainer-self-service/lib/use-is-trainer";
 import { cn } from "@/lib/utils";
 
 export function AppSidebar() {
   const { data } = useMyRoles();
   const { isTrainer } = useIsTrainer();
+  const { isEmployee } = useIsEmployee();
   const permissions = data?.effective_permissions ?? [];
   const isSuperuser = data?.is_superuser ?? false;
   // Every item is filtered against the caller's real effective_permissions
@@ -22,9 +24,14 @@ export function AppSidebar() {
   // for it too, leaving only the 3 superuser-only items — same end
   // result as this file's old hardcoded "hide Business Modules for
   // Super Admin" special case, without needing one anymore.
-  const isVisible = (item: { permission?: string; superuserOnly?: boolean; ownership?: "trainer" }) => {
+  const isVisible = (item: {
+    permission?: string;
+    superuserOnly?: boolean;
+    ownership?: "trainer" | "employee";
+  }) => {
     if (item.superuserOnly) return isSuperuser;
     if (item.ownership === "trainer") return isTrainer;
+    if (item.ownership === "employee") return isEmployee;
     if (item.permission) return permissions.includes(item.permission);
     return true;
   };

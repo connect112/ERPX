@@ -124,6 +124,12 @@ const MyBatchesPage = lazy(() => import("@/features/trainer-self-service/pages/m
 const MyBatchDetailPage = lazy(() => import("@/features/trainer-self-service/pages/my-batch-detail-page").then((m) => ({ default: m.MyBatchDetailPage })));
 const AssignmentGradingPage = lazy(() => import("@/features/trainer-self-service/pages/assignment-grading-page").then((m) => ({ default: m.AssignmentGradingPage })));
 const MyLiveClassesPage = lazy(() => import("@/features/trainer-self-service/pages/my-live-classes-page").then((m) => ({ default: m.MyLiveClassesPage })));
+const MyAnnouncementsPage = lazy(() => import("@/features/trainer-self-service/pages/my-announcements-page").then((m) => ({ default: m.MyAnnouncementsPage })));
+const MyMessagesPage = lazy(() => import("@/features/trainer-self-service/pages/my-messages-page").then((m) => ({ default: m.MyMessagesPage })));
+const MyAttendancePage = lazy(() => import("@/features/employee-self-service/pages/my-attendance-page").then((m) => ({ default: m.MyAttendancePage })));
+const MyLeavePage = lazy(() => import("@/features/employee-self-service/pages/my-leave-page").then((m) => ({ default: m.MyLeavePage })));
+const MyPayslipsPage = lazy(() => import("@/features/employee-self-service/pages/my-payslips-page").then((m) => ({ default: m.MyPayslipsPage })));
+const MyExpensesPage = lazy(() => import("@/features/employee-self-service/pages/my-expenses-page").then((m) => ({ default: m.MyExpensesPage })));
 import { AppLayout } from "@/layouts/app-layout";
 import { ProtectedRoute } from "@/router/protected-route";
 
@@ -161,6 +167,12 @@ export const router = createBrowserRouter([
       { path: "my/batches/:batchId", element: <MyBatchDetailPage /> },
       { path: "my/batches/:batchId/assignments/:assignmentId", element: <AssignmentGradingPage /> },
       { path: "my/live-classes", element: <MyLiveClassesPage /> },
+      { path: "my/announcements", element: <MyAnnouncementsPage /> },
+      { path: "my/messages", element: <MyMessagesPage /> },
+      { path: "my/attendance", element: <MyAttendancePage /> },
+      { path: "my/leave", element: <MyLeavePage /> },
+      { path: "my/payslips", element: <MyPayslipsPage /> },
+      { path: "my/expenses", element: <MyExpensesPage /> },
       { path: "classrooms", element: <ClassroomsListPage /> },
       { path: "lms/announcements", element: <AnnouncementsListPage /> },
       { path: "lms/badges", element: <BadgesListPage /> },
