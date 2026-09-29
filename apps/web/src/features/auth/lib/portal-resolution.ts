@@ -29,32 +29,35 @@ export const PORTAL_LABELS: Record<PortalKind, string> = {
  * see wrong-portal-screen.tsx for what a mismatch shows.
  *
  * Priority mirrors how one person's access actually layers in this
- * codebase: an RBAC role (administrator/staff/accountant/...) is the
- * broadest "this is your real working portal" signal, so it wins over
- * merely having a Trainer/Employee/Student record alongside the same
- * login. Every employee — including admins and trainers — has an
- * Employee record too (Trainer is layered ON Employee, not instead of
- * it — see modules/trainers/models.py), so "employee" is deliberately
- * checked after "trainer": someone with trainer access shouldn't be
- * routed to the (also-valid, but not their actual job) employee
- * self-service portal instead.
+ * codebase: holding one of the two roles that actually run the whole
+ * org (administrator/super_admin) is the broadest "this is your real
+ * working portal" signal, so it wins over merely having a
+ * Trainer/Employee/Student record alongside the same login. Every
+ * employee — including admins and trainers — has an Employee record
+ * too (Trainer is layered ON Employee, not instead of it — see
+ * modules/trainers/models.py), so "employee" is deliberately checked
+ * after "trainer": someone with trainer access shouldn't be routed to
+ * the (also-valid, but not their actual job) employee self-service
+ * portal instead.
  *
- * The plain "student" system role is deliberately excluded from that
- * role check — every student provisioned via modules/provisioning or
- * modules/students::create_login_account gets it assigned alongside
- * their Student record (see AuthorizationService.assign_role in both),
- * so treating *any* assigned role as "this is an admin account" would
- * misroute every real student here to erp.pentrix.in instead of their
- * own portal. Any other assigned role (administrator, staff, accountant,
- * or an org-custom one) still counts, matching this function's original
- * intent — only "student" is carved out, since it's the one system role
- * that specifically is *not* an administrative signal.
+ * Deliberately narrower than "has any role at all": an org-custom role
+ * (ISE, Senior ISE, Accountant, or any future one) is real, meaningful
+ * access, but it isn't administrative access, and treating it as such
+ * misroutes -- and previously did, for real -- every holder of one of
+ * these roles here instead of to the ownership-gated check their
+ * actual job matches (e.g. an ISE with a Trainer record should resolve
+ * as "trainer", not "admin"). Only "administrator" and "super_admin"
+ * -- the two roles meant to run the whole org -- count as the admin
+ * signal; anything else falls through to the ownership checks below,
+ * same as holding no role at all.
  */
 export async function resolveHomePortal(): Promise<PortalKind | null> {
   try {
     const { data } = await apiClient.get<{ roles: { slug: string }[] }>("/authorization/me");
-    const administrativeRoles = data.roles.filter((role) => role.slug !== "student");
-    if (administrativeRoles.length > 0) return "admin";
+    const hasAdministrativeRole = data.roles.some(
+      (role) => role.slug === "administrator" || role.slug === "super_admin"
+    );
+    if (hasAdministrativeRole) return "admin";
   } catch {
     // Not resolvable via role — fall through to the ownership-gated checks.
   }
