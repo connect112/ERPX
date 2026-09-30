@@ -109,5 +109,6 @@ celery_app.autodiscover_tasks(
         "modules.crm.followups",
         "modules.backups",
         "modules.payroll",
+        "modules.lms.announcements",
     ]
 )

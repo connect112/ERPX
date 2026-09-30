@@ -103,7 +103,7 @@ export interface NavItem {
    * an employee (Trainer is layered on Employee), so an account can see
    * both sets of "My X" items at once.
    */
-  ownership?: "trainer" | "employee";
+  ownership?: "trainer" | "employee" | "student";
 }
 
 export interface NavSection {
@@ -130,6 +130,7 @@ export const navSections: NavSection[] = [
       { label: "My Leave", href: "/my/leave", icon: CalendarOff, enabled: true, ownership: "employee" },
       { label: "My Payslips", href: "/my/payslips", icon: Wallet, enabled: true, ownership: "employee" },
       { label: "My Expenses", href: "/my/expenses", icon: ReceiptText, enabled: true, ownership: "employee" },
+      { label: "My Schedule", href: "/my/schedule", icon: CalendarDays, enabled: true, ownership: "student" },
     ],
   },
   {

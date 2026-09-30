@@ -75,6 +75,23 @@ def payslip_ready_email(full_name: str, period_label: str) -> tuple[str, str, st
     return subject, text, html
 
 
+def announcement_email(full_name: str, title: str, body: str, scope_label: str) -> tuple[str, str, str]:
+    subject = f"[Announcement] {title}"
+    text = (
+        f"Hi {full_name},\n\n"
+        f"A new announcement was posted ({scope_label}):\n\n"
+        f"{title}\n\n{body}"
+    )
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>{title}</h2>
+      <p style="color:#6b7280;font-size:13px">{scope_label}</p>
+      <p style="white-space:pre-wrap">{body}</p>
+    </div>
+    """
+    return subject, text, html
+
+
 def password_reset_email(full_name: str, reset_url: str) -> tuple[str, str, str]:
     subject = "Reset your ERPX password"
     text = (

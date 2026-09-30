@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { navSections } from "@/components/nav-config";
 import { useMyRoles } from "@/features/auth/api/authorization-hooks";
 import { useIsEmployee } from "@/features/employee-self-service/lib/use-is-employee";
+import { useIsStudent } from "@/features/student-self-service/lib/use-is-student";
 import { useIsTrainer } from "@/features/trainer-self-service/lib/use-is-trainer";
 import { cn } from "@/lib/utils";
 
@@ -10,6 +11,7 @@ export function AppSidebar() {
   const { data } = useMyRoles();
   const { isTrainer } = useIsTrainer();
   const { isEmployee } = useIsEmployee();
+  const { isStudent } = useIsStudent();
   const permissions = data?.effective_permissions ?? [];
   const isSuperuser = data?.is_superuser ?? false;
   // Every item is filtered against the caller's real effective_permissions
@@ -27,11 +29,12 @@ export function AppSidebar() {
   const isVisible = (item: {
     permission?: string;
     superuserOnly?: boolean;
-    ownership?: "trainer" | "employee";
+    ownership?: "trainer" | "employee" | "student";
   }) => {
     if (item.superuserOnly) return isSuperuser;
     if (item.ownership === "trainer") return isTrainer;
     if (item.ownership === "employee") return isEmployee;
+    if (item.ownership === "student") return isStudent;
     if (item.permission) return permissions.includes(item.permission);
     return true;
   };

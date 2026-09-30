@@ -1,9 +1,9 @@
 import { Suspense } from "react";
-import { Outlet } from "react-router-dom";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppTopbar } from "@/components/app-topbar";
 import { PageLoader } from "@/components/ui/page-loader";
+import { RouteGuard } from "@/router/route-guard";
 
 export function AppLayout() {
   return (
@@ -13,9 +13,12 @@ export function AppLayout() {
         <AppTopbar />
         <main className="flex-1 overflow-y-auto bg-muted/20">
           {/* Single Suspense boundary for every lazily-loaded route rendered
-              into this Outlet (see src/router/index.tsx). */}
+              here (see src/router/index.tsx). RouteGuard renders the actual
+              <Outlet /> once it's confirmed this account is allowed on the
+              current path — see its own docstring for why that check exists
+              at all. */}
           <Suspense fallback={<PageLoader />}>
-            <Outlet />
+            <RouteGuard />
           </Suspense>
         </main>
       </div>
