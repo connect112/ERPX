@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,7 +13,6 @@ import {
 } from "@/components/ui/table";
 import { useAttendanceSummary, useEmployeeAttendance } from "@/features/attendance/api/attendance-hooks";
 import { AttendanceStatusBadge } from "@/features/attendance/components/attendance-status-badge";
-import { MarkAttendanceDialog } from "@/features/attendance/components/mark-attendance-dialog";
 
 const monthNames = [
   "January", "February", "March", "April", "May", "June",
@@ -25,7 +23,6 @@ export function EmployeeAttendancePanel({ employeeId }: { employeeId: string }) 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [markOpen, setMarkOpen] = useState(false);
 
   const { data: summary, isLoading: summaryLoading } = useAttendanceSummary(employeeId, year, month);
   const { data: records, isLoading: recordsLoading } = useEmployeeAttendance(employeeId, { limit: 50 });
@@ -62,9 +59,6 @@ export function EmployeeAttendancePanel({ employeeId }: { employeeId: string }) 
                 ))}
               </SelectContent>
             </Select>
-            <Button size="sm" onClick={() => setMarkOpen(true)}>
-              Mark attendance
-            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -145,8 +139,6 @@ export function EmployeeAttendancePanel({ employeeId }: { employeeId: string }) 
           )}
         </CardContent>
       </Card>
-
-      <MarkAttendanceDialog open={markOpen} onOpenChange={setMarkOpen} defaultEmployeeId={employeeId} />
     </div>
   );
 }

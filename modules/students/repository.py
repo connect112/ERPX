@@ -60,6 +60,20 @@ class StudentRepository:
         result = await self.db.execute(select(Student).where(Student.admission_id == admission_id))
         return result.scalar_one_or_none()
 
+    async def list_for_ids(
+        self, student_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[Student]:
+        if not student_ids:
+            return []
+        result = await self.db.execute(
+            select(Student).where(
+                Student.id.in_(student_ids),
+                Student.organization_id == organization_id,
+                Student.deleted_at.is_(None),
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_for_organization(
         self,
         organization_id: uuid.UUID,

@@ -24,12 +24,15 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useAccountsList } from "@/features/accounting/ledger/api/accounts-hooks";
 import { useRolesList } from "@/features/authorization/api/authorization-hooks";
 import {
   useCreateDepartment,
   useCreateDesignation,
   useDepartments,
   useDesignations,
+  useHrSettings,
+  useUpdateHrSettings,
 } from "@/features/hr/api/hr-hooks";
 import {
   type DepartmentFormValues,
@@ -37,6 +40,7 @@ import {
   departmentFormSchema,
   designationFormSchema,
 } from "@/features/hr/schemas/hr-schemas";
+import { useSalaryComponents } from "@/features/payroll/api/payroll-hooks";
 
 // A designation's linked_role_id deliberately can't be "student" (meaningless
 // for an employee) or "super_admin" (auto-granting the platform's most
@@ -303,6 +307,200 @@ function DesignationsCard() {
   );
 }
 
+const WEEKDAY_LABELS: { value: number; label: string }[] = [
+  { value: 0, label: "Monday" },
+  { value: 1, label: "Tuesday" },
+  { value: 2, label: "Wednesday" },
+  { value: 3, label: "Thursday" },
+  { value: 4, label: "Friday" },
+  { value: 5, label: "Saturday" },
+  { value: 6, label: "Sunday" },
+];
+
+function WeeklyOffsCard() {
+  const { data: settings, isLoading, isError } = useHrSettings();
+  const updateSettings = useUpdateHrSettings();
+  const [selected, setSelected] = useState<number[] | null>(null);
+
+  const weekOffDays = selected ?? settings?.week_off_days ?? [];
+  const isDirty = selected !== null;
+
+  const toggleDay = (day: number) => {
+    const current = selected ?? settings?.week_off_days ?? [];
+    setSelected(
+      current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort()
+    );
+  };
+
+  const handleSave = () => {
+    if (selected === null) return;
+    updateSettings.mutate({ week_off_days: selected }, { onSuccess: () => setSelected(null) });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Weekly offs</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          These days are automatically treated as a paid Week Off in attendance and payroll for
+          any day with no attendance record — an employee checking themselves in doesn&apos;t
+          need to also record their weekly day off.
+        </p>
+        {isLoading && <Skeleton className="h-16 w-full" />}
+        {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
+        {!isLoading && !isError && (
+          <div className="flex flex-wrap gap-3">
+            {WEEKDAY_LABELS.map(({ value, label }) => (
+              <label key={value} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input"
+                  checked={weekOffDays.includes(value)}
+                  onChange={() => toggleDay(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        )}
+        {updateSettings.isError && (
+          <p className="text-sm text-destructive">Could not save. Please try again.</p>
+        )}
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={handleSave} disabled={!isDirty || updateSettings.isPending}>
+            {updateSettings.isPending ? "Saving..." : "Save"}
+          </Button>
+          {isDirty && (
+            <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>
+              Discard changes
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PayrollAutomationCard() {
+  const { data: settings, isLoading, isError } = useHrSettings();
+  const updateSettings = useUpdateHrSettings();
+  const { data: accounts } = useAccountsList({ account_type: "liability", is_active: true, limit: 200 });
+  const { data: components } = useSalaryComponents(true);
+  const earningComponents = (components ?? []).filter((c) => c.component_type === "earning");
+
+  const [payableAccountId, setPayableAccountId] = useState<string | null>(null);
+  const [reimbursementComponentId, setReimbursementComponentId] = useState<string | null>(null);
+
+  const currentPayableAccountId = payableAccountId ?? settings?.default_salary_payable_account_id ?? "";
+  const currentReimbursementComponentId =
+    reimbursementComponentId ?? settings?.default_expense_reimbursement_component_id ?? "";
+  const isDirty = payableAccountId !== null || reimbursementComponentId !== null;
+  const isFullyConfigured = !!(currentPayableAccountId && currentReimbursementComponentId);
+
+  const handleSave = () => {
+    const payload: Parameters<typeof updateSettings.mutate>[0] = {};
+    if (payableAccountId !== null) payload.default_salary_payable_account_id = payableAccountId;
+    if (reimbursementComponentId !== null) {
+      payload.default_expense_reimbursement_component_id = reimbursementComponentId;
+    }
+    updateSettings.mutate(payload, {
+      onSuccess: () => {
+        setPayableAccountId(null);
+        setReimbursementComponentId(null);
+      },
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-base">Payroll automation</CardTitle>
+        {isFullyConfigured && <Badge variant="success">Auto-finalize + email enabled</Badge>}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Once both are set, the last-working-day payroll run is generated, approved expense
+          claims are added to it, the run is finalized, and every employee is emailed their
+          payslip automatically — no manual review step. Leave either unset to keep generating a
+          draft for an admin to review instead. Marking a run Paid is always a separate, manual
+          step either way.
+        </p>
+        {isLoading && <Skeleton className="h-24 w-full" />}
+        {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
+        {!isLoading && !isError && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="payableAccount">Salary payable account</Label>
+              <Select
+                value={currentPayableAccountId || undefined}
+                onValueChange={(value) => setPayableAccountId(value)}
+              >
+                <SelectTrigger id="payableAccount">
+                  <SelectValue placeholder="Not set — runs stay as a draft" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts?.items.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.code} — {account.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                The Liability GL account credited when a run is auto-finalized.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reimbursementComponent">Expense reimbursement component</Label>
+              <Select
+                value={currentReimbursementComponentId || undefined}
+                onValueChange={(value) => setReimbursementComponentId(value)}
+              >
+                <SelectTrigger id="reimbursementComponent">
+                  <SelectValue placeholder="Not set — runs stay as a draft" />
+                </SelectTrigger>
+                <SelectContent>
+                  {earningComponents.map((component) => (
+                    <SelectItem key={component.id} value={component.id}>
+                      {component.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                The Earning salary component used to add an employee&apos;s approved expense
+                claims to their payslip.
+              </p>
+            </div>
+          </>
+        )}
+        {updateSettings.isError && (
+          <p className="text-sm text-destructive">Could not save. Please try again.</p>
+        )}
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={handleSave} disabled={!isDirty || updateSettings.isPending}>
+            {updateSettings.isPending ? "Saving..." : "Save"}
+          </Button>
+          {isDirty && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setPayableAccountId(null);
+                setReimbursementComponentId(null);
+              }}
+            >
+              Discard changes
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function HRSettingsPage() {
   return (
     <div className="space-y-6 p-8">
@@ -316,6 +514,8 @@ export function HRSettingsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <DepartmentsCard />
         <DesignationsCard />
+        <WeeklyOffsCard />
+        <PayrollAutomationCard />
       </div>
     </div>
   );

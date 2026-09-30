@@ -1,3 +1,4 @@
+import calendar
 import uuid
 from datetime import date, datetime, timezone
 
@@ -8,6 +9,7 @@ from app.core.logging_config import get_logger
 from modules.attendance.models import AttendanceRecord, AttendanceStatus
 from modules.attendance.repository import AttendanceRepository
 from modules.employees.repository import EmployeeRepository
+from modules.organizations.repository import OrganizationRepository
 
 logger = get_logger(__name__)
 
@@ -27,6 +29,7 @@ class AttendanceService:
         self.db = db
         self.repo = AttendanceRepository(db)
         self.employee_repo = EmployeeRepository(db)
+        self.org_repo = OrganizationRepository(db)
 
     async def _get_employee_or_raise(self, employee_id: uuid.UUID, organization_id: uuid.UUID):
         employee = await self.employee_repo.get_by_id(employee_id, organization_id)
@@ -88,6 +91,14 @@ class AttendanceService:
         status: AttendanceStatus,
         remarks: str | None = None,
     ) -> AttendanceRecord:
+        """Internal-only: sets a specific day's status directly, upserting
+        any existing record. No route exposes this to an admin (removed in
+        PR #38 — attendance marking belongs to the employee, not an admin,
+        per that decision) — this exists solely as a system-triggered side
+        effect for other services, e.g. LeaveApplicationService.approve_leave
+        marking each day of an approved leave as ON_LEAVE. That's not an
+        admin overriding attendance; it's an automatic consequence of an
+        approval action the employee themselves initiated."""
         employee = await self._get_employee_or_raise(employee_id, organization_id)
         existing = await self.repo.get_for_employee_date(employee_id, attendance_date)
         if existing is not None:
@@ -161,10 +172,27 @@ class AttendanceService:
 
         counts = {status: 0 for status in AttendanceStatus}
         total_hours = 0.0
+        recorded_days: set[int] = set()
         for record in records:
             counts[record.status] += 1
+            recorded_days.add(record.attendance_date.day)
             if record.work_hours:
                 total_hours += float(record.work_hours)
+
+        # A day with no attendance record at all is normally unpaid (LOP) —
+        # except a recurring weekly off, which is a company policy fact, not
+        # something an employee "checks in" for. Self check-in only ever
+        # creates a record for a day actually worked, so without this, every
+        # week-off day would silently count against them.
+        org = await self.org_repo.get_by_id(organization_id)
+        week_off_weekdays = set(org.week_off_days) if org else set()
+        if week_off_weekdays:
+            days_in_month = calendar.monthrange(year, month)[1]
+            for day in range(1, days_in_month + 1):
+                if day in recorded_days:
+                    continue
+                if date(year, month, day).weekday() in week_off_weekdays:
+                    counts[AttendanceStatus.WEEK_OFF] += 1
 
         return {
             "employee_id": employee_id,

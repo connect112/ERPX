@@ -13,8 +13,11 @@ from modules.accounting.journals.models import JournalSourceModule
 from modules.accounting.journals.service import JournalService
 from modules.accounting.ledger.repository import AccountRepository
 from modules.attendance.service import AttendanceService
-from modules.employees.models import EmploymentStatus
+from modules.employees.models import Employee, EmploymentStatus
 from modules.employees.repository import EmployeeRepository
+from modules.expense_claims.repository import ExpenseClaimRepository
+from modules.hr.repository import DepartmentRepository, DesignationRepository
+from modules.organizations.repository import OrganizationRepository
 from modules.payroll.models import (
     Payslip,
     PayrollRun,
@@ -23,6 +26,7 @@ from modules.payroll.models import (
     SalaryComponentType,
     SalaryStructure,
 )
+from modules.payroll.pdf import generate_payslip_pdf
 from modules.payroll.repository import (
     PayrollRunRepository,
     PayslipRepository,
@@ -165,6 +169,10 @@ class PayrollService:
         self.attendance_service = AttendanceService(db)
         self.bank_service = BankService(db)
         self.journal_service = JournalService(db)
+        self.designation_repo = DesignationRepository(db)
+        self.department_repo = DepartmentRepository(db)
+        self.org_repo = OrganizationRepository(db)
+        self.expense_claim_repo = ExpenseClaimRepository(db)
 
     async def generate_run(
         self,
@@ -213,16 +221,24 @@ class PayrollService:
             summary = await self.attendance_service.monthly_summary(
                 employee.id, organization_id, period_year, period_month
             )
+            # Salary is earned per working day, not per calendar day: a
+            # weekly off (Sunday, or whatever the org configures) is
+            # excluded from both sides of the ratio entirely, rather than
+            # counted as a "paid" day that inflates both paid_days and the
+            # denominator. An employee absent the whole month gets 0 pay,
+            # not partial pay for the Sundays they were never going to work
+            # anyway; an employee who worked every working day gets 100%
+            # regardless of how many Sundays fell in the month.
+            working_days_in_month = max(days_in_month - summary["week_off_days"], 0)
             paid_days = (
                 summary["present_days"]
                 + summary["half_days"] * 0.5
                 + summary["leave_days"]
                 + summary["holiday_days"]
-                + summary["week_off_days"]
             )
-            paid_days = min(paid_days, days_in_month)
-            lop_days = round(days_in_month - paid_days, 1)
-            proration_factor = paid_days / days_in_month if days_in_month else 1.0
+            paid_days = min(paid_days, working_days_in_month)
+            lop_days = round(working_days_in_month - paid_days, 1)
+            proration_factor = paid_days / working_days_in_month if working_days_in_month else 1.0
 
             payslip_lines = []
             gross_amount = 0.0
@@ -292,6 +308,59 @@ class PayrollService:
         if not payslip:
             raise NotFoundError("Payslip", payslip_id)
         return payslip
+
+    async def get_payslip_pdf(self, payslip_id: uuid.UUID, organization_id: uuid.UUID) -> bytes:
+        payslip = await self.payslip_repo.get_by_id(payslip_id)
+        # payslip_repo.get_by_id isn't itself organization-scoped, so
+        # ownership is enforced here instead: both the employee and the
+        # parent run must resolve within the caller's own organization, or
+        # this is treated as not found rather than leaking that a payslip
+        # with this id exists in some other organization.
+        employee = await self.employee_repo.get_by_id(payslip.employee_id, organization_id) if payslip else None
+        run = await self.run_repo.get_by_id(payslip.payroll_run_id, organization_id) if payslip else None
+        if not payslip or not employee or not run:
+            raise NotFoundError("Payslip", payslip_id)
+        return await self._build_payslip_pdf(payslip, run, employee, organization_id)
+
+    async def get_own_payslip_pdf(self, payslip_id: uuid.UUID, employee: Employee) -> bytes:
+        """Self-service counterpart of get_payslip_pdf: ownership-gated by
+        the payslip's employee_id matching the caller's own employee
+        record (mirrors /payslips/me's list_payslips_for_employee), not by
+        an admin permission -- any employee can download their own
+        payslip, nobody else's."""
+        payslip = await self.payslip_repo.get_by_id(payslip_id)
+        if not payslip or payslip.employee_id != employee.id:
+            raise NotFoundError("Payslip", payslip_id)
+        run = await self.run_repo.get_by_id(payslip.payroll_run_id, employee.organization_id)
+        if not run:
+            raise NotFoundError("Payslip", payslip_id)
+        return await self._build_payslip_pdf(payslip, run, employee, employee.organization_id)
+
+    async def _build_payslip_pdf(
+        self, payslip: Payslip, run: PayrollRun, employee: Employee, organization_id: uuid.UUID
+    ) -> bytes:
+        organization = await self.org_repo.get_by_id(organization_id)
+        designation = (
+            await self.designation_repo.get_by_id(employee.designation_id, organization_id)
+            if employee.designation_id
+            else None
+        )
+        department = (
+            await self.department_repo.get_by_id(employee.department_id, organization_id)
+            if employee.department_id
+            else None
+        )
+        component_names = {}
+        for line in payslip.lines:
+            if line.salary_component_id in component_names:
+                continue
+            component = await self.component_repo.get_by_id(line.salary_component_id, organization_id)
+            component_names[line.salary_component_id] = component.name if component else "—"
+        all_components = await self.component_repo.list_for_organization(organization_id, is_active=True)
+
+        return generate_payslip_pdf(
+            payslip, run, employee, organization, designation, department, component_names, all_components
+        )
 
     async def list_payslips_for_employee(self, employee_id: uuid.UUID, organization_id: uuid.UUID, **filters):
         employee = await self.employee_repo.get_by_id(employee_id, organization_id)
@@ -387,6 +456,41 @@ class PayrollService:
             organization_id, today.year, today.month, run_date=today, created_by_user_id=None
         )
         return run
+
+    async def apply_approved_expense_claims_to_run(self, run: PayrollRun, organization_id: uuid.UUID) -> int:
+        """For every payslip in this still-Draft run, sweeps in that
+        employee's expense claims approved for this exact period that
+        haven't been applied to any run yet, adding each as a one-off
+        earning line via add_payslip_line -- using the organization's
+        configured reimbursement component (see
+        Organization.default_expense_reimbursement_component_id). A claim
+        approved after this run, or in an org that hasn't configured a
+        component, is simply left for a later regenerate or a manual
+        "Add line" -- not an error. Returns how many were applied."""
+        if run.status != PayrollRunStatus.DRAFT:
+            return 0
+        organization = await self.org_repo.get_by_id(organization_id)
+        if not organization or not organization.default_expense_reimbursement_component_id:
+            return 0
+
+        applied = 0
+        payslips = await self.payslip_repo.list_for_run(run.id)
+        for payslip in payslips:
+            claims = await self.expense_claim_repo.list_approved_unapplied_for_period(
+                organization_id, payslip.employee_id, run.period_year, run.period_month
+            )
+            for claim in claims:
+                await self.add_payslip_line(
+                    payslip.id,
+                    organization_id,
+                    organization.default_expense_reimbursement_component_id,
+                    float(claim.amount),
+                )
+                await self.expense_claim_repo.update(claim, applied_payroll_run_id=run.id)
+                applied += 1
+        if applied:
+            logger.info("expense_claims_applied_to_run", run_id=str(run.id), claims_applied=applied)
+        return applied
 
     async def finalize_run(
         self,
@@ -492,7 +596,7 @@ class PayrollService:
             status=PayrollRunStatus.PAID,
             bank_account_id=bank_account_id,
             payment_journal_entry_id=entry.id,
-            paid_at=datetime.now(timezone.utc),
+            paid_at=payment_date,
         )
         logger.info("payroll_run_paid", run_id=str(run_id))
         return updated
@@ -514,3 +618,14 @@ class PayrollService:
         updated = await self.run_repo.update(run, status=PayrollRunStatus.CANCELLED)
         logger.info("payroll_run_cancelled", run_id=str(run_id))
         return updated
+
+    async def delete_run(self, run_id: uuid.UUID, organization_id: uuid.UUID) -> None:
+        """Only a cancelled run can be deleted — its journal effects were
+        already reversed on cancellation, so nothing else depends on it.
+        This frees up its period for a fresh run, which the DRAFT/FINALIZED/
+        PAID states intentionally don't allow (cancel first)."""
+        run = await self.get_run(run_id, organization_id)
+        if run.status != PayrollRunStatus.CANCELLED:
+            raise ValidationError("Only a cancelled payroll run can be deleted.")
+        await self.run_repo.delete(run)
+        logger.info("payroll_run_deleted", run_id=str(run_id))

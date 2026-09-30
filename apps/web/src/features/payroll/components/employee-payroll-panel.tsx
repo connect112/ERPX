@@ -12,14 +12,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useSalaryComponents } from "@/features/payroll/api/payroll-hooks";
-import { useEmployeePayslips, useEmployeeSalaryStructures } from "@/features/payroll/api/payroll-hooks";
+import {
+  useEmployeePayslips,
+  useEmployeeSalaryStructures,
+  useOpenPayslipPdf,
+  useSalaryComponents,
+} from "@/features/payroll/api/payroll-hooks";
 import { SalaryStructureFormDialog } from "@/features/payroll/components/salary-structure-form-dialog";
 
 export function EmployeePayrollPanel({ employeeId }: { employeeId: string }) {
   const { data: structures, isLoading: structuresLoading } = useEmployeeSalaryStructures(employeeId);
   const { data: payslips, isLoading: payslipsLoading } = useEmployeePayslips(employeeId, { limit: 20 });
   const { data: components } = useSalaryComponents();
+  const openPayslipPdf = useOpenPayslipPdf();
   const [structureOpen, setStructureOpen] = useState(false);
 
   const componentName = (id: string) => components?.find((c) => c.id === id)?.name ?? id;
@@ -97,16 +102,21 @@ export function EmployeePayrollPanel({ employeeId }: { employeeId: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Issued</TableHead>
                   <TableHead>Paid days</TableHead>
                   <TableHead>LOP days</TableHead>
                   <TableHead>Gross</TableHead>
                   <TableHead>Deductions</TableHead>
                   <TableHead>Net</TableHead>
+                  <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {payslips?.items.map((payslip) => (
                   <TableRow key={payslip.id}>
+                    <TableCell className="text-muted-foreground">
+                      {new Date(payslip.created_at).toLocaleDateString()}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{payslip.paid_days}</TableCell>
                     <TableCell className="text-muted-foreground">{payslip.lop_days}</TableCell>
                     <TableCell className="text-muted-foreground">
@@ -116,6 +126,16 @@ export function EmployeePayrollPanel({ employeeId }: { employeeId: string }) {
                       {payslip.total_deductions.toLocaleString()}
                     </TableCell>
                     <TableCell className="font-medium">{payslip.net_amount.toLocaleString()}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openPayslipPdf.mutate(payslip.id)}
+                        disabled={openPayslipPdf.isPending}
+                      >
+                        View PDF
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

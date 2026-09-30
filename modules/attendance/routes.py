@@ -8,9 +8,6 @@ from app.db.session import get_db
 from modules.attendance.models import AttendanceStatus
 from modules.attendance.schemas import (
     AttendanceRecordPublic,
-    CheckInRequest,
-    CheckOutRequest,
-    MarkAttendanceRequest,
     MessageResponse,
     MonthlyAttendanceSummaryResponse,
     RegularizeAttendanceRequest,
@@ -125,44 +122,6 @@ async def list_my_attendance(
         "skip": skip,
         "limit": limit,
     }
-
-
-@router.post("/check-in", response_model=AttendanceRecordPublic, status_code=status.HTTP_201_CREATED)
-async def check_in(
-    payload: CheckInRequest,
-    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("attendance.manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    service = AttendanceService(db)
-    record = await service.check_in(organization_id, payload.employee_id, payload.check_in_time)
-    return AttendanceRecordPublic.model_validate(record)
-
-
-@router.post("/check-out", response_model=AttendanceRecordPublic)
-async def check_out(
-    payload: CheckOutRequest,
-    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("attendance.manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    service = AttendanceService(db)
-    record = await service.check_out(organization_id, payload.employee_id, payload.check_out_time)
-    return AttendanceRecordPublic.model_validate(record)
-
-
-@router.post("/mark", response_model=AttendanceRecordPublic)
-async def mark_attendance(
-    payload: MarkAttendanceRequest,
-    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("attendance.manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    service = AttendanceService(db)
-    record = await service.mark_attendance(
-        organization_id, payload.employee_id, payload.attendance_date, payload.status, payload.remarks
-    )
-    return AttendanceRecordPublic.model_validate(record)
 
 
 @router.get("", response_model=dict)

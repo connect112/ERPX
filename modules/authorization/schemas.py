@@ -66,6 +66,13 @@ class UserRolesResponse(BaseModel):
     user_id: uuid.UUID
     roles: list[RolePublic]
     effective_permissions: list[str]
+    # is_superuser bypasses every require_permissions()/require_superuser()
+    # check server-side (see modules/authorization/dependencies.py) --
+    # exposed here so a frontend nav can show platform-only items
+    # (organizations, backups, monitoring) that a superuser can actually
+    # use even without holding their (deliberately ungrantable) permission
+    # codes. See modules/authorization/service.py's _PLATFORM_ONLY_PERMISSIONS.
+    is_superuser: bool
 
 
 class MessageResponse(BaseModel):

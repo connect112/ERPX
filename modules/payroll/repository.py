@@ -184,6 +184,10 @@ class PayrollRunRepository:
         await self.db.refresh(run)
         return run
 
+    async def delete(self, run: PayrollRun) -> None:
+        await self.db.delete(run)
+        await self.db.flush()
+
 
 class PayslipRepository:
     def __init__(self, db: AsyncSession):

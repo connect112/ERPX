@@ -36,6 +36,18 @@ class TrainerRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_with_employee_for_ids(
+        self, trainer_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[tuple[Trainer, Employee]]:
+        if not trainer_ids:
+            return []
+        result = await self.db.execute(
+            select(Trainer, Employee)
+            .join(Employee, Employee.id == Trainer.employee_id)
+            .where(Trainer.id.in_(trainer_ids), Trainer.organization_id == organization_id)
+        )
+        return [(row[0], row[1]) for row in result.all()]
+
     async def list_with_employee_for_organization(
         self, organization_id: uuid.UUID, skip: int = 0, limit: int = 50
     ) -> tuple[list[tuple[Trainer, Employee]], int]:

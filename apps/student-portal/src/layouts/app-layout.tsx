@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   LogOut,
   Megaphone,
+  MessageCircle,
   Moon,
   Sun,
   Trophy,
@@ -15,10 +16,12 @@ import {
 import { Suspense } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+import { Badge } from "@/components/ui/badge";
 import { useTheme } from "@/components/theme-provider";
 import { PageLoader } from "@/components/ui/page-loader";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api/auth-hooks";
+import { useMessagingUnreadCount } from "@/features/messaging/api/messaging-hooks";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
@@ -47,6 +50,7 @@ const navItems: NavItem[] = [
   { to: "/achievements", label: "Achievements", icon: Award, end: false, permission: "pentrix.achievements.view" },
   { to: "/schedule", label: "My Schedule", icon: CalendarClock, end: false },
   { to: "/announcements", label: "Announcements", icon: Megaphone, end: false },
+  { to: "/messages", label: "Messages", icon: MessageCircle, end: false },
   // Workshops/Hackathons/Internships deliberately not shown here: this
   // student-portal instance serves one commercial course, and these were
   // built (with no permission gate — see the ownership-endpoint note
@@ -74,6 +78,7 @@ function initials(name: string): string {
 function AppSidebar() {
   const permissions = useAuthStore((s) => s.permissions);
   const visibleItems = navItems.filter((item) => !item.permission || permissions.includes(item.permission));
+  const { data: unreadCount } = useMessagingUnreadCount();
 
   return (
     <aside className="flex w-64 flex-col border-r bg-card">
@@ -98,6 +103,11 @@ function AppSidebar() {
           >
             <item.icon className="h-4 w-4" />
             {item.label}
+            {item.to === "/messages" && !!unreadCount && (
+              <Badge variant="destructive" className="ml-auto">
+                {unreadCount}
+              </Badge>
+            )}
           </NavLink>
         ))}
       </nav>

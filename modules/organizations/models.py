@@ -9,9 +9,11 @@ root of that isolation.
 """
 
 import enum
+import uuid
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_model import SoftDeleteMixin, TimestampedBase
@@ -55,3 +57,26 @@ class Organization(TimestampedBase, SoftDeleteMixin):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Python's date.weekday() convention: Monday=0 .. Sunday=6. Attendance's
+    # proration (and its own monthly summary) treats any day in this list
+    # that has no attendance record as an implicit, paid Week Off — an
+    # employee's self check-in only ever creates a record for a day they
+    # actually worked, so a recurring weekly off needs a policy fact here,
+    # not a per-day record. Defaults to Sunday-only, matching every org's
+    # behavior before this became configurable.
+    week_off_days: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), default=[6], server_default="{6}", nullable=False
+    )
+
+    # Both nullable, both opt-in: an org that hasn't configured them keeps
+    # today's behavior exactly (a generated payroll draft just waits for an
+    # admin to finalize it by hand). Setting both is what turns on the fully
+    # automatic generate -> apply approved expenses -> finalize -> email
+    # pipeline in modules/payroll/tasks.py -- see that module's docstring.
+    default_salary_payable_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounting_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    default_expense_reimbursement_component_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("payroll_salary_components.id", ondelete="SET NULL"), nullable=True
+    )

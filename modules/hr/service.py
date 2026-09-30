@@ -4,9 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
+from modules.accounting.ledger.models import AccountType
+from modules.accounting.ledger.repository import AccountRepository
 from modules.authorization.repository import AuthorizationRepository
+from modules.employees.service import EmployeeService
 from modules.hr.models import Department, Designation
 from modules.hr.repository import DepartmentRepository, DesignationRepository
+from modules.organizations.models import Organization
+from modules.organizations.repository import OrganizationRepository
+from modules.payroll.models import SalaryComponentType
+from modules.payroll.repository import SalaryComponentRepository
 
 logger = get_logger(__name__)
 
@@ -100,5 +107,82 @@ class DesignationService:
         if "linked_role_id" in fields:
             await self._validate_linked_role(fields["linked_role_id"])
         updated = await self.repo.update(designation, **fields)
+
+        # A designation's grants only ever got applied to an employee at
+        # the moment they were invited (EmployeeService.invite_employee).
+        # An employee already invited before this designation had a
+        # linked_role_id/grants_trainer_access — or before they were even
+        # assigned this designation — was permanently missing that access,
+        # with nothing telling anyone why. Re-apply to everyone currently
+        # holding this designation whenever it's saved with either grant
+        # set; apply_designation_grants is idempotent, so this is also a
+        # safe "resave to repair" path for an admin, not just automatic.
+        if updated.linked_role_id or updated.grants_trainer_access:
+            employee_service = EmployeeService(self.db)
+            employees, _ = await employee_service.repo.list_for_organization(
+                organization_id, designation_id=designation_id, limit=10_000
+            )
+            for employee in employees:
+                await employee_service.apply_designation_grants(employee, updated, organization_id)
+
         logger.info("designation_updated", designation_id=str(designation_id))
+        return updated
+
+
+class HrSettingsService:
+    """Organization-wide operational settings an admin configures once —
+    weekly offs (HR) plus the payroll-automation accounts (which account
+    receives net pay on finalize, which salary component an approved
+    expense claim becomes) live here together rather than each getting
+    their own tiny settings resource."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.org_repo = OrganizationRepository(db)
+        self.account_repo = AccountRepository(db)
+        self.component_repo = SalaryComponentRepository(db)
+
+    async def get_settings(self, organization_id: uuid.UUID) -> Organization:
+        org = await self.org_repo.get_by_id(organization_id)
+        if not org:
+            raise NotFoundError("Organization", organization_id)
+        return org
+
+    async def update_settings(
+        self,
+        organization_id: uuid.UUID,
+        week_off_days: list[int] | None = None,
+        default_salary_payable_account_id: uuid.UUID | None = None,
+        default_expense_reimbursement_component_id: uuid.UUID | None = None,
+    ) -> Organization:
+        org = await self.get_settings(organization_id)
+        fields: dict = {}
+
+        if week_off_days is not None:
+            if any(day < 0 or day > 6 for day in week_off_days):
+                raise ValidationError("week_off_days must each be between 0 (Monday) and 6 (Sunday).")
+            fields["week_off_days"] = sorted(set(week_off_days))
+
+        if default_salary_payable_account_id is not None:
+            account = await self.account_repo.get_by_id(default_salary_payable_account_id, organization_id)
+            if not account:
+                raise NotFoundError("GL account", default_salary_payable_account_id)
+            if account.account_type != AccountType.LIABILITY:
+                raise ValidationError("The default salary payable account must be a Liability account.")
+            fields["default_salary_payable_account_id"] = default_salary_payable_account_id
+
+        if default_expense_reimbursement_component_id is not None:
+            component = await self.component_repo.get_by_id(
+                default_expense_reimbursement_component_id, organization_id
+            )
+            if not component:
+                raise NotFoundError("Salary component", default_expense_reimbursement_component_id)
+            if component.component_type != SalaryComponentType.EARNING:
+                raise ValidationError("The default expense reimbursement component must be an Earning component.")
+            if not component.is_active:
+                raise ValidationError("The default expense reimbursement component must be active.")
+            fields["default_expense_reimbursement_component_id"] = default_expense_reimbursement_component_id
+
+        updated = await self.org_repo.update(org, **fields) if fields else org
+        logger.info("hr_settings_updated", organization_id=str(organization_id), fields=list(fields.keys()))
         return updated

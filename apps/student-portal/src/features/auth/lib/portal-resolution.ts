@@ -29,20 +29,38 @@ export const PORTAL_LABELS: Record<PortalKind, string> = {
  * see wrong-portal-screen.tsx for what a mismatch shows.
  *
  * Priority mirrors how one person's access actually layers in this
- * codebase: an RBAC role (administrator/staff/accountant/...) is the
- * broadest "this is your real working portal" signal, so it wins over
- * merely having a Trainer/Employee/Student record alongside the same
- * login. Every employee — including admins and trainers — has an
- * Employee record too (Trainer is layered ON Employee, not instead of
- * it — see modules/trainers/models.py), so "employee" is deliberately
- * checked after "trainer": someone with trainer access shouldn't be
- * routed to the (also-valid, but not their actual job) employee
- * self-service portal instead.
+ * codebase: holding one of the two roles that actually run the whole
+ * org (administrator/super_admin) is the broadest "this is your real
+ * working portal" signal, so it wins over merely having a
+ * Trainer/Employee/Student record alongside the same login. Every
+ * employee — including admins and trainers — has an Employee record
+ * too (Trainer is layered ON Employee, not instead of it — see
+ * modules/trainers/models.py), so "employee" is deliberately checked
+ * after "trainer": someone with trainer access shouldn't be routed to
+ * the (also-valid, but not their actual job) employee self-service
+ * portal instead.
+ *
+ * Deliberately narrower than "has any role at all": an org-custom role
+ * (ISE, Senior ISE, Accountant, or any future one) is real, meaningful
+ * access, but it isn't administrative access, and treating it as such
+ * misroutes -- and previously did, for real -- every holder of one of
+ * these roles here instead of to the ownership-gated check their
+ * actual job matches (e.g. an ISE with a Trainer record should resolve
+ * as "trainer", not "admin"). Only "administrator" and "super_admin"
+ * -- the two roles meant to run the whole org -- count as the admin
+ * signal; anything else falls through to the ownership checks below,
+ * same as holding no role at all. This must stay in sync with
+ * apps/web's copy of this same function — a mismatch between the two
+ * causes an infinite redirect loop (this portal bounces an account to
+ * apps/web, whose stricter check bounces it right back).
  */
 export async function resolveHomePortal(): Promise<PortalKind | null> {
   try {
     const { data } = await apiClient.get<{ roles: { slug: string }[] }>("/authorization/me");
-    if (data.roles.length > 0) return "admin";
+    const hasAdministrativeRole = data.roles.some(
+      (role) => role.slug === "administrator" || role.slug === "super_admin"
+    );
+    if (hasAdministrativeRole) return "admin";
   } catch {
     // Not resolvable via role — fall through to the ownership-gated checks.
   }

@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLogout } from "@/features/auth/api/auth-hooks";
@@ -10,28 +8,31 @@ import { PORTAL_LABELS, PORTAL_URLS, type PortalKind } from "@/features/auth/lib
  * resolves to somewhere other than this portal — see
  * portal-resolution.ts's resolveHomePortal for why this can happen (any
  * ERPX login works on any of the 4 subdomains, but isn't necessarily *for*
- * this one). Auto-redirects to the account's real portal: the shared
- * `erpx_sso` cookie set at login (modules/authentication/routes.py) means
- * that portal's own use-sso-bootstrap.ts will pick the session up on its
- * own — no login form, no second password entry. The button/message stay
- * as a manual fallback for the rare case the redirect doesn't fire.
+ * this one).
+ *
+ * Deliberately does NOT auto-redirect (it used to, via
+ * `window.location.replace` in a mount effect). That auto-navigation is
+ * what caused a real, disruptive bug: an account with valid sessions on
+ * two subdomains at once had each one's background token refresh racing
+ * the other's, since every refresh (on either origin) rewrites the same
+ * shared `erpx_sso` cookie — the loser looked like token reuse/theft to
+ * the backend, which revoked every session for the account as a
+ * precaution, repeatedly, producing an endless visible bounce between
+ * subdomains. The fix is to never auto-navigate between them at all;
+ * the button below is a deliberate, one-time, user-initiated hop
+ * instead of an automatic one that can race.
  */
 export function WrongPortalScreen({ target }: { target: PortalKind | null }) {
   const logout = useLogout();
-
-  useEffect(() => {
-    if (!target) return;
-    window.location.replace(PORTAL_URLS[target]);
-  }, [target]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>{target ? "Redirecting…" : "Wrong portal"}</CardTitle>
+          <CardTitle>Wrong portal</CardTitle>
           <CardDescription>
             {target
-              ? `This account doesn't have access to the Student Portal — taking you to the ${PORTAL_LABELS[target]}.`
+              ? `This account doesn't have access to the Student Portal — head to the ${PORTAL_LABELS[target]} instead.`
               : "This account isn't set up on any ERPX portal yet. Contact your admin."}
           </CardDescription>
         </CardHeader>

@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.batches.models import Batch, BatchEnrollment, BatchEnrollmentStatus, BatchStatus
+from modules.students.models import Student
 
 
 class BatchRepository:
@@ -148,5 +149,23 @@ class BatchEnrollmentRepository:
                 BatchEnrollment.organization_id == organization_id,
                 BatchEnrollment.status == BatchEnrollmentStatus.ACTIVE,
             )
+        )
+        return list(result.scalars().all())
+
+    async def list_students_for_batches(
+        self, batch_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[Student]:
+        if not batch_ids:
+            return []
+        result = await self.db.execute(
+            select(Student)
+            .join(BatchEnrollment, BatchEnrollment.student_id == Student.id)
+            .where(
+                BatchEnrollment.batch_id.in_(batch_ids),
+                BatchEnrollment.organization_id == organization_id,
+                BatchEnrollment.status == BatchEnrollmentStatus.ACTIVE,
+                Student.deleted_at.is_(None),
+            )
+            .distinct()
         )
         return list(result.scalars().all())

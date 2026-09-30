@@ -5,11 +5,13 @@ import {
   type DepartmentUpdatePayload,
   type DesignationCreatePayload,
   type DesignationUpdatePayload,
+  type HrSettingsUpdatePayload,
   hrApi,
 } from "@/features/hr/api/hr-api";
 
 const departmentsKey = ["hr", "departments"] as const;
 const designationsKey = ["hr", "designations"] as const;
+const settingsKey = ["hr", "settings"] as const;
 
 export function useDepartments(isActive?: boolean) {
   return useQuery({
@@ -56,5 +58,20 @@ export function useUpdateDesignation() {
     mutationFn: ({ id, payload }: { id: string; payload: DesignationUpdatePayload }) =>
       hrApi.updateDesignation(id, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: designationsKey }),
+  });
+}
+
+export function useHrSettings() {
+  return useQuery({
+    queryKey: settingsKey,
+    queryFn: () => hrApi.getSettings(),
+  });
+}
+
+export function useUpdateHrSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: HrSettingsUpdatePayload) => hrApi.updateSettings(payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: settingsKey }),
   });
 }

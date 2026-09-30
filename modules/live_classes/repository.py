@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.live_classes.models import LiveClass, LiveClassStatus
@@ -64,6 +64,29 @@ class LiveClassRepository:
                 LiveClass.batch_id.in_(batch_ids),
                 LiveClass.organization_id == organization_id,
             )
+            .order_by(LiveClass.scheduled_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_for_trainer(
+        self, trainer_id: uuid.UUID, batch_ids: list[uuid.UUID], organization_id: uuid.UUID
+    ) -> list[LiveClass]:
+        """Every live class this trainer should see: either scheduled for a
+        batch they teach (batches.trainer_id), or explicitly assigned to
+        them on the class itself (live_classes.trainer_id) even when the
+        batch has no trainer of its own set. The two aren't always the
+        same — an admin can pick a trainer per class independently of
+        whichever trainer (if any) is assigned to the batch as a whole —
+        so this must be an OR, not just batch membership. Missing the
+        live_classes.trainer_id branch was a real bug: a trainer a class
+        was explicitly scheduled for couldn't see it at all when the
+        batch itself had no trainer assigned."""
+        conditions = [LiveClass.trainer_id == trainer_id]
+        if batch_ids:
+            conditions.append(LiveClass.batch_id.in_(batch_ids))
+        result = await self.db.execute(
+            select(LiveClass)
+            .where(or_(*conditions), LiveClass.organization_id == organization_id)
             .order_by(LiveClass.scheduled_at.desc())
         )
         return list(result.scalars().all())

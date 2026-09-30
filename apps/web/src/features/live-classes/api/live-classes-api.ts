@@ -27,7 +27,9 @@ export interface LiveClassCreatePayload {
   title: string;
   scheduled_at: string;
   duration_minutes?: number;
-  meeting_link: string;
+  // Omit to auto-provision a self-hosted Jitsi room -- see
+  // modules/live_classes/schemas.py's LiveClassCreateRequest docstring.
+  meeting_link?: string;
 }
 
 export const liveClassesApi = {

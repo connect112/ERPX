@@ -1,4 +1,3 @@
-import { LogIn, LogOut, Plus } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -22,8 +21,6 @@ import {
 } from "@/components/ui/table";
 import { useAttendanceList } from "@/features/attendance/api/attendance-hooks";
 import { AttendanceStatusBadge } from "@/features/attendance/components/attendance-status-badge";
-import { CheckInOutDialog } from "@/features/attendance/components/check-in-out-dialog";
-import { MarkAttendanceDialog } from "@/features/attendance/components/mark-attendance-dialog";
 import type { AttendanceRecordPublic } from "@/features/attendance/api/attendance-api";
 import { RegularizeAttendanceDialog } from "@/features/attendance/components/regularize-attendance-dialog";
 import {
@@ -43,8 +40,6 @@ export function AttendancePage() {
   const [date, setDate] = useState(todayIso());
   const [status, setStatus] = useState<AttendanceStatus | "all">("all");
   const [skip, setSkip] = useState(0);
-  const [markOpen, setMarkOpen] = useState(false);
-  const [checkDialog, setCheckDialog] = useState<"check-in" | "check-out" | null>(null);
   const [regularizeTarget, setRegularizeTarget] = useState<AttendanceRecordPublic | null>(null);
 
   const { data, isLoading, isError } = useAttendanceList({
@@ -63,27 +58,12 @@ export function AttendancePage() {
 
   return (
     <div className="space-y-6 p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Attendance</h1>
-          <p className="mt-1 text-muted-foreground">
-            Track daily check-ins, check-outs, and attendance status.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setCheckDialog("check-in")}>
-            <LogIn className="h-4 w-4" />
-            Check in
-          </Button>
-          <Button variant="outline" onClick={() => setCheckDialog("check-out")}>
-            <LogOut className="h-4 w-4" />
-            Check out
-          </Button>
-          <Button onClick={() => setMarkOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Mark attendance
-          </Button>
-        </div>
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Attendance</h1>
+        <p className="mt-1 text-muted-foreground">
+          Employees check themselves in and out from their own portal. This page is for viewing
+          records and regularizing a mistaken entry.
+        </p>
       </div>
 
       <Card>
@@ -215,12 +195,6 @@ export function AttendancePage() {
         </CardContent>
       </Card>
 
-      <MarkAttendanceDialog open={markOpen} onOpenChange={setMarkOpen} />
-      <CheckInOutDialog
-        open={!!checkDialog}
-        onOpenChange={(open) => !open && setCheckDialog(null)}
-        mode={checkDialog ?? "check-in"}
-      />
       <RegularizeAttendanceDialog
         open={!!regularizeTarget}
         onOpenChange={(open) => !open && setRegularizeTarget(null)}

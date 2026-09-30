@@ -25,7 +25,6 @@ import type {
   LiveClassPublic,
   LiveClassStatus,
 } from "@/features/live-classes/api/live-classes-api";
-import { useAuthStore } from "@/store/auth-store";
 
 // What a trainer can do to one of their own live classes from here,
 // keyed by its current status — mirrors apps/web's admin-side
@@ -50,7 +49,6 @@ export function MyLiveClassesPage() {
   const { data: batches } = useMyBatches();
   const changeStatus = useChangeLiveClassStatus();
   const joinLiveClass = useJoinLiveClass();
-  const displayName = useAuthStore((s) => s.user?.fullName) ?? "Trainer";
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
 
   const batchNames = new Map((batches ?? []).map((b) => [b.id, b.name]));
@@ -125,7 +123,6 @@ export function MyLiveClassesPage() {
           domain={activeCall.domain}
           room={activeCall.room}
           jwt={activeCall.jwt}
-          displayName={displayName}
           title={activeCall.title}
           onClose={() => setActiveCall(null)}
         />

@@ -52,23 +52,6 @@ export interface MonthlyAttendanceSummary {
   total_work_hours: number;
 }
 
-export interface MarkAttendancePayload {
-  employee_id: string;
-  attendance_date: string;
-  status: AttendanceStatus;
-  remarks?: string;
-}
-
-export interface CheckInPayload {
-  employee_id: string;
-  check_in_time?: string;
-}
-
-export interface CheckOutPayload {
-  employee_id: string;
-  check_out_time?: string;
-}
-
 export interface RegularizeAttendancePayload {
   check_in_time?: string;
   check_out_time?: string;
@@ -91,15 +74,6 @@ export const attendanceApi = {
         params: { year, month },
       })
       .then((r) => r.data),
-
-  mark: (payload: MarkAttendancePayload) =>
-    apiClient.post<AttendanceRecordPublic>("/attendance/mark", payload).then((r) => r.data),
-
-  checkIn: (payload: CheckInPayload) =>
-    apiClient.post<AttendanceRecordPublic>("/attendance/check-in", payload).then((r) => r.data),
-
-  checkOut: (payload: CheckOutPayload) =>
-    apiClient.post<AttendanceRecordPublic>("/attendance/check-out", payload).then((r) => r.data),
 
   regularize: (id: string, payload: RegularizeAttendancePayload) =>
     apiClient

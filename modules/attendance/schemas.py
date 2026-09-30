@@ -6,20 +6,6 @@ from pydantic import BaseModel, Field
 from modules.attendance.models import AttendanceStatus
 
 
-class CheckInRequest(BaseModel):
-    employee_id: uuid.UUID
-    check_in_time: datetime | None = Field(
-        default=None, description="Defaults to the current server time if omitted."
-    )
-
-
-class CheckOutRequest(BaseModel):
-    employee_id: uuid.UUID
-    check_out_time: datetime | None = Field(
-        default=None, description="Defaults to the current server time if omitted."
-    )
-
-
 class SelfCheckInRequest(BaseModel):
     check_in_time: datetime | None = Field(
         default=None, description="Defaults to the current server time if omitted."
@@ -30,13 +16,6 @@ class SelfCheckOutRequest(BaseModel):
     check_out_time: datetime | None = Field(
         default=None, description="Defaults to the current server time if omitted."
     )
-
-
-class MarkAttendanceRequest(BaseModel):
-    employee_id: uuid.UUID
-    attendance_date: date
-    status: AttendanceStatus
-    remarks: str | None = None
 
 
 class RegularizeAttendanceRequest(BaseModel):

@@ -37,6 +37,7 @@ from modules.documents.routes import router as documents_router
 from modules.employees.routes import router as employees_router
 from modules.events.routes import router as events_router
 from modules.examinations.router import router as examinations_router
+from modules.expense_claims.routes import router as expense_claims_router
 from modules.hr.routes import router as hr_router
 from modules.internships.routes import router as internships_router
 from modules.integrations.routes import router as integrations_router
@@ -46,6 +47,7 @@ from modules.live_classes.routes import router as live_classes_router
 from modules.lms.router import router as lms_router
 from modules.marketing.routes import router as marketing_router
 from modules.media.routes import router as media_router
+from modules.messaging.routes import router as messaging_router
 from modules.monitoring.routes import router as monitoring_router
 from modules.notifications.routes import router as notifications_router
 from modules.organizations.routes import router as organizations_router
@@ -87,6 +89,7 @@ api_router.include_router(hr_router, prefix="/hr", tags=["HR"])
 api_router.include_router(attendance_router, prefix="/attendance", tags=["Attendance"])
 api_router.include_router(leave_router, prefix="/leave", tags=["Leave"])
 api_router.include_router(payroll_router, prefix="/payroll", tags=["Payroll"])
+api_router.include_router(expense_claims_router, prefix="/expense-claims", tags=["Expense Claims"])
 api_router.include_router(inventory_router, prefix="/inventory", tags=["Inventory"])
 api_router.include_router(assets_router, prefix="/assets", tags=["Assets"])
 api_router.include_router(procurement_router, prefix="/procurement", tags=["Procurement"])
@@ -107,6 +110,7 @@ api_router.include_router(classrooms_router, prefix="/classrooms", tags=["Classr
 api_router.include_router(batches_router, prefix="/batches", tags=["Batches"])
 api_router.include_router(timetable_router, prefix="/timetable", tags=["Timetable"])
 api_router.include_router(live_classes_router, prefix="/live-classes", tags=["Live Classes"])
+api_router.include_router(messaging_router, prefix="/messaging", tags=["Messaging"])
 api_router.include_router(workshops_router, prefix="/workshops", tags=["Workshops"])
 api_router.include_router(hackathons_router, prefix="/hackathons", tags=["Hackathons"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])

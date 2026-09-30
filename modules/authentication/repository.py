@@ -40,6 +40,14 @@ class AuthRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_users_by_ids(self, user_ids: list[uuid.UUID]) -> list[User]:
+        if not user_ids:
+            return []
+        result = await self.db.execute(
+            select(User).where(User.id.in_(user_ids), User.deleted_at.is_(None))
+        )
+        return list(result.scalars().all())
+
     async def create_user(
         self,
         email: str,

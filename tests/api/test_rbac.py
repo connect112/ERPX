@@ -61,6 +61,7 @@ async def test_get_my_roles_requires_no_permission_and_reflects_actual_grants(
     assert empty_response.status_code == 200
     assert empty_response.json()["roles"] == []
     assert empty_response.json()["effective_permissions"] == []
+    assert empty_response.json()["is_superuser"] is False
 
     staff_role = await authz_repo.get_role_by_slug("staff")
     await authz_service.assign_role(user.id, staff_role.id, organization.id, assigned_by_user_id=None)
@@ -77,6 +78,18 @@ async def test_get_my_roles_requires_no_permission_and_reflects_actual_grants(
 async def test_get_my_roles_requires_authentication(client):
     response = await client.get("/api/v1/authorization/me")
     assert response.status_code == 401
+
+
+async def test_get_my_roles_reports_is_superuser(client, auth_headers, rbac_seeded):
+    """auth_headers is a superuser with no roles assigned (see
+    tests/_fixtures.py) -- is_superuser must still come back true even
+    with an empty roles/effective_permissions list, since it's a
+    separate bypass flag, not derived from role assignments."""
+    response = await client.get("/api/v1/authorization/me", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_superuser"] is True
+    assert body["roles"] == []
 
 
 async def test_staff_role_does_not_grant_manage_permission(

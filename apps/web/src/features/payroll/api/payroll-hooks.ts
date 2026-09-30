@@ -134,6 +134,27 @@ export function useCancelPayrollRun(id: string) {
   });
 }
 
+export function useDeletePayrollRun(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => payrollApi.deleteRun(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: runsKeys.all }),
+  });
+}
+
+export function useOpenPayslipPdf() {
+  return useMutation({
+    mutationFn: async (payslipId: string) => {
+      const blob = await payrollApi.getPayslipPdf(payslipId);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      // Revoked after a delay rather than immediately — the new tab needs
+      // the blob URL to still be valid by the time it finishes loading it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
+  });
+}
+
 export function useEmployeePayslips(employeeId: string | undefined, params: { skip?: number; limit?: number }) {
   return useQuery({
     queryKey: employeePayslipsKey(employeeId ?? "", params),

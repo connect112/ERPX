@@ -48,6 +48,7 @@ async def get_my_roles(
         user_id=user.id,
         roles=[RolePublic.model_validate(r) for r in result["roles"]],
         effective_permissions=result["effective_permissions"],
+        is_superuser=user.is_superuser,
     )
 
 

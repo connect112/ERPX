@@ -38,6 +38,7 @@ const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-pa
 const QuestionBankPage = lazy(() => import("@/features/examinations/question-bank/pages/question-bank-page").then((m) => ({ default: m.QuestionBankPage })));
 const AnnouncementsListPage = lazy(() => import("@/features/lms/announcements/pages/announcements-list-page").then((m) => ({ default: m.AnnouncementsListPage })));
 const BadgesListPage = lazy(() => import("@/features/lms/badges/pages/badges-list-page").then((m) => ({ default: m.BadgesListPage })));
+const ConversationsPage = lazy(() => import("@/features/messaging/pages/conversations-page").then((m) => ({ default: m.ConversationsPage })));
 import { CertificateVerifyPage } from "@/features/lms/certificates/pages/certificate-verify-page";
 const AchievementsListPage = lazy(() => import("@/features/pentrix/achievements/pages/achievements-list-page").then((m) => ({ default: m.AchievementsListPage })));
 import { CertificationVerifyPage } from "@/features/pentrix/certifications/pages/certification-verify-page";
@@ -53,6 +54,7 @@ const EmployeesListPage = lazy(() => import("@/features/employees/pages/employee
 const HRSettingsPage = lazy(() => import("@/features/hr/pages/hr-settings-page").then((m) => ({ default: m.HRSettingsPage })));
 const AttendancePage = lazy(() => import("@/features/attendance/pages/attendance-page").then((m) => ({ default: m.AttendancePage })));
 const LeaveApplicationsPage = lazy(() => import("@/features/leave/pages/leave-applications-page").then((m) => ({ default: m.LeaveApplicationsPage })));
+const ExpenseClaimsPage = lazy(() => import("@/features/expense-claims/pages/expense-claims-page").then((m) => ({ default: m.ExpenseClaimsPage })));
 const LeaveTypesPage = lazy(() => import("@/features/leave/pages/leave-types-page").then((m) => ({ default: m.LeaveTypesPage })));
 const PayrollRunDetailPage = lazy(() => import("@/features/payroll/pages/payroll-run-detail-page").then((m) => ({ default: m.PayrollRunDetailPage })));
 const PayrollRunsPage = lazy(() => import("@/features/payroll/pages/payroll-runs-page").then((m) => ({ default: m.PayrollRunsPage })));
@@ -118,6 +120,17 @@ const BatchDetailPage = lazy(() => import("@/features/batches/pages/batch-detail
 const BatchesListPage = lazy(() => import("@/features/batches/pages/batches-list-page").then((m) => ({ default: m.BatchesListPage })));
 const ClassroomsListPage = lazy(() => import("@/features/classrooms/pages/classrooms-list-page").then((m) => ({ default: m.ClassroomsListPage })));
 const TrainersListPage = lazy(() => import("@/features/trainers/pages/trainers-list-page").then((m) => ({ default: m.TrainersListPage })));
+const MyBatchesPage = lazy(() => import("@/features/trainer-self-service/pages/my-batches-page").then((m) => ({ default: m.MyBatchesPage })));
+const MyBatchDetailPage = lazy(() => import("@/features/trainer-self-service/pages/my-batch-detail-page").then((m) => ({ default: m.MyBatchDetailPage })));
+const AssignmentGradingPage = lazy(() => import("@/features/trainer-self-service/pages/assignment-grading-page").then((m) => ({ default: m.AssignmentGradingPage })));
+const MyLiveClassesPage = lazy(() => import("@/features/trainer-self-service/pages/my-live-classes-page").then((m) => ({ default: m.MyLiveClassesPage })));
+const MyAnnouncementsPage = lazy(() => import("@/features/trainer-self-service/pages/my-announcements-page").then((m) => ({ default: m.MyAnnouncementsPage })));
+const MyMessagesPage = lazy(() => import("@/features/trainer-self-service/pages/my-messages-page").then((m) => ({ default: m.MyMessagesPage })));
+const MyAttendancePage = lazy(() => import("@/features/employee-self-service/pages/my-attendance-page").then((m) => ({ default: m.MyAttendancePage })));
+const MyLeavePage = lazy(() => import("@/features/employee-self-service/pages/my-leave-page").then((m) => ({ default: m.MyLeavePage })));
+const MyPayslipsPage = lazy(() => import("@/features/employee-self-service/pages/my-payslips-page").then((m) => ({ default: m.MyPayslipsPage })));
+const MyExpensesPage = lazy(() => import("@/features/employee-self-service/pages/my-expenses-page").then((m) => ({ default: m.MyExpensesPage })));
+const MySchedulePage = lazy(() => import("@/features/student-self-service/pages/my-schedule-page").then((m) => ({ default: m.MySchedulePage })));
 import { AppLayout } from "@/layouts/app-layout";
 import { ProtectedRoute } from "@/router/protected-route";
 
@@ -151,9 +164,21 @@ export const router = createBrowserRouter([
       { path: "batches", element: <BatchesListPage /> },
       { path: "batches/:batchId", element: <BatchDetailPage /> },
       { path: "trainers", element: <TrainersListPage /> },
+      { path: "my/batches", element: <MyBatchesPage /> },
+      { path: "my/batches/:batchId", element: <MyBatchDetailPage /> },
+      { path: "my/batches/:batchId/assignments/:assignmentId", element: <AssignmentGradingPage /> },
+      { path: "my/live-classes", element: <MyLiveClassesPage /> },
+      { path: "my/announcements", element: <MyAnnouncementsPage /> },
+      { path: "my/messages", element: <MyMessagesPage /> },
+      { path: "my/attendance", element: <MyAttendancePage /> },
+      { path: "my/leave", element: <MyLeavePage /> },
+      { path: "my/payslips", element: <MyPayslipsPage /> },
+      { path: "my/expenses", element: <MyExpensesPage /> },
+      { path: "my/schedule", element: <MySchedulePage /> },
       { path: "classrooms", element: <ClassroomsListPage /> },
       { path: "lms/announcements", element: <AnnouncementsListPage /> },
       { path: "lms/badges", element: <BadgesListPage /> },
+      { path: "messaging", element: <ConversationsPage /> },
       { path: "examinations/question-bank", element: <QuestionBankPage /> },
       { path: "pentrix/labs", element: <LabsListPage /> },
       { path: "pentrix/labs/:labId", element: <LabDetailPage /> },
@@ -186,6 +211,7 @@ export const router = createBrowserRouter([
       { path: "attendance", element: <AttendancePage /> },
       { path: "leave/types", element: <LeaveTypesPage /> },
       { path: "leave/applications", element: <LeaveApplicationsPage /> },
+      { path: "expense-claims", element: <ExpenseClaimsPage /> },
       { path: "payroll/components", element: <SalaryComponentsPage /> },
       { path: "payroll/runs", element: <PayrollRunsPage /> },
       { path: "payroll/runs/:runId", element: <PayrollRunDetailPage /> },

@@ -74,7 +74,12 @@ export function LiveClassesPanel({ batchId }: { batchId: string }) {
         title,
         scheduled_at: new Date(scheduledAt).toISOString(),
         duration_minutes: Number(durationMinutes),
-        meeting_link: meetingLink,
+        // Omit entirely (not "") when left blank -- the backend
+        // auto-provisions a self-hosted Jitsi room in that case (see
+        // modules/live_classes/schemas.py's LiveClassCreateRequest
+        // docstring); sending an empty string would fail its
+        // min_length=1 validation instead of triggering that path.
+        meeting_link: meetingLink || undefined,
         trainer_id: trainerId || undefined,
       },
       { onSuccess: () => { reset(); setFormOpen(false); } }
@@ -176,12 +181,12 @@ export function LiveClassesPanel({ batchId }: { batchId: string }) {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="meetingLink">Meeting link</Label>
+              <Label htmlFor="meetingLink">Meeting link (optional)</Label>
               <Input
                 id="meetingLink"
                 value={meetingLink}
                 onChange={(e) => setMeetingLink(e.target.value)}
-                placeholder="https://meet..."
+                placeholder="Leave blank to auto-generate a video room"
               />
             </div>
             <div className="space-y-2">
@@ -212,7 +217,7 @@ export function LiveClassesPanel({ batchId }: { batchId: string }) {
             </Button>
             <Button
               type="button"
-              disabled={!title || !scheduledAt || !meetingLink || createLiveClass.isPending}
+              disabled={!title || !scheduledAt || createLiveClass.isPending}
               onClick={handleSubmit}
             >
               {createLiveClass.isPending ? "Scheduling..." : "Schedule"}

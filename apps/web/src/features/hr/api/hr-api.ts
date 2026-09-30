@@ -62,6 +62,23 @@ export interface DesignationUpdatePayload {
   grants_trainer_access?: boolean;
 }
 
+export interface HrSettingsPublic {
+  organization_id: string;
+  // Python's date.weekday() convention: Monday=0 .. Sunday=6.
+  week_off_days: number[];
+  // Both null until an admin sets them via the automation card below --
+  // see modules/payroll/tasks.py: once both are set, the last-working-day
+  // auto-generated run is also auto-finalized and emailed to employees.
+  default_salary_payable_account_id: string | null;
+  default_expense_reimbursement_component_id: string | null;
+}
+
+export interface HrSettingsUpdatePayload {
+  week_off_days?: number[];
+  default_salary_payable_account_id?: string;
+  default_expense_reimbursement_component_id?: string;
+}
+
 export const hrApi = {
   listDepartments: (isActive?: boolean) =>
     apiClient
@@ -84,4 +101,9 @@ export const hrApi = {
 
   updateDesignation: (id: string, payload: DesignationUpdatePayload) =>
     apiClient.patch<DesignationPublic>(`/hr/designations/${id}`, payload).then((r) => r.data),
+
+  getSettings: () => apiClient.get<HrSettingsPublic>("/hr/settings").then((r) => r.data),
+
+  updateSettings: (payload: HrSettingsUpdatePayload) =>
+    apiClient.patch<HrSettingsPublic>("/hr/settings", payload).then((r) => r.data),
 };

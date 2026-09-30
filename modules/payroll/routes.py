@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -217,6 +217,17 @@ async def cancel_payroll_run(
     return PayrollRunPublic.model_validate(run)
 
 
+@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_payroll_run(
+    run_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("payroll.runs.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PayrollService(db)
+    await service.delete_run(run_id, organization_id)
+
+
 # ---- Payslips ----
 
 
@@ -246,6 +257,25 @@ async def list_my_payslips(
     }
 
 
+@router.get("/payslips/me/{payslip_id}/pdf")
+async def get_my_payslip_pdf(
+    payslip_id: uuid.UUID,
+    employee: Employee = Depends(get_current_employee),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service counterpart of get_payslip_pdf below — ownership-gated
+    via get_current_employee like list_my_payslips above, not an admin
+    permission. Registered before /payslips/{payslip_id} for the same
+    reason list_my_payslips is."""
+    service = PayrollService(db)
+    pdf_bytes = await service.get_own_payslip_pdf(payslip_id, employee)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="payslip-{payslip_id}.pdf"'},
+    )
+
+
 @router.get("/payslips/{payslip_id}", response_model=PayslipPublic)
 async def get_payslip(
     payslip_id: uuid.UUID,
@@ -255,6 +285,22 @@ async def get_payslip(
     service = PayrollService(db)
     payslip = await service.get_payslip(payslip_id)
     return PayslipPublic.model_validate(payslip)
+
+
+@router.get("/payslips/{payslip_id}/pdf")
+async def get_payslip_pdf(
+    payslip_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("payroll.runs.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = PayrollService(db)
+    pdf_bytes = await service.get_payslip_pdf(payslip_id, organization_id)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="payslip-{payslip_id}.pdf"'},
+    )
 
 
 @router.post("/payslips/{payslip_id}/lines", response_model=PayslipPublic)

@@ -8,7 +8,7 @@ email dispatch. Routes call this; this never touches SQLAlchemy directly.
 import base64
 import io
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pyotp
 import qrcode
@@ -181,11 +181,25 @@ class AuthService:
         caller (POST /auth/sso/bootstrap) is standing up a brand new session
         on a subdomain that has never seen this user before, not just
         renewing an existing one that already has the profile cached.
+
+        Capped at SSO_BRIDGE_MAX_AGE_HOURS (unlike a same-portal `refresh()`,
+        which is fine for the full REFRESH_TOKEN_EXPIRE_DAYS): silently
+        signing someone into a *different* subdomain than the one they're
+        already working on should have a much shorter window than "stay
+        logged into this one portal for a week" — otherwise a browser that
+        was ever used to log in, and never explicitly signed out, keeps
+        silently authenticating as that account indefinitely.
         """
-        return await self._rotate_refresh_token(session_token, user_agent, ip_address)
+        return await self._rotate_refresh_token(
+            session_token, user_agent, ip_address, max_age=timedelta(hours=settings.SSO_BRIDGE_MAX_AGE_HOURS)
+        )
 
     async def _rotate_refresh_token(
-        self, refresh_token: str, user_agent: str | None, ip_address: str | None
+        self,
+        refresh_token: str,
+        user_agent: str | None,
+        ip_address: str | None,
+        max_age: timedelta | None = None,
     ) -> TokenResponse:
         try:
             payload = decode_token(refresh_token, TokenType.REFRESH)
@@ -198,6 +212,13 @@ class AuthService:
             # revoke every session for this user as a precaution.
             if token_row:
                 await self.repo.revoke_all_refresh_tokens_for_user(token_row.user_id)
+            raise AuthenticationError("This session is no longer valid. Please log in again.")
+
+        # Staleness, not theft: a token older than the caller's own cap
+        # (only sso_bootstrap sets one) just means "too old to silently
+        # bridge" — the token itself is still perfectly valid for its
+        # original portal, so this doesn't revoke anything.
+        if max_age is not None and datetime.now(timezone.utc) - token_row.created_at > max_age:
             raise AuthenticationError("This session is no longer valid. Please log in again.")
 
         user = await self.repo.get_user_by_id(uuid.UUID(payload["sub"]))
