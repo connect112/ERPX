@@ -96,8 +96,17 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
               // names shown are still just the anonymized JWT ones
               // (student codes / "Trainer"), never real names.
               "participants-pane",
-              "hangup",
               "fullscreen",
+              // No "hangup" here on purpose: Jitsi's own native hangup
+              // button renders a "Leave meeting" / "End meeting for
+              // everyone" dropdown whenever its local isModerator redux
+              // state is (or becomes) true -- which we've seen happen for
+              // a real student even though the server-granted MUC role
+              // was correctly PARTICIPANT the whole time. Rather than
+              // depend on that client-side flag being right, students
+              // leave only through the header's own Leave button below,
+              // which just disposes the call locally -- there is no
+              // native "end for everyone" affordance to mis-render.
             ],
             // Jitsi's own branding watermark, on by default -- this is
             // ERPX's own embedded call, not a link out to jitsi.org.
@@ -135,7 +144,7 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
           onClick={onClose}
         >
           <X className="h-4 w-4" />
-          Close
+          Leave meeting
         </Button>
       </div>
       {hasEnded ? (
