@@ -90,6 +90,9 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
               "hangup",
               "fullscreen",
             ],
+            // Jitsi's own branding watermark, on by default -- this is
+            // ERPX's own embedded call, not a link out to jitsi.org.
+            SHOW_JITSI_WATERMARK: false,
           },
         });
         apiRef.current = api;

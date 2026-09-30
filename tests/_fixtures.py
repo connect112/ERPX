@@ -37,6 +37,7 @@ from modules.authentication.repository import AuthRepository
 from modules.authentication.tasks import send_password_reset_email_task, send_verification_email_task
 from modules.authorization.service import AuthorizationService
 from modules.crm.followups.tasks import send_followup_sms_task, send_followup_whatsapp_task
+from modules.lms.announcements.tasks import send_announcement_email_task
 from modules.organizations.models import Organization
 from modules.organizations.repository import OrganizationRepository
 from modules.users.repository import UserProfileRepository
@@ -49,6 +50,7 @@ def _no_background_email(monkeypatch):
     monkeypatch.setattr(send_password_reset_email_task, "delay", lambda *a, **kw: None)
     monkeypatch.setattr(send_followup_whatsapp_task, "delay", lambda *a, **kw: None)
     monkeypatch.setattr(send_followup_sms_task, "delay", lambda *a, **kw: None)
+    monkeypatch.setattr(send_announcement_email_task, "delay", lambda *a, **kw: None)
 
 
 @pytest_asyncio.fixture

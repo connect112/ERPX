@@ -130,6 +130,7 @@ const MyAttendancePage = lazy(() => import("@/features/employee-self-service/pag
 const MyLeavePage = lazy(() => import("@/features/employee-self-service/pages/my-leave-page").then((m) => ({ default: m.MyLeavePage })));
 const MyPayslipsPage = lazy(() => import("@/features/employee-self-service/pages/my-payslips-page").then((m) => ({ default: m.MyPayslipsPage })));
 const MyExpensesPage = lazy(() => import("@/features/employee-self-service/pages/my-expenses-page").then((m) => ({ default: m.MyExpensesPage })));
+const MySchedulePage = lazy(() => import("@/features/student-self-service/pages/my-schedule-page").then((m) => ({ default: m.MySchedulePage })));
 import { AppLayout } from "@/layouts/app-layout";
 import { ProtectedRoute } from "@/router/protected-route";
 
@@ -173,6 +174,7 @@ export const router = createBrowserRouter([
       { path: "my/leave", element: <MyLeavePage /> },
       { path: "my/payslips", element: <MyPayslipsPage /> },
       { path: "my/expenses", element: <MyExpensesPage /> },
+      { path: "my/schedule", element: <MySchedulePage /> },
       { path: "classrooms", element: <ClassroomsListPage /> },
       { path: "lms/announcements", element: <AnnouncementsListPage /> },
       { path: "lms/badges", element: <BadgesListPage /> },

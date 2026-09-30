@@ -45,20 +45,12 @@ function loadJitsiScript(domain: string): Promise<void> {
 }
 
 /**
- * Full-screen embedded Jitsi call, mounted in place of the old "open in a
- * new tab" link once a per-join token is minted (see
- * use-join-live-class in schedule-hooks.ts / the Join button in
- * my-schedule-page.tsx). One JitsiMeetExternalAPI instance per active
- * call — disposed on unmount, so navigating away or hitting Close
- * actually hangs up rather than leaving a hidden connection running.
+ * Full-screen embedded Jitsi call — ported from apps/student-portal's own
+ * copy (same component, same behavior). One JitsiMeetExternalAPI instance
+ * per active call, disposed on unmount, so navigating away or hitting
+ * Close actually hangs up rather than leaving a hidden connection running.
  */
-export function VideoCallOverlay({
-  domain,
-  room,
-  jwt,
-  title,
-  onClose,
-}: VideoCallOverlayProps) {
+export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCallOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<JitsiMeetAPI | null>(null);
   const [hasEnded, setHasEnded] = useState(false);
@@ -77,17 +69,11 @@ export function VideoCallOverlay({
           width: "100%",
           height: "100%",
           // No userInfo.displayName here on purpose — the JWT's own
-          // context.user.name claim (a student's code, never their real
-          // name; see modules/live_classes/routes.py) is the sole source
-          // of the in-call display name, so there's no client-side value
-          // that could show or briefly flash the real name.
+          // context.user.name claim (the student's code, e.g.
+          // "STU-00001", never their real name) is the sole source of
+          // the in-call display name.
           configOverwrite: {
             prejoinPageEnabled: false,
-            // Students share this room with other students; a private
-            // 1:1 message between two students would bypass that
-            // isolation, so it's disabled for everyone (the trainer, who
-            // isn't anonymized, is unaffected — this only removes the
-            // per-participant "Private chat" menu item).
             remoteVideoMenu: { disablePrivateChat: "all" },
           },
           interfaceConfigOverwrite: {
@@ -107,13 +93,6 @@ export function VideoCallOverlay({
           },
         });
         apiRef.current = api;
-        // videoConferenceLeft fires the instant the local participant
-        // leaves (hangup, or being disconnected) -- well before Jitsi's
-        // own IFrame client would otherwise show its own end-of-call/
-        // feedback screen inside this container. Tearing the connection
-        // down right here and showing our own "Class ended" state means
-        // nobody sees a Jitsi-branded page and mistakes it for having
-        // left the app.
         api.addEventListener("videoConferenceLeft", () => {
           apiRef.current?.dispose();
           apiRef.current = null;

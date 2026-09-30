@@ -203,3 +203,62 @@ async def test_trainer_cannot_post_announcements(client, db_session, organizatio
         headers=headers,
     )
     assert resp.status_code == 403, resp.text
+
+
+async def test_org_wide_announcement_notifies_every_org_user_and_queues_email(
+    client, db_session, organization, course, auth_headers, monkeypatch
+):
+    """Posting should reach everyone in the org, both as an in-app
+    notification (so it shows up in their tray) and an email -- found
+    live that neither happened at all before this."""
+    from modules.lms.announcements.service import send_announcement_email_task
+    from modules.notifications.repository import NotificationRepository
+
+    sent_to = []
+    monkeypatch.setattr(send_announcement_email_task, "delay", lambda to_email, *rest: sent_to.append(to_email))
+
+    trainer, _trainer_headers = await _create_trainer_with_login(client, db_session, organization)
+    batch = await _create_batch(client, auth_headers, course, trainer.id)
+    student, _student_headers = await _enroll_student(client, db_session, organization, course, batch["id"])
+
+    await _create_announcement(client, auth_headers, course_id=None, title="Org wide")
+
+    notif_repo = NotificationRepository(db_session)
+    student_notifications, _total = await notif_repo.list_for_user(student.user_id)
+    assert any(n.title == "Org wide" for n in student_notifications)
+    # The admin who posted it is themselves an org member too.
+    assert len(sent_to) >= 2
+
+
+async def test_course_scoped_announcement_only_notifies_that_courses_people(
+    client, db_session, organization, course, other_course, auth_headers, monkeypatch
+):
+    """A course-scoped announcement should reach that course's enrolled
+    students and assigned trainer -- not the whole org, and not someone
+    enrolled in a different course."""
+    from modules.lms.announcements.service import send_announcement_email_task
+    from modules.notifications.repository import NotificationRepository
+
+    monkeypatch.setattr(send_announcement_email_task, "delay", lambda *args: None)
+
+    trainer, _trainer_headers = await _create_trainer_with_login(
+        client, db_session, organization, full_name="Course Trainer"
+    )
+    other_trainer, _other_headers = await _create_trainer_with_login(
+        client, db_session, organization, full_name="Other Trainer"
+    )
+    batch = await _create_batch(client, auth_headers, course, trainer.id)
+    other_batch = await _create_batch(client, auth_headers, other_course, other_trainer.id)
+    student, _student_headers = await _enroll_student(client, db_session, organization, course, batch["id"])
+    other_student, _other_student_headers = await _enroll_student(
+        client, db_session, organization, other_course, other_batch["id"]
+    )
+
+    await _create_announcement(client, auth_headers, course_id=str(course.id), title="My course")
+
+    notif_repo = NotificationRepository(db_session)
+    student_notifications, _total = await notif_repo.list_for_user(student.user_id)
+    other_student_notifications, _total2 = await notif_repo.list_for_user(other_student.user_id)
+
+    assert any(n.title == "My course" for n in student_notifications)
+    assert not any(n.title == "My course" for n in other_student_notifications)
