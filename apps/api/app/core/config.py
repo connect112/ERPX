@@ -159,6 +159,14 @@ class Settings(BaseSettings):
     # comparing against an empty secret.
     ERPX_INTERNAL_SERVICE_SECRET: str = ""
 
+    # A separate secret (not ERPX_INTERNAL_SERVICE_SECRET) for the
+    # self-hosted Jitsi recording server's finalize script to call
+    # POST /live-classes/recording-webhook once a recording has been
+    # uploaded — a distinct trust boundary from Pentrix-share's
+    # provisioning calls, so compromising one secret doesn't also expose
+    # the other channel. Same fail-closed-when-unset behavior.
+    JIBRI_WEBHOOK_SECRET: str = ""
+
     # ---- Account Security ----
     MAX_LOGIN_ATTEMPTS: int = 5
     ACCOUNT_LOCKOUT_MINUTES: int = 15

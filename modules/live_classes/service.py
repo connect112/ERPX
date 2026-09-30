@@ -5,7 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging_config import get_logger
 from modules.batches.repository import BatchRepository
-from modules.live_classes.jitsi import build_meeting_link, jitsi_enabled
+from modules.live_classes.jitsi import (
+    build_meeting_link,
+    jitsi_enabled,
+    parse_live_class_id_from_room_name,
+)
 from modules.live_classes.models import LiveClass, LiveClassStatus
 from modules.live_classes.repository import LiveClassRepository
 from modules.trainers.repository import TrainerRepository
@@ -84,6 +88,28 @@ class LiveClassService:
         self, trainer_id: uuid.UUID, batch_ids: list[uuid.UUID], organization_id: uuid.UUID
     ) -> list[LiveClass]:
         return await self.repo.list_for_trainer(trainer_id, batch_ids, organization_id)
+
+    async def attach_recording_from_webhook(self, room_name: str, recording_url: str) -> LiveClass:
+        """Called by the recording webhook (HMAC-authenticated, no
+        organization context of its own -- see jibri_auth.py) once the
+        Jitsi recording server's finalize script has uploaded a
+        recording. Only ever sets recording_url; deliberately doesn't
+        touch status -- the trainer's own explicit Start/Complete/Cancel
+        flow stays the single source of truth for that, and a recording
+        can finish uploading either before or after they've already
+        marked the class complete."""
+        try:
+            live_class_id = parse_live_class_id_from_room_name(room_name)
+        except ValueError as exc:
+            raise NotFoundError("Live class", room_name) from exc
+
+        live_class = await self.repo.get_by_id_unscoped(live_class_id)
+        if not live_class:
+            raise NotFoundError("Live class", live_class_id)
+
+        updated = await self.repo.update(live_class, recording_url=recording_url)
+        logger.info("live_class_recording_attached", live_class_id=str(live_class.id))
+        return updated
 
     async def update_live_class(
         self, live_class_id: uuid.UUID, organization_id: uuid.UUID, **fields

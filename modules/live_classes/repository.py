@@ -25,6 +25,15 @@ class LiveClassRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_id_unscoped(self, live_class_id: uuid.UUID) -> LiveClass | None:
+        """No organization_id filter -- only for the recording webhook
+        (modules/live_classes/jibri_auth.py), which authenticates via HMAC
+        signature rather than a user JWT and so has no organization
+        context of its own to scope by. Every other caller must use
+        get_by_id() above."""
+        result = await self.db.execute(select(LiveClass).where(LiveClass.id == live_class_id))
+        return result.scalar_one_or_none()
+
     async def list_for_organization(
         self,
         organization_id: uuid.UUID,

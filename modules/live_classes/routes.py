@@ -9,6 +9,7 @@ from modules.authentication.dependencies import get_current_active_user
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.batches.repository import BatchEnrollmentRepository, BatchRepository
+from modules.live_classes.jibri_auth import verify_jibri_signature
 from modules.live_classes.jitsi import build_room_name, jitsi_domain, jitsi_enabled, mint_join_token
 from modules.live_classes.models import LiveClassStatus
 from modules.live_classes.schemas import (
@@ -19,6 +20,7 @@ from modules.live_classes.schemas import (
     LiveClassStatusChangeRequest,
     LiveClassUpdateRequest,
     MessageResponse,
+    RecordingWebhookRequest,
 )
 from modules.live_classes.service import LiveClassService
 from modules.students.dependencies import get_current_student
@@ -163,6 +165,21 @@ async def get_live_class_join_token_as_trainer(
 
     token = mint_join_token(live_class_id, user.id, "Trainer", user.email, moderator=True)
     return LiveClassJoinToken(domain=jitsi_domain(), room=build_room_name(live_class_id), jwt=token)
+
+
+@router.post(
+    "/recording-webhook",
+    response_model=LiveClassPublic,
+    dependencies=[Depends(verify_jibri_signature)],
+)
+async def recording_finished_webhook(payload: RecordingWebhookRequest, db: AsyncSession = Depends(get_db)):
+    """Called by the self-hosted Jitsi recording server's finalize script
+    once a recording has finished uploading -- HMAC-authenticated (see
+    jibri_auth.py), not a user JWT, so there's no `user`/`organization_id`
+    dependency here the way every other route in this file has."""
+    service = LiveClassService(db)
+    live_class = await service.attach_recording_from_webhook(payload.room_name, payload.recording_url)
+    return LiveClassPublic.model_validate(live_class)
 
 
 @router.post("", response_model=LiveClassPublic, status_code=status.HTTP_201_CREATED)
