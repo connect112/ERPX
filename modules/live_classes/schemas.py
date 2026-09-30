@@ -64,3 +64,17 @@ class LiveClassJoinToken(BaseModel):
     domain: str
     room: str
     jwt: str
+
+
+class RecordingWebhookRequest(BaseModel):
+    """Called by the self-hosted Jitsi recording server's finalize
+    script once a recording has been uploaded -- see
+    modules/live_classes/jibri_auth.py for how this call is
+    authenticated (HMAC, not a user JWT). `room_name` is the Jitsi room
+    name (e.g. "erpx-<live_class_id hex>", see jitsi.py's
+    build_room_name) the finalize script already has on hand; the
+    live_class_id is recovered from it server-side rather than trusting
+    a second, separately-suppliable identifier."""
+
+    room_name: str
+    recording_url: str = Field(..., min_length=1, max_length=1024)

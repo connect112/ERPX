@@ -37,6 +37,26 @@ def build_meeting_link(live_class_id: uuid.UUID) -> str:
     return f"{settings.JITSI_PUBLIC_URL}/{build_room_name(live_class_id)}"
 
 
+def parse_live_class_id_from_room_name(room_name: str) -> uuid.UUID:
+    """Inverse of build_room_name() -- used by the recording webhook
+    (modules/live_classes/jibri_auth.py's caller) to recover which
+    LiveClass a finished recording belongs to. The room name is the only
+    identifier the Jitsi recording server's finalize script has on hand
+    (Jibri passes it as part of the recording filename, not a separate
+    parameter we control), so it doubling as the lookup key here avoids
+    having to invent and wire a second identifier through Jibri's own,
+    unmodified recording pipeline.
+
+    Raises ValueError (via uuid.UUID's own parsing) for anything that
+    isn't a genuine ERPX room name -- the caller should treat that the
+    same as "not found", not a server error.
+    """
+    prefix = "erpx-"
+    if not room_name.startswith(prefix):
+        raise ValueError(f"Not an ERPX room name: {room_name!r}")
+    return uuid.UUID(hex=room_name[len(prefix) :])
+
+
 def mint_join_token(
     live_class_id: uuid.UUID,
     user_id: uuid.UUID,

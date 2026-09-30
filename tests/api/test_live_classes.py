@@ -8,6 +8,10 @@ helper sets up), and get a clean 404 — not a raw permission error — for
 one they don't.
 """
 
+import hashlib
+import hmac
+import json
+import time
 import uuid
 from datetime import date, datetime, timezone
 
@@ -22,6 +26,7 @@ from modules.trainers.repository import TrainerRepository
 pytestmark = pytest.mark.api
 
 _JITSI_SECRET = "test-jitsi-secret"
+_JIBRI_SECRET = "test-jibri-webhook-secret"
 
 
 @pytest.fixture
@@ -449,3 +454,81 @@ async def test_join_token_rejected_once_class_is_cancelled(
 
     resp = await client.post(f"/api/v1/live-classes/trainer/{live_class['id']}/join-token", headers=headers)
     assert resp.status_code == 422, resp.text
+
+
+def _jibri_signed_request(payload: dict, secret: str, *, timestamp: int | None = None) -> tuple[bytes, dict]:
+    body = json.dumps(payload).encode("utf-8")
+    ts = timestamp if timestamp is not None else int(time.time())
+    signed_payload = f"{ts}.{body.decode('utf-8')}".encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+    headers = {
+        "Content-Type": "application/json",
+        "X-Jibri-Timestamp": str(ts),
+        "X-Jibri-Signature": signature,
+    }
+    return body, headers
+
+
+@pytest.fixture
+def jibri_webhook_secret(monkeypatch):
+    monkeypatch.setattr(settings, "JIBRI_WEBHOOK_SECRET", _JIBRI_SECRET)
+    return _JIBRI_SECRET
+
+
+async def test_recording_webhook_attaches_url_to_the_correct_live_class(
+    client, db_session, organization, course, auth_headers, jibri_webhook_secret
+):
+    trainer, _headers = await _create_trainer_with_login(client, db_session, organization)
+    batch = await _create_batch(client, auth_headers, course, trainer.id)
+    live_class = await _create_live_class(client, auth_headers, batch["id"], trainer.id)
+
+    room_name = f"erpx-{uuid.UUID(live_class['id']).hex}"
+    payload = {"room_name": room_name, "recording_url": "https://recordings.example.com/rec.mp4"}
+    body, headers = _jibri_signed_request(payload, jibri_webhook_secret)
+
+    resp = await client.post("/api/v1/live-classes/recording-webhook", content=body, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["recording_url"] == "https://recordings.example.com/rec.mp4"
+    assert resp.json()["id"] == live_class["id"]
+
+
+async def test_recording_webhook_rejects_bad_signature(
+    client, db_session, organization, course, auth_headers, jibri_webhook_secret
+):
+    trainer, _headers = await _create_trainer_with_login(client, db_session, organization)
+    batch = await _create_batch(client, auth_headers, course, trainer.id)
+    live_class = await _create_live_class(client, auth_headers, batch["id"], trainer.id)
+
+    room_name = f"erpx-{uuid.UUID(live_class['id']).hex}"
+    payload = {"room_name": room_name, "recording_url": "https://recordings.example.com/rec.mp4"}
+    _body, headers = _jibri_signed_request(payload, "wrong-secret")
+
+    resp = await client.post(
+        "/api/v1/live-classes/recording-webhook", json=payload, headers=headers
+    )
+    assert resp.status_code == 401, resp.text
+
+
+async def test_recording_webhook_404s_for_unknown_room_name(client, jibri_webhook_secret):
+    payload = {"room_name": "erpx-" + uuid.uuid4().hex, "recording_url": "https://recordings.example.com/rec.mp4"}
+    body, headers = _jibri_signed_request(payload, jibri_webhook_secret)
+
+    resp = await client.post("/api/v1/live-classes/recording-webhook", content=body, headers=headers)
+    assert resp.status_code == 404, resp.text
+
+
+async def test_recording_webhook_404s_for_malformed_room_name(client, jibri_webhook_secret):
+    payload = {"room_name": "not-an-erpx-room", "recording_url": "https://recordings.example.com/rec.mp4"}
+    body, headers = _jibri_signed_request(payload, jibri_webhook_secret)
+
+    resp = await client.post("/api/v1/live-classes/recording-webhook", content=body, headers=headers)
+    assert resp.status_code == 404, resp.text
+
+
+async def test_recording_webhook_fails_closed_when_secret_unconfigured(client):
+    assert settings.JIBRI_WEBHOOK_SECRET == ""
+    payload = {"room_name": "erpx-" + uuid.uuid4().hex, "recording_url": "https://recordings.example.com/rec.mp4"}
+    body, headers = _jibri_signed_request(payload, "any-secret")
+
+    resp = await client.post("/api/v1/live-classes/recording-webhook", content=body, headers=headers)
+    assert resp.status_code == 401, resp.text
