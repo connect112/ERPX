@@ -79,7 +79,10 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
             // still open their own profile pane and type over it,
             // defeating the anonymization the JWT claim exists for.
             readOnlyName: true,
-            remoteVideoMenu: { disablePrivateChat: "all" },
+            // Also strips Jitsi's own "Grant moderator"/"Kick" actions --
+            // students are never moderators in this room, so these should
+            // never be reachable regardless of who's viewing this menu.
+            remoteVideoMenu: { disablePrivateChat: "all", disableGrantModerator: true, disableKick: true },
           },
           interfaceConfigOverwrite: {
             TOOLBAR_BUTTONS: [

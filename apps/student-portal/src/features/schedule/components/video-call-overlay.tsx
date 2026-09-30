@@ -92,8 +92,11 @@ export function VideoCallOverlay({
             // 1:1 message between two students would bypass that
             // isolation, so it's disabled for everyone (the trainer, who
             // isn't anonymized, is unaffected — this only removes the
-            // per-participant "Private chat" menu item).
-            remoteVideoMenu: { disablePrivateChat: "all" },
+            // per-participant "Private chat" menu item). Also strips
+            // Jitsi's own "Grant moderator"/"Kick" actions -- students
+            // are never moderators in this room, so these should never
+            // be reachable regardless of who's viewing this menu.
+            remoteVideoMenu: { disablePrivateChat: "all", disableGrantModerator: true, disableKick: true },
           },
           interfaceConfigOverwrite: {
             TOOLBAR_BUTTONS: [

@@ -81,8 +81,13 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
             readOnlyName: true,
             // Students in this room shouldn't be able to privately
             // message each other — removes the per-participant "Private
-            // chat" menu item for everyone in the room.
-            remoteVideoMenu: { disablePrivateChat: "all" },
+            // chat" menu item for everyone in the room. Also strips
+            // Jitsi's own "Grant moderator" action from the trainer's
+            // participants-pane menu -- there is meant to be exactly one
+            // moderator (the trainer) per call, and this stock Jitsi
+            // feature would otherwise let them silently hand that out to
+            // any student.
+            remoteVideoMenu: { disablePrivateChat: "all", disableGrantModerator: true, disableKick: true },
           },
           interfaceConfigOverwrite: {
             TOOLBAR_BUTTONS: [
