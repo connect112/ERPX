@@ -74,6 +74,11 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
           // the in-call display name.
           configOverwrite: {
             prejoinPageEnabled: false,
+            // The JWT's name claim is the sole source of the in-call
+            // display name (set just above) -- without this, anyone can
+            // still open their own profile pane and type over it,
+            // defeating the anonymization the JWT claim exists for.
+            readOnlyName: true,
             remoteVideoMenu: { disablePrivateChat: "all" },
           },
           interfaceConfigOverwrite: {
@@ -84,6 +89,10 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
               "chat",
               "raisehand",
               "tileview",
+              // Lets participants see who's actually in the room --
+              // names shown are still just the anonymized JWT ones
+              // (student codes / "Trainer"), never real names.
+              "participants-pane",
               "hangup",
               "fullscreen",
             ],
