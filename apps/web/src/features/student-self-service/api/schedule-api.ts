@@ -33,6 +33,7 @@ export interface LiveClassPublic {
   meeting_link: string;
   recording_url: string | null;
   status: "scheduled" | "live" | "completed" | "cancelled";
+  trainer_joined_at: string | null;
   created_at: string;
 }
 

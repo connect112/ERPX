@@ -146,7 +146,9 @@ export function MySchedulePage() {
                           Recording
                         </a>
                       </Button>
-                    ) : liveClass.status === "live" && liveClass.meeting_link ? (
+                    ) : liveClass.status === "live" &&
+                      liveClass.trainer_joined_at &&
+                      liveClass.meeting_link ? (
                       <Button
                         size="sm"
                         disabled={joinLiveClass.isPending}
@@ -154,9 +156,9 @@ export function MySchedulePage() {
                       >
                         Join
                       </Button>
-                    ) : liveClass.status === "scheduled" ? (
+                    ) : liveClass.status === "scheduled" || liveClass.status === "live" ? (
                       <span className="text-sm text-muted-foreground">
-                        Waiting for trainer to start
+                        Waiting for trainer to join
                       </span>
                     ) : null}
                   </div>

@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,6 +89,18 @@ class LiveClassService:
         self, trainer_id: uuid.UUID, batch_ids: list[uuid.UUID], organization_id: uuid.UUID
     ) -> list[LiveClass]:
         return await self.repo.list_for_trainer(trainer_id, batch_ids, organization_id)
+
+    async def mark_trainer_joined(self, live_class: LiveClass) -> None:
+        """Called the moment a trainer successfully mints their own
+        join-token (see get_live_class_join_token_as_trainer) -- students
+        can't get a join-token of their own until this is set (see
+        get_live_class_join_token_as_student), so this is effectively the
+        trainer "opening the door" for them. A no-op past the first call,
+        on purpose: re-joining later shouldn't re-trigger anything."""
+        if live_class.trainer_joined_at is not None:
+            return
+        live_class.trainer_joined_at = datetime.now(timezone.utc)
+        await self.db.flush()
 
     async def attach_recording_from_webhook(self, room_name: str, recording_url: str) -> LiveClass:
         """Called by the recording webhook (HMAC-authenticated, no

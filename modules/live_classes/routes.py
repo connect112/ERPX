@@ -88,6 +88,10 @@ async def get_live_class_join_token_as_student(
         raise NotFoundError("Live class", live_class_id)
     if live_class.status not in _STUDENT_JOINABLE_STATUSES:
         raise ValidationError("This live class hasn't started yet. Please wait for your trainer to start it.")
+    if live_class.trainer_joined_at is None:
+        raise ValidationError(
+            "Your trainer hasn't joined this class yet. Please wait for them to join before you join."
+        )
 
     token = mint_join_token(live_class_id, user.id, student.student_code, user.email, moderator=False)
     return LiveClassJoinToken(domain=jitsi_domain(), room=build_room_name(live_class_id), jwt=token)
@@ -167,6 +171,7 @@ async def get_live_class_join_token_as_trainer(
         raise NotFoundError("Live class", live_class_id)
     if live_class.status not in _JOINABLE_STATUSES:
         raise ValidationError("This live class isn't currently joinable.")
+    await service.mark_trainer_joined(live_class)
 
     token = mint_join_token(live_class_id, user.id, "Trainer", user.email, moderator=True)
     return LiveClassJoinToken(domain=jitsi_domain(), room=build_room_name(live_class_id), jwt=token)
