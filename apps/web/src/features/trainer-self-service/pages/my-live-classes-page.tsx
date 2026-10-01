@@ -32,6 +32,7 @@ const NEXT_STATUS: Record<LiveClassStatus, { label: string; status: LiveClassSta
 
 interface ActiveCall extends LiveClassJoinToken {
   title: string;
+  liveClassId: string;
 }
 
 export function MyLiveClassesPage() {
@@ -49,7 +50,8 @@ export function MyLiveClassesPage() {
 
   const handleJoin = (liveClass: LiveClassPublic) => {
     joinLiveClass.mutate(liveClass.id, {
-      onSuccess: (token) => setActiveCall({ ...token, title: liveClass.title }),
+      onSuccess: (token) =>
+        setActiveCall({ ...token, title: liveClass.title, liveClassId: liveClass.id }),
     });
   };
 
@@ -112,6 +114,7 @@ export function MyLiveClassesPage() {
           room={activeCall.room}
           jwt={activeCall.jwt}
           title={activeCall.title}
+          liveClassId={activeCall.liveClassId}
           onClose={() => setActiveCall(null)}
         />
       )}

@@ -177,6 +177,32 @@ async def get_live_class_join_token_as_trainer(
     return LiveClassJoinToken(domain=jitsi_domain(), room=build_room_name(live_class_id), jwt=token)
 
 
+@router.post("/trainer/{live_class_id}/leave", response_model=MessageResponse)
+async def mark_live_class_left_as_trainer(
+    live_class_id: uuid.UUID,
+    trainer: Trainer = Depends(get_current_trainer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Called by the trainer's own call overlay the instant they leave
+    the Jitsi call (see VideoCallOverlay's videoConferenceLeft handler) --
+    re-locks the room for students by clearing trainer_joined_at, so
+    anyone trying to join afterward is correctly told to wait rather than
+    walking into a room the trainer isn't in anymore. Same ownership gate
+    as the other trainer routes on this class; silently a no-op if the
+    door was already closed (idempotent, no error either way since the
+    caller doesn't need to know or care)."""
+    service = LiveClassService(db)
+    batches = await BatchRepository(db).list_for_trainer(trainer.id, trainer.organization_id)
+    batch_ids = {b.id for b in batches}
+
+    live_class = await service.get_live_class(live_class_id, trainer.organization_id)
+    if live_class.batch_id not in batch_ids and live_class.trainer_id != trainer.id:
+        raise NotFoundError("Live class", live_class_id)
+
+    await service.mark_trainer_left(live_class)
+    return MessageResponse(message="Left the live class.")
+
+
 @router.post(
     "/recording-webhook",
     response_model=LiveClassPublic,

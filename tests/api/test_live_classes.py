@@ -435,6 +435,36 @@ async def test_student_join_token_rejected_while_trainer_hasnt_joined(
     assert resp.status_code == 422, resp.text
 
 
+async def test_student_join_token_rejected_again_after_trainer_leaves(
+    client, db_session, organization, course, auth_headers, jitsi_configured
+):
+    trainer, _headers = await _create_trainer_with_login(client, db_session, organization)
+    batch = await _create_batch(client, auth_headers, course, trainer.id)
+    live_class = await _create_live_class(client, auth_headers, batch["id"], trainer.id, meeting_link=None)
+    _student, student_headers = await _enroll_student(
+        client, db_session, organization, course, batch["id"], auth_headers
+    )
+    await client.post(
+        f"/api/v1/live-classes/trainer/{live_class['id']}/status", json={"status": "live"}, headers=_headers
+    )
+    await client.post(f"/api/v1/live-classes/trainer/{live_class['id']}/join-token", headers=_headers)
+
+    # Trainer is in -- student can join.
+    resp = await client.post(f"/api/v1/live-classes/{live_class['id']}/join-token", headers=student_headers)
+    assert resp.status_code == 200, resp.text
+
+    # Trainer leaves the call (VideoCallOverlay's videoConferenceLeft ->
+    # this route) -- the room re-locks, so a student trying again
+    # afterward shouldn't just walk into an empty room.
+    leave_resp = await client.post(
+        f"/api/v1/live-classes/trainer/{live_class['id']}/leave", headers=_headers
+    )
+    assert leave_resp.status_code == 200, leave_resp.text
+
+    resp = await client.post(f"/api/v1/live-classes/{live_class['id']}/join-token", headers=student_headers)
+    assert resp.status_code == 422, resp.text
+
+
 async def test_student_join_token_rejected_while_class_still_scheduled(
     client, db_session, organization, course, auth_headers, jitsi_configured
 ):

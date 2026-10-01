@@ -95,11 +95,25 @@ class LiveClassService:
         join-token (see get_live_class_join_token_as_trainer) -- students
         can't get a join-token of their own until this is set (see
         get_live_class_join_token_as_student), so this is effectively the
-        trainer "opening the door" for them. A no-op past the first call,
-        on purpose: re-joining later shouldn't re-trigger anything."""
+        trainer "opening the door" for them. A no-op once already set, on
+        purpose: re-joining mid-session shouldn't reset anything -- only
+        an explicit mark_trainer_left() (the trainer actually leaving the
+        call) closes the door again."""
         if live_class.trainer_joined_at is not None:
             return
         live_class.trainer_joined_at = datetime.now(timezone.utc)
+        await self.db.flush()
+
+    async def mark_trainer_left(self, live_class: LiveClass) -> None:
+        """Called when the trainer's own call overlay fires
+        videoConferenceLeft (see the trainer's /leave route) -- clears
+        trainer_joined_at so a student trying to join afterward is
+        correctly told to wait again, instead of walking into a room the
+        trainer isn't actually in anymore. Best-effort: if the trainer's
+        browser closes without cleanly firing that event, the door stays
+        open until they explicitly rejoin and leave again -- there's no
+        server-side presence detection to fall back on here."""
+        live_class.trainer_joined_at = None
         await self.db.flush()
 
     async def attach_recording_from_webhook(self, room_name: str, recording_url: str) -> LiveClass:

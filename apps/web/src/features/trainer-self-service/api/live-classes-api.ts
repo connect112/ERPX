@@ -25,4 +25,10 @@ export const myLiveClassesApi = {
     apiClient
       .post<LiveClassJoinToken>(`/live-classes/trainer/${id}/join-token`)
       .then((r) => r.data),
+
+  // Tells the backend the trainer has left the call -- re-locks the room
+  // so a student trying to join afterward is told to wait rather than
+  // walking into an empty one. Fire-and-forget from VideoCallOverlay's
+  // videoConferenceLeft handler, not a user-facing action of its own.
+  leave: (id: string) => apiClient.post(`/live-classes/trainer/${id}/leave`).then((r) => r.data),
 };
