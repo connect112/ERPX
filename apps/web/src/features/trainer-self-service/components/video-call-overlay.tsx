@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 interface JitsiMeetAPI {
   dispose: () => void;
   addEventListener: (event: string, listener: (...args: unknown[]) => void) => void;
+  executeCommand: (command: string, ...args: unknown[]) => void;
 }
 
 declare global {
@@ -110,6 +111,13 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
           },
         });
         apiRef.current = api;
+        // The room name itself is an opaque, non-guessable slug (by
+        // design -- see build_room_name in jitsi.py), so without this
+        // Jitsi's own subject bar inside the call shows that raw slug
+        // instead of the class title shown in our own header above it.
+        // "localSubject" (not "subject") applies immediately for this
+        // client alone, regardless of moderator role.
+        api.executeCommand("localSubject", title);
         // videoConferenceLeft fires the instant the local participant
         // leaves (hangup, or being disconnected) -- well before Jitsi's
         // own IFrame client would otherwise show its own end-of-call/
