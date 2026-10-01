@@ -43,6 +43,7 @@ class LiveClassPublic(BaseModel):
     meeting_link: str
     recording_url: str | None
     status: LiveClassStatus
+    trainer_joined_at: datetime | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

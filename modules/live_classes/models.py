@@ -54,3 +54,11 @@ class LiveClass(TimestampedBase):
         nullable=False,
         index=True,
     )
+    # Set the first time the trainer actually mints a join-token for this
+    # class (see get_live_class_join_token_as_trainer) -- students can't
+    # get their own join-token until this is set, so they never land in
+    # an empty room before the trainer has actually shown up, regardless
+    # of how early status flips to LIVE. Never cleared once set -- a
+    # trainer's later disconnect doesn't re-lock the room for everyone
+    # else already in it.
+    trainer_joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
