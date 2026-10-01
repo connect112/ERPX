@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { myLiveClassesApi } from "@/features/trainer-self-service/api/live-classes-api";
 
 interface JitsiMeetAPI {
   dispose: () => void;
@@ -20,6 +21,7 @@ interface VideoCallOverlayProps {
   room: string;
   jwt: string;
   title: string;
+  liveClassId: string;
   onClose: () => void;
 }
 
@@ -51,14 +53,29 @@ function loadJitsiScript(domain: string): Promise<void> {
  * per active call, disposed on unmount, so navigating away or hitting
  * Close actually hangs up rather than leaving a hidden connection running.
  */
-export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCallOverlayProps) {
+export function VideoCallOverlay({ domain, room, jwt, title, liveClassId, onClose }: VideoCallOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<JitsiMeetAPI | null>(null);
   const [hasEnded, setHasEnded] = useState(false);
+  // Best-effort, fire-and-forget -- re-locks the room for students the
+  // moment the trainer actually leaves (see mark_trainer_left on the
+  // backend). Guarded so it only ever fires once per mount, regardless
+  // of which of the two paths below triggers it first.
+  const leftRef = useRef(false);
+  const notifyLeft = () => {
+    if (leftRef.current) return;
+    leftRef.current = true;
+    myLiveClassesApi.leave(liveClassId).catch(() => {
+      // Nothing useful to do client-side if this fails -- worst case the
+      // room just stays unlocked until the trainer explicitly rejoins
+      // and leaves again.
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
     setHasEnded(false);
+    leftRef.current = false;
 
     loadJitsiScript(domain)
       .then(() => {
@@ -126,6 +143,7 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
           apiRef.current?.dispose();
           apiRef.current = null;
           setHasEnded(true);
+          notifyLeft();
         });
       })
       .catch(() => {
@@ -137,6 +155,10 @@ export function VideoCallOverlay({ domain, room, jwt, title, onClose }: VideoCal
       cancelled = true;
       apiRef.current?.dispose();
       apiRef.current = null;
+      // Covers the paths videoConferenceLeft doesn't: clicking Close
+      // while still connected, or navigating away entirely. notifyLeft()
+      // is a no-op if that event already fired first.
+      notifyLeft();
     };
     // Re-run only when the call identity itself changes.
   }, [domain, room, jwt]);
