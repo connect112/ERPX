@@ -33,8 +33,13 @@ router = APIRouter()
 
 # A join token is only meaningful while the class hasn't wrapped up —
 # minting one for a completed/cancelled class would just hand out access
-# to an empty room nobody has a reason to be in.
+# to an empty room nobody has a reason to be in. The trainer may join
+# while still SCHEDULED (that's how they start it in the first place),
+# but a student joining that early would land in an empty, trainer-less
+# room with nobody to supervise it -- so students must wait for the
+# trainer to actually start the session.
 _JOINABLE_STATUSES = {LiveClassStatus.SCHEDULED, LiveClassStatus.LIVE}
+_STUDENT_JOINABLE_STATUSES = {LiveClassStatus.LIVE}
 
 
 def _require_jitsi_configured() -> None:
@@ -81,8 +86,8 @@ async def get_live_class_join_token_as_student(
     live_class = await service.get_live_class(live_class_id, student.organization_id)
     if live_class.batch_id not in batch_ids:
         raise NotFoundError("Live class", live_class_id)
-    if live_class.status not in _JOINABLE_STATUSES:
-        raise ValidationError("This live class isn't currently joinable.")
+    if live_class.status not in _STUDENT_JOINABLE_STATUSES:
+        raise ValidationError("This live class hasn't started yet. Please wait for your trainer to start it.")
 
     token = mint_join_token(live_class_id, user.id, student.student_code, user.email, moderator=False)
     return LiveClassJoinToken(domain=jitsi_domain(), room=build_room_name(live_class_id), jwt=token)

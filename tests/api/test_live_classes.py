@@ -395,6 +395,11 @@ async def test_student_join_token_grants_non_moderator_access_to_own_class(
     student, student_headers = await _enroll_student(
         client, db_session, organization, course, batch["id"], auth_headers
     )
+    # Students can only join once the trainer has actually started the
+    # class -- see _STUDENT_JOINABLE_STATUSES in routes.py.
+    await client.post(
+        f"/api/v1/live-classes/trainer/{live_class['id']}/status", json={"status": "live"}, headers=_headers
+    )
 
     resp = await client.post(f"/api/v1/live-classes/{live_class['id']}/join-token", headers=student_headers)
     assert resp.status_code == 200, resp.text
@@ -405,6 +410,22 @@ async def test_student_join_token_grants_non_moderator_access_to_own_class(
     # The in-call display name is the student's code, never their real
     # name -- students share this room with other students.
     assert claims["context"]["user"]["name"] == student.student_code
+
+
+async def test_student_join_token_rejected_while_class_still_scheduled(
+    client, db_session, organization, course, auth_headers, jitsi_configured
+):
+    trainer, _headers = await _create_trainer_with_login(client, db_session, organization)
+    batch = await _create_batch(client, auth_headers, course, trainer.id)
+    live_class = await _create_live_class(client, auth_headers, batch["id"], trainer.id, meeting_link=None)
+    _student, student_headers = await _enroll_student(
+        client, db_session, organization, course, batch["id"], auth_headers
+    )
+
+    # The trainer never started it -- still "scheduled" -- so a student
+    # trying to join shouldn't land in an empty, unsupervised room.
+    resp = await client.post(f"/api/v1/live-classes/{live_class['id']}/join-token", headers=student_headers)
+    assert resp.status_code == 422, resp.text
 
 
 async def test_join_token_denied_for_unenrolled_student(
