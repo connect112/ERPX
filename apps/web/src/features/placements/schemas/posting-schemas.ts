@@ -19,6 +19,17 @@ export const postingStatusLabels: Record<PostingStatus, string> = {
   closed: "Closed",
 };
 
+// Labels for JobPosting.source — "manual" (staff-created) intentionally has
+// no badge rendered anywhere (see PostingSourceBadge), so it isn't listed
+// here; every aggregated source must, since aggregated postings must
+// visibly attribute where they came from.
+export const postingSourceLabels: Record<string, string> = {
+  adzuna: "Adzuna",
+  jooble: "Jooble",
+  reed: "Reed",
+  arbeitnow: "Arbeitnow",
+};
+
 export const applicationStatusValues = [
   "applied",
   "shortlisted",

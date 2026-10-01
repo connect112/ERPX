@@ -1,4 +1,5 @@
 import { format, parseISO } from "date-fns";
+import { ExternalLink } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,16 @@ const jobTypeLabel: Record<string, string> = {
   part_time: "Part-time",
   internship: "Internship",
   contract: "Contract",
+};
+
+// "manual" (staff-created postings) intentionally isn't listed — those
+// render with no "via X" tag at all, see the `posting.source !== "manual"`
+// guard below.
+const postingSourceLabel: Record<string, string> = {
+  adzuna: "Adzuna",
+  jooble: "Jooble",
+  reed: "Reed",
+  arbeitnow: "Arbeitnow",
 };
 
 function ApplyDialog({ postingId }: { postingId: string }) {
@@ -109,7 +120,12 @@ export function PlacementsPage() {
                 <CardHeader>
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base">{posting.title}</CardTitle>
-                    <Badge variant="secondary">{jobTypeLabel[posting.job_type] ?? posting.job_type}</Badge>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge variant="secondary">{jobTypeLabel[posting.job_type] ?? posting.job_type}</Badge>
+                      {posting.source !== "manual" && (
+                        <Badge variant="info">via {postingSourceLabel[posting.source] ?? posting.source}</Badge>
+                      )}
+                    </div>
                   </div>
                   <CardDescription>{posting.location ?? "Remote/TBD"}</CardDescription>
                 </CardHeader>
@@ -123,6 +139,37 @@ export function PlacementsPage() {
                     <p className="text-sm text-muted-foreground">
                       Apply by {format(parseISO(posting.application_deadline), "PP")}
                     </p>
+                  )}
+                  {posting.source_url && (
+                    <div className="flex items-center justify-between">
+                      <a
+                        href={posting.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        View original listing
+                      </a>
+                      {posting.source === "adzuna" && (
+                        // Adzuna's ToS requires this "Jobs by Adzuna" credit
+                        // hyperlinked to adzuna.co.uk on any page showing
+                        // Adzuna-sourced listings — a contractual condition
+                        // of API use, not just courtesy attribution. No
+                        // shared component exists between apps/web and
+                        // student-portal, so this mirrors
+                        // apps/web/.../adzuna-attribution.tsx locally.
+                        <a
+                          href="https://www.adzuna.co.uk"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                          style={{ minWidth: 116, minHeight: 23 }}
+                        >
+                          Jobs by <span className="font-semibold">Adzuna</span>
+                        </a>
+                      )}
+                    </div>
                   )}
                   {application ? (
                     <div className="flex items-center justify-between">

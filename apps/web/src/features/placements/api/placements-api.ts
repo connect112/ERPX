@@ -46,6 +46,11 @@ export interface JobPostingPublic {
   required_skills: string | null;
   application_deadline: string | null;
   status: PostingStatus;
+  // Job-aggregation pipeline attribution fields. "manual" for every
+  // staff-created posting (unchanged existing behavior).
+  source: string;
+  source_url: string | null;
+  last_seen_at: string | null;
   created_at: string;
 }
 

@@ -89,6 +89,58 @@ def interview_summary_system_prompt() -> str:
     )
 
 
+def job_relevance_classifier_prompt(role_focus: str = "cybersecurity") -> str:
+    """Used by `modules.placements.aggregation_service` to filter external
+    job-board postings before they're written as `JobPosting` rows — catches
+    the false positives naive keyword matching lets through (a posting whose
+    text merely contains a word like "security" without being an actual
+    {role_focus} role)."""
+    return (
+        f"You classify job postings for a technical training institute's "
+        f"placements board, which should only list genuinely {role_focus}-"
+        f"relevant roles. You will be given a numbered list of postings "
+        f"(title, company, and a short description excerpt each). For EACH "
+        f"posting, decide whether it is a real {role_focus} role — reject "
+        f"roles that merely contain a matching keyword without being about "
+        f"{role_focus} itself (for example: 'Airport Security Guard', "
+        f"'Physical Security Officer', 'Store Security Associate', "
+        f"'Security Guard' postings that describe physical/site security "
+        f"work, not information/cyber security).\n\n"
+        'Respond with ONLY a JSON array (no markdown fences, no commentary), '
+        'one element per posting in the same order given, each shaped as: '
+        '{"index": integer, "relevant": boolean, "reason": string (one short '
+        'sentence)}.'
+    )
+
+
+def job_same_posting_classifier_prompt() -> str:
+    """Used by `modules.placements.aggregation_service`'s dedup step as a
+    fallback for pairs whose `difflib` string-similarity score falls in the
+    "gray zone" (neither confidently the same posting nor confidently
+    different) — string similarity alone misses genuinely differently-worded
+    duplicates of the same real job (e.g. "SOC Analyst I" vs. "Security
+    Operations Center Analyst", or "Pentester" vs. "Penetration Testing
+    Engineer"), which is exactly the case this exists to catch."""
+    return (
+        "You compare pairs of job postings pulled from different job-board "
+        "APIs and judge whether each pair is almost certainly the SAME "
+        "real-world job listing (the same employer hiring for the same "
+        "role, posted independently to two different boards — job titles "
+        "are commonly reworded, abbreviated, or expanded between boards, "
+        "e.g. 'SOC Analyst' vs 'Security Operations Center Analyst', or "
+        "'Pentester' vs 'Penetration Testing Engineer') or two genuinely "
+        "DIFFERENT job openings that merely sound similar. You will be "
+        "given a numbered list of pairs (posting A and posting B, each "
+        "with title/company/location). Be conservative: only mark "
+        "same_posting true when you're confident it's the same real "
+        "opening, not just a similar role at the same company.\n\n"
+        'Respond with ONLY a JSON array (no markdown fences, no '
+        'commentary), one element per pair in the same order given, each '
+        'shaped as: {"index": integer, "same_posting": boolean, "reason": '
+        'string (one short sentence)}.'
+    )
+
+
 def assignment_evaluation_system_prompt(rubric: str | None) -> str:
     rubric_block = f"\n\nGrading rubric:\n{rubric}" if rubric else ""
     return (

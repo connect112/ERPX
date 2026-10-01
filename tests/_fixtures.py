@@ -40,6 +40,7 @@ from modules.crm.followups.tasks import send_followup_sms_task, send_followup_wh
 from modules.lms.announcements.tasks import send_announcement_email_task
 from modules.organizations.models import Organization
 from modules.organizations.repository import OrganizationRepository
+from modules.placements.tasks import run_aggregation_task, run_jooble_aggregation_task
 from modules.users.repository import UserProfileRepository
 
 
@@ -50,6 +51,8 @@ def _no_background_email(monkeypatch):
     monkeypatch.setattr(send_password_reset_email_task, "delay", lambda *a, **kw: None)
     monkeypatch.setattr(send_followup_whatsapp_task, "delay", lambda *a, **kw: None)
     monkeypatch.setattr(send_followup_sms_task, "delay", lambda *a, **kw: None)
+    monkeypatch.setattr(run_aggregation_task, "delay", lambda *a, **kw: None)
+    monkeypatch.setattr(run_jooble_aggregation_task, "delay", lambda *a, **kw: None)
     monkeypatch.setattr(send_announcement_email_task, "delay", lambda *a, **kw: None)
 
 
