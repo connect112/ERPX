@@ -4,9 +4,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Resp
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.db.session import get_db
 from modules.authentication.models import User
+from modules.authentication.repository import AuthRepository
 from modules.authorization.dependencies import require_permissions
 from modules.hackathons.models import HackathonStatus
 from modules.hackathons.participation import (
@@ -17,6 +18,7 @@ from modules.hackathons.participation import (
 )
 from modules.hackathons.schemas import (
     AwardPublic,
+    CandidatePublic,
     HackathonCreateRequest,
     HackathonListResponse,
     HackathonPublic,
@@ -24,6 +26,9 @@ from modules.hackathons.schemas import (
     HackathonUpdateRequest,
     LeaderboardBoard,
     LeaderboardEntry,
+    MemberMoveRequest,
+    MemberRef,
+    MemberUpdateRequest,
     MessageResponse,
     ParticipantError,
     ParticipantsRequest,
@@ -31,19 +36,24 @@ from modules.hackathons.schemas import (
     ProblemStatementInput,
     ProblemStatementPublic,
     ReportInfo,
+    RosterMemberPublic,
+    RosterTeamPublic,
     TaskGradeRequest,
     TaskPublic,
     TaskSubmissionAdmin,
     TaskSubmissionInfo,
     TasksResponse,
+    TeamAdminCreateRequest,
     TeamCreateRequest,
     TeamMemberPublic,
     TeamPublic,
+    TeamRenameRequest,
     TeamWithMembersPublic,
 )
 from modules.hackathons.provisioning import ParticipantProvisioner
 from modules.hackathons.service import HackathonService, TeamService
 from modules.hackathons.tasks import enqueue_welcome_emails
+from modules.hackathons.team_admin import TeamAdminService
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
 from modules.students.repository import StudentRepository
@@ -629,3 +639,222 @@ async def add_participants(
         already_have_login=len(result.already_ready),
         errors=[ParticipantError(email=e, reason=r) for e, r in result.errors],
     )
+
+
+# ---------------- organiser team and member controls ----------------
+
+
+async def _resolve_member(
+    db: AsyncSession, organization_id: uuid.UUID, hackathon, ref: MemberRef, actor: User
+) -> tuple[uuid.UUID, tuple[str, str, str] | None]:
+    """The student a MemberRef points at. A new person gets a login (and a welcome email, returned
+    for the caller to queue once the transaction is committed); someone who already has one is reused."""
+    if ref.student_id is not None:
+        return ref.student_id, None
+    email = str(ref.email).strip().lower()
+    result = await ParticipantProvisioner(db).provision(
+        organization_id, hackathon, [(ref.name or "", email, ref.phone)], created_by_user_id=actor.id
+    )
+    if result.errors:
+        raise ValidationError(result.errors[0][1])
+    student_repo = StudentRepository(db)
+    if result.created:
+        login = result.created[0]
+        student = await student_repo.get_by_user_id(login.user_id)
+        email_job = (login.email, login.full_name, login.reset_token)
+    else:  # they already had a login
+        user = await AuthRepository(db).get_user_by_email(email)
+        student = await student_repo.get_by_user_id(user.id) if user else None
+        email_job = None
+    if student is None:
+        raise ValidationError("Could not find or create that participant.")
+    return student.id, email_job
+
+
+async def _commit_and_queue(db: AsyncSession, background: BackgroundTasks, hackathon, jobs) -> None:
+    # Commit first so a link is never emailed for a change that was rolled back.
+    await db.commit()
+    jobs = [j for j in jobs if j is not None]
+    if jobs:
+        background.add_task(enqueue_welcome_emails, jobs, hackathon.title, settings.STUDENT_PORTAL_URL)
+
+
+@router.get("/{hackathon_id}/roster", response_model=list[RosterTeamPublic])
+async def team_roster(
+    hackathon_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every team with its members' names, emails and phones, and whether each has signed in."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    teams = await TeamAdminService(db).roster(hackathon_id)
+    totals = await ParticipationService(db).team_totals([t.team.id for t in teams])
+    return [
+        RosterTeamPublic(
+            id=t.team.id,
+            name=t.team.name,
+            created_at=t.team.created_at,
+            tasks_submitted=totals.get(t.team.id, (0, 0))[0],
+            total_score=totals.get(t.team.id, (0, 0))[1],
+            members=[RosterMemberPublic(**m.__dict__) for m in t.members],
+        )
+        for t in teams
+    ]
+
+
+@router.get("/{hackathon_id}/candidates", response_model=list[CandidatePublic])
+async def team_candidates(
+    hackathon_id: uuid.UUID,
+    q: str = Query(default="", max_length=100),
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """People with a login who are not in any team of this hackathon yet."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    students = await TeamAdminService(db).candidates(organization_id, hackathon_id, q)
+    return [
+        CandidatePublic(student_id=s.id, full_name=s.full_name, email=s.email, student_code=s.student_code)
+        for s in students
+    ]
+
+
+@router.post("/{hackathon_id}/teams", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+async def create_team_as_staff(
+    hackathon_id: uuid.UUID,
+    payload: TeamAdminCreateRequest,
+    background: BackgroundTasks,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    # One savepoint, so a refused team (say, a taken name) doesn't leave a freshly created login behind.
+    async with db.begin_nested():
+        student_id, job = await _resolve_member(db, organization_id, hackathon, payload.member, user)
+        await TeamAdminService(db).create_team(organization_id, hackathon, payload.name, [student_id])
+    await _commit_and_queue(db, background, hackathon, [job])
+    return MessageResponse(message="Team created.")
+
+
+@router.patch("/{hackathon_id}/teams/{team_id}", response_model=MessageResponse)
+async def rename_team(
+    hackathon_id: uuid.UUID,
+    team_id: uuid.UUID,
+    payload: TeamRenameRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    await TeamAdminService(db).rename_team(hackathon_id, team_id, payload.name)
+    return MessageResponse(message="Team renamed.")
+
+
+@router.delete("/{hackathon_id}/teams/{team_id}", response_model=MessageResponse)
+async def delete_team(
+    hackathon_id: uuid.UUID,
+    team_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a team, its members' places in it and its task submissions. Their logins are kept."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    await TeamAdminService(db).delete_team(hackathon_id, team_id)
+    return MessageResponse(message="Team deleted.")
+
+
+@router.post("/{hackathon_id}/teams/{team_id}/members", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+async def add_team_member(
+    hackathon_id: uuid.UUID,
+    team_id: uuid.UUID,
+    payload: MemberRef,
+    background: BackgroundTasks,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    async with db.begin_nested():
+        student_id, job = await _resolve_member(db, organization_id, hackathon, payload, user)
+        await TeamAdminService(db).add_member(organization_id, hackathon, team_id, student_id)
+    await _commit_and_queue(db, background, hackathon, [job])
+    return MessageResponse(message="Member added.")
+
+
+@router.delete("/{hackathon_id}/teams/{team_id}/members/{student_id}", response_model=MessageResponse)
+async def remove_team_member(
+    hackathon_id: uuid.UUID,
+    team_id: uuid.UUID,
+    student_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take someone out of a team (their login is kept; they can join or be added to another team)."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    await TeamAdminService(db).remove_member(hackathon_id, team_id, student_id)
+    return MessageResponse(message="Member removed.")
+
+
+@router.post("/{hackathon_id}/members/{student_id}/move", response_model=MessageResponse)
+async def move_team_member(
+    hackathon_id: uuid.UUID,
+    student_id: uuid.UUID,
+    payload: MemberMoveRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    team = await TeamAdminService(db).move_member(hackathon, student_id, payload.team_id)
+    return MessageResponse(message=f'Moved to "{team.name}".')
+
+
+@router.patch("/{hackathon_id}/members/{student_id}", response_model=MessageResponse)
+async def update_team_member(
+    hackathon_id: uuid.UUID,
+    student_id: uuid.UUID,
+    payload: MemberUpdateRequest,
+    background: BackgroundTasks,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Correct a participant's name, phone or login email."""
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    result = await TeamAdminService(db).update_member(
+        organization_id,
+        hackathon_id,
+        student_id,
+        payload.full_name,
+        str(payload.email) if payload.email else None,
+        payload.phone,
+        payload.send_login_link,
+        phone_given="phone" in payload.model_fields_set,
+    )
+    await _commit_and_queue(db, background, hackathon, [result.login_link])
+    if result.email_changed:
+        message = "Saved. The login now uses the new email address."
+        if result.login_link:
+            message += " A set-password link was sent to it."
+        return MessageResponse(message=message)
+    return MessageResponse(message="Saved.")
+
+
+@router.post("/{hackathon_id}/members/{student_id}/login-link", response_model=MessageResponse)
+async def send_member_login_link(
+    hackathon_id: uuid.UUID,
+    student_id: uuid.UUID,
+    background: BackgroundTasks,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Email the person a fresh set-password link."""
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    job = await TeamAdminService(db).new_login_link(organization_id, hackathon_id, student_id)
+    await _commit_and_queue(db, background, hackathon, [job])
+    return MessageResponse(message=f"A set-password link was sent to {job[0]}.")

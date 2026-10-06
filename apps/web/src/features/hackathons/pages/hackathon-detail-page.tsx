@@ -25,6 +25,7 @@ import { ProblemStatementsAdminCard } from "@/features/hackathons/components/pro
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
 import { ResubmissionCard } from "@/features/hackathons/components/resubmission-card";
 import { SubmissionsTab } from "@/features/hackathons/components/submissions-tab";
+import { TeamsTab } from "@/features/hackathons/components/teams-tab";
 import { HackathonFormDialog } from "@/features/hackathons/components/hackathon-form-dialog";
 import { HackathonStatusBadge } from "@/features/hackathons/components/hackathon-status-badge";
 import {
@@ -87,6 +88,12 @@ export function HackathonDetailPage() {
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="teams">
+            Teams
+            {(teams?.length ?? 0) > 0 && (
+              <span className="ml-2 rounded-full bg-muted px-1.5 text-xs font-semibold">{teams?.length}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="submissions">
             Submissions
             {unreviewedCount > 0 && (
@@ -231,6 +238,10 @@ export function HackathonDetailPage() {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="teams" className="mt-0">
+          <TeamsTab hackathon={hackathon} />
         </TabsContent>
 
         <TabsContent value="submissions" className="mt-0">

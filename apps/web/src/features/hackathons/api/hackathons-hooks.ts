@@ -4,6 +4,8 @@ import {
   type HackathonCreatePayload,
   type HackathonListParams,
   type HackathonUpdatePayload,
+  type MemberRef,
+  type MemberUpdatePayload,
   hackathonsApi,
 } from "@/features/hackathons/api/hackathons-api";
 import type { HackathonStatus } from "@/features/hackathons/schemas/hackathon-schemas";
@@ -39,6 +41,27 @@ export function useHackathonTeams(id: string | undefined) {
     enabled: !!id,
     // Teams form live while an event is on.
     refetchInterval: 15_000,
+  });
+}
+
+/** Every team with its members' contact details. */
+export function useRoster(id: string | undefined) {
+  return useQuery({
+    queryKey: [...hackathonsKeys.all, id ?? "", "roster"],
+    queryFn: () => hackathonsApi.roster(id as string),
+    enabled: !!id,
+    // Students form teams on their own while an event is on.
+    refetchInterval: 15_000,
+  });
+}
+
+/** People with a login who aren't in a team yet, matching what the organiser typed. */
+export function useTeamCandidates(id: string, query: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...hackathonsKeys.all, id, "candidates", query],
+    queryFn: () => hackathonsApi.candidates(id, query),
+    enabled,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -84,6 +107,50 @@ export function useChangeHackathonStatus(id: string) {
     mutationFn: (status: HackathonStatus) => hackathonsApi.changeStatus(id, status),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: hackathonsKeys.all }),
   });
+}
+
+/** The organiser's team and member controls. Each refreshes the teams, roster, leaderboard and submissions. */
+export function useTeamAdmin(hackathonId: string) {
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: [...hackathonsKeys.all, hackathonId] });
+  const mutation = <TVars>(fn: (vars: TVars) => Promise<{ message: string }>) => ({
+    mutationFn: fn,
+    onSuccess: refresh,
+  });
+  return {
+    createTeam: useMutation(
+      mutation(({ name, member }: { name: string; member: MemberRef }) =>
+        hackathonsApi.createTeam(hackathonId, name, member)
+      )
+    ),
+    renameTeam: useMutation(
+      mutation(({ teamId, name }: { teamId: string; name: string }) =>
+        hackathonsApi.renameTeam(hackathonId, teamId, name)
+      )
+    ),
+    deleteTeam: useMutation(mutation((teamId: string) => hackathonsApi.deleteTeam(hackathonId, teamId))),
+    addMember: useMutation(
+      mutation(({ teamId, member }: { teamId: string; member: MemberRef }) =>
+        hackathonsApi.addMember(hackathonId, teamId, member)
+      )
+    ),
+    removeMember: useMutation(
+      mutation(({ teamId, studentId }: { teamId: string; studentId: string }) =>
+        hackathonsApi.removeMember(hackathonId, teamId, studentId)
+      )
+    ),
+    moveMember: useMutation(
+      mutation(({ studentId, teamId }: { studentId: string; teamId: string }) =>
+        hackathonsApi.moveMember(hackathonId, studentId, teamId)
+      )
+    ),
+    updateMember: useMutation(
+      mutation(({ studentId, payload }: { studentId: string; payload: MemberUpdatePayload }) =>
+        hackathonsApi.updateMember(hackathonId, studentId, payload)
+      )
+    ),
+    sendLoginLink: useMutation(mutation((studentId: string) => hackathonsApi.sendLoginLink(hackathonId, studentId))),
+  };
 }
 
 export function useDeleteTaskSubmission(hackathonId: string) {

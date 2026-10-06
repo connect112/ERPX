@@ -309,3 +309,77 @@ class ParticipantsResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+# ---------------- organiser team and member controls ----------------
+
+
+class MemberRef(BaseModel):
+    """Someone to put in a team: an existing participant (by id), or a new person by
+    name and email (a login is created for them if they don't have one)."""
+
+    student_id: uuid.UUID | None = None
+    name: str | None = Field(default=None, max_length=255)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=32)
+
+    _trim_name = field_validator("name", mode="before")(_trimmed)
+
+    @model_validator(mode="after")
+    def _one_way_or_the_other(self):
+        if self.student_id is None and not (self.name and self.email):
+            raise ValueError("Pick a participant, or enter a name and an email.")
+        return self
+
+
+class TeamAdminCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    member: MemberRef  # the team's first member
+
+    _trim_name = field_validator("name", mode="before")(_trimmed)
+
+
+class TeamRenameRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+    _trim_name = field_validator("name", mode="before")(_trimmed)
+
+
+class MemberMoveRequest(BaseModel):
+    team_id: uuid.UUID
+
+
+class MemberUpdateRequest(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=32)
+    # After an email change, send the new address a fresh set-password link.
+    send_login_link: bool = True
+
+    _trim_name = field_validator("full_name", mode="before")(_trimmed)
+
+
+class RosterMemberPublic(BaseModel):
+    student_id: uuid.UUID
+    full_name: str
+    email: str | None
+    phone: str | None
+    joined_at: datetime
+    has_logged_in: bool
+    is_creator: bool
+
+
+class RosterTeamPublic(BaseModel):
+    id: uuid.UUID
+    name: str
+    created_at: datetime
+    tasks_submitted: int = 0
+    total_score: int = 0
+    members: list[RosterMemberPublic]
+
+
+class CandidatePublic(BaseModel):
+    student_id: uuid.UUID
+    full_name: str
+    email: str | None
+    student_code: str

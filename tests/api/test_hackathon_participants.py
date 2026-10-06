@@ -738,3 +738,193 @@ async def test_staff_can_delete_a_submission_and_the_team_can_submit_that_task_a
     fresh = await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/3"}, headers=asha)
     assert fresh.status_code == 200 and fresh.json()["resubmission_count"] == 0  # a clean slate
     assert fresh.json()["score"] is None
+
+
+# ---------------- organiser team and member controls ----------------
+
+
+def _members_of(roster, team_name):
+    team = next(t for t in roster if t["name"] == team_name)
+    return {m["email"]: m for m in team["members"]}
+
+
+async def _roster(client, auth_headers, hackathon):
+    r = await client.get(f"{_HACK}/{hackathon['id']}/roster", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def test_roster_shows_every_member_with_contact_details(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com")])  # a login, never signed in, no team
+    roster = await _roster(client, auth_headers, hackathon)
+    assert [t["name"] for t in roster] == ["Red Team"]
+    members = _members_of(roster, "Red Team")
+    assert set(members) == {"asha@example.com", "ravi@example.com"}
+    assert members["asha@example.com"]["is_creator"] is True and members["ravi@example.com"]["is_creator"] is False
+    assert members["asha@example.com"]["has_logged_in"] is True
+
+    # People who aren't in a team yet are offered when adding members (searchable), those in a team are not.
+    found = (await client.get(f"{_HACK}/{hackathon['id']}/candidates", params={"q": "meena"}, headers=auth_headers)).json()
+    assert [c["email"] for c in found] == ["meena@example.com"]
+    everyone = (await client.get(f"{_HACK}/{hackathon['id']}/candidates", headers=auth_headers)).json()
+    assert "asha@example.com" not in [c["email"] for c in everyone]
+    # A participant can't use any of this.
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/roster", headers=asha)).status_code == 403
+    assert (await client.delete(f"{_HACK}/{hackathon['id']}/teams/{team['id']}", headers=asha)).status_code == 403
+
+
+async def test_staff_can_rename_create_and_delete_teams(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    base = f"{_HACK}/{hackathon['id']}/teams"
+
+    assert (await client.patch(f"{base}/{team['id']}", json={"name": "  Crimson   Team "}, headers=auth_headers)).status_code == 200
+    assert [t["name"] for t in await _roster(client, auth_headers, hackathon)] == ["Crimson Team"]
+    assert (await client.patch(f"{base}/{team['id']}", json={"name": "   "}, headers=auth_headers)).status_code == 422
+
+    # A new team made by staff, led by a brand-new person (they get a login and a welcome email).
+    sent_emails.clear()
+    made = await client.post(
+        base, json={"name": "Blue Team", "member": {"name": "Kiran P", "email": "Kiran@Example.com"}}, headers=auth_headers
+    )
+    assert made.status_code == 201, made.text
+    assert [e for e, *_ in sent_emails] == ["kiran@example.com"]
+    dup = await client.post(
+        base, json={"name": "Blue Team", "member": {"name": "Z Z", "email": "zz@example.com"}}, headers=auth_headers
+    )
+    assert dup.status_code == 409 and "already exists" in dup.text
+    # ...and the failed attempt did not leave a login behind.
+    ghost = await client.get(f"{_HACK}/{hackathon['id']}/candidates", params={"q": "zz@example.com"}, headers=auth_headers)
+    assert ghost.json() == []
+    blue = next(t for t in await _roster(client, auth_headers, hackathon) if t["name"] == "Blue Team")
+    rename_clash = await client.patch(f"{base}/{blue['id']}", json={"name": "Crimson Team"}, headers=auth_headers)
+    assert rename_clash.status_code == 409
+
+    # Deleting a team removes its members' places and its submissions, but not their logins.
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "One", "marks": 10}, headers=auth_headers)).json()
+    await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/1"}, headers=asha)
+    assert (await client.delete(f"{base}/{team['id']}", headers=auth_headers)).status_code == 200
+    assert (await client.delete(f"{base}/{team['id']}", headers=auth_headers)).status_code == 404
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json() == []
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()["team_id"] is None
+    back = await client.post(f"{base}/me", json={"name": "Red Again"}, headers=asha)
+    assert back.status_code == 201  # their login still works and they can start over
+
+
+async def test_staff_can_add_remove_and_move_members_within_the_team_size(client, db_session, auth_headers, sent_emails):
+    hackathon, red, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails, max_team_size=2)
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com"), ("Kiran P", "kiran@example.com")])
+    tokens = {e: t for e, _n, t in sent_emails}
+    meena = await _set_password_and_login(client, "meena@example.com", tokens["meena@example.com"])
+    blue = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Blue Team"}, headers=meena)).json()
+    candidates = (await client.get(f"{_HACK}/{hackathon['id']}/candidates", params={"q": "kiran"}, headers=auth_headers)).json()
+    kiran_id = candidates[0]["student_id"]
+    roster = await _roster(client, auth_headers, hackathon)
+    ids = {m["email"]: m["student_id"] for t in roster for m in t["members"]}
+
+    # Red is full (2 of 2): adding is refused, and the message says how to get a bigger team.
+    full = await client.post(f"{_HACK}/{hackathon['id']}/teams/{red['id']}/members", json={"student_id": kiran_id}, headers=auth_headers)
+    assert full.status_code == 422 and "maximum team size" in full.text
+    # Blue has room.
+    ok = await client.post(f"{_HACK}/{hackathon['id']}/teams/{blue['id']}/members", json={"student_id": kiran_id}, headers=auth_headers)
+    assert ok.status_code == 201, ok.text
+    again = await client.post(f"{_HACK}/{hackathon['id']}/teams/{red['id']}/members", json={"student_id": kiran_id}, headers=auth_headers)
+    assert again.status_code == 409 and "already in team" in again.text
+
+    # Moving needs room in the target team, and then the member really changes team.
+    move_full = await client.post(f"{_HACK}/{hackathon['id']}/members/{ids['ravi@example.com']}/move", json={"team_id": blue["id"]}, headers=auth_headers)
+    assert move_full.status_code == 422
+    same = await client.post(f"{_HACK}/{hackathon['id']}/members/{ids['ravi@example.com']}/move", json={"team_id": red["id"]}, headers=auth_headers)
+    assert same.status_code == 422
+    assert (await client.delete(f"{_HACK}/{hackathon['id']}/teams/{blue['id']}/members/{kiran_id}", headers=auth_headers)).status_code == 200
+    moved = await client.post(f"{_HACK}/{hackathon['id']}/members/{ids['ravi@example.com']}/move", json={"team_id": blue["id"]}, headers=auth_headers)
+    assert moved.status_code == 200, moved.text
+    roster = await _roster(client, auth_headers, hackathon)
+    assert set(_members_of(roster, "Red Team")) == {"asha@example.com"}
+    assert set(_members_of(roster, "Blue Team")) == {"meena@example.com", "ravi@example.com"}
+    # Ravi's student view follows the move; removing a member that isn't in the team is a 404.
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()["team_id"] == blue["id"]
+    assert (await client.delete(f"{_HACK}/{hackathon['id']}/teams/{red['id']}/members/{kiran_id}", headers=auth_headers)).status_code == 404
+
+    # Staff can add a brand-new person straight into a team (login + welcome email), or someone who already has a login.
+    sent_emails.clear()
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"max_team_size": 4}, headers=auth_headers)
+    fresh = await client.post(
+        f"{_HACK}/{hackathon['id']}/teams/{red['id']}/members", json={"name": "Dev Patel", "email": "dev@example.com"}, headers=auth_headers
+    )
+    assert fresh.status_code == 201 and [e for e, *_ in sent_emails] == ["dev@example.com"]
+    reuse = await client.post(
+        f"{_HACK}/{hackathon['id']}/teams/{red['id']}/members", json={"name": "Kiran P", "email": "kiran@example.com"}, headers=auth_headers
+    )
+    assert reuse.status_code == 201 and len(sent_emails) == 1  # no second login, no second email
+    assert set(_members_of(await _roster(client, auth_headers, hackathon), "Red Team")) == {
+        "asha@example.com",
+        "dev@example.com",
+        "kiran@example.com",
+    }
+    assert (await client.post(f"{_HACK}/{hackathon['id']}/teams/{red['id']}/members", json={}, headers=auth_headers)).status_code == 422
+
+
+async def test_staff_can_correct_a_members_name_phone_and_login_email(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    ids = {m["email"]: m["student_id"] for t in await _roster(client, auth_headers, hackathon) for m in t["members"]}
+    url = f"{_HACK}/{hackathon['id']}/members/{ids['asha@example.com']}"
+    old_token = next(t for e, _n, t in sent_emails if e == "asha@example.com")
+
+    # Name and phone only: no email goes out, the login is untouched.
+    sent_emails.clear()
+    r = await client.patch(url, json={"full_name": "  Asha  Rao-Iyer ", "phone": "+91 99999 11111"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    member = _members_of(await _roster(client, auth_headers, hackathon), "Red Team")["asha@example.com"]
+    assert member["full_name"] == "Asha Rao-Iyer" and member["phone"] == "+91 99999 11111"
+    assert sent_emails == []
+    assert (await client.get("/api/v1/auth/me", headers=asha)).status_code == 200  # still signed in
+
+    # Changing the email: the login moves to the new address, old sessions end, a new link goes to the new address.
+    assert (await client.patch(url, json={"email": "ravi@example.com"}, headers=auth_headers)).status_code == 409  # taken
+    changed = await client.patch(url, json={"email": "Asha.New@Example.com"}, headers=auth_headers)
+    assert changed.status_code == 200 and "new email" in changed.json()["message"]
+    assert [e for e, *_ in sent_emails] == ["asha.new@example.com"]
+    assert (await client.post("/api/v1/auth/login", json={"email": "asha@example.com", "password": "Hackathon#2026"})).status_code == 401
+    new_token = sent_emails[0][2]
+    relogin = await _set_password_and_login(client, "asha.new@example.com", new_token, password="Another#Pass2026")
+    assert (await client.get("/api/v1/auth/me", headers=relogin)).status_code == 200
+    assert "asha.new@example.com" in _members_of(await _roster(client, auth_headers, hackathon), "Red Team")
+    # The earlier set-password link (sent to the old address) no longer works.
+    dead = await client.post("/api/v1/auth/reset-password", json={"token": old_token, "new_password": "Whatever#Pass2026"})
+    assert dead.status_code in (400, 401, 422)
+
+    # Optionally skip the email; clearing the phone works; a bad address is rejected.
+    sent_emails.clear()
+    ravi_url = f"{_HACK}/{hackathon['id']}/members/{ids['ravi@example.com']}"
+    quiet = await client.patch(ravi_url, json={"email": "ravi.k@example.com", "send_login_link": False, "phone": ""}, headers=auth_headers)
+    assert quiet.status_code == 200 and sent_emails == []
+    assert (await client.patch(ravi_url, json={"email": "not-an-email"}, headers=auth_headers)).status_code == 422
+    assert (await client.patch(ravi_url, json={"full_name": "   "}, headers=auth_headers)).status_code == 422
+
+    # Re-sending a login link works for a team member.
+    link = await client.post(f"{ravi_url}/login-link", headers=auth_headers)
+    assert link.status_code == 200 and "ravi.k@example.com" in link.json()["message"]
+    assert [e for e, *_ in sent_emails] == ["ravi.k@example.com"]
+    # ...but not for someone outside this hackathon's teams.
+    assert (await client.patch(f"{_HACK}/{hackathon['id']}/members/{uuid.uuid4()}", json={"full_name": "X"}, headers=auth_headers)).status_code == 404
+
+
+async def test_an_account_with_staff_access_cannot_be_edited_through_a_team(client, db_session, auth_headers, sent_emails):
+    from sqlalchemy import select
+
+    from modules.authorization.repository import AuthorizationRepository
+    from modules.students.models import Student
+
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    ids = {m["email"]: m["student_id"] for t in await _roster(client, auth_headers, hackathon) for m in t["members"]}
+    student = (await db_session.execute(select(Student).where(Student.id == uuid.UUID(ids["ravi@example.com"])))).scalar_one()
+    repo = AuthorizationRepository(db_session)
+    role = await repo.get_role_by_slug("administrator")
+    await repo.assign_role(student.user_id, role.id, None)
+    await db_session.commit()
+
+    r = await client.patch(f"{_HACK}/{hackathon['id']}/members/{ids['ravi@example.com']}", json={"email": "boss@example.com"}, headers=auth_headers)
+    assert r.status_code == 422 and "Users" in r.text
+    # Their own team membership can still be managed (that is not changing the login).
+    assert (await client.delete(f"{_HACK}/{hackathon['id']}/teams/{team['id']}/members/{ids['ravi@example.com']}", headers=auth_headers)).status_code == 200

@@ -150,6 +150,44 @@ export interface LeaderboardBoard {
   entries: LeaderboardEntry[];
 }
 
+/** Someone to put in a team: an existing participant, or a new person (a login is created for them). */
+export type MemberRef = { student_id: string } | { name: string; email: string; phone?: string };
+
+export interface RosterMember {
+  student_id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  joined_at: string;
+  /** Whether the person has ever signed in (false = still hasn't set their password). */
+  has_logged_in: boolean;
+  is_creator: boolean;
+}
+
+export interface RosterTeam {
+  id: string;
+  name: string;
+  created_at: string;
+  tasks_submitted: number;
+  total_score: number;
+  members: RosterMember[];
+}
+
+/** A person with a login who isn't in any team of the hackathon yet. */
+export interface TeamCandidate {
+  student_id: string;
+  full_name: string;
+  email: string | null;
+  student_code: string;
+}
+
+export interface MemberUpdatePayload {
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  send_login_link?: boolean;
+}
+
 export const hackathonsApi = {
   list: (params: HackathonListParams) =>
     apiClient.get<HackathonListResponse>("/hackathons", { params }).then((r) => r.data),
@@ -166,6 +204,30 @@ export const hackathonsApi = {
     apiClient.post<HackathonPublic>(`/hackathons/${id}/status`, { status }).then((r) => r.data),
 
   listTeams: (id: string) => apiClient.get<TeamPublic[]>(`/hackathons/${id}/teams`).then((r) => r.data),
+
+  roster: (id: string) => apiClient.get<RosterTeam[]>(`/hackathons/${id}/roster`).then((r) => r.data),
+  candidates: (id: string, q: string) =>
+    apiClient.get<TeamCandidate[]>(`/hackathons/${id}/candidates`, { params: { q } }).then((r) => r.data),
+  createTeam: (id: string, name: string, member: MemberRef) =>
+    apiClient.post<{ message: string }>(`/hackathons/${id}/teams`, { name, member }).then((r) => r.data),
+  renameTeam: (id: string, teamId: string, name: string) =>
+    apiClient.patch<{ message: string }>(`/hackathons/${id}/teams/${teamId}`, { name }).then((r) => r.data),
+  deleteTeam: (id: string, teamId: string) =>
+    apiClient.delete<{ message: string }>(`/hackathons/${id}/teams/${teamId}`).then((r) => r.data),
+  addMember: (id: string, teamId: string, member: MemberRef) =>
+    apiClient.post<{ message: string }>(`/hackathons/${id}/teams/${teamId}/members`, member).then((r) => r.data),
+  removeMember: (id: string, teamId: string, studentId: string) =>
+    apiClient
+      .delete<{ message: string }>(`/hackathons/${id}/teams/${teamId}/members/${studentId}`)
+      .then((r) => r.data),
+  moveMember: (id: string, studentId: string, teamId: string) =>
+    apiClient
+      .post<{ message: string }>(`/hackathons/${id}/members/${studentId}/move`, { team_id: teamId })
+      .then((r) => r.data),
+  updateMember: (id: string, studentId: string, payload: MemberUpdatePayload) =>
+    apiClient.patch<{ message: string }>(`/hackathons/${id}/members/${studentId}`, payload).then((r) => r.data),
+  sendLoginLink: (id: string, studentId: string) =>
+    apiClient.post<{ message: string }>(`/hackathons/${id}/members/${studentId}/login-link`).then((r) => r.data),
 
   addParticipants: (id: string, participants: { name: string; email: string }[], resendToExisting: boolean) =>
     apiClient
