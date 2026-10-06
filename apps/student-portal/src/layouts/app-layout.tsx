@@ -10,11 +10,12 @@ import {
   Megaphone,
   MessageCircle,
   Moon,
+  PartyPopper,
   Sun,
   Trophy,
 } from "lucide-react";
 import { Suspense } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { useTheme } from "@/components/theme-provider";
@@ -24,6 +25,7 @@ import { useLogout } from "@/features/auth/api/auth-hooks";
 import { useMessagingUnreadCount } from "@/features/messaging/api/messaging-hooks";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { useAuthStore } from "@/store/auth-store";
+import { PARTICIPANT_PATH_PREFIXES, useIsParticipantOnly } from "@/lib/participant-only";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -51,7 +53,9 @@ const navItems: NavItem[] = [
   { to: "/schedule", label: "My Schedule", icon: CalendarClock, end: false },
   { to: "/announcements", label: "Announcements", icon: Megaphone, end: false },
   { to: "/messages", label: "Messages", icon: MessageCircle, end: false },
-  // Workshops/Hackathons/Internships deliberately not shown here: this
+  // Hackathons are not in this list: they appear only for hackathon
+  // participant accounts (see participantNavItems). Workshops/Internships
+  // deliberately not shown here: this
   // student-portal instance serves one commercial course, and these were
   // built (with no permission gate — see the ownership-endpoint note
   // above) for a multi-program institute context where a student might
@@ -59,11 +63,18 @@ const navItems: NavItem[] = [
   // org. Not deleted — apps/web's admin pages for all three are untouched
   // — just re-add these two lines whenever a program that actually wants
   // this exists: { to: "/workshops", label: "Workshops", icon: Wrench },
-  // { to: "/hackathons", label: "Hackathons", icon: PartyPopper }, plus
-  // internships below.
+  // plus internships below.
   { to: "/placements", label: "Placements", icon: Briefcase, end: false },
   { to: "/bookmarks", label: "My Bookmarks", icon: Bookmark, end: false },
   { to: "/transcript", label: "My Transcript", icon: Award, end: false },
+];
+
+// What a hackathon participant sees, and nothing else (the router sends them
+// back here from any other page).
+const participantNavItems: NavItem[] = [
+  { to: "/hackathons", label: "Hackathons", icon: PartyPopper, end: false },
+  { to: "/hackathon-leaderboard", label: "Leaderboard", icon: Trophy, end: false },
+  { to: "/hackathon-achievements", label: "Achievements", icon: Award, end: false },
 ];
 
 function initials(name: string): string {
@@ -77,7 +88,10 @@ function initials(name: string): string {
 
 function AppSidebar() {
   const permissions = useAuthStore((s) => s.permissions);
-  const visibleItems = navItems.filter((item) => !item.permission || permissions.includes(item.permission));
+  const isParticipantOnly = useIsParticipantOnly();
+  const visibleItems = isParticipantOnly
+    ? participantNavItems
+    : navItems.filter((item) => !item.permission || permissions.includes(item.permission));
   const { data: unreadCount } = useMessagingUnreadCount();
 
   return (
@@ -154,6 +168,13 @@ function AppTopbar() {
 }
 
 export function AppLayout() {
+  const isParticipantOnly = useIsParticipantOnly();
+  const { pathname } = useLocation();
+  // A participant has no business on course, schedule or cyber-range pages
+  // (they would only be empty); send them to the hackathon.
+  if (isParticipantOnly && !PARTICIPANT_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    return <Navigate to="/hackathons" replace />;
+  }
   return (
     <div className="flex h-screen overflow-hidden">
       <AppSidebar />

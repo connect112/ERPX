@@ -159,3 +159,32 @@ def workshop_certificate_email(full_name: str, exam_title: str) -> tuple[str, st
     </div>
     """
     return subject, text, html
+
+
+def hackathon_participant_welcome_email(
+    full_name: str, hackathon_title: str, set_password_url: str, login_url: str
+) -> tuple[str, str, str]:
+    from html import escape
+
+    subject = f"Your login for {hackathon_title}"
+    text = (
+        f"Hi {full_name},\n\n"
+        f'You\'re registered for "{hackathon_title}". An ERPX account has been created for you.\n\n'
+        f"1. Choose your password (this link works for 3 days):\n{set_password_url}\n\n"
+        f"2. Then sign in at {login_url}, open Hackathons, and create a team "
+        f"or join one.\n\n"
+        f"If you weren't expecting this, you can ignore this email."
+    )
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>{escape(hackathon_title)}</h2>
+      <p>Hi {escape(full_name)}, you're registered and an ERPX account has been created for you.</p>
+      <p><strong>1.</strong> Choose your password (the link works for 3 days):</p>
+      <p><a href="{escape(set_password_url)}" style="background:#2563eb;color:#fff;padding:10px 20px;
+      border-radius:6px;text-decoration:none;display:inline-block">Set my password</a></p>
+      <p><strong>2.</strong> Then <a href="{escape(login_url)}">sign in</a>, open <em>Hackathons</em>,
+      and create a team or join one.</p>
+      <p style="color:#6b7280;font-size:13px">If you weren't expecting this, you can ignore this email.</p>
+    </div>
+    """
+    return subject, text, html

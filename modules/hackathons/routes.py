@@ -1,19 +1,32 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.exceptions import NotFoundError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.hackathons.models import HackathonStatus
+from modules.hackathons.participation import MAX_REPORT_BYTES, ParticipationService
 from modules.hackathons.schemas import (
+    AwardPublic,
+    ChooseProblemRequest,
     HackathonCreateRequest,
     HackathonListResponse,
     HackathonPublic,
     HackathonStatusChangeRequest,
     HackathonUpdateRequest,
+    LeaderboardBoard,
+    LeaderboardEntry,
     MessageResponse,
+    ParticipantError,
+    ParticipantsRequest,
+    ParticipantsResponse,
+    ProblemStatementInput,
+    ProblemStatementPublic,
+    ReportInfo,
     SubmissionCreateRequest,
     SubmissionGradeRequest,
     SubmissionPublic,
@@ -22,13 +35,30 @@ from modules.hackathons.schemas import (
     TeamPublic,
     TeamWithMembersPublic,
 )
+from modules.hackathons.provisioning import ParticipantProvisioner
+from modules.hackathons.repository import TeamRepository
 from modules.hackathons.service import HackathonService, SubmissionService, TeamService
+from modules.hackathons.tasks import enqueue_welcome_emails
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
 from modules.students.repository import StudentRepository
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+def _report_response(report) -> Response:
+    from urllib.parse import quote
+
+    return Response(
+        content=report.data,
+        media_type=report.content_type,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(report.filename)}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 async def _members_public(db: AsyncSession, members, organization_id: uuid.UUID) -> list[TeamMemberPublic]:
@@ -77,10 +107,123 @@ async def get_my_team(
     if not result:
         return None
     team, members = result
+    participation = ParticipationService(db)
+    team_public = TeamPublic.model_validate(team)
+    team_public.problem_statement_title = (await participation.problem_titles_by_team([team])).get(team.id)
+    report = await participation.get_report(team.id)
     return TeamWithMembersPublic(
-        team=TeamPublic.model_validate(team),
+        team=team_public,
         members=await _members_public(db, members, student.organization_id),
+        report=ReportInfo(filename=report.filename, size_bytes=report.size_bytes, uploaded_at=report.updated_at)
+        if report
+        else None,
     )
+
+
+# ---- Participant features: problem statements, report, leaderboard, achievements ----
+
+
+async def _visible_hackathon(db: AsyncSession, hackathon_id: uuid.UUID, student: Student):
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, student.organization_id)
+    if hackathon.status in (HackathonStatus.DRAFT, HackathonStatus.CANCELLED):
+        raise NotFoundError("Hackathon", hackathon_id)
+    return hackathon
+
+
+@router.get("/leaderboard/me", response_model=list[LeaderboardBoard])
+async def my_leaderboards(
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """Team rankings for every running or finished hackathon in the org.
+    Scores stay hidden until the organiser publishes them."""
+    hackathons = []
+    for status_value in (HackathonStatus.REGISTRATION_OPEN, HackathonStatus.ONGOING, HackathonStatus.COMPLETED):
+        items, _total = await HackathonService(db).list_hackathons(
+            student.organization_id, status=status_value, skip=0, limit=100
+        )
+        hackathons.extend(items)
+    participation = ParticipationService(db)
+    boards = []
+    for hackathon in hackathons:
+        entries = []
+        if hackathon.leaderboard_visible:
+            entries = [
+                LeaderboardEntry(
+                    rank=r.rank, team_name=r.team_name, score=r.score, project_title=r.project_title, members=r.members
+                )
+                for r in await participation.leaderboard(hackathon)
+            ]
+        boards.append(
+            LeaderboardBoard(
+                hackathon_id=hackathon.id,
+                hackathon_title=hackathon.title,
+                published=hackathon.leaderboard_visible,
+                entries=entries,
+            )
+        )
+    return boards
+
+
+@router.get("/achievements/me", response_model=list[AwardPublic])
+async def my_achievements(
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    awards = await ParticipationService(db).achievements_for(student)
+    return [AwardPublic(**a.__dict__) for a in awards]
+
+
+@router.get("/{hackathon_id}/problem-statements/me", response_model=list[ProblemStatementPublic])
+async def list_problem_statements_for_me(
+    hackathon_id: uuid.UUID,
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    await _visible_hackathon(db, hackathon_id, student)
+    items = await ParticipationService(db).list_problem_statements(hackathon_id)
+    return [ProblemStatementPublic.model_validate(i) for i in items]
+
+
+@router.put("/{hackathon_id}/teams/me/problem-statement", response_model=TeamPublic)
+async def choose_my_problem_statement(
+    hackathon_id: uuid.UUID,
+    payload: ChooseProblemRequest,
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    hackathon = await _visible_hackathon(db, hackathon_id, student)
+    participation = ParticipationService(db)
+    team = await participation.choose_problem(hackathon, student, payload.problem_statement_id)
+    out = TeamPublic.model_validate(team)
+    out.problem_statement_title = (await participation.problem_titles_by_team([team])).get(team.id)
+    return out
+
+
+@router.put("/{hackathon_id}/teams/me/report", response_model=ReportInfo)
+async def upload_my_team_report(
+    hackathon_id: uuid.UUID,
+    file: UploadFile = File(...),
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    hackathon = await _visible_hackathon(db, hackathon_id, student)
+    data = await file.read(MAX_REPORT_BYTES + 1)
+    report = await ParticipationService(db).save_report(hackathon, student, file.filename or "report", data)
+    return ReportInfo(filename=report.filename, size_bytes=report.size_bytes, uploaded_at=report.updated_at)
+
+
+@router.get("/{hackathon_id}/teams/me/report/download")
+async def download_my_team_report(
+    hackathon_id: uuid.UUID,
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    hackathon = await _visible_hackathon(db, hackathon_id, student)
+    _team, report = await ParticipationService(db).my_report(hackathon, student)
+    if report is None:
+        raise NotFoundError("Report")
+    return _report_response(report)
 
 
 @router.post("/{hackathon_id}/teams/me", response_model=TeamPublic, status_code=status.HTTP_201_CREATED)
@@ -103,7 +246,15 @@ async def browse_teams(
 ):
     service = TeamService(db)
     teams = await service.list_teams(hackathon_id, student.organization_id)
-    return [TeamPublic.model_validate(t) for t in teams]
+    # Students see how full each team is (so they don't try a full one),
+    # but not who is in other teams.
+    names = await service.members_by_team(teams, student.organization_id)
+    out = []
+    for team in teams:
+        item = TeamPublic.model_validate(team)
+        item.member_count = len(names[team.id])
+        out.append(item)
+    return out
 
 
 @router.post("/{hackathon_id}/teams/{team_id}/join/me", response_model=TeamMemberPublic)
@@ -249,7 +400,133 @@ async def list_teams(
 ):
     service = TeamService(db)
     teams = await service.list_teams(hackathon_id, organization_id)
-    return [TeamPublic.model_validate(t) for t in teams]
+    names = await service.members_by_team(teams, organization_id)
+    participation = ParticipationService(db)
+    reports = await participation.report_info_by_team([t.id for t in teams])
+    problems = await participation.problem_titles_by_team(teams)
+    out = []
+    for team in teams:
+        item = TeamPublic.model_validate(team)
+        item.member_names = names[team.id]
+        item.member_count = len(item.member_names)
+        item.problem_statement_title = problems.get(team.id)
+        if team.id in reports:
+            item.has_report, item.report_filename = True, reports[team.id][0]
+        out.append(item)
+    return out
+
+
+@router.get("/{hackathon_id}/teams/{team_id}/report")
+async def download_team_report(
+    hackathon_id: uuid.UUID,
+    team_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    team = await TeamRepository(db).get_by_id(team_id)
+    if not team or team.hackathon_id != hackathon_id:
+        raise NotFoundError("Team", team_id)
+    report = await ParticipationService(db).get_report(team_id)
+    if report is None:
+        raise NotFoundError("Report")
+    return _report_response(report)
+
+
+@router.get("/{hackathon_id}/problem-statements", response_model=list[ProblemStatementPublic])
+async def list_problem_statements(
+    hackathon_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    items = await ParticipationService(db).list_problem_statements(hackathon_id)
+    return [ProblemStatementPublic.model_validate(i) for i in items]
+
+
+@router.post(
+    "/{hackathon_id}/problem-statements", response_model=ProblemStatementPublic, status_code=status.HTTP_201_CREATED
+)
+async def add_problem_statement(
+    hackathon_id: uuid.UUID,
+    payload: ProblemStatementInput,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    item = await ParticipationService(db).add_problem_statement(hackathon_id, payload.title, payload.description)
+    return ProblemStatementPublic.model_validate(item)
+
+
+@router.put("/{hackathon_id}/problem-statements/{statement_id}", response_model=ProblemStatementPublic)
+async def update_problem_statement(
+    hackathon_id: uuid.UUID,
+    statement_id: uuid.UUID,
+    payload: ProblemStatementInput,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    item = await ParticipationService(db).update_problem_statement(
+        hackathon_id, statement_id, payload.title, payload.description
+    )
+    return ProblemStatementPublic.model_validate(item)
+
+
+@router.delete("/{hackathon_id}/problem-statements/{statement_id}", response_model=MessageResponse)
+async def delete_problem_statement(
+    hackathon_id: uuid.UUID,
+    statement_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    await ParticipationService(db).delete_problem_statement(hackathon_id, statement_id)
+    return MessageResponse(message="Problem statement deleted.")
+
+
+@router.post("/{hackathon_id}/participants", response_model=ParticipantsResponse)
+async def add_participants(
+    hackathon_id: uuid.UUID,
+    payload: ParticipantsRequest,
+    background: BackgroundTasks,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a student login for every pasted name+email and email each
+    person a set-password link. Accounts that already exist as students are
+    left alone (they can already take part)."""
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    result = await ParticipantProvisioner(db).provision(
+        organization_id,
+        hackathon,
+        [(p.name, str(p.email), p.phone) for p in payload.participants],
+        created_by_user_id=user.id,
+        resend_to_existing=payload.resend_to_existing,
+    )
+    # Commit first, then queue: a worker must never get (or a student an
+    # email with) a token for a row that was rolled back. Queueing runs after
+    # the response is sent, so a slow or unreachable broker can't hang the
+    # request (the accounts are saved either way).
+    await db.commit()
+    background.add_task(
+        enqueue_welcome_emails,
+        [(c.email, c.full_name, c.reset_token) for c in [*result.created, *result.resent]],
+        hackathon.title,
+        settings.STUDENT_PORTAL_URL,
+    )
+    return ParticipantsResponse(
+        created=len(result.created),
+        resent=len(result.resent),
+        already_have_login=len(result.already_ready),
+        errors=[ParticipantError(email=e, reason=r) for e, r in result.errors],
+    )
 
 
 @router.get("/{hackathon_id}/submissions", response_model=list[SubmissionPublic])

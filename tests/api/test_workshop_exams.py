@@ -832,3 +832,41 @@ def test_names_the_pdf_fonts_cannot_draw_never_break_or_print_boxes():
     assert printable_name("Anuraag 😀") == "Anuraag"
     assert printable_name("अनुराग शर्मा") == "Participant"  # nothing drawable: neutral fallback
     assert printable_name("   ") == "Participant"
+
+
+async def test_certificates_are_not_lost_when_the_broker_is_down_and_a_retry_works(
+    client, db_session, auth_headers, monkeypatch
+):
+    from modules.workshop_exams import routes
+
+    exam = await _open_exam(client, auth_headers)
+    tokens = await _tokens(db_session, exam["id"])
+    started = (await client.post(f"{_PUBLIC}/{tokens['asha@example.com']}/start")).json()
+    await client.post(
+        f"{_PUBLIC}/{tokens['asha@example.com']}/submit", json={"answers": _correct_answers(started["questions"])}
+    )
+    url = f"{_BASE}/{exam['id']}/certificates/send-now"
+    real = routes.enqueue_certificates
+
+    def broker_down(ids):
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr(routes, "enqueue_certificates", broker_down)
+    failed = await client.post(url, json={"include_in_progress": True}, headers=auth_headers)
+    assert failed.status_code == 503
+    # Not marked as sent: the retry below must still find the certificate to queue.
+    assert (await client.get(f"{_BASE}/{exam['id']}", headers=auth_headers)).json()["certificates_dispatched_at"] is None
+
+    monkeypatch.setattr(routes, "enqueue_certificates", real)
+    retried = await client.post(url, json={"include_in_progress": True}, headers=auth_headers)
+    assert retried.status_code == 200 and "Queued 1" in retried.json()["message"]
+
+
+def test_a_broker_outage_never_raises_out_of_the_best_effort_invite_enqueue(monkeypatch):
+    from modules.workshop_exams import tasks
+
+    def boom(*a, **kw):
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr(tasks.send_invite_task, "apply_async", boom)
+    tasks.enqueue_invite_best_effort(uuid.uuid4())  # must not raise

@@ -44,6 +44,50 @@ export function useJoinTeam(hackathonId: string) {
   });
 }
 
+export function useProblemStatements(hackathonId: string) {
+  return useQuery({
+    queryKey: ["hackathons", hackathonId, "problem-statements"],
+    queryFn: () => hackathonsApi.problemStatements(hackathonId),
+  });
+}
+
+export function useChooseProblem(hackathonId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (problemStatementId: string | null) => hackathonsApi.chooseProblem(hackathonId, problemStatementId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId, "team", "me"] });
+    },
+  });
+}
+
+export function useUploadReport(hackathonId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => hackathonsApi.uploadReport(hackathonId, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId, "team", "me"] });
+      queryClient.invalidateQueries({ queryKey: ["hackathons", "achievements"] });
+    },
+  });
+}
+
+export function useHackathonLeaderboards() {
+  return useQuery({
+    queryKey: ["hackathons", "leaderboards"],
+    queryFn: () => hackathonsApi.leaderboards(),
+    // Results get published while people are watching.
+    refetchInterval: 30_000,
+  });
+}
+
+export function useHackathonAchievements() {
+  return useQuery({
+    queryKey: ["hackathons", "achievements"],
+    queryFn: () => hackathonsApi.achievements(),
+  });
+}
+
 export function useTeamSubmission(hackathonId: string, teamId: string | undefined) {
   return useQuery({
     queryKey: ["hackathons", hackathonId, "team", teamId, "submission"],

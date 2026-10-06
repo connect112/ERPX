@@ -16,10 +16,13 @@ const MySchedulePage = lazy(() => import("@/features/schedule/pages/my-schedule-
 const PlacementsPage = lazy(() => import("@/features/placements/pages/placements-page").then((m) => ({ default: m.PlacementsPage })));
 const AnnouncementsPage = lazy(() => import("@/features/announcements/pages/announcements-page").then((m) => ({ default: m.AnnouncementsPage })));
 const MessagingPage = lazy(() => import("@/features/messaging/pages/messaging-page").then((m) => ({ default: m.MessagingPage })));
-// Workshops/Hackathons/Internships routes intentionally removed — see the
-// comment in layouts/app-layout.tsx. The feature pages themselves
-// (src/features/{workshops,hackathons,internships}) are untouched, just
-// unreferenced from this router for now.
+const HackathonsPage = lazy(() => import("@/features/hackathons/pages/hackathons-page").then((m) => ({ default: m.HackathonsPage })));
+const HackathonLeaderboardPage = lazy(() => import("@/features/hackathons/pages/hackathon-leaderboard-page").then((m) => ({ default: m.HackathonLeaderboardPage })));
+const HackathonAchievementsPage = lazy(() => import("@/features/hackathons/pages/hackathon-achievements-page").then((m) => ({ default: m.HackathonAchievementsPage })));
+const HackathonDetailPage = lazy(() => import("@/features/hackathons/pages/hackathon-detail-page").then((m) => ({ default: m.HackathonDetailPage })));
+// Workshops/Internships routes remain intentionally removed — see the
+// comment in layouts/app-layout.tsx. Hackathons are enabled for events that
+// onboard their participants as students.
 import { ProtectedRoute } from "@/router/protected-route";
 
 export const router = createBrowserRouter([
@@ -48,6 +51,10 @@ export const router = createBrowserRouter([
       { path: "placements", element: <PlacementsPage /> },
       { path: "announcements", element: <AnnouncementsPage /> },
       { path: "messages", element: <MessagingPage /> },
+      { path: "hackathons", element: <HackathonsPage /> },
+      { path: "hackathons/:hackathonId", element: <HackathonDetailPage /> },
+      { path: "hackathon-leaderboard", element: <HackathonLeaderboardPage /> },
+      { path: "hackathon-achievements", element: <HackathonAchievementsPage /> },
       {
         path: "cyber-range",
         element: (

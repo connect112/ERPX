@@ -77,7 +77,7 @@ from modules.timetable.models import TimetableEntry  # noqa: E402,F401
 from modules.live_classes.models import LiveClass  # noqa: E402,F401
 from modules.workshops.models import Workshop, WorkshopRegistration  # noqa: E402,F401
 from modules.workshop_exams.models import WorkshopExam, WorkshopExamQuestion, WorkshopExamAttendee, WorkshopExamCertificateTemplate  # noqa: E402,F401
-from modules.hackathons.models import Hackathon, Team, TeamMember, Submission  # noqa: E402,F401
+from modules.hackathons.models import Hackathon, Team, TeamMember, Submission, ProblemStatement, TeamReport  # noqa: E402,F401
 from modules.placements.models import Company, JobPosting, Application  # noqa: E402,F401
 from modules.internships.models import InternshipPosting, InternshipApplication, Internship  # noqa: E402,F401
 from modules.alumni.models import AlumniProfile, AlumniEvent, EventRegistration, JobReferral  # noqa: E402,F401
