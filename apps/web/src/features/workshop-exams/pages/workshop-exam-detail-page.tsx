@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { CertificateDesigner } from "@/features/workshop-exams/components/certificate-designer";
+import { RichText } from "@/features/workshop-exams/components/rich-text";
 import { QuestionEditor } from "@/features/workshop-exams/components/question-editor";
 import { BLANK_QUESTION } from "@/features/workshop-exams/lib/question-draft";
 import {
@@ -488,13 +489,16 @@ function QuestionsTab({ exam }: { exam: WorkshopExam }) {
           <Card key={q.id}>
             <CardContent className="space-y-2 p-4">
               <div className="flex items-start justify-between gap-2">
-                <p className="font-medium">
-                  {i + 1}. {q.text}
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                <div className="min-w-0">
+                  <div className="flex gap-1.5 font-medium">
+                    <span className="shrink-0">{i + 1}.</span>
+                    <RichText text={q.text} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
                     {q.marks} mark{q.marks === 1 ? "" : "s"}
                     {q.allow_multiple && " · several correct"}
-                  </span>
-                </p>
+                  </p>
+                </div>
                 {!locked && (
                   <div className="flex shrink-0 gap-1">
                     <Button size="sm" variant="ghost" onClick={() => setEditingId(q.id)}>
@@ -518,10 +522,10 @@ function QuestionsTab({ exam }: { exam: WorkshopExam }) {
                   return (
                     <li
                       key={oi}
-                      className={`flex items-center gap-2 ${correct ? "font-medium text-emerald-700" : "text-muted-foreground"}`}
+                      className={`flex items-start gap-2 ${correct ? "font-medium text-emerald-700" : "text-muted-foreground"}`}
                     >
-                      {correct ? <Check className="h-4 w-4" /> : <X className="h-4 w-4 opacity-30" />}
-                      {o}
+                      {correct ? <Check className="mt-0.5 h-4 w-4 shrink-0" /> : <X className="mt-0.5 h-4 w-4 shrink-0 opacity-30" />}
+                      <RichText text={o} />
                     </li>
                   );
                 })}
@@ -567,8 +571,11 @@ function QuestionsTab({ exam }: { exam: WorkshopExam }) {
           <CardHeader>
             <CardTitle className="text-base">Paste many questions</CardTitle>
             <CardDescription>
-              One block per question, blank line between blocks. First line is the question, then one option per
-              line with a * in front of each correct one (several * = pick-all-that-apply).
+              Paste your questions as they are. Number each one (Q1., 2.), write the options as A. B. C. D. (the
+              question or an option can run over several lines, e.g. code), and say which is right with a line like{" "}
+              <code>Answer: C</code> (<code>Answer: A, C</code> if several) or a * in front of the option. The preview
+              below shows exactly how each question was understood. The simple format also works: question on the
+              first line, one option per line, * on the correct ones, blank line between questions.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -576,9 +583,37 @@ function QuestionsTab({ exam }: { exam: WorkshopExam }) {
               rows={10}
               value={bulkText}
               onChange={(e) => setBulkText(e.target.value)}
-              placeholder={"What is 2 + 2?\n3\n*4\n5\n\nWhich are primes?\n*2\n*3\n4"}
+              className="font-mono text-xs"
+              placeholder={"Q1. What does this print?\nprint(1 + 1)\nA. 11\nB. 2\nAnswer: B\n\nQ2. Which are primes?\nA. 2\nB. 3\nC. 4\nAnswer: A, B"}
             />
             <p className="text-sm text-muted-foreground">{parsed.rows.length} question(s) ready</p>
+            {parsed.rows.length > 0 && (
+              <div className="max-h-80 space-y-3 overflow-auto rounded-md border bg-muted/30 p-3">
+                {parsed.rows.map((q, qi) => (
+                  <div key={qi} className="text-sm">
+                    <div className="flex gap-1.5 font-medium">
+                      <span className="shrink-0">{qi + 1}.</span>
+                      <RichText text={q.text} />
+                    </div>
+                    <ul className="mt-1 space-y-1">
+                      {q.options.map((o, oi) => {
+                        const right = q.correct_indices.includes(oi);
+                        return (
+                          <li
+                            key={oi}
+                            className={`flex items-start gap-2 ${right ? "font-medium text-emerald-700" : "text-muted-foreground"}`}
+                          >
+                            <span className="w-4 shrink-0">{String.fromCharCode(65 + oi)}.</span>
+                            <RichText text={o} />
+                            {right && <Check className="mt-0.5 h-4 w-4 shrink-0" />}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
             {parsed.errors.length > 0 && (
               <ul className="max-h-24 overflow-auto text-sm text-destructive">
                 {parsed.errors.map((e) => (

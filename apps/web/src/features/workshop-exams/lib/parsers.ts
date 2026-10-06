@@ -38,79 +38,185 @@ export function parseAttendees(text: string): ParseResult<AttendeeInput> {
   return { rows, errors };
 }
 
-const OPTION_LABEL_RE = /^(?:[A-Za-z]|\d{1,2})[).:]\s+/;
+// A line that starts a numbered question: "Q18.", "Q 18)", "Question 3:", "7."
+const QUESTION_START_RE = /^\s*(?:Q(?:uestion)?\s*)?\d+\s*[.):]\s+\S/i;
+const QUESTION_PREFIX_RE = /^\s*(?:Q(?:uestion)?\s*)?\d+\s*[.):]\s*/i;
+// An option label: "A.", "A)", "(A)", optionally preceded by a star marking it correct.
+const OPTION_LABEL_RE = /^\s*(\*\s*)?\(?([A-Ha-h])[.)]\s+(\*\s*)?(.*)$/;
+// "Answer: C", "Answers: A, C", "Correct answer: B", "Ans - D"
+const ANSWER_LINE_RE = /^\s*(?:correct\s+)?(?:answers?|ans)\s*[:=-]\s*(.+?)\s*$/i;
+const LEGACY_LABEL_RE = /^(?:[A-Za-z]|\d{1,2})[).:]\s+/;
+
+const MAX_OPTIONS = 8;
+
+/** Trim blank lines off both ends and trailing spaces off every line, keeping indentation. */
+function tidy(lines: string[]): string {
+  const cleaned = lines.map((l) => l.replace(/\s+$/, ""));
+  while (cleaned.length && !cleaned[0].trim()) cleaned.shift();
+  while (cleaned.length && !cleaned[cleaned.length - 1].trim()) cleaned.pop();
+  return cleaned.join("\n");
+}
 
 /**
- * Questions separated by a blank line. First line is the question, each
- * following line an option, with a leading "*" on each correct one (more
- * than one star = a question where several answers must be picked):
- *
- *   What is 2 + 2?
- *   3
- *   *4
- *   5
+ * Split pasted text into one chunk of lines per question. If any line looks like
+ * a numbered question start ("Q1.", "2)") those lines are the boundaries, so a
+ * question may contain blank lines (e.g. a code block). Otherwise questions are
+ * separated by blank lines, as in the simple format.
  */
-export function parseQuestions(text: string): ParseResult<QuestionInput> {
-  const rows: QuestionInput[] = [];
-  const errors: string[] = [];
-  const blocks = text
-    .split(/\r?\n\s*\r?\n/)
-    .map((b) => b.trim())
+function splitBlocks(lines: string[]): string[][] {
+  const hasNumbering = lines.some((l) => QUESTION_START_RE.test(l));
+  const blocks: string[][] = [];
+  let current: string[] = [];
+  const flush = () => {
+    if (current.some((l) => l.trim())) blocks.push(current);
+    current = [];
+  };
+  let sawBlank = false;
+  for (const line of lines) {
+    if (hasNumbering) {
+      if (QUESTION_START_RE.test(line)) flush();
+      current.push(line);
+    } else if (!line.trim()) {
+      sawBlank = true;
+    } else {
+      if (sawBlank) flush();
+      sawBlank = false;
+      current.push(line);
+    }
+  }
+  flush();
+  return blocks;
+}
+
+function parseAnswerLetters(value: string): string[] | null {
+  const tokens = value
+    .toUpperCase()
+    .split(/[\s,;&/]+|AND/)
+    .map((t) => t.replace(/[().]/g, ""))
     .filter(Boolean);
-  blocks.forEach((block, index) => {
-    const lines = block
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
-    const label = `Question ${index + 1}`;
-    const questionText = lines[0].replace(/^(?:Q\s*\d*[).:]?|\d+[).:])\s*/i, "").trim();
-    const optionLines = lines.slice(1);
-    if (!questionText) {
-      errors.push(`${label}: missing question text`);
-      return;
+  return tokens.length > 0 && tokens.every((t) => /^[A-H]$/.test(t)) ? tokens : null;
+}
+
+/** Labelled format: question text (any number of lines), then A./B./C. options (each may span lines). */
+function parseLabelled(lines: string[], label: string): { row?: QuestionInput; error?: string } | null {
+  // The options start at the first "A." line; later labels must follow in order.
+  const firstA = lines.findIndex((l) => {
+    const m = l.match(OPTION_LABEL_RE);
+    return m && m[2].toUpperCase() === "A";
+  });
+  if (firstA < 0) return null;
+
+  const questionLines = lines.slice(0, firstA);
+  const options: string[][] = [];
+  const correct = new Set<number>();
+  let answerLetters: string[] | null = null;
+
+  for (const line of lines.slice(firstA)) {
+    const answer = line.match(ANSWER_LINE_RE);
+    if (answer && parseAnswerLetters(answer[1])) {
+      answerLetters = parseAnswerLetters(answer[1]);
+      continue;
     }
-    if (optionLines.length < 2) {
-      errors.push(`${label}: needs at least 2 options`);
-      return;
+    const m = line.match(OPTION_LABEL_RE);
+    const expected = String.fromCharCode(65 + options.length);
+    if (m && m[2].toUpperCase() === expected) {
+      options.push([m[4]]);
+      if (m[1] || m[3]) correct.add(options.length - 1);
+    } else if (options.length > 0) {
+      options[options.length - 1].push(line); // a continuation line of the current option
     }
-    if (optionLines.length > 8) {
-      errors.push(`${label}: at most 8 options`);
-      return;
+  }
+
+  const text = tidy(questionLines).replace(QUESTION_PREFIX_RE, "").trim();
+  if (!text) return { error: `${label}: missing question text` };
+  if (options.length < 2) return { error: `${label}: needs at least 2 options` };
+  if (options.length > MAX_OPTIONS) return { error: `${label}: at most ${MAX_OPTIONS} options` };
+  const optionTexts = options.map(tidy);
+  if (optionTexts.some((o) => !o)) return { error: `${label}: has a blank option` };
+
+  if (answerLetters) {
+    for (const letter of answerLetters) {
+      const index = letter.charCodeAt(0) - 65;
+      if (index >= options.length) return { error: `${label}: the answer ${letter} has no matching option` };
+      correct.add(index);
     }
-    const options: string[] = [];
-    const correct: number[] = [];
-    optionLines.forEach((optionLine, optionIndex) => {
-      // The star may come before the label ("*B) 4") or after it ("B) *4").
-      let rest = optionLine;
-      let isCorrect = false;
-      if (rest.startsWith("*")) {
-        isCorrect = true;
-        rest = rest.slice(1).trim();
-      }
-      rest = rest.replace(OPTION_LABEL_RE, "").trim();
-      if (rest.startsWith("*")) {
-        isCorrect = true;
-        rest = rest.slice(1).trim();
-      }
-      options.push(rest);
-      if (isCorrect) correct.push(optionIndex);
-    });
-    if (options.some((o) => !o)) {
-      errors.push(`${label}: has a blank option`);
-      return;
+  }
+  if (correct.size < 1) {
+    return { error: `${label}: mark the correct option with a leading * or add a line like "Answer: C"` };
+  }
+  const indices = [...correct].sort((a, b) => a - b);
+  return {
+    row: { text, options: optionTexts, correct_indices: indices, allow_multiple: indices.length > 1, marks: 1 },
+  };
+}
+
+/** Simple format: first line is the question, each following line one option. */
+function parseSimple(lines: string[], label: string): { row?: QuestionInput; error?: string } {
+  const nonBlank = lines.map((l) => l.trim()).filter(Boolean);
+  const questionText = (nonBlank[0] ?? "").replace(QUESTION_PREFIX_RE, "").trim();
+  const optionLines = nonBlank.slice(1);
+  if (!questionText) return { error: `${label}: missing question text` };
+  if (optionLines.length < 2) return { error: `${label}: needs at least 2 options` };
+  if (optionLines.length > MAX_OPTIONS) return { error: `${label}: at most ${MAX_OPTIONS} options` };
+  const options: string[] = [];
+  const correct: number[] = [];
+  optionLines.forEach((optionLine, optionIndex) => {
+    // The star may come before the label ("*B) 4") or after it ("B) *4").
+    let rest = optionLine;
+    let isCorrect = false;
+    if (rest.startsWith("*")) {
+      isCorrect = true;
+      rest = rest.slice(1).trim();
     }
-    if (correct.length < 1) {
-      errors.push(`${label}: mark the correct option with a leading *`);
-      return;
+    rest = rest.replace(LEGACY_LABEL_RE, "").trim();
+    if (rest.startsWith("*")) {
+      isCorrect = true;
+      rest = rest.slice(1).trim();
     }
-    // More than one starred option makes it a checkbox question.
-    rows.push({
+    options.push(rest);
+    if (isCorrect) correct.push(optionIndex);
+  });
+  if (options.some((o) => !o)) return { error: `${label}: has a blank option` };
+  if (correct.length < 1) return { error: `${label}: mark the correct option with a leading *` };
+  return {
+    row: {
       text: questionText,
       options,
       correct_indices: correct,
       allow_multiple: correct.length > 1,
       marks: 1,
-    });
+    },
+  };
+}
+
+/**
+ * Pasted questions. Two layouts are understood, per question:
+ *
+ * 1. Labelled (use this for code or multi-line text). The question is every
+ *    line before "A.", each option starts with its letter and may continue on
+ *    the following lines, and the correct one is marked with a leading * or an
+ *    "Answer: C" line (several letters = pick-all-that-apply):
+ *
+ *      Q1. What does this print?
+ *      print("hi")
+ *      print("there")
+ *      A. hi
+ *      B. hi
+ *         there
+ *      Answer: B
+ *
+ * 2. Simple: first line is the question, then one option per line with a
+ *    leading * on each correct one. Questions are separated by blank lines.
+ */
+export function parseQuestions(text: string): ParseResult<QuestionInput> {
+  const rows: QuestionInput[] = [];
+  const errors: string[] = [];
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.replace(/\u00a0/g, " "));
+  splitBlocks(lines).forEach((block, index) => {
+    const label = `Question ${index + 1}`;
+    const result = parseLabelled(block, label) ?? parseSimple(block, label);
+    if (result.error) errors.push(result.error);
+    else if (result.row) rows.push(result.row);
   });
   return { rows, errors };
 }

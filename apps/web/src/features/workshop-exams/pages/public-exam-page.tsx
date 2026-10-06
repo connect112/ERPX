@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { RichText } from "@/features/workshop-exams/components/rich-text";
 import {
   type PublicExamInfo,
   type PublicQuestion,
@@ -242,9 +243,10 @@ export function PublicExamPage() {
       <div className="space-y-4">
         {questions.map((q, i) => (
           <div key={q.id} className="rounded-lg border bg-card p-4">
-            <p className="font-medium">
-              {i + 1}. {q.text}
-            </p>
+            <div className="flex gap-1.5 font-medium">
+              <span className="shrink-0">{i + 1}.</span>
+              <RichText text={q.text} />
+            </div>
             {q.allow_multiple && <p className="mt-1 text-xs text-muted-foreground">Select all that apply.</p>}
             <div className="mt-3 space-y-2">
               {q.options.map((o) => {
@@ -263,7 +265,7 @@ export function PublicExamPage() {
                       checked={selected}
                       onChange={() => choose(q, o.index)}
                     />
-                    <span>{o.text}</span>
+                    <RichText text={o.text} className="flex-1" />
                   </label>
                 );
               })}
