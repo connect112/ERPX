@@ -176,8 +176,12 @@ export const workshopExamsApi = {
       .then((r) => r.data),
 
   dashboard: (id: string) => apiClient.get<Dashboard>(`/workshop-exams/${id}/dashboard`).then((r) => r.data),
-  sendCertificatesNow: (id: string) =>
-    apiClient.post<{ message: string }>(`/workshop-exams/${id}/certificates/send-now`).then((r) => r.data),
+  sendCertificatesNow: (id: string, includeInProgress = false) =>
+    apiClient
+      .post<{ message: string }>(`/workshop-exams/${id}/certificates/send-now`, {
+        include_in_progress: includeInProgress,
+      })
+      .then((r) => r.data),
   downloadResults: async (id: string) => {
     const response = await apiClient.get(`/workshop-exams/${id}/results.csv`, { responseType: "blob" });
     const url = URL.createObjectURL(response.data as Blob);

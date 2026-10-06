@@ -9,6 +9,7 @@ are only ever applied to documents their owner has explicitly approved.
 """
 
 import io
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +26,20 @@ _LOGO_PATH = Path(__file__).resolve().parents[2] / "apps" / "api" / "app" / "sta
 _INK = colors.HexColor("#1f2937")
 _ACCENT = colors.HexColor("#0f4c81")
 _MUTED = colors.HexColor("#6b7280")
+
+
+def printable_name(name: str) -> str:
+    """A name the built-in PDF fonts can actually draw.
+
+    Those fonts only cover Western European letters, so an accented Latin
+    name is reduced to its plain letters (Srinivasa, not boxes) and anything
+    still undrawable is dropped rather than printed as a missing-glyph box.
+    """
+    decomposed = unicodedata.normalize("NFKD", " ".join(name.split()))
+    letters = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    safe = letters.encode("cp1252", errors="ignore").decode("cp1252")
+    safe = "".join(ch for ch in safe if ch.isprintable())
+    return " ".join(safe.split()) or "Participant"
 
 
 def _fit_font_size(c: canvas.Canvas, text: str, font: str, start: float, max_width: float) -> float:
@@ -44,6 +59,7 @@ def build_certificate_pdf(
     certificate_number: str,
     verify_url: str,
 ) -> bytes:
+    attendee_name = printable_name(attendee_name)
     buffer = io.BytesIO()
     width, height = landscape(A4)
     c = canvas.Canvas(buffer, pagesize=(width, height))

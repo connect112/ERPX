@@ -183,7 +183,9 @@ async def test_certificates_go_to_everyone_who_wrote_the_exam_only(client, db_se
         f"{_PUBLIC}/{tokens['ravi@example.com']}/answers", json={"answers": _correct_answers(ravi["questions"])}
     )
 
-    resp = await client.post(f"{_BASE}/{exam['id']}/certificates/send-now", headers=auth_headers)
+    resp = await client.post(
+        f"{_BASE}/{exam['id']}/certificates/send-now", json={"include_in_progress": True}, headers=auth_headers
+    )
     assert resp.status_code == 200, resp.text
     assert "Queued 2" in resp.json()["message"]
 
@@ -684,3 +686,149 @@ async def test_real_certificates_use_the_uploaded_design_with_each_students_name
     # Once certificates have gone out, the design is frozen.
     locked = await _upload_template(client, auth_headers, exam["id"])
     assert locked.status_code == 422 and "already been sent" in locked.text
+
+
+# ---------------- hardening: races, mid-exam dispatch, resend flood, odd names ----------------
+
+
+async def _set_started_minutes_ago(db_session, token, minutes):
+    attendee = (
+        await db_session.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.access_token == token))
+    ).scalar_one()
+    attendee.started_at = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    await db_session.flush()
+    return attendee
+
+
+async def test_send_now_never_cuts_off_someone_still_writing_unless_told_to(client, db_session, auth_headers):
+    exam = await _open_exam(client, auth_headers)
+    tokens = await _tokens(db_session, exam["id"])
+    started = (await client.post(f"{_PUBLIC}/{tokens['ravi@example.com']}/start")).json()
+    await client.put(
+        f"{_PUBLIC}/{tokens['ravi@example.com']}/answers", json={"answers": _correct_answers(started["questions"])}
+    )
+    url = f"{_BASE}/{exam['id']}/certificates/send-now"
+
+    refused = await client.post(url, headers=auth_headers)
+    assert refused.status_code == 409 and "still writing" in refused.text
+    after = (await client.get(f"{_PUBLIC}/{tokens['ravi@example.com']}", headers=auth_headers)).json()
+    assert after["state"] == "in_progress"  # untouched
+    detail = (await client.get(f"{_BASE}/{exam['id']}", headers=auth_headers)).json()
+    assert detail["certificates_dispatched_at"] is None and detail["status"] == "open"
+
+    forced = await client.post(url, json={"include_in_progress": True}, headers=auth_headers)
+    assert forced.status_code == 200 and "Queued 1" in forced.json()["message"]
+    # Sending closes the exam so a late starter can't miss out silently.
+    assert (await client.get(f"{_BASE}/{exam['id']}", headers=auth_headers)).json()["status"] == "closed"
+    assert (await client.post(f"{_PUBLIC}/{tokens['asha@example.com']}/start")).status_code == 422
+
+
+async def test_scheduled_dispatch_waits_for_writers_then_sends_after_their_timer(
+    client, db_session, auth_headers, monkeypatch
+):
+    from contextlib import asynccontextmanager
+
+    from modules.workshop_exams import tasks
+
+    @asynccontextmanager
+    async def _same_session():
+        yield db_session
+
+    monkeypatch.setattr(tasks, "get_db_context", _same_session)
+    queued = []
+    monkeypatch.setattr(tasks, "enqueue_certificates", lambda ids: queued.extend(ids))
+
+    exam = await _open_exam(client, auth_headers)
+    tokens = await _tokens(db_session, exam["id"])
+    started = (await client.post(f"{_PUBLIC}/{tokens['ravi@example.com']}/start")).json()
+    await client.put(
+        f"{_PUBLIC}/{tokens['ravi@example.com']}/answers", json={"answers": _correct_answers(started["questions"])}
+    )
+    past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    await client.patch(f"{_BASE}/{exam['id']}", json={"certificate_release_at": past}, headers=auth_headers)
+
+    assert await tasks._dispatch_due() == 0  # Ravi still has time: nothing is sent or cut short
+    assert queued == []
+    assert (await client.get(f"{_BASE}/{exam['id']}", headers=auth_headers)).json()["certificates_dispatched_at"] is None
+
+    await _set_started_minutes_ago(db_session, tokens["ravi@example.com"], 120)  # his timer has now run out
+    assert await tasks._dispatch_due() == 1
+    assert len(queued) == 1
+    assert (await client.get(f"{_BASE}/{exam['id']}", headers=auth_headers)).json()["certificates_dispatched_at"]
+
+
+async def test_dashboard_scores_abandoned_attempts_once_their_timer_expires(client, db_session, auth_headers):
+    exam = await _open_exam(client, auth_headers)
+    tokens = await _tokens(db_session, exam["id"])
+    started = (await client.post(f"{_PUBLIC}/{tokens['ravi@example.com']}/start")).json()
+    await client.put(
+        f"{_PUBLIC}/{tokens['ravi@example.com']}/answers", json={"answers": _correct_answers(started["questions"])}
+    )
+    live = (await client.get(f"{_BASE}/{exam['id']}/dashboard", headers=auth_headers)).json()
+    assert live["in_progress"] == 1 and live["submitted"] == 0
+
+    await _set_started_minutes_ago(db_session, tokens["ravi@example.com"], 120)
+    done = (await client.get(f"{_BASE}/{exam['id']}/dashboard", headers=auth_headers)).json()
+    assert done["in_progress"] == 0 and done["submitted"] == 1
+    ravi = next(a for a in done["attendees"] if a["email"] == "ravi@example.com")
+    assert ravi["score"] == ravi["total_marks"] and ravi["score"] > 0
+
+
+async def test_losing_a_double_tap_race_on_registration_is_not_an_error(client, db_session, auth_headers, monkeypatch):
+    from modules.workshop_exams.service import WorkshopExamService
+
+    exam = await _create_join_exam(client, auth_headers)
+    await client.post(f"{_BASE}/{exam['id']}/status", json={"status": "open"}, headers=auth_headers)
+    body = {"name": "Asha", "email": "race@example.com", "info": {"college": "ABC", "year": "1st"}}
+    first = await client.post(f"{_JOIN}/{exam['public_code']}/register", json=body)
+    assert first.status_code == 200 and first.json()["token"]
+
+    # The second request's "already there?" check ran before the first one's
+    # insert became visible, so it only meets the unique constraint.
+    real = WorkshopExamService._find_by_email
+    calls = {"n": 0}
+
+    async def blind_once(self, exam_id, email):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else await real(self, exam_id, email)
+
+    monkeypatch.setattr(WorkshopExamService, "_find_by_email", blind_once)
+    second = await client.post(f"{_JOIN}/{exam['public_code']}/register", json=body)
+    assert second.status_code == 200, second.text
+    assert second.json() == {"token": None, "already_registered": True}
+
+
+async def test_the_personal_link_is_not_re_emailed_in_a_flood(client, db_session, auth_headers, monkeypatch):
+    from modules.workshop_exams import routes
+
+    queued = []
+    monkeypatch.setattr(routes, "enqueue_invite_best_effort", lambda attendee_id: queued.append(attendee_id))
+    exam = await _create_join_exam(client, auth_headers)
+    await client.post(f"{_BASE}/{exam['id']}/status", json={"status": "open"}, headers=auth_headers)
+    body = {"name": "Asha", "email": "flood@example.com", "info": {"college": "ABC", "year": "1st"}}
+    url = f"{_JOIN}/{exam['public_code']}/register"
+
+    assert (await client.post(url, json=body)).json()["token"]
+    assert len(queued) == 1  # the backup copy at registration
+    for _ in range(5):
+        assert (await client.post(url, json=body)).json()["already_registered"] is True
+    assert len(queued) == 1  # repeats inside the cooldown send nothing more
+
+    attendee = (
+        await db_session.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.email == "flood@example.com"))
+    ).scalar_one()
+    attendee.invited_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    await db_session.flush()
+    assert (await client.post(url, json=body)).json()["already_registered"] is True
+    assert len(queued) == 2  # a genuine retry later does get the link again
+
+
+def test_names_the_pdf_fonts_cannot_draw_never_break_or_print_boxes():
+    from modules.workshop_exams.certificate_pdf import printable_name
+
+    assert printable_name("Śrīnivāsa  Ṛṣi") == "Srinivasa Rsi"
+    assert printable_name("José Müller") == "Jose Muller"
+    assert printable_name("O'Brien-Smith") == "O'Brien-Smith"
+    assert printable_name("Anuraag 😀") == "Anuraag"
+    assert printable_name("अनुराग शर्मा") == "Participant"  # nothing drawable: neutral fallback
+    assert printable_name("   ") == "Participant"

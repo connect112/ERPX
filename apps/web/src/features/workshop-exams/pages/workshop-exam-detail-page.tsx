@@ -163,8 +163,17 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
     refetchInterval: exam.status === "open" ? 5000 : false,
   });
   const sendNow = useMutation({
-    mutationFn: () => workshopExamsApi.sendCertificatesNow(exam.id),
+    mutationFn: (includeInProgress: boolean) => workshopExamsApi.sendCertificatesNow(exam.id, includeInProgress),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workshop-exams"] }),
+    onError: (error) => {
+      // 409 = some students are still inside their time limit. Never cut them
+      // off silently: let the admin decide.
+      if ((error as { response?: { status?: number } })?.response?.status !== 409) return;
+      const reason = errorMessage(error, "Some students are still writing.");
+      if (window.confirm(`${reason}\n\nSend now anyway? Their exams will be submitted as they stand.`)) {
+        sendNow.mutate(true);
+      }
+    },
   });
 
   const stats = [
@@ -198,13 +207,23 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
           variant="outline"
           disabled={sendNow.isPending || (data?.submitted ?? 0) + (data?.in_progress ?? 0) === 0}
           onClick={() => {
-            if (window.confirm("Send certificates now to everyone who has written the exam?")) sendNow.mutate();
+            if (
+              window.confirm(
+                "Send certificates now to everyone who has written the exam? This also closes the exam, so nobody can start it afterwards."
+              )
+            )
+              sendNow.mutate(false);
           }}
         >
           <Send className="h-4 w-4" />
           Send certificates now
         </Button>
         {sendNow.isSuccess && <span className="self-center text-sm text-muted-foreground">{sendNow.data.message}</span>}
+        {sendNow.isError && (sendNow.error as { response?: { status?: number } })?.response?.status !== 409 && (
+          <span className="self-center text-sm text-destructive">
+            {errorMessage(sendNow.error, "Could not send certificates.")}
+          </span>
+        )}
       </div>
 
       <Card>

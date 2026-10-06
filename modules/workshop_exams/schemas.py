@@ -85,6 +85,11 @@ class ExamUpdateRequest(BaseModel):
         return _validate_info_fields(v) if v is not None else v
 
 
+class SendCertificatesRequest(BaseModel):
+    # Submit students who are still inside their time limit as they stand.
+    include_in_progress: bool = False
+
+
 class CertificatePreviewRequest(BaseModel):
     # Omitted = use the saved layout; sent = preview an unsaved one.
     layout: CertificateLayout | None = None

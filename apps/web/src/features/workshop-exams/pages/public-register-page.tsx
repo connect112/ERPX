@@ -60,7 +60,8 @@ export function PublicRegisterPage() {
       <div className="rounded-lg border bg-card p-8 text-center">
         <h1 className="text-xl font-semibold">You're already registered</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          We've emailed your personal exam link to {email.trim().toLowerCase()} again. Open it to continue.
+          Your personal exam link was sent to {email.trim().toLowerCase()}. Open it from your inbox (check spam too)
+          to continue. If it isn't there in a couple of minutes, ask the organiser.
         </p>
       </div>
     );
@@ -110,7 +111,7 @@ export function PublicRegisterPage() {
       {join.state === "open" && (
         <>
           <div className="space-y-2">
-            <Label htmlFor="r-name">Full name *</Label>
+            <Label htmlFor="r-name">Full name * (in English letters, exactly as it should appear on your certificate)</Label>
             <Input id="r-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
           </div>
           <div className="space-y-2">

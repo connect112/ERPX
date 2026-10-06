@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.core.celery_app import celery_app
+from app.core.exceptions import ConflictError
 from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
@@ -154,7 +155,13 @@ async def _dispatch_due() -> int:
     async with get_db_context() as db:
         service = WorkshopExamService(db)
         for exam in await service.due_exams():
-            ids = await service.dispatch_certificates(exam)
+            try:
+                ids = await service.dispatch_certificates(exam)
+            except ConflictError:
+                # Someone is still inside their time limit; the next 5-minute
+                # run tries again once they have finished.
+                logger.info("workshop_certificates_waiting_for_writers", exam_id=str(exam.id))
+                continue
             queued += len(ids)
             logger.info("workshop_certificates_dispatched", exam_id=str(exam.id), count=len(ids))
             # Persist the certificate numbers before queueing the sends

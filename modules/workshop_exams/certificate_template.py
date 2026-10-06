@@ -20,6 +20,8 @@ from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
+from modules.workshop_exams.certificate_pdf import printable_name
+
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 # Longest side kept on file. Plenty for an A4 print, and keeps each of 200
 # emailed PDFs under ~1 MB.
@@ -101,6 +103,7 @@ def build_templated_certificate_pdf(
     certificate_number: str,
     verify_url: str,
 ) -> bytes:
+    attendee_name = printable_name(attendee_name)
     # Page keeps the artwork's own proportions, A4-sized along its long edge.
     if width_px >= height_px:
         page_w, page_h = _PAGE_LONG_SIDE_PT, _PAGE_LONG_SIDE_PT * height_px / width_px

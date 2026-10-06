@@ -51,6 +51,7 @@ from modules.workshop_exams.schemas import (
     QuestionsAddRequest,
     RegisterRequest,
     RegisterResponse,
+    SendCertificatesRequest,
 )
 from modules.workshop_exams.service import WorkshopExamService
 from modules.workshop_exams.tasks import enqueue_certificates, enqueue_invite_best_effort, enqueue_invites
@@ -416,16 +417,19 @@ def _csv_safe(value: str) -> str:
 @router.post("/{exam_id}/certificates/send-now", response_model=MessageResponse)
 async def send_certificates_now(
     exam_id: uuid.UUID,
+    payload: SendCertificatesRequest | None = None,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("workshops.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
     exam = await service.get_exam(exam_id, organization_id)
-    ids = await service.dispatch_certificates(exam)
+    ids = await service.dispatch_certificates(
+        exam, include_in_progress=bool(payload and payload.include_in_progress)
+    )
     await db.commit()
     enqueue_certificates(ids)
-    return MessageResponse(message=f"Queued {len(ids)} certificate email(s).")
+    return MessageResponse(message=f"Queued {len(ids)} certificate email(s). The exam is now closed.")
 
 
 # ---------------- public: attendee flow (token = credential) ----------------
