@@ -4,13 +4,16 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
+from modules.workshop_exams.certificate_template import CertificateLayout
 from modules.workshop_exams.models import (
     WorkshopExam,
     WorkshopExamAttendee,
+    WorkshopExamCertificateTemplate,
     WorkshopExamQuestion,
     WorkshopExamStatus,
 )
@@ -20,6 +23,10 @@ logger = get_logger(__name__)
 # A submit that lands a few seconds after the timer hit zero (slow wifi,
 # a request already in flight) is still accepted rather than discarded.
 _SUBMIT_GRACE = timedelta(seconds=20)
+
+# A personal link is re-emailed at most this often per attendee, so the
+# public "already registered" path can't be used to flood someone's inbox.
+_RESEND_COOLDOWN = timedelta(minutes=2)
 
 # Ceiling on registrations through the open link: a basic guard against
 # someone scripting thousands of fake sign-ups.
@@ -103,6 +110,51 @@ class WorkshopExamService:
         # the client actually sent.
         for key, value in fields.items():
             setattr(exam, key, value)
+        await self.db.flush()
+        await self.db.refresh(exam)
+        return exam
+
+    # ---------------- admin: certificate artwork ----------------
+
+    @staticmethod
+    def layout_of(exam: WorkshopExam, override: CertificateLayout | None = None) -> CertificateLayout:
+        if override is not None:
+            return override
+        return CertificateLayout.model_validate(exam.certificate_layout or {})
+
+    async def get_template(self, exam_id: uuid.UUID) -> WorkshopExamCertificateTemplate | None:
+        return (
+            await self.db.execute(
+                select(WorkshopExamCertificateTemplate).where(WorkshopExamCertificateTemplate.exam_id == exam_id)
+            )
+        ).scalar_one_or_none()
+
+    def _assert_design_editable(self, exam: WorkshopExam) -> None:
+        # Certificates are queued a couple of seconds apart; swapping the
+        # design halfway would hand out two different looks.
+        if exam.certificates_dispatched_at is not None:
+            raise ValidationError("Certificates have already been sent, so the design can't be changed.")
+
+    async def set_template(self, exam: WorkshopExam, jpeg: bytes, width_px: int, height_px: int) -> WorkshopExam:
+        self._assert_design_editable(exam)
+        row = await self.get_template(exam.id)
+        if row is None:
+            row = WorkshopExamCertificateTemplate(exam_id=exam.id)
+            self.db.add(row)
+        row.data, row.content_type, row.width_px, row.height_px = jpeg, "image/jpeg", width_px, height_px
+        exam.has_certificate_template = True
+        if exam.certificate_layout is None:
+            exam.certificate_layout = CertificateLayout().model_dump()
+        await self.db.flush()
+        await self.db.refresh(exam)
+        return exam
+
+    async def clear_template(self, exam: WorkshopExam) -> WorkshopExam:
+        self._assert_design_editable(exam)
+        row = await self.get_template(exam.id)
+        if row is not None:
+            await self.db.delete(row)
+        exam.has_certificate_template = False
         await self.db.flush()
         await self.db.refresh(exam)
         return exam
@@ -245,6 +297,9 @@ class WorkshopExamService:
         return ids
 
     async def dashboard(self, exam: WorkshopExam) -> dict:
+        # Someone who closed their tab never presses Submit; once their timer
+        # has run out their saved answers are scored so they show up here.
+        await self.finalize_expired(exam)
         attendees = await self.list_attendees(exam.id)
         submitted = [a for a in attendees if a.submitted_at is not None]
         started = [a for a in attendees if a.started_at is not None]
@@ -311,14 +366,7 @@ class WorkshopExamService:
             clean_info[field["key"]] = value
 
         email = email.strip().lower()
-        existing = (
-            await self.db.execute(
-                select(WorkshopExamAttendee).where(
-                    WorkshopExamAttendee.exam_id == exam.id, WorkshopExamAttendee.email == email
-                )
-            )
-        ).scalar_one_or_none()
-        if existing:
+        if await self._find_by_email(exam.id, email):
             return None
         _, attendee_count = await self.counts_for(exam.id)
         if attendee_count >= _MAX_ATTENDEES:
@@ -330,20 +378,38 @@ class WorkshopExamService:
             info=clean_info,
             access_token=secrets.token_urlsafe(24),
         )
-        self.db.add(attendee)
-        await self.db.flush()
+        # Two taps of "Register" (or a retry on bad wifi) can race past the
+        # check above; the unique (exam, email) constraint is the real
+        # guard, so a lost race is just "already registered", never a 500.
+        try:
+            async with self.db.begin_nested():
+                self.db.add(attendee)
+                await self.db.flush()
+        except IntegrityError:
+            return None
         return attendee
 
-    async def resend_existing_link(self, exam: WorkshopExam, email: str) -> uuid.UUID | None:
-        attendee = (
+    async def _find_by_email(self, exam_id: uuid.UUID, email: str) -> WorkshopExamAttendee | None:
+        return (
             await self.db.execute(
                 select(WorkshopExamAttendee).where(
-                    WorkshopExamAttendee.exam_id == exam.id,
-                    WorkshopExamAttendee.email == email.strip().lower(),
+                    WorkshopExamAttendee.exam_id == exam_id, WorkshopExamAttendee.email == email
                 )
             )
         ).scalar_one_or_none()
-        return attendee.id if attendee and attendee.submitted_at is None else None
+
+    async def resend_existing_link(self, exam: WorkshopExam, email: str) -> uuid.UUID | None:
+        """Id of an unsubmitted attendee whose link may be re-emailed now, or
+        None (unknown address, already submitted, or emailed moments ago)."""
+        attendee = await self._find_by_email(exam.id, email.strip().lower())
+        if attendee is None or attendee.submitted_at is not None:
+            return None
+        now = _now()
+        if attendee.invited_at is not None and now - attendee.invited_at < _RESEND_COOLDOWN:
+            return None
+        attendee.invited_at = now
+        await self.db.flush()
+        return attendee.id
 
     async def get_by_token(self, token: str) -> tuple[WorkshopExamAttendee, WorkshopExam]:
         result = await self.db.execute(
@@ -508,13 +574,50 @@ class WorkshopExamService:
             if not exists:
                 return number
 
-    async def dispatch_certificates(self, exam: WorkshopExam) -> list[uuid.UUID]:
+    def _is_writing(self, attendee: WorkshopExamAttendee, exam: WorkshopExam) -> bool:
+        """Started, not submitted, and still inside their time limit."""
+        if attendee.started_at is None or attendee.submitted_at is not None:
+            return False
+        return (self._remaining(attendee, exam) or 0) > 0
+
+    async def finalize_expired(self, exam: WorkshopExam) -> int:
+        """Score every attempt whose timer has run out without a submit."""
+        attendees = [
+            a
+            for a in await self.list_attendees(exam.id)
+            if a.started_at is not None and a.submitted_at is None and (self._remaining(a, exam) or 0) == 0
+        ]
+        if attendees:
+            questions = await self.list_questions(exam.id)
+            for attendee in attendees:
+                await self._finalize(attendee, questions)
+        return len(attendees)
+
+    async def count_writing(self, exam: WorkshopExam) -> int:
+        return sum(1 for a in await self.list_attendees(exam.id) if self._is_writing(a, exam))
+
+    async def dispatch_certificates(
+        self, exam: WorkshopExam, include_in_progress: bool = False
+    ) -> list[uuid.UUID]:
         """Everyone who actually wrote the exam gets a certificate: anyone
         who submitted, plus anyone who started but never pressed submit
-        (finalized here from their autosaved answers). Returns the
-        attendee ids whose certificate email still needs sending."""
+        (finalized here from their autosaved answers).
+
+        Someone still inside their time limit is never cut off by default:
+        that raises a ConflictError so the admin can wait, or knowingly
+        pass include_in_progress to submit them as they stand. Once
+        dispatched the exam is closed, so nobody can register or start
+        after the certificates have gone out and silently miss one.
+        Returns the attendee ids whose certificate email still needs sending."""
+        await self.finalize_expired(exam)
         attendees = await self.list_attendees(exam.id)
         questions = await self.list_questions(exam.id)
+        writing = [a for a in attendees if self._is_writing(a, exam)]
+        if writing and not include_in_progress:
+            raise ConflictError(
+                f"{len(writing)} student(s) are still writing the exam. Wait for them to finish, "
+                "or send now and submit their exams as they stand."
+            )
         pending: list[uuid.UUID] = []
         for attendee in attendees:
             if attendee.submitted_at is None and attendee.started_at is not None:
@@ -527,6 +630,8 @@ class WorkshopExamService:
             if attendee.certificate_sent_at is None:
                 pending.append(attendee.id)
         exam.certificates_dispatched_at = _now()
+        if exam.status == WorkshopExamStatus.OPEN:
+            exam.status = WorkshopExamStatus.CLOSED
         await self.db.flush()
         return pending
 
@@ -537,6 +642,8 @@ class WorkshopExamService:
                 WorkshopExam.certificate_release_at <= _now(),
                 WorkshopExam.certificates_dispatched_at.is_(None),
             )
+            # Two overlapping scheduler runs must never dispatch the same exam.
+            .with_for_update(skip_locked=True)
         )
         return list(result.scalars().all())
 

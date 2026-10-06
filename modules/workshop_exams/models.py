@@ -14,7 +14,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -71,6 +71,28 @@ class WorkshopExam(TimestampedBase):
         nullable=False,
     )
     certificate_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Admin-supplied certificate artwork (without a name). When present the
+    # emailed certificate is that image with each attendee's name printed at
+    # certificate_layout's position; the generated design is only the fallback.
+    has_certificate_template: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    certificate_layout: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class WorkshopExamCertificateTemplate(TimestampedBase):
+    """The artwork bytes, kept apart from the exam row so listing exams never
+    drags a multi-hundred-KB blob along. One row per exam."""
+
+    __tablename__ = "workshop_exam_certificate_templates"
+
+    exam_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workshop_exams.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    width_px: Mapped[int] = mapped_column(Integer, nullable=False)
+    height_px: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class WorkshopExamQuestion(TimestampedBase):
