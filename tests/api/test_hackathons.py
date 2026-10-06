@@ -164,7 +164,7 @@ async def test_student_cannot_join_two_teams_in_same_hackathon(client, db_sessio
     assert duplicate_response.status_code == 409
 
     join_own_hackathon_twice = await client.post(
-        f"/api/v1/hackathons/{hackathon['id']}/teams/{team_a['id']}/join/me", headers=headers_a
+        f"/api/v1/hackathons/{hackathon['id']}/teams/join/me", json={"code": team_a["join_code"]}, headers=headers_a
     )
     assert join_own_hackathon_twice.status_code == 409
 
@@ -185,7 +185,7 @@ async def test_team_join_respects_max_team_size(client, db_session, organization
     ).json()
 
     join_response = await client.post(
-        f"/api/v1/hackathons/{hackathon['id']}/teams/{team['id']}/join/me", headers=headers_b
+        f"/api/v1/hackathons/{hackathon['id']}/teams/join/me", json={"code": team["join_code"]}, headers=headers_b
     )
     assert join_response.status_code == 422
 

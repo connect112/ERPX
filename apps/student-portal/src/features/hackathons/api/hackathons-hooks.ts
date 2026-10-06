@@ -16,14 +16,6 @@ export function useMyTeam(hackathonId: string) {
   });
 }
 
-export function useBrowseTeams(hackathonId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["hackathons", hackathonId, "teams", "browse"],
-    queryFn: () => hackathonsApi.browseTeams(hackathonId),
-    enabled,
-  });
-}
-
 export function useCreateTeam(hackathonId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -34,10 +26,10 @@ export function useCreateTeam(hackathonId: string) {
   });
 }
 
-export function useJoinTeam(hackathonId: string) {
+export function useJoinTeamWithCode(hackathonId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (teamId: string) => hackathonsApi.joinTeam(hackathonId, teamId),
+    mutationFn: (code: string) => hackathonsApi.joinTeamWithCode(hackathonId, code),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId] });
     },

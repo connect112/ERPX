@@ -84,6 +84,16 @@ class TeamPublic(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TeamOwnPublic(TeamPublic):
+    """A team as its own members and staff see it: with the code teammates use to join."""
+
+    join_code: str
+
+
+class TeamJoinRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=32)
+
+
 class TeamMemberPublic(BaseModel):
     id: uuid.UUID
     team_id: uuid.UUID
@@ -101,7 +111,7 @@ class ReportInfo(BaseModel):
 
 
 class TeamWithMembersPublic(BaseModel):
-    team: TeamPublic
+    team: TeamOwnPublic
     members: list[TeamMemberPublic]
 
 
@@ -372,6 +382,7 @@ class RosterMemberPublic(BaseModel):
 class RosterTeamPublic(BaseModel):
     id: uuid.UUID
     name: str
+    join_code: str
     created_at: datetime
     tasks_submitted: int = 0
     total_score: int = 0

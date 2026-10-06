@@ -1,3 +1,4 @@
+import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 
@@ -7,9 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useBrowseHackathons,
-  useBrowseTeams,
   useCreateTeam,
-  useJoinTeam,
+  useJoinTeamWithCode,
   useMyTeam,
 } from "@/features/hackathons/api/hackathons-hooks";
 import { TasksSection } from "@/features/hackathons/components/tasks-section";
@@ -30,11 +30,12 @@ export function HackathonDetailPage() {
   const maxTeamSize = hackathon?.max_team_size ?? 4;
 
   const { data: myTeam, isLoading: myTeamLoading } = useMyTeam(id);
-  const { data: browsableTeams } = useBrowseTeams(id, !myTeamLoading && !myTeam);
   const createTeam = useCreateTeam(id);
-  const joinTeam = useJoinTeam(id);
+  const joinTeam = useJoinTeamWithCode(id);
 
   const [teamName, setTeamName] = useState("");
+  const [teamCode, setTeamCode] = useState("");
+  const [copied, setCopied] = useState(false);
 
   if (myTeamLoading) {
     return (
@@ -50,7 +51,7 @@ export function HackathonDetailPage() {
       <div>
         <h1 className="text-2xl font-semibold">{hackathon ? `${hackathon.title} - your team` : "Your Team"}</h1>
         <p className="text-sm text-muted-foreground">
-          Create a team, or join one that's still recruiting (up to {maxTeamSize} people per team).
+          Create a team, or join your teammates' team with its team code (up to {maxTeamSize} people per team).
         </p>
       </div>
 
@@ -60,7 +61,7 @@ export function HackathonDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">Create a team</CardTitle>
               <CardDescription>
-                You'll be the first member. Tell your friends your team name so they can join it.
+                You'll be the first member. Your team gets a code to share with your teammates so they can join.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -81,40 +82,31 @@ export function HackathonDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Join an existing team</CardTitle>
-              <CardDescription>Teams already formed for this hackathon.</CardDescription>
+              <CardDescription>Ask a teammate for the team code (it is shown on their team page) and enter it here.</CardDescription>
             </CardHeader>
-            <CardContent>
-              {browsableTeams && browsableTeams.length > 0 ? (
-                <ul className="divide-y">
-                  {browsableTeams.map((team) => {
-                    const full = team.member_count >= maxTeamSize;
-                    return (
-                      <li key={team.id} className="flex items-center justify-between py-2">
-                        <span className="text-sm font-medium">
-                          {team.name}
-                          <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            {team.member_count}/{maxTeamSize}
-                          </span>
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={joinTeam.isPending || full}
-                          onClick={() => joinTeam.mutate(team.id)}
-                        >
-                          {full ? "Full" : "Join"}
-                        </Button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="py-4 text-center text-sm text-muted-foreground">
-                  No teams to join yet — be the first to create one.
-                </p>
-              )}
+            <CardContent className="space-y-3">
+              <form
+                className="space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (teamCode.trim() && !joinTeam.isPending) joinTeam.mutate(teamCode.trim());
+                }}
+              >
+                <Input
+                  placeholder="Team code, e.g. K7M4QX"
+                  value={teamCode}
+                  onChange={(e) => setTeamCode(e.target.value.toUpperCase())}
+                  maxLength={16}
+                  autoComplete="off"
+                  aria-label="Team code"
+                  className="font-mono uppercase tracking-widest"
+                />
+                <Button className="w-full" type="submit" disabled={!teamCode.trim() || joinTeam.isPending}>
+                  {joinTeam.isPending ? "Joining…" : "Join team"}
+                </Button>
+              </form>
               {joinTeam.isError && (
-                <p className="mt-2 text-sm text-destructive">{errorText(joinTeam.error, "Could not join the team.")}</p>
+                <p className="text-sm text-destructive">{errorText(joinTeam.error, "Could not join the team.")}</p>
               )}
             </CardContent>
           </Card>
@@ -125,12 +117,36 @@ export function HackathonDetailPage() {
             <CardTitle className="text-base">{myTeam.team.name}</CardTitle>
             <CardDescription>{myTeam.members.length} member(s)</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <ul className="space-y-1 text-sm">
               {myTeam.members.map((member) => (
                 <li key={member.id}>{member.student_name}</li>
               ))}
             </ul>
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">
+                Team code: share it with teammates so they can join (only your team and the organisers can see it).
+              </p>
+              <div className="mt-1 flex items-center gap-3">
+                <span className="font-mono text-2xl font-semibold tracking-[0.3em]" aria-label="Team code">
+                  {myTeam.team.join_code}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(myTeam.team.join_code).then(() => {
+                      setCopied(true);
+                      window.setTimeout(() => setCopied(false), 1500);
+                    });
+                  }}
+                >
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

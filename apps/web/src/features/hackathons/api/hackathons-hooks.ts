@@ -154,6 +154,7 @@ export function useTeamAdmin(hackathonId: string) {
       )
     ),
     deleteTeam: useMutation(mutation((teamId: string) => hackathonsApi.deleteTeam(hackathonId, teamId))),
+    regenerateCode: useMutation(mutation((teamId: string) => hackathonsApi.regenerateTeamCode(hackathonId, teamId))),
     addMember: useMutation(
       mutation(({ teamId, member }: { teamId: string; member: MemberRef }) =>
         hackathonsApi.addMember(hackathonId, teamId, member)
