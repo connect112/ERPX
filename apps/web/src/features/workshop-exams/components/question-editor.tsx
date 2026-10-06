@@ -59,12 +59,16 @@ export function QuestionEditor({
   return (
     <div className="space-y-4 rounded-lg border bg-card p-4">
       <Textarea
-        rows={2}
+        rows={Math.min(14, Math.max(3, draft.text.split("\n").length + 1))}
         value={draft.text}
         onChange={(e) => setDraft({ ...draft, text: e.target.value })}
         placeholder="Question"
         aria-label="Question"
       />
+      <p className="-mt-2 text-xs text-muted-foreground">
+        Line breaks are kept exactly as you type them. Put code between lines of three backticks (```) to show it in
+        a code box.
+      </p>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label className="flex items-center gap-2">
@@ -96,7 +100,7 @@ export function QuestionEditor({
           Tick {draft.allow_multiple ? "every correct answer" : "the correct answer"}.
         </p>
         {draft.options.map((option, index) => (
-          <div key={index} className="flex items-center gap-2">
+          <div key={index} className="flex items-start gap-2">
             <input
               type={draft.allow_multiple ? "checkbox" : "radio"}
               name="correct"
@@ -104,7 +108,9 @@ export function QuestionEditor({
               onChange={() => toggleCorrect(index)}
               aria-label={`Option ${index + 1} is correct`}
             />
-            <Input
+            <Textarea
+              rows={Math.min(8, Math.max(1, option.split("\n").length))}
+              className="min-h-0 resize-y py-2"
               value={option}
               onChange={(e) => setOption(index, e.target.value)}
               placeholder={`Option ${index + 1}`}
