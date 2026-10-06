@@ -14,6 +14,29 @@ export interface InfoField {
   options: string[];
 }
 
+export type CertificateFont = "sans_bold" | "serif_bold" | "serif_bold_italic";
+
+/** Where and how each student's name is printed on the uploaded design (fractions of the page). */
+export interface CertificateLayout {
+  name_x: number;
+  name_y: number;
+  font_size: number;
+  max_width: number;
+  color: string;
+  font: CertificateFont;
+  show_verification: boolean;
+}
+
+export const DEFAULT_CERTIFICATE_LAYOUT: CertificateLayout = {
+  name_x: 0.5,
+  name_y: 0.5,
+  font_size: 0.07,
+  max_width: 0.7,
+  color: "#1f2937",
+  font: "sans_bold",
+  show_verification: false,
+};
+
 export interface WorkshopExam {
   id: string;
   workshop_id: string | null;
@@ -28,6 +51,8 @@ export interface WorkshopExam {
   certificates_dispatched_at: string | null;
   certificate_heading: string;
   certificate_text: string | null;
+  has_certificate_template: boolean;
+  certificate_layout: CertificateLayout | null;
   question_count: number;
   attendee_count: number;
   created_at: string;
@@ -49,6 +74,7 @@ export interface ExamUpdatePayload {
   certificate_text?: string | null;
   certificate_release_at?: string | null;
   info_fields?: InfoField[];
+  certificate_layout?: CertificateLayout;
 }
 
 export interface QuestionInput {
@@ -104,6 +130,32 @@ export const workshopExamsApi = {
   remove: (id: string) => apiClient.delete(`/workshop-exams/${id}`).then((r) => r.data),
   setStatus: (id: string, status: ExamStatus) =>
     apiClient.post<WorkshopExam>(`/workshop-exams/${id}/status`, { status }).then((r) => r.data),
+
+  uploadCertificateTemplate: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    // apiClient defaults to a JSON Content-Type, under which axios turns a
+    // FormData body into JSON; naming multipart lets the browser add the boundary.
+    return apiClient
+      .put<WorkshopExam>(`/workshop-exams/${id}/certificate/template`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
+  },
+  removeCertificateTemplate: (id: string) =>
+    apiClient.delete<WorkshopExam>(`/workshop-exams/${id}/certificate/template`).then((r) => r.data),
+  certificateTemplateImage: (id: string) =>
+    apiClient
+      .get<Blob>(`/workshop-exams/${id}/certificate/template`, { responseType: "blob" })
+      .then((r) => r.data),
+  certificatePreviewPdf: (id: string, layout: CertificateLayout) =>
+    apiClient
+      .post<Blob>(`/workshop-exams/${id}/certificate/preview`, { layout }, { responseType: "blob" })
+      .then((r) => r.data),
+  emailTestCertificate: (id: string, email: string, layout: CertificateLayout) =>
+    apiClient
+      .post<{ message: string }>(`/workshop-exams/${id}/certificate/test-email`, { email, layout })
+      .then((r) => r.data),
 
   questions: (id: string) => apiClient.get<Question[]>(`/workshop-exams/${id}/questions`).then((r) => r.data),
   updateQuestion: (id: string, questionId: string, payload: QuestionInput) =>

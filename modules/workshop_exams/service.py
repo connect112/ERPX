@@ -8,9 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging_config import get_logger
+from modules.workshop_exams.certificate_template import CertificateLayout
 from modules.workshop_exams.models import (
     WorkshopExam,
     WorkshopExamAttendee,
+    WorkshopExamCertificateTemplate,
     WorkshopExamQuestion,
     WorkshopExamStatus,
 )
@@ -103,6 +105,51 @@ class WorkshopExamService:
         # the client actually sent.
         for key, value in fields.items():
             setattr(exam, key, value)
+        await self.db.flush()
+        await self.db.refresh(exam)
+        return exam
+
+    # ---------------- admin: certificate artwork ----------------
+
+    @staticmethod
+    def layout_of(exam: WorkshopExam, override: CertificateLayout | None = None) -> CertificateLayout:
+        if override is not None:
+            return override
+        return CertificateLayout.model_validate(exam.certificate_layout or {})
+
+    async def get_template(self, exam_id: uuid.UUID) -> WorkshopExamCertificateTemplate | None:
+        return (
+            await self.db.execute(
+                select(WorkshopExamCertificateTemplate).where(WorkshopExamCertificateTemplate.exam_id == exam_id)
+            )
+        ).scalar_one_or_none()
+
+    def _assert_design_editable(self, exam: WorkshopExam) -> None:
+        # Certificates are queued a couple of seconds apart; swapping the
+        # design halfway would hand out two different looks.
+        if exam.certificates_dispatched_at is not None:
+            raise ValidationError("Certificates have already been sent, so the design can't be changed.")
+
+    async def set_template(self, exam: WorkshopExam, jpeg: bytes, width_px: int, height_px: int) -> WorkshopExam:
+        self._assert_design_editable(exam)
+        row = await self.get_template(exam.id)
+        if row is None:
+            row = WorkshopExamCertificateTemplate(exam_id=exam.id)
+            self.db.add(row)
+        row.data, row.content_type, row.width_px, row.height_px = jpeg, "image/jpeg", width_px, height_px
+        exam.has_certificate_template = True
+        if exam.certificate_layout is None:
+            exam.certificate_layout = CertificateLayout().model_dump()
+        await self.db.flush()
+        await self.db.refresh(exam)
+        return exam
+
+    async def clear_template(self, exam: WorkshopExam) -> WorkshopExam:
+        self._assert_design_editable(exam)
+        row = await self.get_template(exam.id)
+        if row is not None:
+            await self.db.delete(row)
+        exam.has_certificate_template = False
         await self.db.flush()
         await self.db.refresh(exam)
         return exam

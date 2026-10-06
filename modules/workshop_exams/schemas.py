@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
+from modules.workshop_exams.certificate_template import CertificateLayout
 from modules.workshop_exams.models import WorkshopExamStatus
 
 # Name and email are always asked, so an admin-defined field can't reuse them.
@@ -76,11 +77,21 @@ class ExamUpdateRequest(BaseModel):
     # and "clear it" (explicit null) stay distinguishable -- see routes.
     certificate_release_at: datetime | None = None
     info_fields: list[InfoField] | None = Field(default=None, max_length=12)
+    certificate_layout: CertificateLayout | None = None
 
     @field_validator("info_fields")
     @classmethod
     def _check_fields(cls, v):
         return _validate_info_fields(v) if v is not None else v
+
+
+class CertificatePreviewRequest(BaseModel):
+    # Omitted = use the saved layout; sent = preview an unsaved one.
+    layout: CertificateLayout | None = None
+
+
+class CertificateTestEmailRequest(CertificatePreviewRequest):
+    email: EmailStr
 
 
 class ExamStatusRequest(BaseModel):
@@ -101,6 +112,8 @@ class ExamPublicAdmin(BaseModel):
     certificates_dispatched_at: datetime | None
     certificate_heading: str
     certificate_text: str | None
+    has_certificate_template: bool = False
+    certificate_layout: CertificateLayout | None = None
     question_count: int = 0
     attendee_count: int = 0
     created_at: datetime

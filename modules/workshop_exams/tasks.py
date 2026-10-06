@@ -18,6 +18,7 @@ from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
 from modules.organizations.models import Organization
 from modules.workshop_exams.certificate_pdf import build_certificate_pdf
+from modules.workshop_exams.certificate_template import build_templated_certificate_pdf
 from modules.workshop_exams.models import WorkshopExam, WorkshopExamAttendee
 from modules.workshop_exams.service import WorkshopExamService
 from packages.email.service import EmailAttachment, email_service
@@ -93,16 +94,29 @@ async def _send_certificate(attendee_id: uuid.UUID) -> bool:
             await db.execute(select(Organization).where(Organization.id == exam.organization_id))
         ).scalar_one_or_none()
         issuer = org.name if org else "GIR Technologies"
-        body = exam.certificate_text or f'has participated in the workshop "{exam.title}".'
-        pdf = build_certificate_pdf(
-            attendee_name=attendee.name,
-            heading=exam.certificate_heading,
-            body_text=body,
-            issuer_name=issuer,
-            issued_on=attendee.submitted_at or datetime.now(timezone.utc),
-            certificate_number=attendee.certificate_number,
-            verify_url=verify_url(attendee.certificate_number),
-        )
+        template = await WorkshopExamService(db).get_template(exam.id) if exam.has_certificate_template else None
+        if template is not None:
+            # The admin's own artwork with this attendee's name printed on it.
+            pdf = build_templated_certificate_pdf(
+                template_jpeg=template.data,
+                width_px=template.width_px,
+                height_px=template.height_px,
+                layout=WorkshopExamService.layout_of(exam),
+                attendee_name=attendee.name,
+                certificate_number=attendee.certificate_number,
+                verify_url=verify_url(attendee.certificate_number),
+            )
+        else:
+            body = exam.certificate_text or f'has participated in the workshop "{exam.title}".'
+            pdf = build_certificate_pdf(
+                attendee_name=attendee.name,
+                heading=exam.certificate_heading,
+                body_text=body,
+                issuer_name=issuer,
+                issued_on=attendee.submitted_at or datetime.now(timezone.utc),
+                certificate_number=attendee.certificate_number,
+                verify_url=verify_url(attendee.certificate_number),
+            )
         subject, text, html = workshop_certificate_email(attendee.name, exam.title)
         safe_name = "".join(ch if ch.isalnum() else "_" for ch in attendee.name).strip("_") or "participant"
         sent = await email_service.send(

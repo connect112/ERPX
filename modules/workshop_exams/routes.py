@@ -11,19 +11,28 @@ import io
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ValidationError
 from app.core.limiter import limiter
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.users.dependencies import get_current_user_organization_id
+from modules.workshop_exams.certificate_template import (
+    MAX_UPLOAD_BYTES,
+    TemplateError,
+    normalize_template,
+    sample_certificate_pdf,
+)
 from modules.workshop_exams.schemas import (
     AnswersRequest,
     AttendeeAdmin,
     AttendeesImportRequest,
     AttendeesImportResponse,
+    CertificatePreviewRequest,
+    CertificateTestEmailRequest,
     CertificateVerification,
     DashboardResponse,
     ExamCreateRequest,
@@ -45,6 +54,9 @@ from modules.workshop_exams.schemas import (
 )
 from modules.workshop_exams.service import WorkshopExamService
 from modules.workshop_exams.tasks import enqueue_certificates, enqueue_invite_best_effort, enqueue_invites
+
+from packages.email.service import EmailAttachment, email_service
+from packages.email.templates import workshop_certificate_email
 
 router = APIRouter()
 public_router = APIRouter()
@@ -112,6 +124,111 @@ async def update_exam(
     exam = await service.update_exam(exam, fields)
     q, a = await service.counts_for(exam.id)
     return _exam_out(exam, q, a)
+
+
+@router.put("/{exam_id}/certificate/template", response_model=ExamPublicAdmin)
+async def upload_certificate_template(
+    exam_id: uuid.UUID,
+    file: UploadFile = File(...),
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    try:
+        jpeg, width_px, height_px = normalize_template(raw)
+    except TemplateError as exc:
+        raise ValidationError(str(exc)) from exc
+    exam = await service.set_template(exam, jpeg, width_px, height_px)
+    q, a = await service.counts_for(exam.id)
+    return _exam_out(exam, q, a)
+
+
+@router.delete("/{exam_id}/certificate/template", response_model=ExamPublicAdmin)
+async def remove_certificate_template(
+    exam_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = WorkshopExamService(db)
+    exam = await service.clear_template(await service.get_exam(exam_id, organization_id))
+    q, a = await service.counts_for(exam.id)
+    return _exam_out(exam, q, a)
+
+
+@router.get("/{exam_id}/certificate/template")
+async def get_certificate_template(
+    exam_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    template = await service.get_template(exam.id)
+    if template is None:
+        raise ValidationError("No certificate design has been uploaded yet.")
+    return Response(
+        content=template.data,
+        media_type=template.content_type,
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+async def _sample_pdf(service: WorkshopExamService, exam, payload: CertificatePreviewRequest) -> bytes:
+    template = await service.get_template(exam.id)
+    if template is None:
+        raise ValidationError("Upload the certificate design first.")
+    return sample_certificate_pdf(
+        template.data, template.width_px, template.height_px, service.layout_of(exam, payload.layout)
+    )
+
+
+@router.post("/{exam_id}/certificate/preview")
+async def preview_certificate(
+    exam_id: uuid.UUID,
+    payload: CertificatePreviewRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    pdf = await _sample_pdf(service, exam, payload)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="certificate-preview.pdf"', "Cache-Control": "no-store"},
+    )
+
+
+@router.post("/{exam_id}/certificate/test-email", response_model=MessageResponse)
+async def email_test_certificate(
+    exam_id: uuid.UUID,
+    payload: CertificateTestEmailRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mail a sample certificate (placeholder name) so the admin can see the
+    real email, attachment and SMTP delivery before the live send."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    pdf = await _sample_pdf(service, exam, payload)
+    subject, text, html = workshop_certificate_email("Sample Student Name", exam.title)
+    sent = await email_service.send(
+        str(payload.email),
+        f"[TEST] {subject}",
+        text,
+        html,
+        attachments=[EmailAttachment(filename="Certificate_sample.pdf", content=pdf, mime_type="application/pdf")],
+    )
+    if not sent:
+        raise ValidationError("The email could not be sent. Check the email (SMTP) settings.")
+    return MessageResponse(message=f"A sample certificate was sent to {payload.email}.")
 
 
 @router.delete("/{exam_id}", response_model=MessageResponse)

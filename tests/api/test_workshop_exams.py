@@ -478,3 +478,209 @@ async def test_info_field_definitions_are_validated(client, auth_headers):
     ]:
         resp = await client.post(_BASE, json={"title": "Bad fields", "info_fields": bad_fields}, headers=auth_headers)
         assert resp.status_code == 422, bad_fields
+
+
+# ---------------- admin-supplied certificate artwork ----------------
+
+
+def _png(width=1600, height=1131, mode="RGB") -> bytes:
+    import io
+
+    from PIL import Image
+
+    image = Image.new(mode, (width, height), (250, 245, 230) if mode == "RGB" else (250, 245, 230, 0))
+    out = io.BytesIO()
+    image.save(out, format="PNG")
+    return out.getvalue()
+
+
+@pytest.fixture
+def readable_pdfs(monkeypatch):
+    """Let tests grep PDF content streams (reportlab compresses them by default)."""
+    from reportlab import rl_config
+
+    monkeypatch.setattr(rl_config, "pageCompression", 0)
+    monkeypatch.setattr(rl_config, "useA85", 0)
+
+
+async def _upload_template(client, auth_headers, exam_id, data=None, name="design.png", ctype="image/png"):
+    return await client.put(
+        f"{_BASE}/{exam_id}/certificate/template",
+        files={"file": (name, data if data is not None else _png(), ctype)},
+        headers=auth_headers,
+    )
+
+
+async def test_certificate_template_upload_validation(client, auth_headers):
+    exam = (await client.post(_BASE, json={"title": "Design checks"}, headers=auth_headers)).json()
+    assert exam["has_certificate_template"] is False
+
+    for bad, label in [
+        (b"", "empty"),
+        (b"%PDF-1.4 not an image", "pdf/garbage"),
+        (b"\x89PNG\r\n\x1a\n" + b"junk", "truncated png"),
+        (_png() + b"\x00" * (8 * 1024 * 1024), "over 8 MB"),
+    ]:
+        resp = await _upload_template(client, auth_headers, exam["id"], data=bad)
+        assert resp.status_code == 422, label
+
+    ok = await _upload_template(client, auth_headers, exam["id"], data=_png(mode="RGBA"))
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["has_certificate_template"] is True
+    assert body["certificate_layout"]["name_x"] == 0.5  # default layout is created with the upload
+
+    # The stored image is what the admin sees back (re-encoded as JPEG).
+    shown = await client.get(f"{_BASE}/{exam['id']}/certificate/template", headers=auth_headers)
+    assert shown.status_code == 200 and shown.headers["content-type"] == "image/jpeg"
+    assert shown.content[:2] == b"\xff\xd8"
+
+    removed = await client.delete(f"{_BASE}/{exam['id']}/certificate/template", headers=auth_headers)
+    assert removed.json()["has_certificate_template"] is False
+    assert (await client.get(f"{_BASE}/{exam['id']}/certificate/template", headers=auth_headers)).status_code == 422
+
+
+async def test_certificate_layout_is_validated_and_saved(client, auth_headers):
+    exam = (await client.post(_BASE, json={"title": "Layout"}, headers=auth_headers)).json()
+    for bad in [{"name_x": 1.5}, {"font_size": 0.9}, {"color": "red"}, {"font": "comic_sans"}]:
+        resp = await client.patch(f"{_BASE}/{exam['id']}", json={"certificate_layout": bad}, headers=auth_headers)
+        assert resp.status_code == 422, bad
+    layout = {
+        "name_x": 0.42,
+        "name_y": 0.61,
+        "font_size": 0.08,
+        "max_width": 0.5,
+        "color": "#112233",
+        "font": "serif_bold_italic",
+        "show_verification": True,
+    }
+    saved = await client.patch(f"{_BASE}/{exam['id']}", json={"certificate_layout": layout}, headers=auth_headers)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["certificate_layout"] == layout
+
+
+async def test_preview_prints_a_sample_name_on_the_uploaded_design(client, auth_headers, readable_pdfs):
+    exam = (await client.post(_BASE, json={"title": "Preview"}, headers=auth_headers)).json()
+    url = f"{_BASE}/{exam['id']}/certificate/preview"
+    assert (await client.post(url, json={}, headers=auth_headers)).status_code == 422  # nothing uploaded yet
+
+    await _upload_template(client, auth_headers, exam["id"], data=_png(1600, 1131))
+    resp = await client.post(url, json={}, headers=auth_headers)
+    assert resp.status_code == 200 and resp.headers["content-type"] == "application/pdf"
+    assert resp.content.startswith(b"%PDF") and b"Sample Student Name" in resp.content
+    # Landscape artwork keeps its proportions on an A4-long-edge page.
+    assert b"/MediaBox [ 0 0 842" in resp.content
+
+    # An unsaved layout can be previewed without saving it.
+    other = await client.post(url, json={"layout": {"name_x": 0.3, "font": "serif_bold"}}, headers=auth_headers)
+    assert other.status_code == 200
+    assert (await client.post(url, json={"layout": {"color": "nope"}}, headers=auth_headers)).status_code == 422
+
+
+async def test_portrait_artwork_gets_a_portrait_page(client, auth_headers, readable_pdfs):
+    exam = (await client.post(_BASE, json={"title": "Portrait"}, headers=auth_headers)).json()
+    await _upload_template(client, auth_headers, exam["id"], data=_png(1131, 1600))
+    resp = await client.post(f"{_BASE}/{exam['id']}/certificate/preview", json={}, headers=auth_headers)
+    assert b"/MediaBox [ 0 0 595" in resp.content
+
+
+def test_very_long_name_is_shrunk_to_fit_on_the_design():
+    from modules.workshop_exams.certificate_template import (
+        CertificateLayout,
+        build_templated_certificate_pdf,
+        normalize_template,
+    )
+
+    jpeg, w, h = normalize_template(_png())
+    pdf = build_templated_certificate_pdf(
+        template_jpeg=jpeg,
+        width_px=w,
+        height_px=h,
+        layout=CertificateLayout(show_verification=True),
+        attendee_name="Venkata Subrahmanya Sai Ramakrishna Chandrasekhar Iyer Narayanaswamy",
+        certificate_number="WS-2026-ABCD1234",
+        verify_url="https://erp.pentrix.in/verify-workshop-certificate/WS-2026-ABCD1234",
+    )
+    assert pdf.startswith(b"%PDF")
+
+
+async def test_test_email_sends_a_sample_certificate(client, auth_headers, monkeypatch):
+    from modules.workshop_exams import routes
+
+    sent = []
+
+    async def fake_send(to, subject, text, html=None, attachments=None):
+        sent.append((to, subject, attachments or []))
+        return True
+
+    monkeypatch.setattr(routes.email_service, "send", fake_send)
+    exam = (await client.post(_BASE, json={"title": "Mail test"}, headers=auth_headers)).json()
+    url = f"{_BASE}/{exam['id']}/certificate/test-email"
+
+    assert (await client.post(url, json={"email": "me@example.com"}, headers=auth_headers)).status_code == 422
+    await _upload_template(client, auth_headers, exam["id"])
+    assert (await client.post(url, json={"email": "not-an-email"}, headers=auth_headers)).status_code == 422
+
+    resp = await client.post(url, json={"email": "me@example.com"}, headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    to, subject, attachments = sent[0]
+    assert to == "me@example.com" and subject.startswith("[TEST]")
+    assert attachments[0].mime_type == "application/pdf" and attachments[0].content.startswith(b"%PDF")
+
+    async def failing_send(*a, **kw):
+        return False
+
+    monkeypatch.setattr(routes.email_service, "send", failing_send)
+    failed = await client.post(url, json={"email": "me@example.com"}, headers=auth_headers)
+    assert failed.status_code == 422 and "could not be sent" in failed.text
+
+
+async def test_real_certificates_use_the_uploaded_design_with_each_students_name(
+    client, db_session, auth_headers, monkeypatch, readable_pdfs
+):
+    from contextlib import asynccontextmanager
+
+    from modules.workshop_exams import tasks
+
+    sent = []
+
+    async def fake_send(to, subject, text, html=None, attachments=None):
+        sent.append((to, attachments or []))
+        return True
+
+    monkeypatch.setattr(tasks.email_service, "send", fake_send)
+
+    @asynccontextmanager
+    async def _same_session():
+        yield db_session
+
+    monkeypatch.setattr(tasks, "get_db_context", _same_session)
+
+    exam = await _open_exam(client, auth_headers)
+    assert (await _upload_template(client, auth_headers, exam["id"])).status_code == 200
+    tokens = await _tokens(db_session, exam["id"])
+    ids = {}
+    for email in ("asha@example.com", "ravi@example.com"):
+        started = (await client.post(f"{_PUBLIC}/{tokens[email]}/start")).json()
+        await client.post(
+            f"{_PUBLIC}/{tokens[email]}/submit", json={"answers": _correct_answers(started["questions"])}
+        )
+        ids[email] = (
+            await db_session.execute(
+                select(WorkshopExamAttendee.id).where(WorkshopExamAttendee.access_token == tokens[email])
+            )
+        ).scalar_one()
+    await client.post(f"{_BASE}/{exam['id']}/certificates/send-now", headers=auth_headers)
+
+    for email in ids:
+        assert await tasks._send_certificate(ids[email]) is True
+
+    by_recipient = {to: atts[0].content for to, atts in sent}
+    assert b"Asha Rao" in by_recipient["asha@example.com"]
+    assert b"Ravi Kumar" in by_recipient["ravi@example.com"]
+    assert b"Asha Rao" not in by_recipient["ravi@example.com"]
+    assert b"Certificate of Participation" not in by_recipient["asha@example.com"]  # not the generated design
+
+    # Once certificates have gone out, the design is frozen.
+    locked = await _upload_template(client, auth_headers, exam["id"])
+    assert locked.status_code == 422 and "already been sent" in locked.text
