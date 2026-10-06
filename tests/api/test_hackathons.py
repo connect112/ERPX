@@ -98,11 +98,18 @@ async def test_staff_without_permission_cannot_manage_hackathons(client, staff_h
     assert response.status_code == 403
 
 
-async def test_student_can_create_team_and_submit_project(client, db_session, organization, auth_headers):
+async def test_student_can_create_team_and_submit_a_task(client, db_session, organization, auth_headers):
     hackathon = await _create_hackathon(client, auth_headers)
     await client.post(
         f"/api/v1/hackathons/{hackathon['id']}/status", json={"status": "registration_open"}, headers=auth_headers
     )
+    task = (
+        await client.post(
+            f"/api/v1/hackathons/{hackathon['id']}/problem-statements",
+            json={"title": "Build the image", "description": "docker build ..."},
+            headers=auth_headers,
+        )
+    ).json()
 
     _student, headers = await _create_student_with_login(client, db_session, organization)
 
@@ -121,23 +128,16 @@ async def test_student_can_create_team_and_submit_project(client, db_session, or
     assert my_team_response.json()["team"]["id"] == team["id"]
     assert len(my_team_response.json()["members"]) == 1
 
-    submit_response = await client.post(
-        f"/api/v1/hackathons/{hackathon['id']}/teams/{team['id']}/submissions/me",
-        json={"title": "AI Recycling Sorter", "repo_url": "https://github.com/example/repo"},
-        headers=headers,
-    )
-    assert submit_response.status_code == 201, submit_response.text
-    assert submit_response.json()["title"] == "AI Recycling Sorter"
+    url = f"/api/v1/hackathons/{hackathon['id']}/tasks/{task['id']}/submission/me"
+    submit_response = await client.put(url, data={"repo_url": "https://github.com/example/repo"}, headers=headers)
+    assert submit_response.status_code == 200, submit_response.text
+    assert submit_response.json()["repo_url"] == "https://github.com/example/repo"
 
     # Resubmitting updates the same row rather than creating a new one.
-    resubmit_response = await client.post(
-        f"/api/v1/hackathons/{hackathon['id']}/teams/{team['id']}/submissions/me",
-        json={"title": "AI Recycling Sorter v2", "repo_url": "https://github.com/example/repo"},
-        headers=headers,
-    )
-    assert resubmit_response.status_code == 201
+    resubmit_response = await client.put(url, data={"repo_url": "https://github.com/example/repo2"}, headers=headers)
+    assert resubmit_response.status_code == 200
     assert resubmit_response.json()["id"] == submit_response.json()["id"]
-    assert resubmit_response.json()["title"] == "AI Recycling Sorter v2"
+    assert resubmit_response.json()["repo_url"] == "https://github.com/example/repo2"
 
 
 async def test_student_cannot_join_two_teams_in_same_hackathon(client, db_session, organization, auth_headers):
@@ -200,22 +200,27 @@ async def test_team_registration_rejected_before_status_open(client, db_session,
     assert response.status_code == 422
 
 
-async def test_staff_can_list_teams_and_grade_submission(client, db_session, organization, auth_headers):
+async def test_staff_can_list_teams_and_grade_a_task_submission(client, db_session, organization, auth_headers):
     hackathon = await _create_hackathon(client, auth_headers)
     await client.post(
         f"/api/v1/hackathons/{hackathon['id']}/status", json={"status": "registration_open"}, headers=auth_headers
     )
-    _student, headers = await _create_student_with_login(client, db_session, organization)
-
-    team = (
+    task = (
         await client.post(
-            f"/api/v1/hackathons/{hackathon['id']}/teams/me", json={"name": "Graded Team"}, headers=headers
+            f"/api/v1/hackathons/{hackathon['id']}/problem-statements",
+            json={"title": "Task X", "description": "do it"},
+            headers=auth_headers,
         )
     ).json()
+    _student, headers = await _create_student_with_login(client, db_session, organization)
+
+    await client.post(
+        f"/api/v1/hackathons/{hackathon['id']}/teams/me", json={"name": "Graded Team"}, headers=headers
+    )
     submission = (
-        await client.post(
-            f"/api/v1/hackathons/{hackathon['id']}/teams/{team['id']}/submissions/me",
-            json={"title": "Project X"},
+        await client.put(
+            f"/api/v1/hackathons/{hackathon['id']}/tasks/{task['id']}/submission/me",
+            data={"repo_url": "https://github.com/example/x"},
             headers=headers,
         )
     ).json()
@@ -225,13 +230,13 @@ async def test_staff_can_list_teams_and_grade_submission(client, db_session, org
     assert len(teams_response.json()) == 1
 
     submissions_response = await client.get(
-        f"/api/v1/hackathons/{hackathon['id']}/submissions", headers=auth_headers
+        f"/api/v1/hackathons/{hackathon['id']}/task-submissions", headers=auth_headers
     )
     assert submissions_response.status_code == 200
     assert len(submissions_response.json()) == 1
 
     grade_response = await client.post(
-        f"/api/v1/hackathons/submissions/{submission['id']}/grade",
+        f"/api/v1/hackathons/{hackathon['id']}/task-submissions/{submission['id']}/grade",
         json={"score": 88, "feedback": "Great execution."},
         headers=auth_headers,
     )

@@ -72,10 +72,10 @@ class Hackathon(TimestampedBase):
         nullable=False,
         index=True,
     )
-    # Team scores are shown to participants only once the organiser flips this
-    # on, so a half-judged board is never visible.
+    # Whether participants can see the team leaderboard. On by default so it
+    # updates live as tasks are scored; the organiser can hide it while judging.
     leaderboard_visible: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="false", nullable=False
+        Boolean, default=True, server_default="true", nullable=False
     )
 
 
@@ -159,3 +159,34 @@ class TeamReport(TimestampedBase):
     uploaded_by_student_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("students.id", ondelete="SET NULL"), nullable=True
     )
+
+
+class TaskSubmission(TimestampedBase):
+    """A team's work on one task (problem statement): a report file and/or a
+    repository / registry URL, scored by staff. One row per team per task; the
+    leaderboard ranks teams by the sum of their task scores.
+
+    The older whole-hackathon `Submission` and `TeamReport` tables are no
+    longer written to (their data was copied here when this table was added).
+    """
+
+    __tablename__ = "hackathon_task_submissions"
+    __table_args__ = (UniqueConstraint("team_id", "problem_statement_id", name="uq_hackathon_task_submission"),)
+
+    team_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("hackathon_teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    problem_statement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("hackathon_problem_statements.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    repo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    report_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    report_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    report_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    report_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    submitted_by_student_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("students.id", ondelete="SET NULL"), nullable=True
+    )
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)

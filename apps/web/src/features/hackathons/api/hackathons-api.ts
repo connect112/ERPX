@@ -62,10 +62,8 @@ export interface TeamPublic {
   created_at: string;
   member_count: number;
   member_names: string[];
-  problem_statement_id: string | null;
-  problem_statement_title: string | null;
-  has_report: boolean;
-  report_filename: string | null;
+  tasks_submitted: number;
+  total_score: number;
 }
 
 export interface ProblemStatement {
@@ -83,17 +81,36 @@ export interface ParticipantsResult {
   errors: { email: string; reason: string }[];
 }
 
-export interface SubmissionPublic {
+/** One team's work on one task (a report and/or a registry / repository URL) with its score. */
+export interface TaskSubmissionAdmin {
   id: string;
   team_id: string;
-  title: string;
-  description: string | null;
+  team_name: string;
+  members: string[];
+  task_id: string;
+  task_title: string;
+  task_order: number;
   repo_url: string | null;
-  demo_url: string | null;
+  report_filename: string | null;
+  report_size_bytes: number | null;
   submitted_at: string;
   score: number | null;
   feedback: string | null;
-  created_at: string;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  team_name: string;
+  score: number;
+  tasks_scored: number;
+  members: string[];
+}
+
+export interface LeaderboardBoard {
+  hackathon_id: string;
+  hackathon_title: string;
+  published: boolean;
+  entries: LeaderboardEntry[];
 }
 
 export const hackathonsApi = {
@@ -132,8 +149,10 @@ export const hackathonsApi = {
   deleteProblemStatement: (id: string, statementId: string) =>
     apiClient.delete(`/hackathons/${id}/problem-statements/${statementId}`).then((r) => r.data),
 
-  downloadTeamReport: async (id: string, teamId: string, filename: string) => {
-    const response = await apiClient.get(`/hackathons/${id}/teams/${teamId}/report`, { responseType: "blob" });
+  downloadTaskReport: async (id: string, submissionId: string, filename: string) => {
+    const response = await apiClient.get(`/hackathons/${id}/task-submissions/${submissionId}/report`, {
+      responseType: "blob",
+    });
     const url = URL.createObjectURL(response.data as Blob);
     const link = document.createElement("a");
     link.href = url;
@@ -142,11 +161,14 @@ export const hackathonsApi = {
     URL.revokeObjectURL(url);
   },
 
-  listSubmissions: (id: string) =>
-    apiClient.get<SubmissionPublic[]>(`/hackathons/${id}/submissions`).then((r) => r.data),
+  listTaskSubmissions: (id: string) =>
+    apiClient.get<TaskSubmissionAdmin[]>(`/hackathons/${id}/task-submissions`).then((r) => r.data),
 
-  gradeSubmission: (submissionId: string, score: number, feedback?: string) =>
+  gradeTaskSubmission: (id: string, submissionId: string, score: number, feedback?: string) =>
     apiClient
-      .post<SubmissionPublic>(`/hackathons/submissions/${submissionId}/grade`, { score, feedback })
+      .post(`/hackathons/${id}/task-submissions/${submissionId}/grade`, { score, feedback: feedback || null })
       .then((r) => r.data),
+
+  leaderboard: (id: string) =>
+    apiClient.get<LeaderboardBoard>(`/hackathons/${id}/leaderboard`).then((r) => r.data),
 };

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -12,7 +12,6 @@ from modules.hackathons.models import HackathonStatus
 from modules.hackathons.participation import MAX_REPORT_BYTES, ParticipationService
 from modules.hackathons.schemas import (
     AwardPublic,
-    ChooseProblemRequest,
     HackathonCreateRequest,
     HackathonListResponse,
     HackathonPublic,
@@ -27,17 +26,18 @@ from modules.hackathons.schemas import (
     ProblemStatementInput,
     ProblemStatementPublic,
     ReportInfo,
-    SubmissionCreateRequest,
-    SubmissionGradeRequest,
-    SubmissionPublic,
+    TaskGradeRequest,
+    TaskPublic,
+    TaskSubmissionAdmin,
+    TaskSubmissionInfo,
+    TasksResponse,
     TeamCreateRequest,
     TeamMemberPublic,
     TeamPublic,
     TeamWithMembersPublic,
 )
 from modules.hackathons.provisioning import ParticipantProvisioner
-from modules.hackathons.repository import TeamRepository
-from modules.hackathons.service import HackathonService, SubmissionService, TeamService
+from modules.hackathons.service import HackathonService, TeamService
 from modules.hackathons.tasks import enqueue_welcome_emails
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
@@ -47,14 +47,14 @@ from modules.users.dependencies import get_current_user_organization_id
 router = APIRouter()
 
 
-def _report_response(report) -> Response:
+def _report_response(submission) -> Response:
     from urllib.parse import quote
 
     return Response(
-        content=report.data,
-        media_type=report.content_type,
+        content=submission.report_data,
+        media_type=submission.report_content_type or "application/octet-stream",
         headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(report.filename)}",
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(submission.report_filename or 'report')}",
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "private, no-store",
         },
@@ -107,20 +107,13 @@ async def get_my_team(
     if not result:
         return None
     team, members = result
-    participation = ParticipationService(db)
-    team_public = TeamPublic.model_validate(team)
-    team_public.problem_statement_title = (await participation.problem_titles_by_team([team])).get(team.id)
-    report = await participation.get_report(team.id)
     return TeamWithMembersPublic(
-        team=team_public,
+        team=TeamPublic.model_validate(team),
         members=await _members_public(db, members, student.organization_id),
-        report=ReportInfo(filename=report.filename, size_bytes=report.size_bytes, uploaded_at=report.updated_at)
-        if report
-        else None,
     )
 
 
-# ---- Participant features: problem statements, report, leaderboard, achievements ----
+# ---- Participant features: tasks, leaderboard, achievements ----
 
 
 async def _visible_hackathon(db: AsyncSession, hackathon_id: uuid.UUID, student: Student):
@@ -150,7 +143,7 @@ async def my_leaderboards(
         if hackathon.leaderboard_visible:
             entries = [
                 LeaderboardEntry(
-                    rank=r.rank, team_name=r.team_name, score=r.score, project_title=r.project_title, members=r.members
+                    rank=r.rank, team_name=r.team_name, score=r.score, tasks_scored=r.tasks_scored, members=r.members
                 )
                 for r in await participation.leaderboard(hackathon)
             ]
@@ -174,56 +167,78 @@ async def my_achievements(
     return [AwardPublic(**a.__dict__) for a in awards]
 
 
-@router.get("/{hackathon_id}/problem-statements/me", response_model=list[ProblemStatementPublic])
-async def list_problem_statements_for_me(
+def _submission_info(submission) -> TaskSubmissionInfo:
+    return TaskSubmissionInfo(
+        id=submission.id,
+        repo_url=submission.repo_url,
+        report=ReportInfo(
+            filename=submission.report_filename,
+            size_bytes=submission.report_size_bytes or 0,
+            uploaded_at=submission.updated_at,
+        )
+        if submission.report_filename
+        else None,
+        submitted_at=submission.submitted_at,
+        score=submission.score,
+        feedback=submission.feedback,
+    )
+
+
+@router.get("/{hackathon_id}/tasks/me", response_model=TasksResponse)
+async def list_my_tasks(
     hackathon_id: uuid.UUID,
     student: Student = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
-    await _visible_hackathon(db, hackathon_id, student)
-    items = await ParticipationService(db).list_problem_statements(hackathon_id)
-    return [ProblemStatementPublic.model_validate(i) for i in items]
+    """Every task, each with this student's team's submission (report and/or URL, score, feedback)."""
+    hackathon = await _visible_hackathon(db, hackathon_id, student)
+    team, rows = await ParticipationService(db).tasks_for(hackathon, student)
+    return TasksResponse(
+        team_id=team.id if team else None,
+        can_submit=team is not None and hackathon.status in (HackathonStatus.REGISTRATION_OPEN, HackathonStatus.ONGOING),
+        tasks=[
+            TaskPublic(
+                id=row.task.id,
+                title=row.task.title,
+                description=row.task.description,
+                order_index=row.task.order_index,
+                submission=_submission_info(row.submission) if row.submission else None,
+            )
+            for row in rows
+        ],
+    )
 
 
-@router.put("/{hackathon_id}/teams/me/problem-statement", response_model=TeamPublic)
-async def choose_my_problem_statement(
+@router.put("/{hackathon_id}/tasks/{task_id}/submission/me", response_model=TaskSubmissionInfo)
+async def submit_my_task(
     hackathon_id: uuid.UUID,
-    payload: ChooseProblemRequest,
+    task_id: uuid.UUID,
+    repo_url: str | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit (or update) the team's work on one task: a report and/or a repository / registry URL."""
+    hackathon = await _visible_hackathon(db, hackathon_id, student)
+    data = await file.read(MAX_REPORT_BYTES + 1) if file is not None and file.filename else None
+    submission = await ParticipationService(db).save_task_submission(
+        hackathon, student, task_id, repo_url, file.filename if file is not None else None, data
+    )
+    return _submission_info(submission)
+
+
+@router.get("/{hackathon_id}/tasks/{task_id}/submission/me/report")
+async def download_my_task_report(
+    hackathon_id: uuid.UUID,
+    task_id: uuid.UUID,
     student: Student = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
     hackathon = await _visible_hackathon(db, hackathon_id, student)
-    participation = ParticipationService(db)
-    team = await participation.choose_problem(hackathon, student, payload.problem_statement_id)
-    out = TeamPublic.model_validate(team)
-    out.problem_statement_title = (await participation.problem_titles_by_team([team])).get(team.id)
-    return out
-
-
-@router.put("/{hackathon_id}/teams/me/report", response_model=ReportInfo)
-async def upload_my_team_report(
-    hackathon_id: uuid.UUID,
-    file: UploadFile = File(...),
-    student: Student = Depends(get_current_student),
-    db: AsyncSession = Depends(get_db),
-):
-    hackathon = await _visible_hackathon(db, hackathon_id, student)
-    data = await file.read(MAX_REPORT_BYTES + 1)
-    report = await ParticipationService(db).save_report(hackathon, student, file.filename or "report", data)
-    return ReportInfo(filename=report.filename, size_bytes=report.size_bytes, uploaded_at=report.updated_at)
-
-
-@router.get("/{hackathon_id}/teams/me/report/download")
-async def download_my_team_report(
-    hackathon_id: uuid.UUID,
-    student: Student = Depends(get_current_student),
-    db: AsyncSession = Depends(get_db),
-):
-    hackathon = await _visible_hackathon(db, hackathon_id, student)
-    _team, report = await ParticipationService(db).my_report(hackathon, student)
-    if report is None:
+    submission = await ParticipationService(db).my_task_report(hackathon, student, task_id)
+    if submission is None:
         raise NotFoundError("Report")
-    return _report_response(report)
+    return _report_response(submission)
 
 
 @router.post("/{hackathon_id}/teams/me", response_model=TeamPublic, status_code=status.HTTP_201_CREATED)
@@ -273,37 +288,6 @@ async def join_team(
         student_name=student.full_name,
         joined_at=member.joined_at,
     )
-
-
-@router.post(
-    "/{hackathon_id}/teams/{team_id}/submissions/me",
-    response_model=SubmissionPublic,
-    status_code=status.HTTP_201_CREATED,
-)
-async def submit_my_project(
-    hackathon_id: uuid.UUID,
-    team_id: uuid.UUID,
-    payload: SubmissionCreateRequest,
-    student: Student = Depends(get_current_student),
-    db: AsyncSession = Depends(get_db),
-):
-    service = SubmissionService(db)
-    submission = await service.submit_project(
-        student.organization_id, hackathon_id, team_id, student.id, **payload.model_dump()
-    )
-    return SubmissionPublic.model_validate(submission)
-
-
-@router.get("/{hackathon_id}/teams/{team_id}/submissions/me", response_model=SubmissionPublic | None)
-async def get_my_team_submission(
-    hackathon_id: uuid.UUID,
-    team_id: uuid.UUID,
-    student: Student = Depends(get_current_student),
-    db: AsyncSession = Depends(get_db),
-):
-    service = SubmissionService(db)
-    submission = await service.get_for_team(team_id)
-    return SubmissionPublic.model_validate(submission) if submission else None
 
 
 # ---- Staff management ----
@@ -401,37 +385,93 @@ async def list_teams(
     service = TeamService(db)
     teams = await service.list_teams(hackathon_id, organization_id)
     names = await service.members_by_team(teams, organization_id)
-    participation = ParticipationService(db)
-    reports = await participation.report_info_by_team([t.id for t in teams])
-    problems = await participation.problem_titles_by_team(teams)
+    totals = await ParticipationService(db).team_totals([t.id for t in teams])
     out = []
     for team in teams:
         item = TeamPublic.model_validate(team)
         item.member_names = names[team.id]
         item.member_count = len(item.member_names)
-        item.problem_statement_title = problems.get(team.id)
-        if team.id in reports:
-            item.has_report, item.report_filename = True, reports[team.id][0]
+        item.tasks_submitted, item.total_score = totals.get(team.id, (0, 0))
         out.append(item)
     return out
 
 
-@router.get("/{hackathon_id}/teams/{team_id}/report")
-async def download_team_report(
+@router.get("/{hackathon_id}/task-submissions", response_model=list[TaskSubmissionAdmin])
+async def list_task_submissions(
     hackathon_id: uuid.UUID,
-    team_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("hackathons.view")),
     db: AsyncSession = Depends(get_db),
 ):
     await HackathonService(db).get_hackathon(hackathon_id, organization_id)
-    team = await TeamRepository(db).get_by_id(team_id)
-    if not team or team.hackathon_id != hackathon_id:
-        raise NotFoundError("Team", team_id)
-    report = await ParticipationService(db).get_report(team_id)
-    if report is None:
-        raise NotFoundError("Report")
-    return _report_response(report)
+    rows = await ParticipationService(db).list_task_submissions(hackathon_id)
+    return [
+        TaskSubmissionAdmin(
+            id=row.submission.id,
+            team_id=row.submission.team_id,
+            team_name=row.team_name,
+            members=row.members,
+            task_id=row.submission.problem_statement_id,
+            task_title=row.task_title,
+            task_order=row.task_order,
+            repo_url=row.submission.repo_url,
+            report_filename=row.submission.report_filename,
+            report_size_bytes=row.submission.report_size_bytes,
+            submitted_at=row.submission.submitted_at,
+            score=row.submission.score,
+            feedback=row.submission.feedback,
+        )
+        for row in rows
+    ]
+
+
+@router.get("/{hackathon_id}/task-submissions/{submission_id}/report")
+async def download_task_report(
+    hackathon_id: uuid.UUID,
+    submission_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    return _report_response(await ParticipationService(db).get_staff_report(hackathon_id, submission_id))
+
+
+@router.post("/{hackathon_id}/task-submissions/{submission_id}/grade", response_model=TaskSubmissionInfo)
+async def grade_task_submission(
+    hackathon_id: uuid.UUID,
+    submission_id: uuid.UUID,
+    payload: TaskGradeRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Award a score (and optional feedback) to one task submission; the leaderboard
+    is computed live from these, so it updates as soon as this returns."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    submission = await ParticipationService(db).grade(hackathon_id, submission_id, payload.score, payload.feedback)
+    return _submission_info(submission)
+
+
+@router.get("/{hackathon_id}/leaderboard", response_model=LeaderboardBoard)
+async def staff_leaderboard(
+    hackathon_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The live ranking, whether or not it is published to participants."""
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    rows = await ParticipationService(db).leaderboard(hackathon)
+    return LeaderboardBoard(
+        hackathon_id=hackathon.id,
+        hackathon_title=hackathon.title,
+        published=hackathon.leaderboard_visible,
+        entries=[
+            LeaderboardEntry(rank=r.rank, team_name=r.team_name, score=r.score, tasks_scored=r.tasks_scored, members=r.members)
+            for r in rows
+        ],
+    )
 
 
 @router.get("/{hackathon_id}/problem-statements", response_model=list[ProblemStatementPublic])
@@ -487,7 +527,7 @@ async def delete_problem_statement(
 ):
     await HackathonService(db).get_hackathon(hackathon_id, organization_id)
     await ParticipationService(db).delete_problem_statement(hackathon_id, statement_id)
-    return MessageResponse(message="Problem statement deleted.")
+    return MessageResponse(message="Task deleted.")
 
 
 @router.post("/{hackathon_id}/participants", response_model=ParticipantsResponse)
@@ -527,30 +567,3 @@ async def add_participants(
         already_have_login=len(result.already_ready),
         errors=[ParticipantError(email=e, reason=r) for e, r in result.errors],
     )
-
-
-@router.get("/{hackathon_id}/submissions", response_model=list[SubmissionPublic])
-async def list_submissions(
-    hackathon_id: uuid.UUID,
-    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("hackathons.view")),
-    db: AsyncSession = Depends(get_db),
-):
-    service = SubmissionService(db)
-    submissions = await service.list_for_hackathon(hackathon_id, organization_id)
-    return [SubmissionPublic.model_validate(s) for s in submissions]
-
-
-@router.post("/submissions/{submission_id}/grade", response_model=SubmissionPublic)
-async def grade_submission(
-    submission_id: uuid.UUID,
-    payload: SubmissionGradeRequest,
-    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("hackathons.manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    service = SubmissionService(db)
-    submission = await service.grade_submission(
-        submission_id, organization_id, payload.score, payload.feedback
-    )
-    return SubmissionPublic.model_validate(submission)

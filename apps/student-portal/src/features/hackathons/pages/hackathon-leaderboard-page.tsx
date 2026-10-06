@@ -11,7 +11,7 @@ export function HackathonLeaderboardPage() {
     <div className="space-y-6 p-6">
       <div>
         <h1 className="text-2xl font-semibold">Leaderboard</h1>
-        <p className="text-sm text-muted-foreground">Team rankings, published by the organisers after judging.</p>
+        <p className="text-sm text-muted-foreground">Team ranking by total task score. It updates as the organisers award scores.</p>
       </div>
 
       {isLoading ? (
@@ -24,7 +24,7 @@ export function HackathonLeaderboardPage() {
               <CardDescription>
                 {board.published
                   ? `${board.entries.length} team${board.entries.length === 1 ? "" : "s"} ranked`
-                  : "Results haven't been published yet - check back after judging."}
+                  : "The organisers are not showing the leaderboard right now."}
               </CardDescription>
             </CardHeader>
             {board.published && (
@@ -37,7 +37,7 @@ export function HackathonLeaderboardPage() {
                         <div className="min-w-0 flex-1">
                           <p className="font-medium">{entry.team_name}</p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {entry.project_title} · {entry.members.join(", ")}
+                            {entry.tasks_scored} task{entry.tasks_scored === 1 ? "" : "s"} scored · {entry.members.join(", ")}
                           </p>
                         </div>
                         <span className="text-lg font-semibold">{entry.score}</span>
@@ -45,7 +45,9 @@ export function HackathonLeaderboardPage() {
                     ))}
                   </ol>
                 ) : (
-                  <p className="py-4 text-center text-sm text-muted-foreground">No teams have been scored yet.</p>
+                  <p className="py-4 text-center text-sm text-muted-foreground">
+                    No task has been scored yet. Teams appear here as soon as a score is awarded.
+                  </p>
                 )}
               </CardContent>
             )}

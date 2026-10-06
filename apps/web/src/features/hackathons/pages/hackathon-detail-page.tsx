@@ -15,12 +15,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useChangeHackathonStatus,
   useHackathon,
-  useHackathonSubmissions,
   useHackathonTeams,
+  useStaffLeaderboard,
+  useTaskSubmissions,
   useUpdateHackathon,
 } from "@/features/hackathons/api/hackathons-hooks";
 import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
-import { hackathonsApi } from "@/features/hackathons/api/hackathons-api";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
 import { GradeSubmissionRow } from "@/features/hackathons/components/grade-submission-row";
 import { HackathonFormDialog } from "@/features/hackathons/components/hackathon-form-dialog";
@@ -45,7 +45,8 @@ export function HackathonDetailPage() {
   const navigate = useNavigate();
   const { data: hackathon, isLoading } = useHackathon(hackathonId);
   const { data: teams, isLoading: teamsLoading } = useHackathonTeams(hackathonId);
-  const { data: submissions, isLoading: submissionsLoading } = useHackathonSubmissions(hackathonId);
+  const { data: submissions, isLoading: submissionsLoading } = useTaskSubmissions(hackathonId);
+  const { data: leaderboard } = useStaffLeaderboard(hackathonId);
   const changeStatus = useChangeHackathonStatus(hackathonId ?? "");
   const updateHackathon = useUpdateHackathon(hackathonId ?? "");
   const [editOpen, setEditOpen] = useState(false);
@@ -133,18 +134,10 @@ export function HackathonDetailPage() {
                       {team.member_names.length > 0 && (
                         <p className="text-muted-foreground">{team.member_names.join(", ")}</p>
                       )}
-                      {team.problem_statement_title && (
-                        <p className="text-xs text-muted-foreground">Problem: {team.problem_statement_title}</p>
-                      )}
-                      {team.has_report && team.report_filename && (
-                        <button
-                          type="button"
-                          className="text-xs text-primary hover:underline"
-                          onClick={() => hackathonsApi.downloadTeamReport(hackathon.id, team.id, team.report_filename as string)}
-                        >
-                          Download report ({team.report_filename})
-                        </button>
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {team.tasks_submitted} task{team.tasks_submitted === 1 ? "" : "s"} submitted · {team.total_score}{" "}
+                        points
+                      </p>
                     </li>
                   ))}
                 </ul>
@@ -156,22 +149,33 @@ export function HackathonDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Submissions</CardTitle>
-              <CardDescription>Review and grade each team's project.</CardDescription>
+              <CardTitle className="text-base">Task submissions</CardTitle>
+              <CardDescription>
+                Each team's report and registry / repository URL, task by task. Award a score for each task: the
+                leaderboard is the sum of a team's task scores and updates as soon as you save.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {submissionsLoading ? (
                 <Skeleton className="h-24 w-full" />
               ) : submissions && submissions.length > 0 ? (
-                <div>
-                  {submissions.map((submission) => (
-                    <GradeSubmissionRow
-                      key={submission.id}
-                      hackathonId={hackathon.id}
-                      submission={submission}
-                      team={teams?.find((t) => t.id === submission.team_id)}
-                    />
-                  ))}
+                <div className="space-y-6">
+                  {Array.from(new Set(submissions.map((s) => s.task_id))).map((taskId) => {
+                    const group = submissions.filter((s) => s.task_id === taskId);
+                    return (
+                      <div key={taskId}>
+                        <h3 className="text-sm font-semibold">
+                          {group[0].task_order + 1}. {group[0].task_title}{" "}
+                          <span className="font-normal text-muted-foreground">
+                            ({group.length} submission{group.length === 1 ? "" : "s"})
+                          </span>
+                        </h3>
+                        {group.map((submission) => (
+                          <GradeSubmissionRow key={submission.id} hackathonId={hackathon.id} submission={submission} />
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="py-4 text-center text-sm text-muted-foreground">No submissions yet.</p>
@@ -185,10 +189,28 @@ export function HackathonDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">Leaderboard</CardTitle>
               <CardDescription>
-                Participants see team scores only after you publish them, so judge first.
+                Live ranking by total task score. Participants see it too unless you hide it here.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {leaderboard && leaderboard.entries.length > 0 ? (
+                <ol className="space-y-1 text-sm">
+                  {leaderboard.entries.map((entry) => (
+                    <li key={`${entry.rank}-${entry.team_name}`} className="flex items-center justify-between gap-2">
+                      <span>
+                        <span className="mr-2 inline-block w-5 text-right font-semibold">{entry.rank}</span>
+                        {entry.team_name}
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {entry.tasks_scored} scored
+                        </span>
+                      </span>
+                      <span className="font-semibold">{entry.score}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-muted-foreground">Nothing scored yet. Teams appear when you award a score.</p>
+              )}
               <label className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"

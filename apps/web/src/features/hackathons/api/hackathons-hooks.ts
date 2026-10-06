@@ -42,11 +42,23 @@ export function useHackathonTeams(id: string | undefined) {
   });
 }
 
-export function useHackathonSubmissions(id: string | undefined) {
+export function useTaskSubmissions(id: string | undefined) {
   return useQuery({
     queryKey: hackathonsKeys.submissions(id ?? ""),
-    queryFn: () => hackathonsApi.listSubmissions(id as string),
+    queryFn: () => hackathonsApi.listTaskSubmissions(id as string),
     enabled: !!id,
+    // New submissions arrive while the event is on.
+    refetchInterval: 15_000,
+  });
+}
+
+/** The live ranking (also shown when it is hidden from participants). */
+export function useStaffLeaderboard(id: string | undefined) {
+  return useQuery({
+    queryKey: [...hackathonsKeys.all, id ?? "", "leaderboard"],
+    queryFn: () => hackathonsApi.leaderboard(id as string),
+    enabled: !!id,
+    refetchInterval: 10_000,
   });
 }
 
@@ -74,7 +86,7 @@ export function useChangeHackathonStatus(id: string) {
   });
 }
 
-export function useGradeSubmission(hackathonId: string) {
+export function useGradeTaskSubmission(hackathonId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -85,8 +97,8 @@ export function useGradeSubmission(hackathonId: string) {
       submissionId: string;
       score: number;
       feedback?: string;
-    }) => hackathonsApi.gradeSubmission(submissionId, score, feedback),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: hackathonsKeys.submissions(hackathonId) }),
+    }) => hackathonsApi.gradeTaskSubmission(hackathonId, submissionId, score, feedback),
+    // The leaderboard and team totals are computed from these scores, so refresh them together.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...hackathonsKeys.all, hackathonId] }),
   });
 }

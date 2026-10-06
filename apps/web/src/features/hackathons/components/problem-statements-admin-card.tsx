@@ -53,10 +53,10 @@ export function ProblemStatementsAdminCard({ hackathonId }: { hackathonId: strin
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Problem statements</CardTitle>
+        <CardTitle className="text-base">Tasks</CardTitle>
         <CardDescription>
-          The challenges teams choose from. Participants can read each one as soon as you add it, so add them when
-          you want them released.
+          The tasks teams work through. Each task has its own submission (a report and a registry / repository URL) that
+          you score. Participants can read a task as soon as you add it, so add them when you want them released.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -76,7 +76,7 @@ export function ProblemStatementsAdminCard({ hackathonId }: { hackathonId: strin
                   className="text-destructive"
                   disabled={remove.isPending}
                   onClick={() => {
-                    if (window.confirm("Delete this problem statement? Teams that chose it will have no choice.")) {
+                    if (window.confirm("Delete this task? Any submissions teams made for it are deleted too.")) {
                       remove.mutate(statement.id);
                     }
                   }}
@@ -89,7 +89,7 @@ export function ProblemStatementsAdminCard({ hackathonId }: { hackathonId: strin
           </div>
         ))}
         {(statements?.length ?? 0) === 0 && !editing && (
-          <p className="text-sm text-muted-foreground">No problem statements yet.</p>
+          <p className="text-sm text-muted-foreground">No tasks yet.</p>
         )}
 
         {editing ? (
@@ -106,7 +106,7 @@ export function ProblemStatementsAdminCard({ hackathonId }: { hackathonId: strin
                 disabled={title.trim().length < 2 || !description.trim() || save.isPending}
                 onClick={() => save.mutate()}
               >
-                {save.isPending ? "Saving..." : editing === "new" ? "Add problem statement" : "Save changes"}
+                {save.isPending ? "Saving..." : editing === "new" ? "Add task" : "Save changes"}
               </Button>
               <Button variant="outline" onClick={() => setEditing(null)}>
                 Cancel
@@ -116,7 +116,7 @@ export function ProblemStatementsAdminCard({ hackathonId }: { hackathonId: strin
           </div>
         ) : (
           <Button variant="outline" onClick={() => open("new")}>
-            Add problem statement
+            Add task
           </Button>
         )}
         {remove.isError && <p className="text-sm text-destructive">{errorMessage(remove.error, "Could not delete.")}</p>}
