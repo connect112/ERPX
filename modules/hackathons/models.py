@@ -78,6 +78,12 @@ class Hackathon(TimestampedBase):
     leaderboard_visible: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )
+    # Whether a team may change a task submission after it has been made, and how
+    # many times (the first submission does not count).
+    resubmission_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+    max_resubmissions: Mapped[int] = mapped_column(Integer, default=2, server_default="2", nullable=False)
 
 
 class ProblemStatement(TimestampedBase):
@@ -200,3 +206,9 @@ class TaskSubmission(TimestampedBase):
     # {rubric rule id: marks awarded}; `score` is their sum (or a free score for tasks with no rubric).
     rubric_scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # How many times the team has changed this submission after first making it.
+    resubmission_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # When staff last scored it. A submission is reviewed only while this is later than
+    # `submitted_at`, so a resubmission shows as unreviewed again (its old score stays
+    # on the leaderboard until it is re-scored).
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

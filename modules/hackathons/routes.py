@@ -9,7 +9,12 @@ from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.hackathons.models import HackathonStatus
-from modules.hackathons.participation import MAX_REPORT_BYTES, ParticipationService
+from modules.hackathons.participation import (
+    MAX_REPORT_BYTES,
+    ParticipationService,
+    is_reviewed,
+    resubmissions_left,
+)
 from modules.hackathons.schemas import (
     AwardPublic,
     HackathonCreateRequest,
@@ -183,6 +188,8 @@ def _submission_info(submission) -> TaskSubmissionInfo:
         score=submission.score,
         rubric_scores=submission.rubric_scores,
         feedback=submission.feedback,
+        resubmission_count=submission.resubmission_count,
+        reviewed=is_reviewed(submission),
     )
 
 
@@ -196,10 +203,15 @@ async def list_my_tasks(
     (report and/or URL, marks per rubric rule, feedback) and the team's place."""
     hackathon = await _visible_hackathon(db, hackathon_id, student)
     view = await ParticipationService(db).tasks_for(hackathon, student)
+    can_submit = view.team is not None and hackathon.status in (
+        HackathonStatus.REGISTRATION_OPEN,
+        HackathonStatus.ONGOING,
+    )
     return TasksResponse(
         team_id=view.team.id if view.team else None,
-        can_submit=view.team is not None
-        and hackathon.status in (HackathonStatus.REGISTRATION_OPEN, HackathonStatus.ONGOING),
+        can_submit=can_submit,
+        resubmission_enabled=hackathon.resubmission_enabled,
+        max_resubmissions=hackathon.max_resubmissions,
         max_total=view.max_total,
         leaderboard_visible=hackathon.leaderboard_visible,
         team_rank=view.team_rank,
@@ -217,6 +229,8 @@ async def list_my_tasks(
                 submission=_submission_info(row.submission) if row.submission else None,
                 task_rank=row.rank,
                 task_teams_scored=row.teams_scored,
+                can_resubmit=can_submit and resubmissions_left(hackathon, row.submission) > 0,
+                resubmissions_left=resubmissions_left(hackathon, row.submission),
             )
             for row in view.rows
         ],
@@ -436,7 +450,8 @@ async def list_task_submissions(
             submitted_at=row.submission.submitted_at,
             score=row.submission.score,
             rubric_scores=row.submission.rubric_scores,
-            reviewed=row.submission.score is not None,
+            reviewed=is_reviewed(row.submission),
+            resubmission_count=row.submission.resubmission_count,
             feedback=row.submission.feedback,
         )
         for row in rows
@@ -471,6 +486,19 @@ async def grade_task_submission(
         hackathon_id, submission_id, payload.score, payload.rubric_scores, payload.feedback
     )
     return _submission_info(submission)
+
+
+@router.delete("/{hackathon_id}/task-submissions/{submission_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_task_submission(
+    hackathon_id: uuid.UUID,
+    submission_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete one team's submission for a task (with its marks); the team can then submit it again."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    await ParticipationService(db).delete_task_submission(hackathon_id, submission_id)
 
 
 @router.get("/{hackathon_id}/leaderboard", response_model=LeaderboardBoard)

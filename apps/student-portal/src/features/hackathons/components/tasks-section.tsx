@@ -24,6 +24,7 @@ function formatSize(bytes: number): string {
 
 function statusBadge(task: Task) {
   if (!task.submission) return <Badge variant="secondary">Not submitted</Badge>;
+  if (task.submission.score !== null && !task.submission.reviewed) return <Badge variant="warning">Resubmitted</Badge>;
   if (task.submission.score !== null) return <Badge variant="success">Scored: {task.submission.score}</Badge>;
   return <Badge variant="info">Submitted</Badge>;
 }
@@ -37,12 +38,19 @@ function TaskSubmissionForm({
   hackathonId,
   task,
   canSubmit,
+  resubmissionEnabled,
+  maxResubmissions,
 }: {
   hackathonId: string;
   task: Task;
   canSubmit: boolean;
+  resubmissionEnabled: boolean;
+  maxResubmissions: number;
 }) {
   const saved = task.submission;
+  // Once submitted, the form can only be used again while the organisers allow resubmission and the team has some left.
+  const locked = canSubmit && saved != null && !task.can_resubmit;
+  const editable = canSubmit && !locked;
   const [repoUrl, setRepoUrl] = useState(saved?.repo_url ?? "");
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -68,7 +76,7 @@ function TaskSubmissionForm({
           }}
         />
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <Button type="button" variant="outline" size="sm" disabled={!canSubmit} onClick={() => fileRef.current?.click()}>
+          <Button type="button" variant="outline" size="sm" disabled={!editable} onClick={() => fileRef.current?.click()}>
             <Upload className="h-4 w-4" />
             {saved?.report || file ? "Replace report" : "Choose report"}
           </Button>
@@ -106,13 +114,20 @@ function TaskSubmissionForm({
           inputMode="url"
           placeholder="https://hub.docker.com/r/your-team/your-image"
           value={repoUrl}
-          disabled={!canSubmit}
+          disabled={!editable}
           onChange={(e) => setRepoUrl(e.target.value)}
         />
       </div>
 
       {!canSubmit ? (
         <p className="text-sm text-muted-foreground">Create or join a team to submit this task.</p>
+      ) : locked ? (
+        <p className="text-sm text-muted-foreground">
+          {!resubmissionEnabled
+            ? "Resubmission is turned off, so this submission is final."
+            : `You have used all ${maxResubmissions} resubmission${maxResubmissions === 1 ? "" : "s"} for this task, so this submission is final.`}
+          {saved && <> Last saved {new Date(saved.submitted_at).toLocaleString()}.</>}
+        </p>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           <Button
@@ -128,8 +143,13 @@ function TaskSubmissionForm({
               )
             }
           >
-            {submit.isPending ? "Saving..." : saved ? "Update submission" : "Submit task"}
+            {submit.isPending ? "Saving..." : saved ? "Resubmit" : "Submit task"}
           </Button>
+          {saved && (
+            <span className="text-xs text-muted-foreground">
+              {task.resubmissions_left} of {maxResubmissions} resubmission{maxResubmissions === 1 ? "" : "s"} left
+            </span>
+          )}
           {submit.isSuccess && !changed && <span className="text-sm text-emerald-700">Saved.</span>}
           {saved && <span className="text-xs text-muted-foreground">Last saved {new Date(saved.submitted_at).toLocaleString()}</span>}
         </div>
@@ -209,7 +229,7 @@ export function TasksSection({ hackathonId }: { hackathonId: string }) {
                       </ul>
                     </div>
                   )}
-                  {/* The rubric appears once the task is submitted; it fills in when staff score it. */}
+                  {/* The rubric is shown up front; once submitted it waits for marks and then fills in. */}
                   <TaskResult task={task} />
                   {/* Keyed by task (and by the saved version) so each task has its own form state. */}
                   <TaskSubmissionForm
@@ -217,6 +237,8 @@ export function TasksSection({ hackathonId }: { hackathonId: string }) {
                     hackathonId={hackathonId}
                     task={task}
                     canSubmit={data.can_submit}
+                    resubmissionEnabled={data.resubmission_enabled}
+                    maxResubmissions={data.max_resubmissions}
                   />
                 </div>
               )}

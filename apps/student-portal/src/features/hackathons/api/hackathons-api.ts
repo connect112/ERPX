@@ -56,6 +56,10 @@ export interface TaskSubmission {
   /** Marks awarded per rubric rule (by rule id); null until the submission has been scored. */
   rubric_scores: Record<string, number> | null;
   feedback: string | null;
+  /** How many times the team has changed this submission after first making it. */
+  resubmission_count: number;
+  /** False while the latest version hasn't been scored yet (any score shown is for an earlier version). */
+  reviewed: boolean;
 }
 
 export interface SubTask {
@@ -82,6 +86,9 @@ export interface Task {
   /** This team's place among the teams scored on this task (only while the leaderboard is shown). */
   task_rank: number | null;
   task_teams_scored: number;
+  /** Whether the team may change this submission now, and how many changes remain. */
+  can_resubmit: boolean;
+  resubmissions_left: number;
 }
 
 export interface TasksResponse {
@@ -89,6 +96,8 @@ export interface TasksResponse {
   can_submit: boolean;
   max_total: number;
   leaderboard_visible: boolean;
+  resubmission_enabled: boolean;
+  max_resubmissions: number;
   team_rank: number | null;
   team_total: number;
   teams_ranked: number;

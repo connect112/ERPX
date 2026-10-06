@@ -16,6 +16,8 @@ export interface HackathonPublic {
   prize_pool: number | null;
   status: HackathonStatus;
   leaderboard_visible: boolean;
+  resubmission_enabled: boolean;
+  max_resubmissions: number;
   created_at: string;
 }
 
@@ -52,6 +54,8 @@ export interface HackathonUpdatePayload {
   max_team_size?: number;
   prize_pool?: number;
   leaderboard_visible?: boolean;
+  resubmission_enabled?: boolean;
+  max_resubmissions?: number;
 }
 
 export interface TeamPublic {
@@ -123,7 +127,10 @@ export interface TaskSubmissionAdmin {
   submitted_at: string;
   score: number | null;
   rubric_scores: Record<string, number> | null;
+  /** Scored and not changed since. False for a new or a resubmitted submission. */
   reviewed: boolean;
+  /** How many times the team changed it after first submitting. */
+  resubmission_count: number;
   feedback: string | null;
 }
 
@@ -208,6 +215,10 @@ export const hackathonsApi = {
         feedback: feedback || null,
       })
       .then((r) => r.data),
+
+  /** Delete a team's submission (and its marks); the team can then submit that task again. */
+  deleteTaskSubmission: (id: string, submissionId: string) =>
+    apiClient.delete(`/hackathons/${id}/task-submissions/${submissionId}`).then(() => undefined),
 
   /** The submitted report as a Blob (for the in-page preview). */
   fetchTaskReport: (id: string, submissionId: string) =>

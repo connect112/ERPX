@@ -86,6 +86,15 @@ export function useChangeHackathonStatus(id: string) {
   });
 }
 
+export function useDeleteTaskSubmission(hackathonId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (submissionId: string) => hackathonsApi.deleteTaskSubmission(hackathonId, submissionId),
+    // Team totals and the leaderboard change with it.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...hackathonsKeys.all, hackathonId] }),
+  });
+}
+
 export function useGradeTaskSubmission(hackathonId: string) {
   const queryClient = useQueryClient();
   return useMutation({

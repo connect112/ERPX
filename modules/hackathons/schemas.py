@@ -29,6 +29,8 @@ class HackathonUpdateRequest(BaseModel):
     max_team_size: int | None = Field(default=None, ge=1, le=20)
     prize_pool: float | None = Field(default=None, ge=0)
     leaderboard_visible: bool | None = None
+    resubmission_enabled: bool | None = None
+    max_resubmissions: int | None = Field(default=None, ge=0, le=50)
 
 
 class HackathonStatusChangeRequest(BaseModel):
@@ -50,6 +52,8 @@ class HackathonPublic(BaseModel):
     prize_pool: float | None
     status: HackathonStatus
     leaderboard_visible: bool = True
+    resubmission_enabled: bool = True
+    max_resubmissions: int = 2
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -202,6 +206,9 @@ class TaskSubmissionInfo(BaseModel):
     score: int | None
     rubric_scores: dict[str, int] | None = None
     feedback: str | None
+    resubmission_count: int = 0
+    # False when staff have not scored the latest version yet (a score shown may be for an earlier one).
+    reviewed: bool = False
 
 
 class TaskPublic(BaseModel):
@@ -216,6 +223,9 @@ class TaskPublic(BaseModel):
     # This team's place among the teams scored on this task (only while the leaderboard is shown).
     task_rank: int | None = None
     task_teams_scored: int = 0
+    # Whether the team may change this submission now, and how many changes remain.
+    can_resubmit: bool = False
+    resubmissions_left: int = 0
 
 
 class TasksResponse(BaseModel):
@@ -225,6 +235,8 @@ class TasksResponse(BaseModel):
     can_submit: bool
     max_total: int = 0
     leaderboard_visible: bool = True
+    resubmission_enabled: bool = True
+    max_resubmissions: int = 0
     # The team's overall place and total (only while the leaderboard is shown).
     team_rank: int | None = None
     team_total: int = 0
@@ -249,6 +261,8 @@ class TaskSubmissionAdmin(BaseModel):
     score: int | None
     rubric_scores: dict[str, int] | None = None
     reviewed: bool = False
+    # Changed after first being submitted (and so possibly needs another look).
+    resubmission_count: int = 0
     feedback: str | None
 
 

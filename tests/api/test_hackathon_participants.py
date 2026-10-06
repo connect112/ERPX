@@ -316,6 +316,7 @@ async def test_task_submission_needs_a_report_or_a_url_and_validates_both(client
     hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
     (task,) = await _add_tasks(client, auth_headers, hackathon, ["Only task"])
     url = _task_url(hackathon, task)
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"max_resubmissions": 10}, headers=auth_headers)
 
     assert (await client.put(url, data={}, headers=asha)).status_code == 422  # nothing to submit
     assert (await client.put(url, data={"repo_url": "   "}, headers=asha)).status_code == 422
@@ -336,8 +337,9 @@ async def test_task_submission_needs_a_report_or_a_url_and_validates_both(client
     assert cleared.json()["repo_url"] is None and cleared.json()["report"] is not None
     replaced = await client.put(url, files={"file": ("final.pdf", _PDF + b" v2", "application/pdf")}, headers=asha)
     assert replaced.json()["report"]["filename"] == "final.pdf"
-    # ...and it can't end up with neither.
-    assert (await client.put(url, data={"repo_url": ""}, files={}, headers=asha)).json()["report"]["filename"] == "final.pdf"
+    # ...and it can't end up with neither, nor does a no-change send use up a resubmission.
+    unchanged = await client.put(url, data={"repo_url": ""}, files={}, headers=asha)
+    assert unchanged.status_code == 422 and "Change the link" in unchanged.text
 
     got = await client.get(f"{url}/report", headers=ravi)
     assert got.status_code == 200 and got.content.endswith(b" v2") and got.headers["x-content-type-options"] == "nosniff"
@@ -635,3 +637,104 @@ async def test_students_see_their_place_per_task_and_overall_only_while_the_lead
     hidden = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()
     assert hidden["team_rank"] is None and all(t["task_rank"] is None for t in hidden["tasks"])
     assert hidden["tasks"][0]["submission"]["score"] == 9  # their own marks are still theirs to see
+
+
+# ---------------- resubmission limits, re-review and deleting a submission ----------------
+
+
+async def _graded(client, auth_headers, hackathon, task, sub, score):
+    r = await client.post(
+        f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}/grade", json={"score": score}, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def test_resubmission_is_limited_by_the_organiser_setting(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    assert hackathon["resubmission_enabled"] is True and hackathon["max_resubmissions"] == 2
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "One", "marks": 10}, headers=auth_headers)).json()
+
+    first = await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/1"}, headers=asha)
+    assert first.status_code == 200 and first.json()["resubmission_count"] == 0
+
+    view = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()
+    assert view["resubmission_enabled"] is True and view["max_resubmissions"] == 2
+    assert view["tasks"][0]["can_resubmit"] is True and view["tasks"][0]["resubmissions_left"] == 2
+
+    # Sending the same thing again is not a resubmission and does not use one up.
+    same = await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/1"}, headers=asha)
+    assert same.status_code == 422 and "Change the link" in same.text
+
+    assert (await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/2"}, headers=ravi)).json()["resubmission_count"] == 1
+    assert (await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/3"}, headers=asha)).json()["resubmission_count"] == 2
+
+    over = await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/4"}, headers=asha)
+    assert over.status_code == 422 and "used all 2 resubmissions" in over.text
+    view = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()
+    assert view["tasks"][0]["can_resubmit"] is False and view["tasks"][0]["resubmissions_left"] == 0
+    assert view["tasks"][0]["submission"]["repo_url"] == "https://x.io/3"
+
+    # Raising the limit lets them carry on; the count is kept.
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"max_resubmissions": 3}, headers=auth_headers)
+    assert (await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/4"}, headers=asha)).json()["resubmission_count"] == 3
+
+    # Turning resubmission off stops changes (a task not yet submitted can still be submitted).
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"resubmission_enabled": False, "max_resubmissions": 9}, headers=auth_headers)
+    off = await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/5"}, headers=asha)
+    assert off.status_code == 422 and "turned off" in off.text
+    other = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "Two", "marks": 10}, headers=auth_headers)).json()
+    assert (await client.put(_task_url(hackathon, other), data={"repo_url": "https://x.io/a"}, headers=asha)).status_code == 200
+    view = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()
+    assert view["resubmission_enabled"] is False and all(t["can_resubmit"] is False for t in view["tasks"])
+
+    # A zero limit means "no resubmissions", and the setting is validated.
+    bad = await client.patch(f"{_HACK}/{hackathon['id']}", json={"max_resubmissions": -1}, headers=auth_headers)
+    assert bad.status_code == 422
+
+
+async def test_a_resubmitted_task_needs_reviewing_again_but_keeps_its_old_score(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "One", "marks": 10}, headers=auth_headers)).json()
+    sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/1"}, headers=asha)).json()
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert rows[0]["reviewed"] is False and rows[0]["resubmission_count"] == 0
+
+    await _graded(client, auth_headers, hackathon, task, sub, 6)
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert rows[0]["reviewed"] is True
+
+    await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/2"}, headers=asha)
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert rows[0]["reviewed"] is False and rows[0]["resubmission_count"] == 1 and rows[0]["score"] == 6
+    mine = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()["tasks"][0]["submission"]
+    assert mine["reviewed"] is False and mine["score"] == 6  # the earlier marks stay until it is re-scored
+    board = (await client.get(f"{_HACK}/{hackathon['id']}/leaderboard", headers=auth_headers)).json()
+    assert board["entries"][0]["score"] == 6
+
+    await _graded(client, auth_headers, hackathon, task, sub, 9)
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert rows[0]["reviewed"] is True and rows[0]["score"] == 9
+
+
+async def test_staff_can_delete_a_submission_and_the_team_can_submit_that_task_again(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "One", "marks": 10}, headers=auth_headers)).json()
+    await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/1"}, headers=asha)
+    sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/2"}, headers=asha)).json()
+    await _graded(client, auth_headers, hackathon, task, sub, 8)
+
+    url = f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}"
+    # Only staff who can manage the hackathon may delete; a participant cannot.
+    assert (await client.delete(url, headers=asha)).status_code == 403
+    assert (await client.delete(url, headers=auth_headers)).status_code == 204
+    assert (await client.delete(url, headers=auth_headers)).status_code == 404
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json() == []
+    board = (await client.get(f"{_HACK}/{hackathon['id']}/leaderboard", headers=auth_headers)).json()
+    assert all(entry["score"] == 0 for entry in board["entries"])
+
+    view = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()["tasks"][0]
+    assert view["submission"] is None
+    fresh = await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/3"}, headers=asha)
+    assert fresh.status_code == 200 and fresh.json()["resubmission_count"] == 0  # a clean slate
+    assert fresh.json()["score"] is None
