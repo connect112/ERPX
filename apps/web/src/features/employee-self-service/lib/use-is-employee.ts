@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { apiClient } from "@/api/client";
+import { checkOwnership } from "@/lib/ownership-check";
 import { useAuthStore } from "@/store/auth-store";
 
 /**
@@ -14,14 +14,8 @@ export function useIsEmployee() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const { data, isLoading } = useQuery({
     queryKey: ["employees", "me", "ownership-check"],
-    queryFn: async () => {
-      try {
-        await apiClient.get("/employees/me");
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    queryFn: () => checkOwnership("/employees/me"),
+    retry: 3,
     enabled: isAuthenticated,
     staleTime: 5 * 60 * 1000,
   });
