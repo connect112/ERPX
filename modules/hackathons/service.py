@@ -1,6 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from modules.hackathons.repository import (
     TeamMemberRepository,
     TeamRepository,
 )
+from modules.hackathons.team_codes import create_team_with_code, normalize_code
 from modules.students.repository import StudentRepository
 
 logger = get_logger(__name__)
@@ -90,29 +92,36 @@ class TeamService:
         if existing_team:
             raise ConflictError("You are already part of a team for this hackathon.")
 
-        # Two teams can't share a name in one hackathon (unique constraint);
-        # report that plainly instead of letting it surface as a server error.
-        try:
-            async with self.db.begin_nested():
-                team = await self.repo.create(
-                    hackathon_id=hackathon_id, created_by_student_id=student_id, name=name
-                )
-        except IntegrityError:
-            raise ConflictError(f'A team named "{name}" already exists. Please choose another name.') from None
+        # Two teams can't share a name in one hackathon; that is reported plainly
+        # (and the team gets its join code) instead of surfacing as a server error.
+        team = await create_team_with_code(self.db, hackathon_id, student_id, name)
         await self.member_repo.create(
             team_id=team.id, student_id=student_id, joined_at=datetime.now(timezone.utc)
         )
         logger.info("hackathon_team_created", team_id=str(team.id), hackathon_id=str(hackathon_id))
         return team
 
-    async def join_team(
-        self, organization_id: uuid.UUID, hackathon_id: uuid.UUID, team_id: uuid.UUID, student_id: uuid.UUID
+    async def join_team_by_code(
+        self, organization_id: uuid.UUID, hackathon_id: uuid.UUID, student_id: uuid.UUID, code: str
     ) -> TeamMember:
+        """Join the team that has this code. A team can only be joined this way, so someone who
+        doesn't know the code can't get in. A wrong code gets one generic answer."""
         hackathon = await self._get_registerable_hackathon(hackathon_id, organization_id)
 
-        team = await self.repo.get_by_id_for_update(team_id)
-        if not team or team.hackathon_id != hackathon_id:
-            raise NotFoundError("Team", team_id)
+        wanted = normalize_code(code)
+        team = None
+        if wanted:
+            team = (
+                await self.db.execute(
+                    select(Team)
+                    .where(Team.hackathon_id == hackathon_id, Team.join_code == wanted)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+        if team is None:
+            logger.info("hackathon_team_code_miss", hackathon_id=str(hackathon_id), student_id=str(student_id))
+            raise ValidationError("That team code isn't right. Ask a teammate to read it to you again.")
+        team_id = team.id
 
         existing_team = await self.repo.get_for_student_in_hackathon(hackathon_id, student_id)
         if existing_team:

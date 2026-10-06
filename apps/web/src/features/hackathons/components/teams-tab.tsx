@@ -1,4 +1,4 @@
-import { Mail, MoveRight, Pencil, Plus, Trash2, UserMinus } from "lucide-react";
+import { Copy, KeyRound, Mail, MoveRight, Pencil, Plus, Trash2, UserMinus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -393,6 +393,7 @@ export function TeamsTab({ hackathon }: { hackathon: HackathonPublic }) {
     return (teams ?? []).filter(
       (t) =>
         t.name.toLowerCase().includes(needle) ||
+        t.join_code.toLowerCase() === needle.replace(/[^a-z0-9]/g, "") ||
         t.members.some((m) => m.full_name.toLowerCase().includes(needle) || (m.email ?? "").toLowerCase().includes(needle))
     );
   }, [teams, search]);
@@ -463,6 +464,41 @@ export function TeamsTab({ hackathon }: { hackathon: HackathonPublic }) {
                   <p className="text-xs text-muted-foreground">
                     {team.members.length} / {hackathon.max_team_size} members · {team.tasks_submitted} task
                     {team.tasks_submitted === 1 ? "" : "s"} submitted · {team.total_score} points
+                  </p>
+                  <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    Team code
+                    <code className="rounded bg-muted px-2 py-0.5 font-mono text-sm font-semibold tracking-widest text-foreground">
+                      {team.join_code}
+                    </code>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                      title="Copy the team code"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(team.join_code);
+                        setNotice({ tone: "ok", text: `Copied the code for ${team.name}.` });
+                      }}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                      title="Replace the code (the old one stops working)"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Make a new code for ${team.name}? The current code (${team.join_code}) stops working. Existing members stay in the team.`
+                          )
+                        ) {
+                          void run(() => admin.regenerateCode.mutateAsync(team.id));
+                        }
+                      }}
+                    >
+                      <KeyRound className="h-3.5 w-3.5" />
+                      New code
+                    </button>
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">

@@ -51,7 +51,9 @@ from modules.hackathons.schemas import (
     TasksResponse,
     TeamAdminCreateRequest,
     TeamCreateRequest,
+    TeamJoinRequest,
     TeamMemberPublic,
+    TeamOwnPublic,
     TeamPublic,
     TeamRenameRequest,
     TeamWithMembersPublic,
@@ -130,7 +132,7 @@ async def get_my_team(
         return None
     team, members = result
     return TeamWithMembersPublic(
-        team=TeamPublic.model_validate(team),
+        team=TeamOwnPublic.model_validate(team),
         members=await _members_public(db, members, student.organization_id),
     )
 
@@ -286,7 +288,7 @@ async def download_my_task_report(
     return _report_response(submission)
 
 
-@router.post("/{hackathon_id}/teams/me", response_model=TeamPublic, status_code=status.HTTP_201_CREATED)
+@router.post("/{hackathon_id}/teams/me", response_model=TeamOwnPublic, status_code=status.HTTP_201_CREATED)
 async def create_my_team(
     hackathon_id: uuid.UUID,
     payload: TeamCreateRequest,
@@ -295,37 +297,19 @@ async def create_my_team(
 ):
     service = TeamService(db)
     team = await service.create_team(student.organization_id, hackathon_id, student.id, payload.name)
-    return TeamPublic.model_validate(team)
+    return TeamOwnPublic.model_validate(team)
 
 
-@router.get("/{hackathon_id}/teams/browse", response_model=list[TeamPublic])
-async def browse_teams(
+@router.post("/{hackathon_id}/teams/join/me", response_model=TeamMemberPublic)
+async def join_team_with_code(
     hackathon_id: uuid.UUID,
+    payload: TeamJoinRequest,
     student: Student = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
+    """Join a team by typing its code (shown to the team's members and the organisers)."""
     service = TeamService(db)
-    teams = await service.list_teams(hackathon_id, student.organization_id)
-    # Students see how full each team is (so they don't try a full one),
-    # but not who is in other teams.
-    names = await service.members_by_team(teams, student.organization_id)
-    out = []
-    for team in teams:
-        item = TeamPublic.model_validate(team)
-        item.member_count = len(names[team.id])
-        out.append(item)
-    return out
-
-
-@router.post("/{hackathon_id}/teams/{team_id}/join/me", response_model=TeamMemberPublic)
-async def join_team(
-    hackathon_id: uuid.UUID,
-    team_id: uuid.UUID,
-    student: Student = Depends(get_current_student),
-    db: AsyncSession = Depends(get_db),
-):
-    service = TeamService(db)
-    member = await service.join_team(student.organization_id, hackathon_id, team_id, student.id)
+    member = await service.join_team_by_code(student.organization_id, hackathon_id, student.id, payload.code)
     return TeamMemberPublic(
         id=member.id,
         team_id=member.team_id,
@@ -420,7 +404,7 @@ async def delete_hackathon(
     return MessageResponse(message="Hackathon deleted successfully.")
 
 
-@router.get("/{hackathon_id}/teams", response_model=list[TeamPublic])
+@router.get("/{hackathon_id}/teams", response_model=list[TeamOwnPublic])
 async def list_teams(
     hackathon_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
@@ -433,7 +417,7 @@ async def list_teams(
     totals = await ParticipationService(db).team_totals([t.id for t in teams])
     out = []
     for team in teams:
-        item = TeamPublic.model_validate(team)
+        item = TeamOwnPublic.model_validate(team)
         item.member_names = names[team.id]
         item.member_count = len(item.member_names)
         item.tasks_submitted, item.total_score = totals.get(team.id, (0, 0))
@@ -701,6 +685,7 @@ async def team_roster(
         RosterTeamPublic(
             id=t.team.id,
             name=t.team.name,
+            join_code=t.team.join_code,
             created_at=t.team.created_at,
             tasks_submitted=totals.get(t.team.id, (0, 0))[0],
             total_score=totals.get(t.team.id, (0, 0))[1],
@@ -927,3 +912,17 @@ async def send_login_links(
     jobs = await ParticipantAdminService(db).login_links(organization_id, hackathon_id, payload.student_ids)
     await _commit_and_queue(db, background, hackathon, jobs)
     return MessageResponse(message=f"Sent {len(jobs)} set-password link{'' if len(jobs) == 1 else 's'}.")
+
+
+@router.post("/{hackathon_id}/teams/{team_id}/code", response_model=MessageResponse)
+async def regenerate_team_code(
+    hackathon_id: uuid.UUID,
+    team_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace a team's join code (the old one stops working)."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    code = await TeamAdminService(db).regenerate_code(hackathon_id, team_id)
+    return MessageResponse(message=f"The new team code is {code}.")

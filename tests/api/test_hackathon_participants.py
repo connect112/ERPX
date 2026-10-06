@@ -102,14 +102,14 @@ async def test_bulk_created_students_set_a_password_log_in_and_form_a_team(
     assert [h["id"] for h in listed.json()] == [hackathon["id"]]
     team = await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Red Team"}, headers=asha)
     assert team.status_code == 201, team.text
-    joined = await client.post(f"{_HACK}/{hackathon['id']}/teams/{team.json()['id']}/join/me", headers=ravi)
+    joined = await client.post(f"{_HACK}/{hackathon['id']}/teams/join/me", json={"code": team.json()["join_code"]}, headers=ravi)
     assert joined.status_code == 200, joined.text
 
-    # Staff see who is in each team; students only see how full it is.
+    # Staff see who is in each team (and its code); there is no public list of teams to browse.
     staff = (await client.get(f"{_HACK}/{hackathon['id']}/teams", headers=auth_headers)).json()
     assert staff[0]["member_count"] == 2 and set(staff[0]["member_names"]) == {"Asha Rao", "Ravi Kumar"}
-    browse = (await client.get(f"{_HACK}/{hackathon['id']}/teams/browse", headers=ravi)).json()
-    assert browse[0]["member_count"] == 2 and browse[0]["member_names"] == []
+    assert staff[0]["join_code"] == team.json()["join_code"]
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/teams/browse", headers=ravi)).status_code in (404, 405)
 
 
 async def test_existing_accounts_are_left_alone_or_sent_a_fresh_link(client, db_session, auth_headers, sent_emails):
@@ -197,8 +197,9 @@ async def test_team_names_are_unique_and_a_full_team_cannot_be_joined(client, db
     clash = await client.post(f"{base}/me", json={"name": "Alpha"}, headers=heads["p2@example.com"])
     assert clash.status_code == 409 and "already exists" in clash.text  # not a 500
 
-    assert (await client.post(f"{base}/{team.json()['id']}/join/me", headers=heads["p2@example.com"])).status_code == 200
-    full = await client.post(f"{base}/{team.json()['id']}/join/me", headers=heads["p3@example.com"])
+    code = {"code": team.json()["join_code"]}
+    assert (await client.post(f"{base}/join/me", json=code, headers=heads["p2@example.com"])).status_code == 200
+    full = await client.post(f"{base}/join/me", json=code, headers=heads["p3@example.com"])
     assert full.status_code == 422 and "maximum size" in full.text
     # The failed attempts did not leave p2/p3 in a half-registered state.
     assert (await client.get(f"{base}/me", headers=heads["p3@example.com"])).json() is None
@@ -228,7 +229,7 @@ async def _two_member_team(client, db_session, auth_headers, sent_emails, max_te
     asha = await _set_password_and_login(client, "asha@example.com", tokens["asha@example.com"])
     ravi = await _set_password_and_login(client, "ravi@example.com", tokens["ravi@example.com"])
     team = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Red Team"}, headers=asha)).json()
-    await client.post(f"{_HACK}/{hackathon['id']}/teams/{team['id']}/join/me", headers=ravi)
+    await client.post(f"{_HACK}/{hackathon['id']}/teams/join/me", json={"code": team["join_code"]}, headers=ravi)
     return hackathon, team, asha, ravi
 
 
@@ -369,7 +370,7 @@ async def test_leaderboard_is_the_sum_of_task_scores_and_updates_as_scores_are_a
     meena = await _set_password_and_login(client, "meena@example.com", tokens["meena@example.com"])
     kiran = await _set_password_and_login(client, "kiran@example.com", tokens["kiran@example.com"])
     blue = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Blue Team"}, headers=meena)).json()
-    await client.post(f"{_HACK}/{hackathon['id']}/teams/{blue['id']}/join/me", headers=kiran)
+    await client.post(f"{_HACK}/{hackathon['id']}/teams/join/me", json={"code": blue["join_code"]}, headers=kiran)
     one, two = await _add_tasks(client, auth_headers, hackathon, ["Task one", "Task two"])
 
     async def submit(headers, task):
@@ -604,7 +605,7 @@ async def test_students_see_their_place_per_task_and_overall_only_while_the_lead
     meena = await _set_password_and_login(client, "meena@example.com", tokens["meena@example.com"])
     blue = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Blue Team"}, headers=meena)).json()
     kiran = await _set_password_and_login(client, "kiran@example.com", tokens["kiran@example.com"])
-    await client.post(f"{_HACK}/{hackathon['id']}/teams/{blue['id']}/join/me", headers=kiran)
+    await client.post(f"{_HACK}/{hackathon['id']}/teams/join/me", json={"code": blue["join_code"]}, headers=kiran)
     one = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "One", "marks": 10}, headers=auth_headers)).json()
     two = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "Two", "marks": 10}, headers=auth_headers)).json()
 
@@ -1049,3 +1050,74 @@ async def test_staff_can_remove_participants_from_the_hackathon_or_delete_their_
     assert "kiran@example.com" in await _participants(client, auth_headers, hackathon)  # untouched
     # A participant can't do any of this.
     assert (await client.post(url, json={"student_ids": [ids["kiran@example.com"]]}, headers=ravi)).status_code == 403
+
+
+# ---------------- joining a team by its code ----------------
+
+
+async def test_a_team_is_joined_only_with_its_code_which_only_its_members_and_staff_can_see(client, db_session, auth_headers, sent_emails):
+    hackathon = await _open_hackathon(client, auth_headers)
+    await _add(client, auth_headers, hackathon, [("Asha Rao", "asha@example.com"), ("Ravi Kumar", "ravi@example.com"), ("Meena S", "meena@example.com")])
+    tokens = {e: t for e, _n, t in sent_emails}
+    asha = await _set_password_and_login(client, "asha@example.com", tokens["asha@example.com"])
+    ravi = await _set_password_and_login(client, "ravi@example.com", tokens["ravi@example.com"])
+    meena = await _set_password_and_login(client, "meena@example.com", tokens["meena@example.com"])
+    base = f"{_HACK}/{hackathon['id']}/teams"
+
+    red = (await client.post(f"{base}/me", json={"name": "Red Team"}, headers=asha)).json()
+    code = red["join_code"]
+    import re as _re
+
+    assert _re.fullmatch(r"[A-HJ-KM-NP-Z2-9]{6}", code)  # six characters, no look-alikes
+    blue = (await client.post(f"{base}/me", json={"name": "Blue Team"}, headers=meena)).json()
+    assert blue["join_code"] != code
+
+    # The code reaches the team's own members and staff; nobody else gets it.
+    assert (await client.get(f"{base}/me", headers=asha)).json()["team"]["join_code"] == code
+    assert [t["join_code"] for t in (await client.get(base, headers=auth_headers)).json()] == [code, blue["join_code"]]
+    assert (await client.get(f"{base}/browse", headers=ravi)).status_code in (404, 405)
+    # The old join-by-id door is closed.
+    assert (await client.post(f"{base}/{red['id']}/join/me", headers=ravi)).status_code in (404, 405)
+
+    # A wrong, empty or other-hackathon code gets the same plain answer and joins nothing.
+    other = await _open_hackathon(client, auth_headers)
+    await _add(client, auth_headers, other, [("Kiran P", "kiran@example.com")])
+    kiran = await _set_password_and_login(client, "kiran@example.com", sent_emails[-1][2])
+    other_team = (await client.post(f"{_HACK}/{other['id']}/teams/me", json={"name": "Elsewhere"}, headers=kiran)).json()
+    for bad in ("ZZZZZZ", "   ", other_team["join_code"][:-1], other_team["join_code"]):
+        r = await client.post(f"{base}/join/me", json={"code": bad}, headers=ravi)
+        assert r.status_code == 422 and "isn't right" in r.text, bad
+    assert (await client.get(f"{base}/me", headers=ravi)).json() is None
+
+    # The right code works however it is typed.
+    typed = f" {code[:3].lower()}-{code[3:].lower()} "
+    joined = await client.post(f"{base}/join/me", json={"code": typed}, headers=ravi)
+    assert joined.status_code == 200, joined.text
+    assert (await client.get(f"{base}/me", headers=ravi)).json()["team"]["name"] == "Red Team"
+    # Already in a team: a second join is refused.
+    assert (await client.post(f"{base}/join/me", json={"code": blue["join_code"]}, headers=ravi)).status_code == 409
+
+
+async def test_staff_can_replace_a_team_code_and_teams_made_by_staff_get_one(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    base = f"{_HACK}/{hackathon['id']}/teams"
+    old = team["join_code"]
+    assert [t["join_code"] for t in (await client.get(f"{_HACK}/{hackathon['id']}/roster", headers=auth_headers)).json()] == [old]
+
+    r = await client.post(f"{base}/{team['id']}/code", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    new = (await client.get(f"{_HACK}/{hackathon['id']}/roster", headers=auth_headers)).json()[0]["join_code"]
+    assert new != old and new in r.json()["message"]
+    assert (await client.post(f"{base}/{team['id']}/code", headers=asha)).status_code == 403  # participants can't
+
+    # The replaced code no longer works; the new one does.
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com")])
+    meena = await _set_password_and_login(client, "meena@example.com", sent_emails[-1][2])
+    assert (await client.post(f"{base}/join/me", json={"code": old}, headers=meena)).status_code == 422
+    assert (await client.post(f"{base}/join/me", json={"code": new}, headers=meena)).status_code == 200
+
+    # A team made by staff has a code too, distinct from the others.
+    made = await client.post(base, json={"name": "Green Team", "member": {"name": "Dev Patel", "email": "dev@example.com"}}, headers=auth_headers)
+    assert made.status_code == 201
+    codes = [t["join_code"] for t in (await client.get(f"{_HACK}/{hackathon['id']}/roster", headers=auth_headers)).json()]
+    assert len(codes) == 2 and len(set(codes)) == 2

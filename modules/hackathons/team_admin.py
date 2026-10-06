@@ -28,6 +28,7 @@ from modules.hackathons.provisioning import (
     SET_PASSWORD_TOKEN_TTL_HOURS,
 )
 from modules.hackathons.repository import TeamMemberRepository, TeamRepository
+from modules.hackathons.team_codes import create_team_with_code, replace_code
 from modules.students.models import Student
 
 logger = get_logger(__name__)
@@ -196,13 +197,7 @@ class TeamAdminService:
         if len(ids) > hackathon.max_team_size:
             raise ValidationError(f"A team can have at most {hackathon.max_team_size} members.")
         students = [await self._addable_student(organization_id, hackathon.id, sid) for sid in ids]
-        try:
-            async with self.db.begin_nested():
-                team = await self.teams.create(
-                    hackathon_id=hackathon.id, created_by_student_id=students[0].id, name=clean
-                )
-        except IntegrityError:
-            raise ConflictError(f'A team named "{clean}" already exists.') from None
+        team = await create_team_with_code(self.db, hackathon.id, students[0].id, clean)
         for student in students:
             await self.members.create(team_id=team.id, student_id=student.id, joined_at=_now())
         logger.info("hackathon_team_created_by_staff", team_id=str(team.id), hackathon_id=str(hackathon.id))
@@ -222,6 +217,11 @@ class TeamAdminService:
         except IntegrityError:
             raise ConflictError(f'A team named "{clean}" already exists.') from None
         return team
+
+    async def regenerate_code(self, hackathon_id: uuid.UUID, team_id: uuid.UUID) -> str:
+        """A new join code for the team (the old one stops working), e.g. if it was shared too widely."""
+        team = await self._team(hackathon_id, team_id, lock=True)
+        return await replace_code(self.db, team)
 
     async def delete_team(self, hackathon_id: uuid.UUID, team_id: uuid.UUID) -> None:
         """Remove a team with its members' places and its task submissions (their logins stay)."""

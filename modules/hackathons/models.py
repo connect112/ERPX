@@ -108,7 +108,10 @@ class ProblemStatement(TimestampedBase):
 
 class Team(TimestampedBase):
     __tablename__ = "hackathon_teams"
-    __table_args__ = (UniqueConstraint("hackathon_id", "name", name="uq_hackathon_team_name"),)
+    __table_args__ = (
+        UniqueConstraint("hackathon_id", "name", name="uq_hackathon_team_name"),
+        UniqueConstraint("hackathon_id", "join_code", name="uq_hackathon_team_join_code"),
+    )
 
     hackathon_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("hackathons.id", ondelete="CASCADE"), nullable=False, index=True
@@ -117,6 +120,8 @@ class Team(TimestampedBase):
         ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # What a teammate types to join this team; shown only to staff and the team's own members.
+    join_code: Mapped[str] = mapped_column(String(12), nullable=False)
     problem_statement_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("hackathon_problem_statements.id", ondelete="SET NULL"), nullable=True
     )

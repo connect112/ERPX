@@ -27,6 +27,11 @@ export interface TeamPublic {
   member_count: number;
 }
 
+/** A team as its own members see it: with the code teammates type to join. */
+export interface TeamOwnPublic extends TeamPublic {
+  join_code: string;
+}
+
 export interface TeamMemberPublic {
   id: string;
   team_id: string;
@@ -36,7 +41,7 @@ export interface TeamMemberPublic {
 }
 
 export interface TeamWithMembersPublic {
-  team: TeamPublic;
+  team: TeamOwnPublic;
   members: TeamMemberPublic[];
 }
 
@@ -143,12 +148,10 @@ export const hackathonsApi = {
       .post<TeamPublic>(`/hackathons/${hackathonId}/teams/me`, { name })
       .then((r) => r.data),
 
-  browseTeams: (hackathonId: string) =>
-    apiClient.get<TeamPublic[]>(`/hackathons/${hackathonId}/teams/browse`).then((r) => r.data),
-
-  joinTeam: (hackathonId: string, teamId: string) =>
+  /** Join a team by typing the code its members (or the organisers) can see. */
+  joinTeamWithCode: (hackathonId: string, code: string) =>
     apiClient
-      .post<TeamMemberPublic>(`/hackathons/${hackathonId}/teams/${teamId}/join/me`)
+      .post<TeamMemberPublic>(`/hackathons/${hackathonId}/teams/join/me`, { code })
       .then((r) => r.data),
 
   tasks: (hackathonId: string) =>

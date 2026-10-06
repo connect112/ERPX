@@ -167,6 +167,8 @@ export interface RosterMember {
 export interface RosterTeam {
   id: string;
   name: string;
+  /** What teammates type to join the team. */
+  join_code: string;
   created_at: string;
   tasks_submitted: number;
   total_score: number;
@@ -247,6 +249,8 @@ export const hackathonsApi = {
     apiClient.post<{ message: string }>(`/hackathons/${id}/teams`, { name, member }).then((r) => r.data),
   renameTeam: (id: string, teamId: string, name: string) =>
     apiClient.patch<{ message: string }>(`/hackathons/${id}/teams/${teamId}`, { name }).then((r) => r.data),
+  regenerateTeamCode: (id: string, teamId: string) =>
+    apiClient.post<{ message: string }>(`/hackathons/${id}/teams/${teamId}/code`).then((r) => r.data),
   deleteTeam: (id: string, teamId: string) =>
     apiClient.delete<{ message: string }>(`/hackathons/${id}/teams/${teamId}`).then((r) => r.data),
   addMember: (id: string, teamId: string, member: MemberRef) =>
