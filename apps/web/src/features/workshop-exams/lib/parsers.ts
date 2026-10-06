@@ -49,6 +49,20 @@ const LEGACY_LABEL_RE = /^(?:[A-Za-z]|\d{1,2})[).:]\s+/;
 
 const MAX_OPTIONS = 8;
 
+/** True for every line that is a ``` fence or sits between two fences (structure is not read there). */
+function fenceMask(lines: string[]): boolean[] {
+  let inside = false;
+  return lines.map((line) => {
+    if (/^\s*```/.test(line)) {
+      // The opening fence and the closing fence are both part of the code block.
+      const wasInside = inside;
+      inside = !inside;
+      return wasInside || inside;
+    }
+    return inside;
+  });
+}
+
 /** Trim blank lines off both ends and trailing spaces off every line, keeping indentation. */
 function tidy(lines: string[]): string {
   const cleaned = lines.map((l) => l.replace(/\s+$/, ""));
@@ -64,7 +78,9 @@ function tidy(lines: string[]): string {
  * separated by blank lines, as in the simple format.
  */
 function splitBlocks(lines: string[]): string[][] {
-  const hasNumbering = lines.some((l) => QUESTION_START_RE.test(l));
+  const inCode = fenceMask(lines);
+  const startsQuestion = (index: number) => !inCode[index] && QUESTION_START_RE.test(lines[index]);
+  const hasNumbering = lines.some((_, i) => startsQuestion(i));
   const blocks: string[][] = [];
   let current: string[] = [];
   const flush = () => {
@@ -72,11 +88,11 @@ function splitBlocks(lines: string[]): string[][] {
     current = [];
   };
   let sawBlank = false;
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     if (hasNumbering) {
-      if (QUESTION_START_RE.test(line)) flush();
+      if (startsQuestion(index)) flush();
       current.push(line);
-    } else if (!line.trim()) {
+    } else if (!line.trim() && !inCode[index]) {
       sawBlank = true;
     } else {
       if (sawBlank) flush();
@@ -100,8 +116,9 @@ function parseAnswerLetters(value: string): string[] | null {
 /** Labelled format: question text (any number of lines), then A./B./C. options (each may span lines). */
 function parseLabelled(lines: string[], label: string): { row?: QuestionInput; error?: string } | null {
   // The options start at the first "A." line; later labels must follow in order.
-  const firstA = lines.findIndex((l) => {
-    const m = l.match(OPTION_LABEL_RE);
+  const inCode = fenceMask(lines);
+  const firstA = lines.findIndex((l, i) => {
+    const m = inCode[i] ? null : l.match(OPTION_LABEL_RE);
     return m && m[2].toUpperCase() === "A";
   });
   if (firstA < 0) return null;
@@ -111,13 +128,14 @@ function parseLabelled(lines: string[], label: string): { row?: QuestionInput; e
   const correct = new Set<number>();
   let answerLetters: string[] | null = null;
 
-  for (const line of lines.slice(firstA)) {
-    const answer = line.match(ANSWER_LINE_RE);
+  for (const [offset, line] of lines.slice(firstA).entries()) {
+    const protectedLine = inCode[firstA + offset];
+    const answer = protectedLine ? null : line.match(ANSWER_LINE_RE);
     if (answer && parseAnswerLetters(answer[1])) {
       answerLetters = parseAnswerLetters(answer[1]);
       continue;
     }
-    const m = line.match(OPTION_LABEL_RE);
+    const m = protectedLine ? null : line.match(OPTION_LABEL_RE);
     const expected = String.fromCharCode(65 + options.length);
     if (m && m[2].toUpperCase() === expected) {
       options.push([m[4]]);

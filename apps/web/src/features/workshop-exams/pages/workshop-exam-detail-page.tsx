@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { CertificateDesigner } from "@/features/workshop-exams/components/certificate-designer";
+import { CodeTextarea } from "@/features/workshop-exams/components/code-textarea";
 import { RichText } from "@/features/workshop-exams/components/rich-text";
 import { QuestionEditor } from "@/features/workshop-exams/components/question-editor";
 import { BLANK_QUESTION } from "@/features/workshop-exams/lib/question-draft";
@@ -573,17 +574,19 @@ function QuestionsTab({ exam }: { exam: WorkshopExam }) {
             <CardDescription>
               Paste your questions as they are. Number each one (Q1., 2.), write the options as A. B. C. D. (the
               question or an option can run over several lines, e.g. code), and say which is right with a line like{" "}
-              <code>Answer: C</code> (<code>Answer: A, C</code> if several) or a * in front of the option. The preview
-              below shows exactly how each question was understood. The simple format also works: question on the
+              <code>Answer: C</code> (<code>Answer: A, C</code> if several) or a * in front of the option. To colour
+              code, select its lines and press <em>Code block</em> (or write ```dockerfile before and ``` after the
+              code). The preview below shows exactly how each question was understood. The simple format also works: question on the
               first line, one option per line, * on the correct ones, blank line between questions.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Textarea
-              rows={10}
+            <CodeTextarea
+              rows={12}
               value={bulkText}
-              onChange={(e) => setBulkText(e.target.value)}
+              onChange={setBulkText}
               className="font-mono text-xs"
+              ariaLabel="Questions to add"
               placeholder={"Q1. What does this print?\nprint(1 + 1)\nA. 11\nB. 2\nAnswer: B\n\nQ2. Which are primes?\nA. 2\nB. 3\nC. 4\nAnswer: A, B"}
             />
             <p className="text-sm text-muted-foreground">{parsed.rows.length} question(s) ready</p>

@@ -69,3 +69,71 @@
     @apply bg-background text-foreground antialiased;
   }
 }
+
+/* Syntax colours for code blocks in exam questions (see rich-text.tsx). */
+.code-block {
+  --code-keyword: #a626a4;
+  --code-string: #50a14f;
+  --code-number: #986801;
+  --code-comment: #8b8f98;
+  --code-title: #4078f2;
+  --code-attr: #c18401;
+  --code-variable: #e45649;
+  --code-meta: #0184bc;
+}
+.dark .code-block {
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-number: #d19a66;
+  --code-comment: #7f848e;
+  --code-title: #61afef;
+  --code-attr: #e5c07b;
+  --code-variable: #e06c75;
+  --code-meta: #56b6c2;
+}
+.code-block .hljs-keyword,
+.code-block .hljs-selector-tag,
+.code-block .hljs-doctag,
+.code-block .hljs-type,
+.code-block .hljs-built_in,
+.code-block .hljs-literal {
+  color: var(--code-keyword);
+  font-weight: 600;
+}
+.code-block .hljs-string,
+.code-block .hljs-regexp,
+.code-block .hljs-addition {
+  color: var(--code-string);
+}
+.code-block .hljs-number,
+.code-block .hljs-symbol,
+.code-block .hljs-bullet {
+  color: var(--code-number);
+}
+.code-block .hljs-comment,
+.code-block .hljs-quote {
+  color: var(--code-comment);
+  font-style: italic;
+}
+.code-block .hljs-title,
+.code-block .hljs-section,
+.code-block .hljs-name,
+.code-block .hljs-selector-id,
+.code-block .hljs-selector-class {
+  color: var(--code-title);
+}
+.code-block .hljs-attr,
+.code-block .hljs-attribute,
+.code-block .hljs-params,
+.code-block .hljs-template-variable {
+  color: var(--code-attr);
+}
+.code-block .hljs-variable,
+.code-block .hljs-tag,
+.code-block .hljs-deletion {
+  color: var(--code-variable);
+}
+.code-block .hljs-meta,
+.code-block .hljs-meta .hljs-keyword {
+  color: var(--code-meta);
+}
