@@ -208,13 +208,13 @@ function TeamFormDialog({
 }
 
 /** Correct a member's name, phone or login email. */
-function EditMemberDialog({
+export function EditMemberDialog({
   member,
   admin,
   onClose,
   onDone,
 }: {
-  member: RosterMember;
+  member: Pick<RosterMember, "student_id" | "full_name" | "email" | "phone">;
   admin: ReturnType<typeof useTeamAdmin>;
   onClose: () => void;
   onDone: (message: string) => void;

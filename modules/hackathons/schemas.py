@@ -383,3 +383,43 @@ class CandidatePublic(BaseModel):
     full_name: str
     email: str | None
     student_code: str
+
+
+# ---------------- everyone invited to a hackathon ----------------
+
+
+class ParticipantPublic(BaseModel):
+    student_id: uuid.UUID
+    full_name: str
+    email: str | None
+    phone: str | None
+    student_code: str
+    invited_at: datetime | None
+    has_logged_in: bool
+    last_login_at: datetime | None
+    team_id: uuid.UUID | None
+    team_name: str | None
+    is_creator: bool
+    can_delete_account: bool
+
+
+class ParticipantBulkRequest(BaseModel):
+    student_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=300)
+    # False: just take them out of the hackathon. True: delete their ERPX accounts.
+    delete_account: bool = False
+
+
+class SkippedPerson(BaseModel):
+    student_id: uuid.UUID
+    name: str
+    reason: str
+
+
+class ParticipantBulkResult(BaseModel):
+    done: int
+    skipped: list[SkippedPerson] = Field(default_factory=list)
+
+
+class LoginLinksRequest(BaseModel):
+    # None = everyone who hasn't signed in yet.
+    student_ids: list[uuid.UUID] | None = Field(default=None, max_length=300)

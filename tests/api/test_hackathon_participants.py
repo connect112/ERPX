@@ -928,3 +928,124 @@ async def test_an_account_with_staff_access_cannot_be_edited_through_a_team(clie
     assert r.status_code == 422 and "Users" in r.text
     # Their own team membership can still be managed (that is not changing the login).
     assert (await client.delete(f"{_HACK}/{hackathon['id']}/teams/{team['id']}/members/{ids['ravi@example.com']}", headers=auth_headers)).status_code == 200
+
+
+# ---------------- everyone invited: list, login links, remove, delete ----------------
+
+
+async def _participants(client, auth_headers, hackathon):
+    r = await client.get(f"{_HACK}/{hackathon['id']}/participants", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    return {p["email"]: p for p in r.json()}
+
+
+async def test_invited_participants_are_listed_with_team_and_sign_in_status(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com")])  # invited, not signed in, no team
+    again = await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com")])
+    assert again.json()["already_have_login"] == 1  # inviting twice does not duplicate her
+
+    people = await _participants(client, auth_headers, hackathon)
+    assert set(people) == {"asha@example.com", "ravi@example.com", "meena@example.com"}
+    asha_row, meena_row = people["asha@example.com"], people["meena@example.com"]
+    assert asha_row["team_name"] == "Red Team" and asha_row["is_creator"] is True and asha_row["has_logged_in"] is True
+    assert asha_row["last_login_at"] is not None and asha_row["invited_at"] is not None
+    assert meena_row["team_name"] is None and meena_row["has_logged_in"] is False and meena_row["last_login_at"] is None
+    assert meena_row["student_code"] and meena_row["can_delete_account"] is True
+
+    # People invited to another hackathon don't show up here, and participants can't read the list.
+    other = await _open_hackathon(client, auth_headers)
+    await _add(client, auth_headers, other, [("Kiran P", "kiran@example.com")])
+    assert set(await _participants(client, auth_headers, hackathon)) == set(people)
+    assert set(await _participants(client, auth_headers, other)) == {"kiran@example.com"}
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/participants", headers=asha)).status_code == 403
+
+    # A new person added straight into a team is on the list too, and teamless invitees are the "add member" candidates.
+    await client.post(
+        f"{_HACK}/{hackathon['id']}/teams/{team['id']}/members", json={"name": "Dev Patel", "email": "dev@example.com"}, headers=auth_headers
+    )
+    assert "dev@example.com" in await _participants(client, auth_headers, hackathon)
+    found = (await client.get(f"{_HACK}/{hackathon['id']}/candidates", headers=auth_headers)).json()
+    assert [c["email"] for c in found] == ["meena@example.com"]
+
+    # Someone with other access (a course student) can be edited or removed but not deleted from here.
+    from sqlalchemy import select
+
+    from modules.authorization.repository import AuthorizationRepository
+    from modules.students.models import Student
+
+    ravi_student = (await db_session.execute(select(Student).where(Student.email == "ravi@example.com"))).scalars().first()
+    repo = AuthorizationRepository(db_session)
+    await repo.assign_role(ravi_student.user_id, (await repo.get_role_by_slug("student")).id, None)
+    await db_session.commit()
+    assert (await _participants(client, auth_headers, hackathon))["ravi@example.com"]["can_delete_account"] is False
+
+
+async def test_login_links_go_to_those_who_have_not_signed_in(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com"), ("Kiran P", "kiran@example.com")])
+    sent_emails.clear()
+    url = f"{_HACK}/{hackathon['id']}/participants/login-links"
+
+    r = await client.post(url, json={}, headers=auth_headers)
+    assert r.status_code == 200 and "Sent 2 set-password links" in r.json()["message"]
+    assert sorted(e for e, *_ in sent_emails) == ["kiran@example.com", "meena@example.com"]  # not Asha or Ravi: they've signed in
+
+    people = await _participants(client, auth_headers, hackathon)
+    sent_emails.clear()
+    picked = await client.post(url, json={"student_ids": [people["asha@example.com"]["student_id"]]}, headers=auth_headers)
+    assert picked.status_code == 200 and [e for e, *_ in sent_emails] == ["asha@example.com"]  # chosen people always get one
+    # The link works.
+    assert (await _set_password_and_login(client, "asha@example.com", sent_emails[0][2], password="Fresh#Pass2026"))
+    assert (await client.post(url, json={}, headers=asha)).status_code == 403
+
+
+async def test_staff_can_remove_participants_from_the_hackathon_or_delete_their_accounts(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com"), ("Kiran P", "kiran@example.com")])
+    people = await _participants(client, auth_headers, hackathon)
+    ids = {e: p["student_id"] for e, p in people.items()}
+    url = f"{_HACK}/{hackathon['id']}/participants/remove"
+
+    # Remove from the hackathon: out of the team and off the list, but the login still works.
+    r = await client.post(url, json={"student_ids": [ids["ravi@example.com"]]}, headers=auth_headers)
+    assert r.status_code == 200 and r.json() == {"done": 1, "skipped": []}
+    assert "ravi@example.com" not in await _participants(client, auth_headers, hackathon)
+    assert (await client.post("/api/v1/auth/login", json={"email": "ravi@example.com", "password": "Hackathon#2026"})).status_code == 200
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()["team_id"] is None
+    assert [m["email"] for m in (await client.get(f"{_HACK}/{hackathon['id']}/roster", headers=auth_headers)).json()[0]["members"]] == ["asha@example.com"]
+    # Removing someone who isn't on the list is reported, not an error.
+    again = await client.post(url, json={"student_ids": [ids["ravi@example.com"]]}, headers=auth_headers)
+    assert again.json()["done"] == 0 and again.json()["skipped"][0]["name"] == "Ravi Kumar"
+
+    # Delete accounts, in bulk. The team's creator can go too: the team stays.
+    deleted = await client.post(url, json={"student_ids": [ids["meena@example.com"], ids["asha@example.com"]], "delete_account": True}, headers=auth_headers)
+    assert deleted.status_code == 200 and deleted.json()["done"] == 2, deleted.text
+    gone = await client.post("/api/v1/auth/login", json={"email": "meena@example.com", "password": "anything"})
+    assert gone.status_code == 401
+    assert (await client.get("/api/v1/authorization/me", headers=asha)).status_code in (401, 403)  # their session is over
+    assert set(await _participants(client, auth_headers, hackathon)) == {"kiran@example.com"}
+    roster = (await client.get(f"{_HACK}/{hackathon['id']}/roster", headers=auth_headers)).json()
+    assert [t["name"] for t in roster] == ["Red Team"] and roster[0]["members"] == []
+
+    # The email address is free again: inviting it makes a fresh account.
+    sent_emails.clear()
+    reinvite = await _add(client, auth_headers, hackathon, [("Meena Again", "meena@example.com")])
+    assert reinvite.json()["created"] == 1 and [e for e, *_ in sent_emails] == ["meena@example.com"]
+
+    # Accounts with other access, and people not on this hackathon's list, are skipped with a reason.
+    from sqlalchemy import select
+
+    from modules.authorization.repository import AuthorizationRepository
+    from modules.students.models import Student
+
+    kiran = (await db_session.execute(select(Student).where(Student.email == "kiran@example.com"))).scalars().first()
+    repo = AuthorizationRepository(db_session)
+    await repo.assign_role(kiran.user_id, (await repo.get_role_by_slug("administrator")).id, None)
+    await db_session.commit()
+    refused = await client.post(url, json={"student_ids": [ids["kiran@example.com"], str(uuid.uuid4())], "delete_account": True}, headers=auth_headers)
+    assert refused.json()["done"] == 0 and len(refused.json()["skipped"]) == 2
+    assert "other access" in refused.json()["skipped"][0]["reason"]
+    assert "kiran@example.com" in await _participants(client, auth_headers, hackathon)  # untouched
+    # A participant can't do any of this.
+    assert (await client.post(url, json={"student_ids": [ids["kiran@example.com"]]}, headers=ravi)).status_code == 403

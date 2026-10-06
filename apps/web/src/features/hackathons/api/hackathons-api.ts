@@ -181,6 +181,28 @@ export interface TeamCandidate {
   student_code: string;
 }
 
+/** Someone invited to the hackathon (or in one of its teams). */
+export interface Participant {
+  student_id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  student_code: string;
+  invited_at: string | null;
+  has_logged_in: boolean;
+  last_login_at: string | null;
+  team_id: string | null;
+  team_name: string | null;
+  is_creator: boolean;
+  /** Only accounts that exist just for hackathons can be deleted outright. */
+  can_delete_account: boolean;
+}
+
+export interface ParticipantBulkResult {
+  done: number;
+  skipped: { student_id: string; name: string; reason: string }[];
+}
+
 export interface MemberUpdatePayload {
   full_name?: string;
   email?: string;
@@ -205,6 +227,19 @@ export const hackathonsApi = {
 
   listTeams: (id: string) => apiClient.get<TeamPublic[]>(`/hackathons/${id}/teams`).then((r) => r.data),
 
+  participants: (id: string) =>
+    apiClient.get<Participant[]>(`/hackathons/${id}/participants`).then((r) => r.data),
+  removeParticipants: (id: string, studentIds: string[], deleteAccount: boolean) =>
+    apiClient
+      .post<ParticipantBulkResult>(`/hackathons/${id}/participants/remove`, {
+        student_ids: studentIds,
+        delete_account: deleteAccount,
+      })
+      .then((r) => r.data),
+  sendLoginLinks: (id: string, studentIds: string[] | null) =>
+    apiClient
+      .post<{ message: string }>(`/hackathons/${id}/participants/login-links`, { student_ids: studentIds })
+      .then((r) => r.data),
   roster: (id: string) => apiClient.get<RosterTeam[]>(`/hackathons/${id}/roster`).then((r) => r.data),
   candidates: (id: string, q: string) =>
     apiClient.get<TeamCandidate[]>(`/hackathons/${id}/candidates`, { params: { q } }).then((r) => r.data),

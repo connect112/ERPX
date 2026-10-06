@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Response, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -28,9 +29,14 @@ from modules.hackathons.schemas import (
     LeaderboardEntry,
     MemberMoveRequest,
     MemberRef,
+    LoginLinksRequest,
     MemberUpdateRequest,
     MessageResponse,
+    ParticipantBulkRequest,
+    ParticipantBulkResult,
     ParticipantError,
+    ParticipantPublic,
+    SkippedPerson,
     ParticipantsRequest,
     ParticipantsResponse,
     ProblemStatementInput,
@@ -53,6 +59,7 @@ from modules.hackathons.schemas import (
 from modules.hackathons.provisioning import ParticipantProvisioner
 from modules.hackathons.service import HackathonService, TeamService
 from modules.hackathons.tasks import enqueue_welcome_emails
+from modules.hackathons.participants_admin import ParticipantAdminService
 from modules.hackathons.team_admin import TeamAdminService
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
@@ -858,3 +865,65 @@ async def send_member_login_link(
     job = await TeamAdminService(db).new_login_link(organization_id, hackathon_id, student_id)
     await _commit_and_queue(db, background, hackathon, [job])
     return MessageResponse(message=f"A set-password link was sent to {job[0]}.")
+
+
+# ---------------- everyone invited to a hackathon ----------------
+
+
+@router.get("/{hackathon_id}/participants", response_model=list[ParticipantPublic])
+async def list_participants(
+    hackathon_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Everyone invited to the hackathon (or in one of its teams) with contact details, team and sign-in status."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    rows = await ParticipantAdminService(db).participants(organization_id, hackathon_id)
+    return [ParticipantPublic(**r.__dict__) for r in rows]
+
+
+@router.post("/{hackathon_id}/participants/remove", response_model=ParticipantBulkResult)
+async def remove_participants(
+    hackathon_id: uuid.UUID,
+    payload: ParticipantBulkRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take people out of the hackathon (out of their team, off the list; logins kept), or, with
+    delete_account, delete their hackathon-only ERPX accounts. Each person is handled on their own."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    service = ParticipantAdminService(db)
+    names = dict(
+        (await db.execute(select(Student.id, Student.full_name).where(Student.id.in_(payload.student_ids)))).all()
+    )
+    done = 0
+    skipped: list[SkippedPerson] = []
+    for student_id in dict.fromkeys(payload.student_ids):
+        try:
+            async with db.begin_nested():
+                if payload.delete_account:
+                    await service.delete_account(organization_id, hackathon_id, student_id)
+                else:
+                    await service.remove_from_hackathon(organization_id, hackathon_id, student_id)
+            done += 1
+        except (NotFoundError, ValidationError) as exc:
+            skipped.append(SkippedPerson(student_id=student_id, name=names.get(student_id, "Unknown"), reason=exc.message))
+    return ParticipantBulkResult(done=done, skipped=skipped)
+
+
+@router.post("/{hackathon_id}/participants/login-links", response_model=MessageResponse)
+async def send_login_links(
+    hackathon_id: uuid.UUID,
+    payload: LoginLinksRequest,
+    background: BackgroundTasks,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Email a fresh set-password link to the chosen people, or to everyone who hasn't signed in yet."""
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    jobs = await ParticipantAdminService(db).login_links(organization_id, hackathon_id, payload.student_ids)
+    await _commit_and_queue(db, background, hackathon, jobs)
+    return MessageResponse(message=f"Sent {len(jobs)} set-password link{'' if len(jobs) == 1 else 's'}.")
