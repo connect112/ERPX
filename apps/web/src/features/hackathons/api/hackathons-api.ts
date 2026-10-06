@@ -15,6 +15,7 @@ export interface HackathonPublic {
   max_team_size: number;
   prize_pool: number | null;
   status: HackathonStatus;
+  leaderboard_visible: boolean;
   created_at: string;
 }
 
@@ -50,6 +51,7 @@ export interface HackathonUpdatePayload {
   end_date?: string;
   max_team_size?: number;
   prize_pool?: number;
+  leaderboard_visible?: boolean;
 }
 
 export interface TeamPublic {
@@ -60,6 +62,18 @@ export interface TeamPublic {
   created_at: string;
   member_count: number;
   member_names: string[];
+  problem_statement_id: string | null;
+  problem_statement_title: string | null;
+  has_report: boolean;
+  report_filename: string | null;
+}
+
+export interface ProblemStatement {
+  id: string;
+  hackathon_id: string;
+  title: string;
+  description: string;
+  order_index: number;
 }
 
 export interface ParticipantsResult {
@@ -106,6 +120,27 @@ export const hackathonsApi = {
         resend_to_existing: resendToExisting,
       })
       .then((r) => r.data),
+
+  listProblemStatements: (id: string) =>
+    apiClient.get<ProblemStatement[]>(`/hackathons/${id}/problem-statements`).then((r) => r.data),
+  addProblemStatement: (id: string, title: string, description: string) =>
+    apiClient.post<ProblemStatement>(`/hackathons/${id}/problem-statements`, { title, description }).then((r) => r.data),
+  updateProblemStatement: (id: string, statementId: string, title: string, description: string) =>
+    apiClient
+      .put<ProblemStatement>(`/hackathons/${id}/problem-statements/${statementId}`, { title, description })
+      .then((r) => r.data),
+  deleteProblemStatement: (id: string, statementId: string) =>
+    apiClient.delete(`/hackathons/${id}/problem-statements/${statementId}`).then((r) => r.data),
+
+  downloadTeamReport: async (id: string, teamId: string, filename: string) => {
+    const response = await apiClient.get(`/hackathons/${id}/teams/${teamId}/report`, { responseType: "blob" });
+    const url = URL.createObjectURL(response.data as Blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
 
   listSubmissions: (id: string) =>
     apiClient.get<SubmissionPublic[]>(`/hackathons/${id}/submissions`).then((r) => r.data),

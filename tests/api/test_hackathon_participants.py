@@ -214,3 +214,162 @@ async def test_login_and_set_password_limits_come_from_settings(client, monkeypa
         assert r.status_code != 429
         r = await client.post("/api/v1/auth/login", json={"email": "nobody@example.com", "password": "Whatever#1"})
         assert r.status_code != 429
+
+
+# ---------------- restricted participant role, problem statements, reports, leaderboard ----------------
+
+_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
+
+
+async def _two_member_team(client, db_session, auth_headers, sent_emails, max_team_size=4):
+    hackathon = await _open_hackathon(client, auth_headers, max_team_size=max_team_size)
+    await _add(client, auth_headers, hackathon, [("Asha Rao", "asha@example.com"), ("Ravi Kumar", "ravi@example.com")])
+    tokens = {e: t for e, _n, t in sent_emails}
+    asha = await _set_password_and_login(client, "asha@example.com", tokens["asha@example.com"])
+    ravi = await _set_password_and_login(client, "ravi@example.com", tokens["ravi@example.com"])
+    team = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Red Team"}, headers=asha)).json()
+    await client.post(f"{_HACK}/{hackathon['id']}/teams/{team['id']}/join/me", headers=ravi)
+    return hackathon, team, asha, ravi
+
+
+async def test_participants_get_the_restricted_role_not_the_student_role(client, db_session, auth_headers, sent_emails):
+    hackathon = await _open_hackathon(client, auth_headers)
+    await _add(client, auth_headers, hackathon, [("Asha Rao", "asha@example.com")])
+    me = await _set_password_and_login(client, "asha@example.com", sent_emails[0][2])
+    roles = (await client.get("/api/v1/authorization/me", headers=me)).json()
+    assert [r["slug"] for r in roles["roles"]] == ["hackathon_participant"]
+    # Only the marker permission: no course, cyber-range or LMS permission at all.
+    assert roles["effective_permissions"] == ["hackathons.participate"]
+
+
+async def test_problem_statements_are_managed_by_staff_and_chosen_by_the_team(
+    client, db_session, auth_headers, sent_emails
+):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    base = f"{_HACK}/{hackathon['id']}/problem-statements"
+    a = await client.post(base, json={"title": "Secure the login", "description": "Find and fix auth bugs."}, headers=auth_headers)
+    b = await client.post(base, json={"title": "Harden the API", "description": "Rate limits and validation."}, headers=auth_headers)
+    assert a.status_code == 201 and b.status_code == 201
+
+    # A participant can read them but not change them.
+    listed = await client.get(f"{base}/me", headers=asha)
+    assert [p["title"] for p in listed.json()] == ["Secure the login", "Harden the API"]
+    assert (await client.post(base, json={"title": "Sneaky", "description": "x"}, headers=asha)).status_code in (403, 422)
+
+    # Either team member can pick one; it shows on their team and to staff.
+    chosen = await client.put(
+        f"{_HACK}/{hackathon['id']}/teams/me/problem-statement",
+        json={"problem_statement_id": b.json()["id"]},
+        headers=ravi,
+    )
+    assert chosen.status_code == 200 and chosen.json()["problem_statement_title"] == "Harden the API"
+    mine = (await client.get(f"{_HACK}/{hackathon['id']}/teams/me", headers=asha)).json()
+    assert mine["team"]["problem_statement_title"] == "Harden the API"
+    staff = (await client.get(f"{_HACK}/{hackathon['id']}/teams", headers=auth_headers)).json()
+    assert staff[0]["problem_statement_title"] == "Harden the API"
+
+    # A statement from another hackathon can't be picked.
+    other = await _open_hackathon(client, auth_headers)
+    foreign = await client.post(
+        f"{_HACK}/{other['id']}/problem-statements", json={"title": "Elsewhere", "description": "x"}, headers=auth_headers
+    )
+    bad = await client.put(
+        f"{_HACK}/{hackathon['id']}/teams/me/problem-statement",
+        json={"problem_statement_id": foreign.json()["id"]},
+        headers=asha,
+    )
+    assert bad.status_code == 404
+
+    # Deleting a statement just un-picks it for teams that had it.
+    assert (await client.delete(f"{base}/{b.json()['id']}", headers=auth_headers)).status_code == 200
+    after = (await client.get(f"{_HACK}/{hackathon['id']}/teams/me", headers=asha)).json()
+    assert after["team"]["problem_statement_title"] is None
+
+
+async def test_report_upload_validation_download_and_replacement(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    url = f"{_HACK}/{hackathon['id']}/teams/me/report"
+
+    def upload(headers, name, data, ctype="application/pdf"):
+        return client.put(url, files={"file": (name, data, ctype)}, headers=headers)
+
+    assert (await upload(asha, "report.exe", _PDF)).status_code == 422  # type not allowed
+    assert (await upload(asha, "report.pdf", b"not really a pdf")).status_code == 422  # wrong contents
+    assert (await upload(asha, "report.pdf", b"")).status_code == 422
+    assert (await upload(asha, "report.pdf", _PDF + b"x" * (20 * 1024 * 1024))).status_code == 422  # > 20 MB
+
+    ok = await upload(asha, "..\\..\\My Report.pdf", _PDF)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["filename"] == "My Report.pdf"  # path stripped
+
+    # The teammate sees it and can replace it; there is still just one.
+    mine = (await client.get(f"{_HACK}/{hackathon['id']}/teams/me", headers=ravi)).json()
+    assert mine["report"]["filename"] == "My Report.pdf"
+    assert (await upload(ravi, "final.pdf", _PDF + b" v2")).status_code == 200
+    got = await client.get(f"{url}/download", headers=asha)
+    assert got.status_code == 200 and got.content.endswith(b" v2") and got.headers["content-type"] == "application/pdf"
+    assert got.headers["x-content-type-options"] == "nosniff"
+
+    # Staff see and can download every team's report.
+    staff = (await client.get(f"{_HACK}/{hackathon['id']}/teams", headers=auth_headers)).json()
+    assert staff[0]["has_report"] is True and staff[0]["report_filename"] == "final.pdf"
+    dl = await client.get(f"{_HACK}/{hackathon['id']}/teams/{team['id']}/report", headers=auth_headers)
+    assert dl.status_code == 200 and dl.content.endswith(b" v2")
+
+    # A student on no team can't upload or download anything.
+    await _add(client, auth_headers, hackathon, [("Loner", "loner@example.com")])
+    loner = await _set_password_and_login(client, "loner@example.com", sent_emails[-1][2])
+    assert (await upload(loner, "r.pdf", _PDF)).status_code == 422
+    assert (await client.get(f"{url}/download", headers=loner)).status_code == 404
+
+    # Once the hackathon is closed to submissions, uploads stop.
+    await client.post(f"{_HACK}/{hackathon['id']}/status", json={"status": "completed"}, headers=auth_headers)
+    assert (await upload(asha, "late.pdf", _PDF)).status_code == 422
+
+
+async def test_leaderboard_stays_hidden_until_published_and_ties_share_a_rank(
+    client, db_session, auth_headers, sent_emails
+):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails, max_team_size=2)
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com"), ("Kiran P", "kiran@example.com")])
+    tokens = {e: t for e, _n, t in sent_emails}
+    meena = await _set_password_and_login(client, "meena@example.com", tokens["meena@example.com"])
+    kiran = await _set_password_and_login(client, "kiran@example.com", tokens["kiran@example.com"])
+    blue = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Blue Team"}, headers=meena)).json()
+    await client.post(f"{_HACK}/{hackathon['id']}/teams/{blue['id']}/join/me", headers=kiran)
+
+    for headers, tid, title in ((asha, team["id"], "Red project"), (meena, blue["id"], "Blue project")):
+        r = await client.post(
+            f"{_HACK}/{hackathon['id']}/teams/{tid}/submissions/me", json={"title": title}, headers=headers
+        )
+        assert r.status_code in (200, 201), r.text
+    subs = (await client.get(f"{_HACK}/{hackathon['id']}/submissions", headers=auth_headers)).json()
+    for sub in subs:
+        graded = await client.post(f"{_HACK}/submissions/{sub['id']}/grade", json={"score": 80}, headers=auth_headers)
+        assert graded.status_code == 200
+
+    hidden = (await client.get(f"{_HACK}/leaderboard/me", headers=asha)).json()
+    board = next(b for b in hidden if b["hackathon_id"] == hackathon["id"])
+    assert board["published"] is False and board["entries"] == []
+    assert not (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()[0]["code"] in ("winner",)
+
+    shown = await client.patch(f"{_HACK}/{hackathon['id']}", json={"leaderboard_visible": True}, headers=auth_headers)
+    assert shown.status_code == 200 and shown.json()["leaderboard_visible"] is True
+    board = next(b for b in (await client.get(f"{_HACK}/leaderboard/me", headers=kiran)).json() if b["hackathon_id"] == hackathon["id"])
+    assert board["published"] is True
+    assert [(e["rank"], e["score"]) for e in board["entries"]] == [(1, 80), (1, 80)]  # a tie shares rank 1
+    assert {e["team_name"] for e in board["entries"]} == {"Red Team", "Blue Team"}
+
+    codes = {a["code"] for a in (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()}
+    assert {"participant", "submitted", "winner"} <= codes
+
+
+async def test_achievements_reflect_what_the_team_actually_did(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    first = {a["code"] for a in (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()}
+    assert first == {"participant"}
+    await client.put(
+        f"{_HACK}/{hackathon['id']}/teams/me/report", files={"file": ("r.pdf", _PDF, "application/pdf")}, headers=ravi
+    )
+    after = {a["code"] for a in (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()}
+    assert after == {"participant", "report"}  # the teammate's upload counts for the whole team

@@ -17,7 +17,10 @@ import {
   useHackathon,
   useHackathonSubmissions,
   useHackathonTeams,
+  useUpdateHackathon,
 } from "@/features/hackathons/api/hackathons-hooks";
+import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
+import { hackathonsApi } from "@/features/hackathons/api/hackathons-api";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
 import { GradeSubmissionRow } from "@/features/hackathons/components/grade-submission-row";
 import { HackathonFormDialog } from "@/features/hackathons/components/hackathon-form-dialog";
@@ -44,6 +47,7 @@ export function HackathonDetailPage() {
   const { data: teams, isLoading: teamsLoading } = useHackathonTeams(hackathonId);
   const { data: submissions, isLoading: submissionsLoading } = useHackathonSubmissions(hackathonId);
   const changeStatus = useChangeHackathonStatus(hackathonId ?? "");
+  const updateHackathon = useUpdateHackathon(hackathonId ?? "");
   const [editOpen, setEditOpen] = useState(false);
 
   if (isLoading || !hackathon) {
@@ -106,6 +110,8 @@ export function HackathonDetailPage() {
 
           <ParticipantsCard hackathonId={hackathon.id} />
 
+          <ProblemStatementsAdminCard hackathonId={hackathon.id} />
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Teams</CardTitle>
@@ -126,6 +132,18 @@ export function HackathonDetailPage() {
                       </div>
                       {team.member_names.length > 0 && (
                         <p className="text-muted-foreground">{team.member_names.join(", ")}</p>
+                      )}
+                      {team.problem_statement_title && (
+                        <p className="text-xs text-muted-foreground">Problem: {team.problem_statement_title}</p>
+                      )}
+                      {team.has_report && team.report_filename && (
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline"
+                          onClick={() => hackathonsApi.downloadTeamReport(hackathon.id, team.id, team.report_filename as string)}
+                        >
+                          Download report ({team.report_filename})
+                        </button>
                       )}
                     </li>
                   ))}
@@ -163,6 +181,27 @@ export function HackathonDetailPage() {
         </div>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Leaderboard</CardTitle>
+              <CardDescription>
+                Participants see team scores only after you publish them, so judge first.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={hackathon.leaderboard_visible}
+                  disabled={updateHackathon.isPending}
+                  onChange={(e) => updateHackathon.mutate({ leaderboard_visible: e.target.checked })}
+                />
+                <span>Show the leaderboard to participants</span>
+              </label>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Change status</CardTitle>

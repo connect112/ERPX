@@ -28,6 +28,7 @@ class HackathonUpdateRequest(BaseModel):
     end_date: date | None = None
     max_team_size: int | None = Field(default=None, ge=1, le=20)
     prize_pool: float | None = Field(default=None, ge=0)
+    leaderboard_visible: bool | None = None
 
 
 class HackathonStatusChangeRequest(BaseModel):
@@ -48,6 +49,7 @@ class HackathonPublic(BaseModel):
     max_team_size: int
     prize_pool: float | None
     status: HackathonStatus
+    leaderboard_visible: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -72,6 +74,11 @@ class TeamPublic(BaseModel):
     # full and staff can see who is in each team.
     member_count: int = 0
     member_names: list[str] = Field(default_factory=list)
+    problem_statement_id: uuid.UUID | None = None
+    problem_statement_title: str | None = None
+    # Staff-only detail (left empty for the student browse list).
+    has_report: bool = False
+    report_filename: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -86,9 +93,59 @@ class TeamMemberPublic(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ReportInfo(BaseModel):
+    filename: str
+    size_bytes: int
+    uploaded_at: datetime
+
+
 class TeamWithMembersPublic(BaseModel):
     team: TeamPublic
     members: list[TeamMemberPublic]
+    report: ReportInfo | None = None
+
+
+class ProblemStatementInput(BaseModel):
+    title: str = Field(..., min_length=2, max_length=255)
+    description: str = Field(..., min_length=1, max_length=20000)
+
+
+class ProblemStatementPublic(BaseModel):
+    id: uuid.UUID
+    hackathon_id: uuid.UUID
+    title: str
+    description: str
+    order_index: int
+
+    model_config = {"from_attributes": True}
+
+
+class ChooseProblemRequest(BaseModel):
+    problem_statement_id: uuid.UUID | None = None
+
+
+class LeaderboardEntry(BaseModel):
+    rank: int
+    team_name: str
+    score: int
+    project_title: str
+    members: list[str]
+
+
+class LeaderboardBoard(BaseModel):
+    hackathon_id: uuid.UUID
+    hackathon_title: str
+    published: bool
+    entries: list[LeaderboardEntry] = Field(default_factory=list)
+
+
+class AwardPublic(BaseModel):
+    hackathon_id: uuid.UUID
+    hackathon_title: str
+    team_name: str
+    code: str
+    label: str
+    detail: str
 
 
 class SubmissionCreateRequest(BaseModel):

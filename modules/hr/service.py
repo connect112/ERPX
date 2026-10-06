@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 # trigger silently — that grant should stay an explicit, individual
 # decision on the Roles page, not something a designation can hand out in
 # bulk. "administrator"/"staff"/any future custom role are unaffected.
-_DESIGNATION_LINKABLE_ROLE_BLOCKLIST = {"student", "super_admin"}
+_DESIGNATION_LINKABLE_ROLE_BLOCKLIST = {"student", "hackathon_participant", "super_admin"}
 
 
 class DepartmentService:

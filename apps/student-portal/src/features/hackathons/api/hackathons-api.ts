@@ -14,6 +14,7 @@ export interface HackathonPublic {
   max_team_size: number;
   prize_pool: number | null;
   status: "draft" | "registration_open" | "ongoing" | "completed" | "cancelled";
+  leaderboard_visible: boolean;
   created_at: string;
 }
 
@@ -24,6 +25,8 @@ export interface TeamPublic {
   name: string;
   created_at: string;
   member_count: number;
+  problem_statement_id: string | null;
+  problem_statement_title: string | null;
 }
 
 export interface TeamMemberPublic {
@@ -34,9 +37,48 @@ export interface TeamMemberPublic {
   joined_at: string;
 }
 
+export interface ReportInfo {
+  filename: string;
+  size_bytes: number;
+  uploaded_at: string;
+}
+
 export interface TeamWithMembersPublic {
   team: TeamPublic;
   members: TeamMemberPublic[];
+  report: ReportInfo | null;
+}
+
+export interface ProblemStatement {
+  id: string;
+  hackathon_id: string;
+  title: string;
+  description: string;
+  order_index: number;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  team_name: string;
+  score: number;
+  project_title: string;
+  members: string[];
+}
+
+export interface LeaderboardBoard {
+  hackathon_id: string;
+  hackathon_title: string;
+  published: boolean;
+  entries: LeaderboardEntry[];
+}
+
+export interface Award {
+  hackathon_id: string;
+  hackathon_title: string;
+  team_name: string;
+  code: "participant" | "submitted" | "report" | "winner" | "runner_up" | "third_place";
+  label: string;
+  detail: string;
 }
 
 export interface SubmissionPublic {
@@ -77,6 +119,44 @@ export const hackathonsApi = {
     apiClient
       .get<SubmissionPublic | null>(`/hackathons/${hackathonId}/teams/${teamId}/submissions/me`)
       .then((r) => r.data),
+
+  problemStatements: (hackathonId: string) =>
+    apiClient.get<ProblemStatement[]>(`/hackathons/${hackathonId}/problem-statements/me`).then((r) => r.data),
+
+  chooseProblem: (hackathonId: string, problemStatementId: string | null) =>
+    apiClient
+      .put<TeamPublic>(`/hackathons/${hackathonId}/teams/me/problem-statement`, {
+        problem_statement_id: problemStatementId,
+      })
+      .then((r) => r.data),
+
+  uploadReport: (hackathonId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    // apiClient defaults to a JSON Content-Type, under which axios would turn
+    // the FormData into JSON; naming multipart lets the browser add the boundary.
+    return apiClient
+      .put<ReportInfo>(`/hackathons/${hackathonId}/teams/me/report`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
+  },
+
+  downloadReport: async (hackathonId: string, filename: string) => {
+    const response = await apiClient.get(`/hackathons/${hackathonId}/teams/me/report/download`, {
+      responseType: "blob",
+    });
+    const url = URL.createObjectURL(response.data as Blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
+
+  leaderboards: () => apiClient.get<LeaderboardBoard[]>("/hackathons/leaderboard/me").then((r) => r.data),
+
+  achievements: () => apiClient.get<Award[]>("/hackathons/achievements/me").then((r) => r.data),
 
   submitProject: (
     hackathonId: string,

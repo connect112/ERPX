@@ -57,6 +57,11 @@ x-backend-env: &backend-env
   # Same reasoning, for an invited employee's "set your password" link
   # (see EmployeeService.invite_employee).
   EMPLOYEE_PORTAL_URL: https://staff.pentrix.in
+  # Per-IP caps on login and on setting a password from an emailed link.
+  # A room of students behind one venue IP (workshop/hackathon day) needs
+  # these raised in /opt/erpx/.env; the defaults below apply otherwise.
+  AUTH_LOGIN_RATE_LIMIT: ${AUTH_LOGIN_RATE_LIMIT:-10/minute}
+  AUTH_RESET_PASSWORD_RATE_LIMIT: ${AUTH_RESET_PASSWORD_RATE_LIMIT:-5/minute}
   ERPX_INTERNAL_SERVICE_SECRET: ${ERPX_INTERNAL_SERVICE_SECRET}
   SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL}
   SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD}

@@ -40,6 +40,8 @@ logger = get_logger(__name__)
 # Long enough for a student who opens the email a day or two later.
 SET_PASSWORD_TOKEN_TTL_HOURS = 72
 MAX_ROWS_PER_REQUEST = 300
+# Participants get the restricted role, not the full course-student one.
+PARTICIPANT_ROLE_SLUG = "hackathon_participant"
 
 
 @dataclass
@@ -88,10 +90,10 @@ class ParticipantProvisioner:
     ) -> ProvisionResult:
         if len(rows) > MAX_ROWS_PER_REQUEST:
             raise ValidationError(f"Add at most {MAX_ROWS_PER_REQUEST} participants at a time.")
-        student_role = await self.authz_repo.get_role_by_slug("student")
+        student_role = await self.authz_repo.get_role_by_slug(PARTICIPANT_ROLE_SLUG)
         if not student_role:
             raise ValidationError(
-                "The 'student' system role is not seeded on this ERPX instance. "
+                f"The '{PARTICIPANT_ROLE_SLUG}' system role is not seeded on this ERPX instance. "
                 "Run apps/api/scripts/seed.py (seed_default_rbac) first."
             )
 

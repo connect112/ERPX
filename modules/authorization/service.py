@@ -214,6 +214,11 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("workshops.manage", "workshops", "Create, update, delete workshops and manage registrations"),
     ("hackathons.view", "hackathons", "View hackathons, teams, and submissions"),
     ("hackathons.manage", "hackathons", "Create, update, delete hackathons and grade submissions"),
+    (
+        "hackathons.participate",
+        "hackathons",
+        "Take part in a hackathon from the restricted participant portal (problem statements, report, results)",
+    ),
     ("placements.view", "placements", "View companies, job postings, and applications"),
     ("placements.manage", "placements", "Create, update, delete companies/postings and manage applications"),
     ("internships.view", "internships", "View internship postings, applications, and active internships"),
@@ -485,6 +490,23 @@ SYSTEM_ROLES: list[tuple[str, str, str, list[str]]] = [
         ],
     ),
 ]
+
+# Added after the list above so it sits next to Student in spirit: a person
+# onboarded only to take part in a hackathon. The student portal shows just
+# Hackathons / Leaderboard / Achievements to an account that holds this
+# marker permission and none of the course permissions (see
+# apps/student-portal/src/layouts/app-layout.tsx). Everything a participant
+# actually does (team, problem statement, report) is ownership-gated through
+# their linked Student record, so the role needs no other permission.
+SYSTEM_ROLES.append(
+    (
+        "Hackathon Participant",
+        "hackathon_participant",
+        "A hackathon participant: sees only the hackathon (problem statements, team, report upload, "
+        "leaderboard, achievements). No access to courses, cyber-range, or any other student's data.",
+        ["hackathons.participate"],
+    )
+)
 
 # Notifications broadcast is Administrator-only (not curated into Staff's
 # default permission list above) — spamming every org member is a

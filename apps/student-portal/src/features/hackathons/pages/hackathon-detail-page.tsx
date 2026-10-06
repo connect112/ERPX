@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { ProblemStatementsCard } from "@/features/hackathons/components/problem-statements-card";
+import { ReportCard } from "@/features/hackathons/components/report-card";
 import {
   useBrowseHackathons,
   useBrowseTeams,
@@ -65,6 +67,12 @@ export function HackathonDetailPage() {
           Create a team, or join one that's still recruiting (up to {maxTeamSize} people per team).
         </p>
       </div>
+
+      <ProblemStatementsCard
+        hackathonId={id}
+        hasTeam={!!myTeam}
+        chosenId={myTeam?.team.problem_statement_id ?? null}
+      />
 
       {!myTeam ? (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -144,6 +152,8 @@ export function HackathonDetailPage() {
               </ul>
             </CardContent>
           </Card>
+
+          <ReportCard hackathonId={id} report={myTeam.report} />
 
           <Card>
             <CardHeader>
