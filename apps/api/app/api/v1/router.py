@@ -65,6 +65,8 @@ from modules.hackathons.routes import router as hackathons_router
 from modules.placements.routes import router as placements_router
 from modules.users.routes import router as users_router
 from modules.workshops.routes import router as workshops_router
+from modules.workshop_exams.routes import public_router as workshop_exams_public_router
+from modules.workshop_exams.routes import router as workshop_exams_router
 
 api_router = APIRouter()
 
@@ -112,6 +114,8 @@ api_router.include_router(timetable_router, prefix="/timetable", tags=["Timetabl
 api_router.include_router(live_classes_router, prefix="/live-classes", tags=["Live Classes"])
 api_router.include_router(messaging_router, prefix="/messaging", tags=["Messaging"])
 api_router.include_router(workshops_router, prefix="/workshops", tags=["Workshops"])
+api_router.include_router(workshop_exams_router, prefix="/workshop-exams", tags=["Workshop Exams"])
+api_router.include_router(workshop_exams_public_router, prefix="/public", tags=["Workshop Exams (public)"])
 api_router.include_router(hackathons_router, prefix="/hackathons", tags=["Hackathons"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])
 api_router.include_router(internships_router, prefix="/internships", tags=["Internships"])
