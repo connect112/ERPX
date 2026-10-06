@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Download, ExternalLink } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { type TaskSubmissionAdmin, hackathonsApi } from "@/features/hackathons/api/hackathons-api";
 import {
+  useDeleteTaskSubmission,
   useGradeTaskSubmission,
   useHackathonTeams,
   useTaskSubmissions,
@@ -95,6 +96,7 @@ function ReviewPanel({
   submission: TaskSubmissionAdmin;
   onSaved: () => void;
 }) {
+  const remove = useDeleteTaskSubmission(hackathonId);
   const rules = submission.rubric;
   const hasRubric = rules.length > 0;
   const [values, setValues] = useState<Record<string, string>>(() => {
@@ -154,7 +156,19 @@ function ReviewPanel({
         <p className="text-xs text-muted-foreground">
           Submitted {new Date(submission.submitted_at).toLocaleString()}
           {submission.task_marks > 0 && <> · worth {submission.task_marks} marks</>}
+          {submission.resubmission_count > 0 && (
+            <>
+              {" "}
+              · resubmitted {submission.resubmission_count} time{submission.resubmission_count === 1 ? "" : "s"}
+            </>
+          )}
         </p>
+        {submission.score !== null && !submission.reviewed && (
+          <p className="mt-2 rounded-md bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            The team resubmitted after this was scored. The marks below are for the earlier version; update them to
+            review the new one.
+          </p>
+        )}
       </div>
 
       <ReportPreview hackathonId={hackathonId} submission={submission} />
@@ -224,7 +238,25 @@ function ReviewPanel({
           </span>
         )}
         {grade.isError && <span className="text-sm text-destructive">{errorMessage(grade.error, "Could not save the marks.")}</span>}
+        <Button
+          variant="outline"
+          className="ml-auto text-destructive hover:text-destructive"
+          disabled={remove.isPending}
+          onClick={() => {
+            if (
+              window.confirm(
+                `Delete the submission from team ${submission.team_name} for "${submission.task_title}"? Its report, link and marks are removed and the team can submit this task again.`
+              )
+            ) {
+              remove.mutate(submission.id);
+            }
+          }}
+        >
+          <Trash2 className="h-4 w-4" />
+          {remove.isPending ? "Deleting..." : "Delete submission"}
+        </Button>
       </div>
+      {remove.isError && <p className="text-sm text-destructive">{errorMessage(remove.error, "Could not delete it.")}</p>}
     </div>
   );
 }
@@ -244,6 +276,11 @@ function ReviewDialog({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = mine.find((s) => s.id === selectedId) ?? mine.find((s) => !s.reviewed) ?? mine[0];
   const reviewed = mine.filter((s) => s.reviewed).length;
+
+  // The team's last submission was deleted: nothing left to show.
+  useEffect(() => {
+    if (!selected) onClose();
+  }, [selected, onClose]);
 
   if (!selected) return null;
   const next = mine.find((s) => !s.reviewed && s.id !== selected.id);
@@ -278,7 +315,7 @@ function ReviewDialog({
                     </Badge>
                   ) : (
                     <Badge variant="warning" className="shrink-0">
-                      Unreviewed
+                      {s.score !== null ? "Resubmitted" : "Unreviewed"}
                     </Badge>
                   )}
                 </button>
@@ -303,6 +340,7 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
   const { data: submissions, isLoading } = useTaskSubmissions(hackathonId);
   const { data: teams } = useHackathonTeams(hackathonId);
   const [openTeamId, setOpenTeamId] = useState<string | null>(null);
+  const [onlyUnreviewed, setOnlyUnreviewed] = useState(false);
 
   const rows = useMemo(() => {
     const byTeam = new Map<string, TaskSubmissionAdmin[]>();
@@ -311,10 +349,12 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
       .map((team) => {
         const subs = byTeam.get(team.id) ?? [];
         const reviewed = subs.filter((s) => s.reviewed).length;
-        return { team, total: subs.length, reviewed, unreviewed: subs.length - reviewed };
+        const resubmitted = subs.filter((s) => !s.reviewed && s.score !== null).length;
+        return { team, total: subs.length, reviewed, unreviewed: subs.length - reviewed, resubmitted };
       })
+      .filter((row) => !onlyUnreviewed || row.unreviewed > 0)
       .sort((a, b) => b.unreviewed - a.unreviewed || a.team.name.localeCompare(b.team.name));
-  }, [submissions, teams]);
+  }, [submissions, teams, onlyUnreviewed]);
 
   const totalUnreviewed = rows.reduce((sum, r) => sum + r.unreviewed, 0);
 
@@ -328,6 +368,10 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
             : "Nothing waiting for review. "}
           Open a team to read its reports and links and mark each submission against the rubric.
         </CardDescription>
+        <label className="flex items-center gap-2 pt-1 text-sm">
+          <input type="checkbox" checked={onlyUnreviewed} onChange={(e) => setOnlyUnreviewed(e.target.checked)} />
+          <span>Show only teams with unreviewed submissions</span>
+        </label>
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
@@ -344,7 +388,7 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map(({ team, total, reviewed, unreviewed }) => (
+              {rows.map(({ team, total, reviewed, unreviewed, resubmitted }) => (
                 <TableRow
                   key={team.id}
                   className={total > 0 ? "cursor-pointer" : "opacity-60"}
@@ -361,7 +405,16 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
                   </TableCell>
                   <TableCell className="text-muted-foreground">{team.member_names.join(", ")}</TableCell>
                   <TableCell className="text-center">
-                    {total === 0 ? "-" : <Badge variant={unreviewed > 0 ? "warning" : "secondary"}>{unreviewed}</Badge>}
+                    {total === 0 ? (
+                      "-"
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Badge variant={unreviewed > 0 ? "warning" : "secondary"}>{unreviewed}</Badge>
+                        {resubmitted > 0 && (
+                          <span className="text-xs text-muted-foreground">({resubmitted} resubmitted)</span>
+                        )}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-center">
                     {total === 0 ? "-" : <Badge variant={reviewed > 0 ? "success" : "secondary"}>{reviewed}</Badge>}
@@ -372,7 +425,7 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
               {rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    No teams yet.
+                    {onlyUnreviewed ? "No team has unreviewed submissions." : "No teams yet."}
                   </TableCell>
                 </TableRow>
               )}

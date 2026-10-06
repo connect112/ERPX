@@ -87,6 +87,21 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def is_reviewed(submission: TaskSubmission) -> bool:
+    """Scored, and not changed since."""
+    return (
+        submission.score is not None
+        and submission.reviewed_at is not None
+        and submission.reviewed_at >= submission.submitted_at
+    )
+
+
+def resubmissions_left(hackathon: Hackathon, submission: TaskSubmission | None) -> int:
+    if submission is None or not hackathon.resubmission_enabled:
+        return 0
+    return max(0, hackathon.max_resubmissions - submission.resubmission_count)
+
+
 @dataclass
 class TaskRow:
     task: ProblemStatement
@@ -360,13 +375,27 @@ class ParticipationService:
                 select(TaskSubmission)
                 .options(defer(TaskSubmission.report_data))
                 .where(TaskSubmission.team_id == team.id, TaskSubmission.problem_statement_id == task_id)
+                .with_for_update()
             )
         ).scalar_one_or_none()
+        resubmitting = submission is not None
         if submission is None:
             if url is None and report is None:
                 raise ValidationError("Add a report or a repository / registry URL to submit this task.")
             submission = TaskSubmission(team_id=team.id, problem_statement_id=task_id, submitted_at=_now())
             self.db.add(submission)
+        else:
+            if not hackathon.resubmission_enabled:
+                raise ValidationError(
+                    "Resubmission is turned off, so this submission can't be changed. Ask the organisers if it needs to be."
+                )
+            if resubmissions_left(hackathon, submission) <= 0:
+                raise ValidationError(
+                    f"You have used all {hackathon.max_resubmissions} resubmission"
+                    f"{'' if hackathon.max_resubmissions == 1 else 's'} for this task."
+                )
+            if report is None and (repo_url is None or url == submission.repo_url):
+                raise ValidationError("Change the link or choose a new report to resubmit.")
         if repo_url is not None:
             submission.repo_url = url
         if report is not None and data is not None:
@@ -376,6 +405,8 @@ class ParticipationService:
             raise ValidationError("A submission needs a report or a repository / registry URL.")
         submission.submitted_by_student_id = student.id
         submission.submitted_at = _now()
+        if resubmitting:
+            submission.resubmission_count += 1
         await self.db.flush()
         await self.db.refresh(submission, attribute_names=["id", "updated_at", "created_at"])
         return submission
@@ -471,9 +502,16 @@ class ParticipationService:
             submission.rubric_scores = None
             submission.score = score
         submission.feedback = (feedback or "").strip() or None
+        submission.reviewed_at = _now()
         await self.db.flush()
         await self.db.refresh(submission, attribute_names=["updated_at"])
         return submission
+
+    async def delete_task_submission(self, hackathon_id: uuid.UUID, submission_id: uuid.UUID) -> None:
+        """Remove a team's submission (and its score), so the team can submit that task afresh."""
+        submission = await self._staff_submission(hackathon_id, submission_id)
+        await self.db.delete(submission)
+        await self.db.flush()
 
     async def team_totals(self, team_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[int, int]]:
         """(tasks submitted, total score) per team."""

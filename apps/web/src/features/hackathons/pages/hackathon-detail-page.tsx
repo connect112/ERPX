@@ -23,6 +23,7 @@ import {
 } from "@/features/hackathons/api/hackathons-hooks";
 import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
+import { ResubmissionCard } from "@/features/hackathons/components/resubmission-card";
 import { SubmissionsTab } from "@/features/hackathons/components/submissions-tab";
 import { HackathonFormDialog } from "@/features/hackathons/components/hackathon-form-dialog";
 import { HackathonStatusBadge } from "@/features/hackathons/components/hackathon-status-badge";
@@ -203,6 +204,8 @@ export function HackathonDetailPage() {
               </label>
             </CardContent>
           </Card>
+
+          <ResubmissionCard hackathon={hackathon} />
 
           <Card>
             <CardHeader>
