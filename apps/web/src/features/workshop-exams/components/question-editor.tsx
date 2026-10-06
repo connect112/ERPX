@@ -3,7 +3,8 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { CodeTextarea } from "@/features/workshop-exams/components/code-textarea";
+import { RichText } from "@/features/workshop-exams/components/rich-text";
 import type { QuestionInput } from "@/features/workshop-exams/api/workshop-exams-api";
 import { questionProblem } from "@/features/workshop-exams/lib/question-draft";
 
@@ -58,17 +59,13 @@ export function QuestionEditor({
 
   return (
     <div className="space-y-4 rounded-lg border bg-card p-4">
-      <Textarea
-        rows={Math.min(14, Math.max(3, draft.text.split("\n").length + 1))}
+      <CodeTextarea
+        rows={Math.min(14, Math.max(4, draft.text.split("\n").length + 1))}
         value={draft.text}
-        onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+        onChange={(text) => setDraft({ ...draft, text })}
         placeholder="Question"
-        aria-label="Question"
+        ariaLabel="Question"
       />
-      <p className="-mt-2 text-xs text-muted-foreground">
-        Line breaks are kept exactly as you type them. Put code between lines of three backticks (```) to show it in
-        a code box.
-      </p>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label className="flex items-center gap-2">
@@ -108,13 +105,14 @@ export function QuestionEditor({
               onChange={() => toggleCorrect(index)}
               aria-label={`Option ${index + 1} is correct`}
             />
-            <Textarea
+            <CodeTextarea
+              compact
               rows={Math.min(8, Math.max(1, option.split("\n").length))}
               className="min-h-0 resize-y py-2"
               value={option}
-              onChange={(e) => setOption(index, e.target.value)}
+              onChange={(text) => setOption(index, text)}
               placeholder={`Option ${index + 1}`}
-              aria-label={`Option ${index + 1}`}
+              ariaLabel={`Option ${index + 1}`}
             />
             <Button
               type="button"
@@ -140,6 +138,21 @@ export function QuestionEditor({
           </Button>
         )}
       </div>
+
+      {(draft.text.includes("`") || draft.options.some((o) => o.includes("`"))) && (
+        <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+          <p className="text-xs font-medium text-muted-foreground">Preview (what students will see)</p>
+          <RichText text={draft.text} className="text-sm font-medium" />
+          <ul className="space-y-1 text-sm">
+            {draft.options.map((o, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="w-4 shrink-0 text-muted-foreground">{String.fromCharCode(65 + i)}.</span>
+                <RichText text={o} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {(problem || error) && <p className="text-sm text-destructive">{error ?? problem}</p>}
       <div className="flex gap-2">

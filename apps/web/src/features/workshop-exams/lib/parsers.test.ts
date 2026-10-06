@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { insertCodeBlock, insertInlineCode } from "@/features/workshop-exams/lib/code-insert";
 import { parseAttendees, parseQuestions } from "@/features/workshop-exams/lib/parsers";
+import { splitSegments } from "@/features/workshop-exams/lib/segments";
 
 describe("parseAttendees", () => {
   it("accepts comma, tab and reversed layouts and lowercases emails", () => {
@@ -137,5 +139,101 @@ describe("parseQuestions", () => {
     expect(parseQuestions("Q1. Pick\nA. yes\nB. no\nAnswer: D").errors[0]).toContain("answer D has no matching option");
     expect(parseQuestions("Q1. Pick\nA. only one\nAnswer: A").errors[0]).toContain("at least 2 options");
     expect(parseQuestions("A. yes\nB. no\nAnswer: A").errors[0]).toContain("missing question text");
+  });
+});
+
+describe("code fences in pasted questions", () => {
+  it("never reads structure inside a fence: A./B. lines, Answer: lines and numbered lines in code stay code", () => {
+    const text = [
+      "Q1. What does this script print?",
+      "```bash",
+      "1. first step",
+      "A. not an option",
+      "Answer: Z",
+      "echo hello",
+      "```",
+      "A. hello",
+      "B. goodbye",
+      "Answer: A",
+      "",
+      "Q2. Another",
+      "A. yes",
+      "B. no",
+      "Answer: B",
+    ].join("\n");
+    const { rows, errors } = parseQuestions(text);
+    expect(errors).toEqual([]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].text).toBe(
+      "What does this script print?\n```bash\n1. first step\nA. not an option\nAnswer: Z\necho hello\n```"
+    );
+    expect(rows[0].options).toEqual(["hello", "goodbye"]);
+    expect(rows[0].correct_indices).toEqual([0]);
+    expect(rows[1].text).toBe("Another");
+  });
+
+  it("allows a fenced code block inside an option", () => {
+    const text = [
+      "Q1. Which Dockerfile is safest?",
+      "A. This one:",
+      "```dockerfile",
+      "FROM alpine",
+      "USER app",
+      "```",
+      "B. This one:",
+      "```dockerfile",
+      "FROM ubuntu",
+      "USER root",
+      "```",
+      "Answer: A",
+    ].join("\n");
+    const { rows, errors } = parseQuestions(text);
+    expect(errors).toEqual([]);
+    expect(rows[0].options).toEqual([
+      "This one:\n```dockerfile\nFROM alpine\nUSER app\n```",
+      "This one:\n```dockerfile\nFROM ubuntu\nUSER root\n```",
+    ]);
+  });
+
+  it("keeps blank lines inside a fenced block even in the simple (unnumbered) format", () => {
+    const { rows, errors } = parseQuestions("Q. What?\n```\na\n\nb\n```\n*x\ny");
+    // The simple format drops blank lines per line, but the fence must not split the question in two.
+    expect(rows.length + errors.length).toBe(1);
+  });
+});
+
+describe("segments", () => {
+  it("splits prose from fenced code and reads the language tag", () => {
+    expect(splitSegments("Before\n```dockerfile\nFROM x\nRUN y\n```\nAfter")).toEqual([
+      { kind: "text", value: "Before\n" },
+      { kind: "code", language: "dockerfile", code: "FROM x\nRUN y" },
+      { kind: "text", value: "\nAfter" },
+    ]);
+    expect(splitSegments("```\nplain\n```")).toEqual([{ kind: "code", language: "", code: "plain" }]);
+    // An unclosed fence is just text, so a typo never swallows the question.
+    expect(splitSegments("```bash\nnever closed")).toEqual([{ kind: "text", value: "```bash\nnever closed" }]);
+  });
+});
+
+describe("code insert helpers", () => {
+  it("wraps the selected lines in a fence and puts a blank line between prose and code", () => {
+    const value = "Intro\nFROM x\nRUN y\nWhich is right?";
+    const start = value.indexOf("FROM");
+    const end = value.indexOf("\nWhich");
+    const result = insertCodeBlock(value, start, end, "dockerfile");
+    expect(result.value).toBe("Intro\n```dockerfile\nFROM x\nRUN y\n```\nWhich is right?");
+  });
+
+  it("inserts an empty fenced block with the caret inside when nothing is selected", () => {
+    const result = insertCodeBlock("Question: ", 10, 10, "python");
+    expect(result.value).toBe("Question: \n```python\n\n```");
+    expect(result.value.slice(result.selectionStart - 10, result.selectionStart)).toBe("```python\n");
+  });
+
+  it("wraps a selected word in backticks, or inserts an empty pair", () => {
+    expect(insertInlineCode("run chmod now", 4, 9).value).toBe("run `chmod` now");
+    const empty = insertInlineCode("run ", 4, 4);
+    expect(empty.value).toBe("run ``");
+    expect(empty.selectionStart).toBe(5);
   });
 });
