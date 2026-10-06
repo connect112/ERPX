@@ -152,6 +152,7 @@ async def my_leaderboards(
                 hackathon_id=hackathon.id,
                 hackathon_title=hackathon.title,
                 published=hackathon.leaderboard_visible,
+                max_total=await participation.max_total(hackathon.id),
                 entries=entries,
             )
         )
@@ -180,6 +181,7 @@ def _submission_info(submission) -> TaskSubmissionInfo:
         else None,
         submitted_at=submission.submitted_at,
         score=submission.score,
+        rubric_scores=submission.rubric_scores,
         feedback=submission.feedback,
     )
 
@@ -190,21 +192,33 @@ async def list_my_tasks(
     student: Student = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
-    """Every task, each with this student's team's submission (report and/or URL, score, feedback)."""
+    """Every task with its marks, sub-tasks and rubric, the team's submission for it
+    (report and/or URL, marks per rubric rule, feedback) and the team's place."""
     hackathon = await _visible_hackathon(db, hackathon_id, student)
-    team, rows = await ParticipationService(db).tasks_for(hackathon, student)
+    view = await ParticipationService(db).tasks_for(hackathon, student)
     return TasksResponse(
-        team_id=team.id if team else None,
-        can_submit=team is not None and hackathon.status in (HackathonStatus.REGISTRATION_OPEN, HackathonStatus.ONGOING),
+        team_id=view.team.id if view.team else None,
+        can_submit=view.team is not None
+        and hackathon.status in (HackathonStatus.REGISTRATION_OPEN, HackathonStatus.ONGOING),
+        max_total=view.max_total,
+        leaderboard_visible=hackathon.leaderboard_visible,
+        team_rank=view.team_rank,
+        team_total=view.team_total,
+        teams_ranked=view.teams_ranked,
         tasks=[
             TaskPublic(
                 id=row.task.id,
                 title=row.task.title,
                 description=row.task.description,
                 order_index=row.task.order_index,
+                marks=row.task.marks,
+                sub_tasks=row.task.sub_tasks or [],
+                rubric=row.task.rubric or [],
                 submission=_submission_info(row.submission) if row.submission else None,
+                task_rank=row.rank,
+                task_teams_scored=row.teams_scored,
             )
-            for row in rows
+            for row in view.rows
         ],
     )
 
@@ -412,13 +426,17 @@ async def list_task_submissions(
             team_name=row.team_name,
             members=row.members,
             task_id=row.submission.problem_statement_id,
-            task_title=row.task_title,
-            task_order=row.task_order,
+            task_title=row.task.title,
+            task_order=row.task.order_index,
+            task_marks=row.task.marks,
+            rubric=row.task.rubric or [],
             repo_url=row.submission.repo_url,
             report_filename=row.submission.report_filename,
             report_size_bytes=row.submission.report_size_bytes,
             submitted_at=row.submission.submitted_at,
             score=row.submission.score,
+            rubric_scores=row.submission.rubric_scores,
+            reviewed=row.submission.score is not None,
             feedback=row.submission.feedback,
         )
         for row in rows
@@ -449,7 +467,9 @@ async def grade_task_submission(
     """Award a score (and optional feedback) to one task submission; the leaderboard
     is computed live from these, so it updates as soon as this returns."""
     await HackathonService(db).get_hackathon(hackathon_id, organization_id)
-    submission = await ParticipationService(db).grade(hackathon_id, submission_id, payload.score, payload.feedback)
+    submission = await ParticipationService(db).grade(
+        hackathon_id, submission_id, payload.score, payload.rubric_scores, payload.feedback
+    )
     return _submission_info(submission)
 
 
@@ -467,6 +487,7 @@ async def staff_leaderboard(
         hackathon_id=hackathon.id,
         hackathon_title=hackathon.title,
         published=hackathon.leaderboard_visible,
+        max_total=await ParticipationService(db).max_total(hackathon.id),
         entries=[
             LeaderboardEntry(rank=r.rank, team_name=r.team_name, score=r.score, tasks_scored=r.tasks_scored, members=r.members)
             for r in rows
@@ -497,7 +518,14 @@ async def add_problem_statement(
     db: AsyncSession = Depends(get_db),
 ):
     await HackathonService(db).get_hackathon(hackathon_id, organization_id)
-    item = await ParticipationService(db).add_problem_statement(hackathon_id, payload.title, payload.description)
+    item = await ParticipationService(db).add_problem_statement(
+        hackathon_id,
+        payload.title,
+        payload.description,
+        payload.marks,
+        [t.model_dump() for t in payload.sub_tasks],
+        [r.model_dump() for r in payload.rubric],
+    )
     return ProblemStatementPublic.model_validate(item)
 
 
@@ -512,7 +540,13 @@ async def update_problem_statement(
 ):
     await HackathonService(db).get_hackathon(hackathon_id, organization_id)
     item = await ParticipationService(db).update_problem_statement(
-        hackathon_id, statement_id, payload.title, payload.description
+        hackathon_id,
+        statement_id,
+        payload.title,
+        payload.description,
+        payload.marks,
+        [t.model_dump() for t in payload.sub_tasks],
+        [r.model_dump() for r in payload.rubric],
     )
     return ProblemStatementPublic.model_validate(item)
 

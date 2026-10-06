@@ -28,6 +28,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_model import TimestampedBase
@@ -88,8 +89,15 @@ class ProblemStatement(TimestampedBase):
         ForeignKey("hackathons.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
+    # Optional: the admin form shows it behind a toggle.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # Maximum marks for the task. 0 = no maximum set (older tasks), scored freely.
+    marks: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # [{"id", "title", "points"}]: the parts of the task and what each is worth.
+    sub_tasks: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    # [{"id", "criterion", "points"}]: what staff mark a submission on; points sum to at most `marks`.
+    rubric: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
 
 
 class Team(TimestampedBase):
@@ -189,4 +197,6 @@ class TaskSubmission(TimestampedBase):
     )
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # {rubric rule id: marks awarded}; `score` is their sum (or a free score for tasks with no rubric).
+    rubric_scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)

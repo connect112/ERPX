@@ -53,20 +53,45 @@ export interface TaskSubmission {
   report: ReportInfo | null;
   submitted_at: string;
   score: number | null;
+  /** Marks awarded per rubric rule (by rule id); null until the submission has been scored. */
+  rubric_scores: Record<string, number> | null;
   feedback: string | null;
+}
+
+export interface SubTask {
+  id: string;
+  title: string;
+  points: number;
+}
+
+export interface RubricRule {
+  id: string;
+  criterion: string;
+  points: number;
 }
 
 export interface Task {
   id: string;
   title: string;
-  description: string;
+  description: string | null;
   order_index: number;
+  marks: number;
+  sub_tasks: SubTask[];
+  rubric: RubricRule[];
   submission: TaskSubmission | null;
+  /** This team's place among the teams scored on this task (only while the leaderboard is shown). */
+  task_rank: number | null;
+  task_teams_scored: number;
 }
 
 export interface TasksResponse {
   team_id: string | null;
   can_submit: boolean;
+  max_total: number;
+  leaderboard_visible: boolean;
+  team_rank: number | null;
+  team_total: number;
+  teams_ranked: number;
   tasks: Task[];
 }
 
@@ -82,6 +107,8 @@ export interface LeaderboardBoard {
   hackathon_id: string;
   hackathon_title: string;
   published: boolean;
+  /** Total marks available across all tasks (the full scale of the bar chart). */
+  max_total: number;
   entries: LeaderboardEntry[];
 }
 

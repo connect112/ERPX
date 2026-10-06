@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useChangeHackathonStatus,
   useHackathon,
@@ -22,7 +23,7 @@ import {
 } from "@/features/hackathons/api/hackathons-hooks";
 import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
-import { GradeSubmissionRow } from "@/features/hackathons/components/grade-submission-row";
+import { SubmissionsTab } from "@/features/hackathons/components/submissions-tab";
 import { HackathonFormDialog } from "@/features/hackathons/components/hackathon-form-dialog";
 import { HackathonStatusBadge } from "@/features/hackathons/components/hackathon-status-badge";
 import {
@@ -45,8 +46,9 @@ export function HackathonDetailPage() {
   const navigate = useNavigate();
   const { data: hackathon, isLoading } = useHackathon(hackathonId);
   const { data: teams, isLoading: teamsLoading } = useHackathonTeams(hackathonId);
-  const { data: submissions, isLoading: submissionsLoading } = useTaskSubmissions(hackathonId);
+  const { data: submissions } = useTaskSubmissions(hackathonId);
   const { data: leaderboard } = useStaffLeaderboard(hackathonId);
+  const unreviewedCount = (submissions ?? []).filter((s) => !s.reviewed).length;
   const changeStatus = useChangeHackathonStatus(hackathonId ?? "");
   const updateHackathon = useUpdateHackathon(hackathonId ?? "");
   const [editOpen, setEditOpen] = useState(false);
@@ -81,6 +83,20 @@ export function HackathonDetailPage() {
         </Button>
       </div>
 
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="submissions">
+            Submissions
+            {unreviewedCount > 0 && (
+              <span className="ml-2 rounded-full bg-amber-100 px-1.5 text-xs font-semibold text-amber-800">
+                {unreviewedCount}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="mt-0">
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card>
@@ -143,42 +159,6 @@ export function HackathonDetailPage() {
                 </ul>
               ) : (
                 <p className="py-4 text-center text-sm text-muted-foreground">No teams yet.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Task submissions</CardTitle>
-              <CardDescription>
-                Each team's report and registry / repository URL, task by task. Award a score for each task: the
-                leaderboard is the sum of a team's task scores and updates as soon as you save.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {submissionsLoading ? (
-                <Skeleton className="h-24 w-full" />
-              ) : submissions && submissions.length > 0 ? (
-                <div className="space-y-6">
-                  {Array.from(new Set(submissions.map((s) => s.task_id))).map((taskId) => {
-                    const group = submissions.filter((s) => s.task_id === taskId);
-                    return (
-                      <div key={taskId}>
-                        <h3 className="text-sm font-semibold">
-                          {group[0].task_order + 1}. {group[0].task_title}{" "}
-                          <span className="font-normal text-muted-foreground">
-                            ({group.length} submission{group.length === 1 ? "" : "s"})
-                          </span>
-                        </h3>
-                        {group.map((submission) => (
-                          <GradeSubmissionRow key={submission.id} hackathonId={hackathon.id} submission={submission} />
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="py-4 text-center text-sm text-muted-foreground">No submissions yet.</p>
               )}
             </CardContent>
           </Card>
@@ -248,6 +228,12 @@ export function HackathonDetailPage() {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="submissions" className="mt-0">
+          <SubmissionsTab hackathonId={hackathon.id} />
+        </TabsContent>
+      </Tabs>
 
       <HackathonFormDialog open={editOpen} onOpenChange={setEditOpen} hackathon={hackathon} />
     </div>

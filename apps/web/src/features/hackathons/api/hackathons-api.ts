@@ -66,12 +66,37 @@ export interface TeamPublic {
   total_score: number;
 }
 
+export interface SubTask {
+  id: string;
+  title: string;
+  points: number;
+}
+
+export interface RubricRule {
+  id: string;
+  criterion: string;
+  points: number;
+}
+
+/** A task: what it is worth, its parts, and the rubric staff mark it against. */
 export interface ProblemStatement {
   id: string;
   hackathon_id: string;
   title: string;
-  description: string;
+  description: string | null;
   order_index: number;
+  marks: number;
+  sub_tasks: SubTask[];
+  rubric: RubricRule[];
+}
+
+/** What the task form sends. An `id` on a sub-task or rule keeps it (and any marks awarded against it) when editing. */
+export interface ProblemStatementInput {
+  title: string;
+  marks: number;
+  description: string | null;
+  sub_tasks: { id?: string; title: string; points: number }[];
+  rubric: { id?: string; criterion: string; points: number }[];
 }
 
 export interface ParticipantsResult {
@@ -90,11 +115,15 @@ export interface TaskSubmissionAdmin {
   task_id: string;
   task_title: string;
   task_order: number;
+  task_marks: number;
+  rubric: RubricRule[];
   repo_url: string | null;
   report_filename: string | null;
   report_size_bytes: number | null;
   submitted_at: string;
   score: number | null;
+  rubric_scores: Record<string, number> | null;
+  reviewed: boolean;
   feedback: string | null;
 }
 
@@ -110,6 +139,7 @@ export interface LeaderboardBoard {
   hackathon_id: string;
   hackathon_title: string;
   published: boolean;
+  max_total: number;
   entries: LeaderboardEntry[];
 }
 
@@ -140,11 +170,11 @@ export const hackathonsApi = {
 
   listProblemStatements: (id: string) =>
     apiClient.get<ProblemStatement[]>(`/hackathons/${id}/problem-statements`).then((r) => r.data),
-  addProblemStatement: (id: string, title: string, description: string) =>
-    apiClient.post<ProblemStatement>(`/hackathons/${id}/problem-statements`, { title, description }).then((r) => r.data),
-  updateProblemStatement: (id: string, statementId: string, title: string, description: string) =>
+  addProblemStatement: (id: string, input: ProblemStatementInput) =>
+    apiClient.post<ProblemStatement>(`/hackathons/${id}/problem-statements`, input).then((r) => r.data),
+  updateProblemStatement: (id: string, statementId: string, input: ProblemStatementInput) =>
     apiClient
-      .put<ProblemStatement>(`/hackathons/${id}/problem-statements/${statementId}`, { title, description })
+      .put<ProblemStatement>(`/hackathons/${id}/problem-statements/${statementId}`, input)
       .then((r) => r.data),
   deleteProblemStatement: (id: string, statementId: string) =>
     apiClient.delete(`/hackathons/${id}/problem-statements/${statementId}`).then((r) => r.data),
@@ -164,9 +194,25 @@ export const hackathonsApi = {
   listTaskSubmissions: (id: string) =>
     apiClient.get<TaskSubmissionAdmin[]>(`/hackathons/${id}/task-submissions`).then((r) => r.data),
 
-  gradeTaskSubmission: (id: string, submissionId: string, score: number, feedback?: string) =>
+  /** Marks for one submission: a mark per rubric rule, or one score when the task has no rubric. */
+  gradeTaskSubmission: (
+    id: string,
+    submissionId: string,
+    marks: { score?: number; rubricScores?: Record<string, number> },
+    feedback?: string
+  ) =>
     apiClient
-      .post(`/hackathons/${id}/task-submissions/${submissionId}/grade`, { score, feedback: feedback || null })
+      .post(`/hackathons/${id}/task-submissions/${submissionId}/grade`, {
+        score: marks.score ?? null,
+        rubric_scores: marks.rubricScores ?? null,
+        feedback: feedback || null,
+      })
+      .then((r) => r.data),
+
+  /** The submitted report as a Blob (for the in-page preview). */
+  fetchTaskReport: (id: string, submissionId: string) =>
+    apiClient
+      .get<Blob>(`/hackathons/${id}/task-submissions/${submissionId}/report`, { responseType: "blob" })
       .then((r) => r.data),
 
   leaderboard: (id: string) =>

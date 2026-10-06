@@ -458,3 +458,180 @@ async def test_achievements_reflect_what_the_team_actually_did(client, db_sessio
         f"{_HACK}/{hackathon['id']}/task-submissions/{submitted.json()['id']}/grade", json={"score": 10}, headers=auth_headers
     )
     assert "winner" in {a["code"] for a in (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()}
+
+
+# ---------------- marks, sub-tasks, rubric ----------------
+
+
+def _rubric_task(title="Provision the server", marks=20):
+    return {
+        "title": title,
+        "marks": marks,
+        "description": None,
+        "sub_tasks": [{"title": "Launch the instance", "points": 10}, {"title": "Open the ports", "points": 5}],
+        "rubric": [
+            {"criterion": "Correct instance type and region", "points": 12},
+            {"criterion": "Security group allows only what is needed", "points": 8},
+        ],
+    }
+
+
+async def test_a_task_has_marks_optional_description_sub_tasks_and_a_rubric_that_must_fit(
+    client, db_session, auth_headers
+):
+    hackathon = await _open_hackathon(client, auth_headers)
+    url = f"{_HACK}/{hackathon['id']}/problem-statements"
+
+    created = await client.post(url, json=_rubric_task(), headers=auth_headers)
+    assert created.status_code == 201, created.text
+    task = created.json()
+    assert task["marks"] == 20 and task["description"] is None  # description is optional
+    assert [s["points"] for s in task["sub_tasks"]] == [10, 5]
+    assert [r["points"] for r in task["rubric"]] == [12, 8]
+    assert all(item["id"] for item in [*task["sub_tasks"], *task["rubric"]])
+
+    # Sub-tasks or rubric adding up to more than the marks are refused, with the numbers in the message.
+    too_many_sub = {**_rubric_task(), "sub_tasks": [{"title": "A", "points": 15}, {"title": "B", "points": 10}]}
+    over = await client.post(url, json=too_many_sub, headers=auth_headers)
+    assert over.status_code == 422 and "25" in over.text and "20" in over.text
+    too_many_rubric = {**_rubric_task(), "rubric": [{"criterion": "Everything", "points": 21}]}
+    assert (await client.post(url, json=too_many_rubric, headers=auth_headers)).status_code == 422
+    no_marks = {**_rubric_task(), "marks": 0}
+    assert (await client.post(url, json=no_marks, headers=auth_headers)).status_code == 422  # set the marks first
+    assert (await client.post(url, json={"title": "Plain task", "marks": 5}, headers=auth_headers)).status_code == 201
+    blank = {**_rubric_task(), "rubric": [{"criterion": "  ", "points": 1}]}
+    assert (await client.post(url, json=blank, headers=auth_headers)).status_code == 422
+
+    # Editing keeps the ids of rules that already existed, so marks awarded against them stay attached.
+    rule_ids = [r["id"] for r in task["rubric"]]
+    edited = await client.put(
+        f"{url}/{task['id']}",
+        json={**_rubric_task(), "rubric": [{**task["rubric"][0], "criterion": "Instance type"}, task["rubric"][1]]},
+        headers=auth_headers,
+    )
+    assert edited.status_code == 200, edited.text
+    assert [r["id"] for r in edited.json()["rubric"]] == rule_ids
+    assert edited.json()["rubric"][0]["criterion"] == "Instance type"
+
+
+async def test_students_see_marks_sub_tasks_and_the_rubric_skeleton(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json=_rubric_task(), headers=auth_headers)).json()
+
+    seen = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()
+    assert seen["max_total"] == 20
+    row = seen["tasks"][0]
+    assert row["marks"] == 20 and [s["title"] for s in row["sub_tasks"]] == ["Launch the instance", "Open the ports"]
+    assert [r["points"] for r in row["rubric"]] == [12, 8]  # the rubric skeleton: criteria and their maximum
+    assert row["submission"] is None
+
+    submitted = await client.put(_task_url(hackathon, task), data={"repo_url": "https://hub.docker.com/r/o/p"}, headers=asha)
+    assert submitted.status_code == 200
+    assert submitted.json()["score"] is None and submitted.json()["rubric_scores"] is None  # not marked yet
+
+
+async def test_rubric_grading_marks_each_rule_and_totals_them(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json=_rubric_task(), headers=auth_headers)).json()
+    rule_a, rule_b = task["rubric"]
+    sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://ghcr.io/o/p"}, headers=asha)).json()
+    grade_url = f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}/grade"
+
+    # Staff list shows the rubric and that nothing has been reviewed yet.
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert rows[0]["reviewed"] is False and rows[0]["task_marks"] == 20
+    assert [r["points"] for r in rows[0]["rubric"]] == [12, 8]
+
+    async def grade(body):
+        return await client.post(grade_url, json=body, headers=auth_headers)
+
+    assert (await grade({"score": 15})).status_code == 422  # a rubric task needs per-rule marks
+    assert (await grade({"rubric_scores": {rule_a["id"]: 10}})).status_code == 422  # every rule must be marked
+    assert (await grade({"rubric_scores": {rule_a["id"]: 13, rule_b["id"]: 1}})).status_code == 422  # above the rule's max
+    assert (await grade({"rubric_scores": {rule_a["id"]: -1, rule_b["id"]: 1}})).status_code == 422
+    assert (await grade({"rubric_scores": {rule_a["id"]: 1, rule_b["id"]: 1, "nope": 3}})).status_code == 422
+
+    ok = await grade({"rubric_scores": {rule_a["id"]: 9, rule_b["id"]: 6}, "feedback": "Solid"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["score"] == 15 and ok.json()["rubric_scores"] == {rule_a["id"]: 9, rule_b["id"]: 6}
+
+    # The student sees the marks per rule, the total and the feedback; staff see it as reviewed.
+    mine = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()["tasks"][0]["submission"]
+    assert mine["score"] == 15 and mine["rubric_scores"][rule_b["id"]] == 6 and mine["feedback"] == "Solid"
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert rows[0]["reviewed"] is True and rows[0]["score"] == 15
+
+    # A task with no rubric takes one score, capped at the task's marks.
+    plain = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "Plain", "marks": 10}, headers=auth_headers)).json()
+    plain_sub = (await client.put(_task_url(hackathon, plain), data={"repo_url": "https://x.io/p"}, headers=asha)).json()
+    plain_url = f"{_HACK}/{hackathon['id']}/task-submissions/{plain_sub['id']}/grade"
+    assert (await client.post(plain_url, json={"score": 11}, headers=auth_headers)).status_code == 422
+    assert (await client.post(plain_url, json={"score": 7}, headers=auth_headers)).json()["score"] == 7
+    assert (await client.post(plain_url, json={}, headers=auth_headers)).status_code == 422
+
+
+async def test_a_scored_task_keeps_its_marks_and_rubric_but_can_be_retitled(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json=_rubric_task(), headers=auth_headers)).json()
+    sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://ghcr.io/o/p"}, headers=asha)).json()
+    rule_a, rule_b = task["rubric"]
+    await client.post(
+        f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}/grade",
+        json={"rubric_scores": {rule_a["id"]: 12, rule_b["id"]: 8}},
+        headers=auth_headers,
+    )
+    url = f"{_HACK}/{hackathon['id']}/problem-statements/{task['id']}"
+    changed_marks = await client.put(url, json={**_rubric_task(marks=30), "rubric": task["rubric"]}, headers=auth_headers)
+    assert changed_marks.status_code == 422 and "already been scored" in changed_marks.text
+    changed_points = await client.put(
+        url, json={**_rubric_task(), "rubric": [{**rule_a, "points": 10}, rule_b]}, headers=auth_headers
+    )
+    assert changed_points.status_code == 422
+    retitled = await client.put(
+        url, json={**_rubric_task(title="Provision the EC2 server"), "rubric": task["rubric"]}, headers=auth_headers
+    )
+    assert retitled.status_code == 200 and retitled.json()["title"] == "Provision the EC2 server"
+
+
+async def test_students_see_their_place_per_task_and_overall_only_while_the_leaderboard_is_shown(
+    client, db_session, auth_headers, sent_emails
+):
+    hackathon, red, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails, max_team_size=2)
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com"), ("Kiran P", "kiran@example.com")])
+    tokens = {e: t for e, _n, t in sent_emails}
+    meena = await _set_password_and_login(client, "meena@example.com", tokens["meena@example.com"])
+    blue = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Blue Team"}, headers=meena)).json()
+    kiran = await _set_password_and_login(client, "kiran@example.com", tokens["kiran@example.com"])
+    await client.post(f"{_HACK}/{hackathon['id']}/teams/{blue['id']}/join/me", headers=kiran)
+    one = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "One", "marks": 10}, headers=auth_headers)).json()
+    two = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "Two", "marks": 10}, headers=auth_headers)).json()
+
+    async def submit_and_grade(headers, task, score):
+        sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/a"}, headers=headers)).json()
+        r = await client.post(
+            f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}/grade", json={"score": score}, headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+
+    await submit_and_grade(asha, one, 9)  # red:  one=9
+    await submit_and_grade(meena, one, 6)  # blue: one=6
+    await submit_and_grade(asha, two, 3)  # red:  two=3 (red total 12)
+    await submit_and_grade(meena, two, 8)  # blue: two=8 (blue total 14)
+
+    red_view = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()
+    assert red_view["max_total"] == 20 and red_view["leaderboard_visible"] is True
+    assert (red_view["team_rank"], red_view["team_total"], red_view["teams_ranked"]) == (2, 12, 2)
+    places = {t["title"]: (t["task_rank"], t["task_teams_scored"]) for t in red_view["tasks"]}
+    assert places == {"One": (1, 2), "Two": (2, 2)}
+    blue_view = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=kiran)).json()
+    assert (blue_view["team_rank"], blue_view["team_total"]) == (1, 14)
+
+    # The bar chart's scale: the board reports the maximum total available.
+    board = next(b for b in (await client.get(f"{_HACK}/leaderboard/me", headers=asha)).json() if b["hackathon_id"] == hackathon["id"])
+    assert board["max_total"] == 20
+
+    # Hiding the leaderboard hides everyone's standing, including the team's own place.
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"leaderboard_visible": False}, headers=auth_headers)
+    hidden = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()
+    assert hidden["team_rank"] is None and all(t["task_rank"] is None for t in hidden["tasks"])
+    assert hidden["tasks"][0]["submission"]["score"] == 9  # their own marks are still theirs to see

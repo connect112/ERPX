@@ -91,13 +91,13 @@ export function useGradeTaskSubmission(hackathonId: string) {
   return useMutation({
     mutationFn: ({
       submissionId,
-      score,
+      marks,
       feedback,
     }: {
       submissionId: string;
-      score: number;
+      marks: { score?: number; rubricScores?: Record<string, number> };
       feedback?: string;
-    }) => hackathonsApi.gradeTaskSubmission(hackathonId, submissionId, score, feedback),
+    }) => hackathonsApi.gradeTaskSubmission(hackathonId, submissionId, marks, feedback),
     // The leaderboard and team totals are computed from these scores, so refresh them together.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [...hackathonsKeys.all, hackathonId] }),
   });

@@ -3,11 +3,13 @@ What a hackathon participant does once they're on a team: work through the
 tasks (problem statements) -- submitting a report and/or a repository or
 registry URL for each -- and see where the team stands.
 
-Each task has its own submission per team, scored by staff; the leaderboard
-ranks teams by the sum of their task scores. Everything here is ownership-gated
-by the caller (a member of the team, via get_current_student) or staff-gated
-(hackathons.manage/view); nothing relies on a permission the participant role
-doesn't hold.
+Each task has a maximum mark, optional sub-tasks (the parts of the task and
+what each is worth) and a rubric (what staff mark a submission on). Each team
+has its own submission per task, scored by staff against the rubric; the
+leaderboard ranks teams by the sum of their task scores. Everything here is
+ownership-gated by the caller (a member of the team, via get_current_student)
+or staff-gated (hackathons.manage/view); nothing relies on a permission the
+participant role doesn't hold.
 """
 
 import os
@@ -70,18 +72,44 @@ def clean_url(value: str | None) -> str | None:
     return url
 
 
+def _with_ids(incoming: list[dict], existing: list[dict]) -> list[dict]:
+    """Keep the id of an item that already existed (so marks awarded against it stay
+    attached when the task is edited); give new items a fresh id."""
+    known = {item["id"] for item in existing or []}
+    out = []
+    for item in incoming:
+        item_id = item.get("id") if item.get("id") in known else uuid.uuid4().hex
+        out.append({**{k: v for k, v in item.items() if k != "id"}, "id": item_id})
+    return out
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 @dataclass
 class TaskRow:
     task: ProblemStatement
     submission: TaskSubmission | None
+    rank: int | None = None  # this team's place among teams scored on the task
+    teams_scored: int = 0
+
+
+@dataclass
+class TasksView:
+    team: Team | None
+    rows: list[TaskRow]
+    max_total: int
+    team_rank: int | None = None
+    team_total: int = 0
+    teams_ranked: int = 0
 
 
 @dataclass
 class StaffSubmissionRow:
     submission: TaskSubmission
     team_name: str
-    task_title: str
-    task_order: int
+    task: ProblemStatement
     members: list[str]
 
 
@@ -119,7 +147,15 @@ class ParticipationService:
         )
         return list(result.scalars().all())
 
-    async def add_problem_statement(self, hackathon_id: uuid.UUID, title: str, description: str) -> ProblemStatement:
+    async def add_problem_statement(
+        self,
+        hackathon_id: uuid.UUID,
+        title: str,
+        description: str | None,
+        marks: int = 0,
+        sub_tasks: list[dict] | None = None,
+        rubric: list[dict] | None = None,
+    ) -> ProblemStatement:
         next_index = (
             await self.db.execute(
                 select(func.coalesce(func.max(ProblemStatement.order_index), -1)).where(
@@ -128,7 +164,13 @@ class ParticipationService:
             )
         ).scalar_one() + 1
         statement = ProblemStatement(
-            hackathon_id=hackathon_id, title=title.strip(), description=description.strip(), order_index=next_index
+            hackathon_id=hackathon_id,
+            title=title.strip(),
+            description=(description or "").strip() or None,
+            order_index=next_index,
+            marks=marks,
+            sub_tasks=_with_ids(sub_tasks or [], []),
+            rubric=_with_ids(rubric or [], []),
         )
         self.db.add(statement)
         await self.db.flush()
@@ -147,11 +189,43 @@ class ParticipationService:
             raise NotFoundError("Task", statement_id)
         return statement
 
+    async def _has_scores(self, task_id: uuid.UUID) -> bool:
+        count = (
+            await self.db.execute(
+                select(func.count()).select_from(TaskSubmission).where(
+                    TaskSubmission.problem_statement_id == task_id, TaskSubmission.score.is_not(None)
+                )
+            )
+        ).scalar_one()
+        return count > 0
+
     async def update_problem_statement(
-        self, hackathon_id: uuid.UUID, statement_id: uuid.UUID, title: str, description: str
+        self,
+        hackathon_id: uuid.UUID,
+        statement_id: uuid.UUID,
+        title: str,
+        description: str | None,
+        marks: int = 0,
+        sub_tasks: list[dict] | None = None,
+        rubric: list[dict] | None = None,
     ) -> ProblemStatement:
         statement = await self._get_statement(hackathon_id, statement_id)
-        statement.title, statement.description = title.strip(), description.strip()
+        new_rubric = _with_ids(rubric or [], statement.rubric or [])
+        if await self._has_scores(statement.id):
+            # Changing what the marks are out of, or what they were awarded for, would
+            # silently change scores that teams have already been given.
+            before = {r["id"]: r["points"] for r in statement.rubric or []}
+            after = {r["id"]: r["points"] for r in new_rubric}
+            if marks != statement.marks or before != after:
+                raise ValidationError(
+                    "Submissions for this task have already been scored, so its marks and rubric can't change. "
+                    "You can still edit the title, description and sub-tasks."
+                )
+        statement.title = title.strip()
+        statement.description = (description or "").strip() or None
+        statement.marks = marks
+        statement.sub_tasks = _with_ids(sub_tasks or [], statement.sub_tasks or [])
+        statement.rubric = new_rubric
         await self.db.flush()
         await self.db.refresh(statement)
         return statement
@@ -160,6 +234,17 @@ class ParticipationService:
         # Submissions for the task go with it (ON DELETE CASCADE).
         await self.db.delete(await self._get_statement(hackathon_id, statement_id))
         await self.db.flush()
+
+    async def max_total(self, hackathon_id: uuid.UUID) -> int:
+        return int(
+            (
+                await self.db.execute(
+                    select(func.coalesce(func.sum(ProblemStatement.marks), 0)).where(
+                        ProblemStatement.hackathon_id == hackathon_id
+                    )
+                )
+            ).scalar_one()
+        )
 
     # ---------------- a participant's own team ----------------
 
@@ -177,7 +262,26 @@ class ParticipationService:
         if hackathon.status not in _ACTIVE:
             raise ValidationError("Task submission is closed for this hackathon.")
 
-    async def tasks_for(self, hackathon: Hackathon, student: Student) -> tuple[Team | None, list[TaskRow]]:
+    async def _task_places(self, hackathon_id: uuid.UUID, team_id: uuid.UUID) -> dict[uuid.UUID, tuple[int, int]]:
+        """task id -> (this team's place, number of teams scored) for every task the team was scored on."""
+        rows = (
+            await self.db.execute(
+                select(TaskSubmission.problem_statement_id, TaskSubmission.team_id, TaskSubmission.score)
+                .join(Team, Team.id == TaskSubmission.team_id)
+                .where(Team.hackathon_id == hackathon_id, TaskSubmission.score.is_not(None))
+            )
+        ).all()
+        by_task: dict[uuid.UUID, list[tuple[uuid.UUID, int]]] = {}
+        for task_id, tid, score in rows:
+            by_task.setdefault(task_id, []).append((tid, score))
+        places: dict[uuid.UUID, tuple[int, int]] = {}
+        for task_id, entries in by_task.items():
+            mine = next((score for tid, score in entries if tid == team_id), None)
+            if mine is not None:
+                places[task_id] = (1 + sum(1 for _, score in entries if score > mine), len(entries))
+        return places
+
+    async def tasks_for(self, hackathon: Hackathon, student: Student) -> TasksView:
         """Every task, each with this student's team's submission (if any). The
         report bytes are not loaded -- only what the list needs."""
         team = await self.my_team(hackathon, student)
@@ -192,7 +296,24 @@ class ParticipationService:
                 )
             ).scalars().all()
             by_task = {s.problem_statement_id: s for s in rows}
-        return team, [TaskRow(task=t, submission=by_task.get(t.id)) for t in tasks]
+
+        view = TasksView(
+            team=team,
+            rows=[TaskRow(task=t, submission=by_task.get(t.id)) for t in tasks],
+            max_total=sum(t.marks for t in tasks),
+        )
+        # Places are only shown while the leaderboard is (so hiding it hides everyone's standing).
+        if team is not None and hackathon.leaderboard_visible:
+            places = await self._task_places(hackathon.id, team.id)
+            for row in view.rows:
+                if row.task.id in places:
+                    row.rank, row.teams_scored = places[row.task.id]
+            board = await self.leaderboard(hackathon)
+            view.teams_ranked = len(board)
+            mine = next((r for r in board if r.team_id == team.id), None)
+            if mine is not None:
+                view.team_rank, view.team_total = mine.rank, mine.score
+        return view
 
     def validate_report(self, filename: str, data: bytes) -> tuple[str, str]:
         """Return (clean filename, content type) or raise a message for the student."""
@@ -279,24 +400,18 @@ class ParticipationService:
     async def list_task_submissions(self, hackathon_id: uuid.UUID) -> list[StaffSubmissionRow]:
         rows = (
             await self.db.execute(
-                select(TaskSubmission, Team.name, ProblemStatement.title, ProblemStatement.order_index)
+                select(TaskSubmission, Team.name, ProblemStatement)
                 .options(defer(TaskSubmission.report_data))
                 .join(Team, Team.id == TaskSubmission.team_id)
                 .join(ProblemStatement, ProblemStatement.id == TaskSubmission.problem_statement_id)
                 .where(Team.hackathon_id == hackathon_id)
-                .order_by(ProblemStatement.order_index, Team.name)
+                .order_by(Team.name, ProblemStatement.order_index)
             )
         ).all()
         members = await self._members_by_team([s.team_id for s, *_ in rows])
         return [
-            StaffSubmissionRow(
-                submission=s,
-                team_name=team_name,
-                task_title=task_title,
-                task_order=task_order,
-                members=members.get(s.team_id, []),
-            )
-            for s, team_name, task_title, task_order in rows
+            StaffSubmissionRow(submission=s, team_name=team_name, task=task, members=members.get(s.team_id, []))
+            for s, team_name, task in rows
         ]
 
     async def _staff_submission(
@@ -321,10 +436,40 @@ class ParticipationService:
         return submission
 
     async def grade(
-        self, hackathon_id: uuid.UUID, submission_id: uuid.UUID, score: int, feedback: str | None
+        self,
+        hackathon_id: uuid.UUID,
+        submission_id: uuid.UUID,
+        score: int | None,
+        rubric_scores: dict[str, int] | None,
+        feedback: str | None,
     ) -> TaskSubmission:
+        """Award marks. For a task with a rubric every rule must be marked (0..its points)
+        and the score is their sum; for a task without one a single score (up to the
+        task's marks, when it has any) is taken."""
         submission = await self._staff_submission(hackathon_id, submission_id)
-        submission.score = score
+        task = await self._get_statement(hackathon_id, submission.problem_statement_id)
+        rubric = task.rubric or []
+        if rubric:
+            if rubric_scores is None:
+                raise ValidationError("Enter marks for each rubric criterion.")
+            ids = {rule["id"] for rule in rubric}
+            if set(rubric_scores) - ids:
+                raise ValidationError("That rubric has changed. Reload the page and mark again.")
+            if ids - set(rubric_scores):
+                raise ValidationError("Enter marks for every criterion (0 is fine).")
+            for rule in rubric:
+                value = rubric_scores[rule["id"]]
+                if not 0 <= value <= rule["points"]:
+                    raise ValidationError(f'"{rule["criterion"]}": marks must be between 0 and {rule["points"]}.')
+            submission.rubric_scores = {rule["id"]: int(rubric_scores[rule["id"]]) for rule in rubric}
+            submission.score = sum(submission.rubric_scores.values())
+        else:
+            if score is None:
+                raise ValidationError("Enter the score.")
+            if task.marks and score > task.marks:
+                raise ValidationError(f"The score can't be more than the task's {task.marks} marks.")
+            submission.rubric_scores = None
+            submission.score = score
         submission.feedback = (feedback or "").strip() or None
         await self.db.flush()
         await self.db.refresh(submission, attribute_names=["updated_at"])
@@ -436,7 +581,3 @@ class ParticipationService:
                         code, label = podium[row.rank]
                         award(code, label, f"Ranked #{row.rank} with {row.score} points.")
         return awards
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)

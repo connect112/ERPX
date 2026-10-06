@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, ChevronRight, Download, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Trophy, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type Task, hackathonsApi } from "@/features/hackathons/api/hackathons-api";
 import { useSubmitTask, useTasks } from "@/features/hackathons/api/hackathons-hooks";
+import { TaskResult } from "@/features/hackathons/components/task-result";
+import { ordinal } from "@/features/hackathons/lib/ordinal";
 
 function errorText(error: unknown, fallback: string): string {
   return (
@@ -109,16 +111,6 @@ function TaskSubmissionForm({
         />
       </div>
 
-      {saved && saved.score !== null && (
-        <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-900">
-          <p className="flex items-center gap-1.5 font-medium">
-            <CheckCircle2 className="h-4 w-4" />
-            Score: {saved.score}
-          </p>
-          {saved.feedback && <p className="mt-1 whitespace-pre-wrap">{saved.feedback}</p>}
-        </div>
-      )}
-
       {!canSubmit ? (
         <p className="text-sm text-muted-foreground">Create or join a team to submit this task.</p>
       ) : (
@@ -165,6 +157,21 @@ export function TasksSection({ hackathonId }: { hackathonId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {data.team_rank !== null && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <Trophy className="h-5 w-5 shrink-0 text-primary" />
+            <div className="text-sm">
+              <p className="font-semibold">
+                Your team is {ordinal(data.team_rank)} of {data.teams_ranked} team{data.teams_ranked === 1 ? "" : "s"}
+              </p>
+              <p className="text-muted-foreground">
+                {data.team_total}
+                {/* Older tasks may have no marks set, so only show the scale when the total fits within it. */}
+                {data.max_total > 0 && data.team_total <= data.max_total && ` / ${data.max_total}`} points so far
+              </p>
+            </div>
+          </div>
+        )}
         {data.tasks.map((task, index) => {
           const open = openId === task.id;
           return (
@@ -179,11 +186,31 @@ export function TasksSection({ hackathonId }: { hackathonId: string }) {
                 <span className="flex-1 font-medium">
                   {index + 1}. {task.title}
                 </span>
+                {task.marks > 0 && <Badge variant="outline">{task.marks} marks</Badge>}
                 {statusBadge(task)}
               </button>
               {open && (
                 <div className="space-y-4 border-t p-4">
-                  <p className="whitespace-pre-wrap text-sm text-muted-foreground">{task.description}</p>
+                  {task.description && (
+                    <p className="whitespace-pre-wrap text-sm text-muted-foreground">{task.description}</p>
+                  )}
+                  {task.sub_tasks.length > 0 && (
+                    <div className="space-y-1.5">
+                      <h4 className="text-sm font-semibold">Sub-tasks</h4>
+                      <ul className="divide-y rounded-md border text-sm">
+                        {task.sub_tasks.map((sub) => (
+                          <li key={sub.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <span>{sub.title}</span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground">
+                              {sub.points} point{sub.points === 1 ? "" : "s"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {/* The rubric appears once the task is submitted; it fills in when staff score it. */}
+                  <TaskResult task={task} />
                   {/* Keyed by task (and by the saved version) so each task has its own form state. */}
                   <TaskSubmissionForm
                     key={`${task.id}:${task.submission?.submitted_at ?? "none"}`}
