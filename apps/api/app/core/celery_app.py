@@ -97,6 +97,13 @@ celery_app.conf.beat_schedule = {
         "task": "payroll.auto_generate_monthly_drafts",
         "schedule": crontab(hour=13, minute=30),
     },
+    # Picks up any workshop exam whose admin-chosen certificate release
+    # time has passed and queues every certificate email -- granularity is
+    # this interval, so a release time is honoured to within ~5 minutes.
+    "workshop-exams-dispatch-due-certificates": {
+        "task": "workshop_exams.dispatch_due_certificates",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # Modules register their Celery task modules here as they are built, e.g.:
@@ -110,5 +117,6 @@ celery_app.autodiscover_tasks(
         "modules.backups",
         "modules.payroll",
         "modules.lms.announcements",
+        "modules.workshop_exams",
     ]
 )

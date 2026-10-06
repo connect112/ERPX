@@ -113,3 +113,49 @@ def password_reset_email(full_name: str, reset_url: str) -> tuple[str, str, str]
     </div>
     """
     return subject, text, html
+
+
+def workshop_exam_invite_email(
+    full_name: str, exam_title: str, exam_url: str, duration_minutes: int
+) -> tuple[str, str, str]:
+    from html import escape
+
+    subject = f"Your exam link: {exam_title}"
+    text = (
+        f"Hi {full_name},\n\n"
+        f'Here is your personal link for the "{exam_title}" MCQ exam '
+        f"({duration_minutes} minutes once you start):\n\n{exam_url}\n\n"
+        f"No login is needed. The link is only for you -- please don't share it. "
+        f"Your certificate will be emailed to this address after the exam."
+    )
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>{escape(exam_title)}</h2>
+      <p>Hi {escape(full_name)}, here is your personal link for the MCQ exam
+      ({duration_minutes} minutes once you start). No login is needed.</p>
+      <p><a href="{escape(exam_url)}" style="background:#0f4c81;color:#fff;padding:10px 18px;
+      border-radius:6px;text-decoration:none;display:inline-block">Start the exam</a></p>
+      <p style="color:#6b7280;font-size:13px">The link is only for you -- please don't share it.
+      Your certificate will be emailed to this address after the exam.</p>
+    </div>
+    """
+    return subject, text, html
+
+
+def workshop_certificate_email(full_name: str, exam_title: str) -> tuple[str, str, str]:
+    from html import escape
+
+    subject = f"Your certificate: {exam_title}"
+    text = (
+        f"Hi {full_name},\n\n"
+        f'Thank you for taking part in "{exam_title}". '
+        f"Your certificate is attached to this email as a PDF."
+    )
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>Your certificate</h2>
+      <p>Hi {escape(full_name)}, thank you for taking part in <b>{escape(exam_title)}</b>.
+      Your certificate is attached to this email as a PDF.</p>
+    </div>
+    """
+    return subject, text, html

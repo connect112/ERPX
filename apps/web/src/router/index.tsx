@@ -1,5 +1,7 @@
-import { lazy } from "react";
+import { lazy, Suspense } from "react";
 import { createBrowserRouter } from "react-router-dom";
+
+import { PageLoader } from "@/components/ui/page-loader";
 
 const AccountSettingsPage = lazy(() => import("@/features/auth/pages/account-settings-page").then((m) => ({ default: m.AccountSettingsPage })));
 import { ForgotPasswordPage } from "@/features/auth/pages/forgot-password-page";
@@ -84,6 +86,11 @@ const ReferralProgramsPage = lazy(() => import("@/features/marketing/referrals/p
 const ReferralsListPage = lazy(() => import("@/features/marketing/referrals/pages/referrals-list-page").then((m) => ({ default: m.ReferralsListPage })));
 const MarketingOverviewPage = lazy(() => import("@/features/marketing/analytics/pages/marketing-overview-page").then((m) => ({ default: m.MarketingOverviewPage })));
 const WorkshopDetailPage = lazy(() => import("@/features/workshops/pages/workshop-detail-page").then((m) => ({ default: m.WorkshopDetailPage })));
+const WorkshopExamsListPage = lazy(() => import("@/features/workshop-exams/pages/workshop-exams-list-page").then((m) => ({ default: m.WorkshopExamsListPage })));
+const WorkshopExamDetailPage = lazy(() => import("@/features/workshop-exams/pages/workshop-exam-detail-page").then((m) => ({ default: m.WorkshopExamDetailPage })));
+const PublicRegisterPage = lazy(() => import("@/features/workshop-exams/pages/public-register-page").then((m) => ({ default: m.PublicRegisterPage })));
+const PublicExamPage = lazy(() => import("@/features/workshop-exams/pages/public-exam-page").then((m) => ({ default: m.PublicExamPage })));
+const VerifyWorkshopCertificatePage = lazy(() => import("@/features/workshop-exams/pages/verify-certificate-page").then((m) => ({ default: m.VerifyWorkshopCertificatePage })));
 const WorkshopsListPage = lazy(() => import("@/features/workshops/pages/workshops-list-page").then((m) => ({ default: m.WorkshopsListPage })));
 const HackathonDetailPage = lazy(() => import("@/features/hackathons/pages/hackathon-detail-page").then((m) => ({ default: m.HackathonDetailPage })));
 const HackathonsListPage = lazy(() => import("@/features/hackathons/pages/hackathons-list-page").then((m) => ({ default: m.HackathonsListPage })));
@@ -240,6 +247,8 @@ export const router = createBrowserRouter([
       { path: "marketing/referrals", element: <ReferralsListPage /> },
       { path: "marketing/analytics", element: <MarketingOverviewPage /> },
       { path: "workshops", element: <WorkshopsListPage /> },
+      { path: "workshop-exams", element: <WorkshopExamsListPage /> },
+      { path: "workshop-exams/:examId", element: <WorkshopExamDetailPage /> },
       { path: "workshops/:workshopId", element: <WorkshopDetailPage /> },
       { path: "hackathons", element: <HackathonsListPage /> },
       { path: "hackathons/:hackathonId", element: <HackathonDetailPage /> },
@@ -275,6 +284,32 @@ export const router = createBrowserRouter([
     ],
   },
   { path: "/login", element: <LoginPage /> },
+  // Login-free attendee pages: outside the protected layout, so they need
+  // their own Suspense boundary for the lazy chunks.
+  {
+    path: "/workshop-exam/join/:code",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <PublicRegisterPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: "/workshop-exam/:token",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <PublicExamPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: "/verify-workshop-certificate/:number",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <VerifyWorkshopCertificatePage />
+      </Suspense>
+    ),
+  },
   { path: "/register", element: <RegisterPage /> },
   { path: "/verify-email", element: <VerifyEmailPage /> },
   { path: "/forgot-password", element: <ForgotPasswordPage /> },
