@@ -29,7 +29,7 @@ export function useCreateTeam(hackathonId: string) {
   return useMutation({
     mutationFn: (name: string) => hackathonsApi.createTeam(hackathonId, name),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId, "team", "me"] });
+      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId] });
     },
   });
 }
@@ -39,34 +39,27 @@ export function useJoinTeam(hackathonId: string) {
   return useMutation({
     mutationFn: (teamId: string) => hackathonsApi.joinTeam(hackathonId, teamId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId, "team", "me"] });
+      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId] });
     },
   });
 }
 
-export function useProblemStatements(hackathonId: string) {
+/** The tasks with this team's submission for each. Refetched so scores awarded by staff appear without a reload. */
+export function useTasks(hackathonId: string) {
   return useQuery({
-    queryKey: ["hackathons", hackathonId, "problem-statements"],
-    queryFn: () => hackathonsApi.problemStatements(hackathonId),
+    queryKey: ["hackathons", hackathonId, "tasks"],
+    queryFn: () => hackathonsApi.tasks(hackathonId),
+    refetchInterval: 20_000,
   });
 }
 
-export function useChooseProblem(hackathonId: string) {
+export function useSubmitTask(hackathonId: string, taskId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (problemStatementId: string | null) => hackathonsApi.chooseProblem(hackathonId, problemStatementId),
+    mutationFn: (payload: { repoUrl: string; file: File | null }) =>
+      hackathonsApi.submitTask(hackathonId, taskId, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId, "team", "me"] });
-    },
-  });
-}
-
-export function useUploadReport(hackathonId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (file: File) => hackathonsApi.uploadReport(hackathonId, file),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId, "team", "me"] });
+      queryClient.invalidateQueries({ queryKey: ["hackathons", hackathonId, "tasks"] });
       queryClient.invalidateQueries({ queryKey: ["hackathons", "achievements"] });
     },
   });
@@ -76,8 +69,9 @@ export function useHackathonLeaderboards() {
   return useQuery({
     queryKey: ["hackathons", "leaderboards"],
     queryFn: () => hackathonsApi.leaderboards(),
-    // Results get published while people are watching.
-    refetchInterval: 30_000,
+    // Scores are awarded while people are watching: keep the board current.
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -85,26 +79,6 @@ export function useHackathonAchievements() {
   return useQuery({
     queryKey: ["hackathons", "achievements"],
     queryFn: () => hackathonsApi.achievements(),
-  });
-}
-
-export function useTeamSubmission(hackathonId: string, teamId: string | undefined) {
-  return useQuery({
-    queryKey: ["hackathons", hackathonId, "team", teamId, "submission"],
-    queryFn: () => hackathonsApi.getSubmission(hackathonId, teamId as string),
-    enabled: Boolean(teamId),
-  });
-}
-
-export function useSubmitProject(hackathonId: string, teamId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: { title: string; description?: string; repo_url?: string; demo_url?: string }) =>
-      hackathonsApi.submitProject(hackathonId, teamId as string, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["hackathons", hackathonId, "team", teamId, "submission"],
-      });
-    },
+    refetchInterval: 30_000,
   });
 }

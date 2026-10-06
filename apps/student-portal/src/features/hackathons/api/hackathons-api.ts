@@ -25,8 +25,6 @@ export interface TeamPublic {
   name: string;
   created_at: string;
   member_count: number;
-  problem_statement_id: string | null;
-  problem_statement_title: string | null;
 }
 
 export interface TeamMemberPublic {
@@ -37,31 +35,71 @@ export interface TeamMemberPublic {
   joined_at: string;
 }
 
+export interface TeamWithMembersPublic {
+  team: TeamPublic;
+  members: TeamMemberPublic[];
+}
+
 export interface ReportInfo {
   filename: string;
   size_bytes: number;
   uploaded_at: string;
 }
 
-export interface TeamWithMembersPublic {
-  team: TeamPublic;
-  members: TeamMemberPublic[];
+/** The team's work on one task: a report file and/or a repository / registry URL, plus the staff score. */
+export interface TaskSubmission {
+  id: string;
+  repo_url: string | null;
   report: ReportInfo | null;
+  submitted_at: string;
+  score: number | null;
+  /** Marks awarded per rubric rule (by rule id); null until the submission has been scored. */
+  rubric_scores: Record<string, number> | null;
+  feedback: string | null;
 }
 
-export interface ProblemStatement {
+export interface SubTask {
   id: string;
-  hackathon_id: string;
   title: string;
-  description: string;
+  points: number;
+}
+
+export interface RubricRule {
+  id: string;
+  criterion: string;
+  points: number;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string | null;
   order_index: number;
+  marks: number;
+  sub_tasks: SubTask[];
+  rubric: RubricRule[];
+  submission: TaskSubmission | null;
+  /** This team's place among the teams scored on this task (only while the leaderboard is shown). */
+  task_rank: number | null;
+  task_teams_scored: number;
+}
+
+export interface TasksResponse {
+  team_id: string | null;
+  can_submit: boolean;
+  max_total: number;
+  leaderboard_visible: boolean;
+  team_rank: number | null;
+  team_total: number;
+  teams_ranked: number;
+  tasks: Task[];
 }
 
 export interface LeaderboardEntry {
   rank: number;
   team_name: string;
   score: number;
-  project_title: string;
+  tasks_scored: number;
   members: string[];
 }
 
@@ -69,6 +107,8 @@ export interface LeaderboardBoard {
   hackathon_id: string;
   hackathon_title: string;
   published: boolean;
+  /** Total marks available across all tasks (the full scale of the bar chart). */
+  max_total: number;
   entries: LeaderboardEntry[];
 }
 
@@ -76,22 +116,9 @@ export interface Award {
   hackathon_id: string;
   hackathon_title: string;
   team_name: string;
-  code: "participant" | "submitted" | "report" | "winner" | "runner_up" | "third_place";
+  code: "participant" | "submitted" | "winner" | "runner_up" | "third_place";
   label: string;
   detail: string;
-}
-
-export interface SubmissionPublic {
-  id: string;
-  team_id: string;
-  title: string;
-  description: string | null;
-  repo_url: string | null;
-  demo_url: string | null;
-  submitted_at: string;
-  score: number | null;
-  feedback: string | null;
-  created_at: string;
 }
 
 export const hackathonsApi = {
@@ -115,35 +142,29 @@ export const hackathonsApi = {
       .post<TeamMemberPublic>(`/hackathons/${hackathonId}/teams/${teamId}/join/me`)
       .then((r) => r.data),
 
-  getSubmission: (hackathonId: string, teamId: string) =>
-    apiClient
-      .get<SubmissionPublic | null>(`/hackathons/${hackathonId}/teams/${teamId}/submissions/me`)
-      .then((r) => r.data),
+  tasks: (hackathonId: string) =>
+    apiClient.get<TasksResponse>(`/hackathons/${hackathonId}/tasks/me`).then((r) => r.data),
 
-  problemStatements: (hackathonId: string) =>
-    apiClient.get<ProblemStatement[]>(`/hackathons/${hackathonId}/problem-statements/me`).then((r) => r.data),
-
-  chooseProblem: (hackathonId: string, problemStatementId: string | null) =>
-    apiClient
-      .put<TeamPublic>(`/hackathons/${hackathonId}/teams/me/problem-statement`, {
-        problem_statement_id: problemStatementId,
-      })
-      .then((r) => r.data),
-
-  uploadReport: (hackathonId: string, file: File) => {
+  /**
+   * Submit (or update) the team's work on one task. `repoUrl` is always sent
+   * (an empty string clears it); `file` is only sent when a new report was
+   * chosen, otherwise the saved report is kept.
+   */
+  submitTask: (hackathonId: string, taskId: string, payload: { repoUrl: string; file: File | null }) => {
     const form = new FormData();
-    form.append("file", file);
+    form.append("repo_url", payload.repoUrl);
+    if (payload.file) form.append("file", payload.file);
     // apiClient defaults to a JSON Content-Type, under which axios would turn
     // the FormData into JSON; naming multipart lets the browser add the boundary.
     return apiClient
-      .put<ReportInfo>(`/hackathons/${hackathonId}/teams/me/report`, form, {
+      .put<TaskSubmission>(`/hackathons/${hackathonId}/tasks/${taskId}/submission/me`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       })
       .then((r) => r.data);
   },
 
-  downloadReport: async (hackathonId: string, filename: string) => {
-    const response = await apiClient.get(`/hackathons/${hackathonId}/teams/me/report/download`, {
+  downloadTaskReport: async (hackathonId: string, taskId: string, filename: string) => {
+    const response = await apiClient.get(`/hackathons/${hackathonId}/tasks/${taskId}/submission/me/report`, {
       responseType: "blob",
     });
     const url = URL.createObjectURL(response.data as Blob);
@@ -157,13 +178,4 @@ export const hackathonsApi = {
   leaderboards: () => apiClient.get<LeaderboardBoard[]>("/hackathons/leaderboard/me").then((r) => r.data),
 
   achievements: () => apiClient.get<Award[]>("/hackathons/achievements/me").then((r) => r.data),
-
-  submitProject: (
-    hackathonId: string,
-    teamId: string,
-    payload: { title: string; description?: string; repo_url?: string; demo_url?: string }
-  ) =>
-    apiClient
-      .post<SubmissionPublic>(`/hackathons/${hackathonId}/teams/${teamId}/submissions/me`, payload)
-      .then((r) => r.data),
 };

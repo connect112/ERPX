@@ -242,134 +242,396 @@ async def test_participants_get_the_restricted_role_not_the_student_role(client,
     assert roles["effective_permissions"] == ["hackathons.participate"]
 
 
-async def test_problem_statements_are_managed_by_staff_and_chosen_by_the_team(
-    client, db_session, auth_headers, sent_emails
-):
+async def _add_tasks(client, auth_headers, hackathon, titles):
+    out = []
+    for title in titles:
+        r = await client.post(
+            f"{_HACK}/{hackathon['id']}/problem-statements",
+            json={"title": title, "description": f"Do: {title}"},
+            headers=auth_headers,
+        )
+        assert r.status_code == 201, r.text
+        out.append(r.json())
+    return out
+
+
+def _task_url(hackathon, task):
+    return f"{_HACK}/{hackathon['id']}/tasks/{task['id']}/submission/me"
+
+
+async def test_tasks_are_staff_managed_and_visible_to_participants(client, db_session, auth_headers, sent_emails):
     hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
-    base = f"{_HACK}/{hackathon['id']}/problem-statements"
-    a = await client.post(base, json={"title": "Secure the login", "description": "Find and fix auth bugs."}, headers=auth_headers)
-    b = await client.post(base, json={"title": "Harden the API", "description": "Rate limits and validation."}, headers=auth_headers)
-    assert a.status_code == 201 and b.status_code == 201
+    a, b = await _add_tasks(client, auth_headers, hackathon, ["Fork the repository", "Provision the server"])
 
-    # A participant can read them but not change them.
-    listed = await client.get(f"{base}/me", headers=asha)
-    assert [p["title"] for p in listed.json()] == ["Secure the login", "Harden the API"]
-    assert (await client.post(base, json={"title": "Sneaky", "description": "x"}, headers=asha)).status_code in (403, 422)
+    mine = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()
+    assert mine["team_id"] == team["id"] and mine["can_submit"] is True
+    assert [t["title"] for t in mine["tasks"]] == ["Fork the repository", "Provision the server"]
+    assert all(t["submission"] is None for t in mine["tasks"])
 
-    # Either team member can pick one; it shows on their team and to staff.
-    chosen = await client.put(
-        f"{_HACK}/{hackathon['id']}/teams/me/problem-statement",
-        json={"problem_statement_id": b.json()["id"]},
-        headers=ravi,
+    # A participant can read tasks but not manage them.
+    denied = await client.post(
+        f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "Sneaky", "description": "x"}, headers=asha
     )
-    assert chosen.status_code == 200 and chosen.json()["problem_statement_title"] == "Harden the API"
-    mine = (await client.get(f"{_HACK}/{hackathon['id']}/teams/me", headers=asha)).json()
-    assert mine["team"]["problem_statement_title"] == "Harden the API"
-    staff = (await client.get(f"{_HACK}/{hackathon['id']}/teams", headers=auth_headers)).json()
-    assert staff[0]["problem_statement_title"] == "Harden the API"
+    assert denied.status_code in (403, 422)
 
-    # A statement from another hackathon can't be picked.
-    other = await _open_hackathon(client, auth_headers)
-    foreign = await client.post(
-        f"{_HACK}/{other['id']}/problem-statements", json={"title": "Elsewhere", "description": "x"}, headers=auth_headers
-    )
-    bad = await client.put(
-        f"{_HACK}/{hackathon['id']}/teams/me/problem-statement",
-        json={"problem_statement_id": foreign.json()["id"]},
+    # Deleting a task removes its submissions with it.
+    assert (await client.put(_task_url(hackathon, b), data={"repo_url": "https://hub.docker.com/r/x/y"}, headers=asha)).status_code == 200
+    assert (await client.delete(f"{_HACK}/{hackathon['id']}/problem-statements/{b['id']}", headers=auth_headers)).status_code == 200
+    after = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()
+    assert [t["title"] for t in after["tasks"]] == ["Fork the repository"]
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json() == []
+
+
+async def test_each_task_has_its_own_submission_and_nothing_carries_over(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    one, two = await _add_tasks(client, auth_headers, hackathon, ["Task one", "Task two"])
+
+    first = await client.put(
+        _task_url(hackathon, one),
+        data={"repo_url": "https://github.com/acme/fork"},
+        files={"file": ("one.pdf", _PDF, "application/pdf")},
         headers=asha,
     )
-    assert bad.status_code == 404
+    assert first.status_code == 200, first.text
+    assert first.json()["repo_url"] == "https://github.com/acme/fork" and first.json()["report"]["filename"] == "one.pdf"
 
-    # Deleting a statement just un-picks it for teams that had it.
-    assert (await client.delete(f"{base}/{b.json()['id']}", headers=auth_headers)).status_code == 200
-    after = (await client.get(f"{_HACK}/{hackathon['id']}/teams/me", headers=asha)).json()
-    assert after["team"]["problem_statement_title"] is None
+    # Task two is untouched: no URL and no report from task one leaks in.
+    tasks = {t["title"]: t for t in (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()["tasks"]}
+    assert tasks["Task one"]["submission"]["repo_url"] == "https://github.com/acme/fork"
+    assert tasks["Task two"]["submission"] is None
+
+    second = await client.put(
+        _task_url(hackathon, two), data={"repo_url": "https://hub.docker.com/r/acme/app"}, headers=ravi
+    )
+    assert second.status_code == 200 and second.json()["report"] is None
+    assert second.json()["id"] != first.json()["id"]
+
+    # Updating task two does not disturb task one.
+    tasks = {t["title"]: t for t in (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()["tasks"]}
+    assert tasks["Task one"]["submission"]["report"]["filename"] == "one.pdf"
+    assert tasks["Task two"]["submission"]["repo_url"] == "https://hub.docker.com/r/acme/app"
 
 
-async def test_report_upload_validation_download_and_replacement(client, db_session, auth_headers, sent_emails):
+async def test_task_submission_needs_a_report_or_a_url_and_validates_both(client, db_session, auth_headers, sent_emails):
     hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
-    url = f"{_HACK}/{hackathon['id']}/teams/me/report"
+    (task,) = await _add_tasks(client, auth_headers, hackathon, ["Only task"])
+    url = _task_url(hackathon, task)
 
-    def upload(headers, name, data, ctype="application/pdf"):
-        return client.put(url, files={"file": (name, data, ctype)}, headers=headers)
+    assert (await client.put(url, data={}, headers=asha)).status_code == 422  # nothing to submit
+    assert (await client.put(url, data={"repo_url": "   "}, headers=asha)).status_code == 422
+    assert (await client.put(url, data={"repo_url": "ftp://x/y"}, headers=asha)).status_code == 422
+    assert (await client.put(url, data={"repo_url": "not a url"}, headers=asha)).status_code == 422
+    for name, data in (("r.exe", _PDF), ("r.pdf", b"not really a pdf"), ("r.pdf", _PDF + b"x" * (20 * 1024 * 1024))):
+        bad = await client.put(url, files={"file": (name, data, "application/pdf")}, headers=asha)
+        assert bad.status_code == 422, name
 
-    assert (await upload(asha, "report.exe", _PDF)).status_code == 422  # type not allowed
-    assert (await upload(asha, "report.pdf", b"not really a pdf")).status_code == 422  # wrong contents
-    assert (await upload(asha, "report.pdf", b"")).status_code == 422
-    assert (await upload(asha, "report.pdf", _PDF + b"x" * (20 * 1024 * 1024))).status_code == 422  # > 20 MB
-
-    ok = await upload(asha, "..\\..\\My Report.pdf", _PDF)
+    ok = await client.put(url, files={"file": ("..\\..\\My Report.pdf", _PDF, "application/pdf")}, headers=asha)
     assert ok.status_code == 200, ok.text
-    assert ok.json()["filename"] == "My Report.pdf"  # path stripped
+    assert ok.json()["report"]["filename"] == "My Report.pdf" and ok.json()["repo_url"] is None
 
-    # The teammate sees it and can replace it; there is still just one.
-    mine = (await client.get(f"{_HACK}/{hackathon['id']}/teams/me", headers=ravi)).json()
-    assert mine["report"]["filename"] == "My Report.pdf"
-    assert (await upload(ravi, "final.pdf", _PDF + b" v2")).status_code == 200
-    got = await client.get(f"{url}/download", headers=asha)
-    assert got.status_code == 200 and got.content.endswith(b" v2") and got.headers["content-type"] == "application/pdf"
-    assert got.headers["x-content-type-options"] == "nosniff"
+    # Sending only a URL keeps the saved report; an empty URL clears the URL; a new file replaces the report.
+    both = await client.put(url, data={"repo_url": "https://ghcr.io/acme/app"}, headers=ravi)
+    assert both.json()["repo_url"] == "https://ghcr.io/acme/app" and both.json()["report"]["filename"] == "My Report.pdf"
+    cleared = await client.put(url, data={"repo_url": ""}, headers=ravi)
+    assert cleared.json()["repo_url"] is None and cleared.json()["report"] is not None
+    replaced = await client.put(url, files={"file": ("final.pdf", _PDF + b" v2", "application/pdf")}, headers=asha)
+    assert replaced.json()["report"]["filename"] == "final.pdf"
+    # ...and it can't end up with neither.
+    assert (await client.put(url, data={"repo_url": ""}, files={}, headers=asha)).json()["report"]["filename"] == "final.pdf"
 
-    # Staff see and can download every team's report.
-    staff = (await client.get(f"{_HACK}/{hackathon['id']}/teams", headers=auth_headers)).json()
-    assert staff[0]["has_report"] is True and staff[0]["report_filename"] == "final.pdf"
-    dl = await client.get(f"{_HACK}/{hackathon['id']}/teams/{team['id']}/report", headers=auth_headers)
+    got = await client.get(f"{url}/report", headers=ravi)
+    assert got.status_code == 200 and got.content.endswith(b" v2") and got.headers["x-content-type-options"] == "nosniff"
+
+    # Staff see it and can download it.
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert len(rows) == 1 and rows[0]["team_name"] == "Red Team" and rows[0]["report_filename"] == "final.pdf"
+    dl = await client.get(f"{_HACK}/{hackathon['id']}/task-submissions/{rows[0]['id']}/report", headers=auth_headers)
     assert dl.status_code == 200 and dl.content.endswith(b" v2")
 
-    # A student on no team can't upload or download anything.
+    # Not on a team = can't submit; closed hackathon = can't submit.
     await _add(client, auth_headers, hackathon, [("Loner", "loner@example.com")])
     loner = await _set_password_and_login(client, "loner@example.com", sent_emails[-1][2])
-    assert (await upload(loner, "r.pdf", _PDF)).status_code == 422
-    assert (await client.get(f"{url}/download", headers=loner)).status_code == 404
-
-    # Once the hackathon is closed to submissions, uploads stop.
+    assert (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=loner)).json()["can_submit"] is False
+    assert (await client.put(url, data={"repo_url": "https://x.io/y"}, headers=loner)).status_code == 422
+    assert (await client.get(f"{url}/report", headers=loner)).status_code == 404
     await client.post(f"{_HACK}/{hackathon['id']}/status", json={"status": "completed"}, headers=auth_headers)
-    assert (await upload(asha, "late.pdf", _PDF)).status_code == 422
+    assert (await client.put(url, data={"repo_url": "https://x.io/late"}, headers=asha)).status_code == 422
 
 
-async def test_leaderboard_stays_hidden_until_published_and_ties_share_a_rank(
+async def test_leaderboard_is_the_sum_of_task_scores_and_updates_as_scores_are_awarded(
     client, db_session, auth_headers, sent_emails
 ):
-    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails, max_team_size=2)
+    hackathon, red, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails, max_team_size=2)
     await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com"), ("Kiran P", "kiran@example.com")])
     tokens = {e: t for e, _n, t in sent_emails}
     meena = await _set_password_and_login(client, "meena@example.com", tokens["meena@example.com"])
     kiran = await _set_password_and_login(client, "kiran@example.com", tokens["kiran@example.com"])
     blue = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Blue Team"}, headers=meena)).json()
     await client.post(f"{_HACK}/{hackathon['id']}/teams/{blue['id']}/join/me", headers=kiran)
+    one, two = await _add_tasks(client, auth_headers, hackathon, ["Task one", "Task two"])
 
-    for headers, tid, title in ((asha, team["id"], "Red project"), (meena, blue["id"], "Blue project")):
+    async def submit(headers, task):
+        r = await client.put(_task_url(hackathon, task), data={"repo_url": "https://example.com/x"}, headers=headers)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    async def board(headers):
+        boards = (await client.get(f"{_HACK}/leaderboard/me", headers=headers)).json()
+        return next(b for b in boards if b["hackathon_id"] == hackathon["id"])
+
+    red1, red2 = await submit(asha, one), await submit(asha, two)
+    blue1 = await submit(meena, one)
+
+    # Visible by default, but nothing is scored yet.
+    first = await board(asha)
+    assert first["published"] is True and first["entries"] == []
+
+    async def grade(submission_id, score, feedback=None):
         r = await client.post(
-            f"{_HACK}/{hackathon['id']}/teams/{tid}/submissions/me", json={"title": title}, headers=headers
+            f"{_HACK}/{hackathon['id']}/task-submissions/{submission_id}/grade",
+            json={"score": score, "feedback": feedback},
+            headers=auth_headers,
         )
-        assert r.status_code in (200, 201), r.text
-    subs = (await client.get(f"{_HACK}/{hackathon['id']}/submissions", headers=auth_headers)).json()
-    for sub in subs:
-        graded = await client.post(f"{_HACK}/submissions/{sub['id']}/grade", json={"score": 80}, headers=auth_headers)
-        assert graded.status_code == 200
+        assert r.status_code == 200, r.text
 
-    hidden = (await client.get(f"{_HACK}/leaderboard/me", headers=asha)).json()
-    board = next(b for b in hidden if b["hackathon_id"] == hackathon["id"])
-    assert board["published"] is False and board["entries"] == []
-    assert not (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()[0]["code"] in ("winner",)
+    # Awarding one task's score puts that team on the board straight away.
+    await grade(blue1, 7, "Good")
+    entries = (await board(kiran))["entries"]
+    assert [(e["team_name"], e["score"], e["tasks_scored"]) for e in entries] == [("Blue Team", 7, 1)]
 
-    shown = await client.patch(f"{_HACK}/{hackathon['id']}", json={"leaderboard_visible": True}, headers=auth_headers)
-    assert shown.status_code == 200 and shown.json()["leaderboard_visible"] is True
-    board = next(b for b in (await client.get(f"{_HACK}/leaderboard/me", headers=kiran)).json() if b["hackathon_id"] == hackathon["id"])
-    assert board["published"] is True
-    assert [(e["rank"], e["score"]) for e in board["entries"]] == [(1, 80), (1, 80)]  # a tie shares rank 1
-    assert {e["team_name"] for e in board["entries"]} == {"Red Team", "Blue Team"}
+    # Scores add up across tasks, and re-awarding changes the standing immediately.
+    await grade(red1, 4)
+    await grade(red2, 5)
+    entries = (await board(asha))["entries"]
+    assert [(e["rank"], e["team_name"], e["score"], e["tasks_scored"]) for e in entries] == [
+        (1, "Red Team", 9, 2),
+        (2, "Blue Team", 7, 1),
+    ]
+    await grade(red2, 1)  # lowered: Red is now 5
+    entries = (await board(asha))["entries"]
+    assert [(e["team_name"], e["score"]) for e in entries] == [("Blue Team", 7), ("Red Team", 5)]
+    await grade(red2, 3)  # Red = 7 = Blue: a tie shares rank 1
+    assert {(e["rank"], e["score"]) for e in (await board(asha))["entries"]} == {(1, 7)}
 
-    codes = {a["code"] for a in (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()}
-    assert {"participant", "submitted", "winner"} <= codes
+    # Students see their own score and feedback on the task.
+    mine = {t["title"]: t for t in (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=meena)).json()["tasks"]}
+    assert mine["Task one"]["submission"]["score"] == 7 and mine["Task one"]["submission"]["feedback"] == "Good"
+
+    # Staff always see the live ranking and team totals, and can hide it from participants.
+    live = (await client.get(f"{_HACK}/{hackathon['id']}/leaderboard", headers=auth_headers)).json()
+    assert [e["score"] for e in live["entries"]] == [7, 7]
+    teams = {t["name"]: t for t in (await client.get(f"{_HACK}/{hackathon['id']}/teams", headers=auth_headers)).json()}
+    assert teams["Red Team"]["total_score"] == 7 and teams["Red Team"]["tasks_submitted"] == 2
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"leaderboard_visible": False}, headers=auth_headers)
+    hidden = await board(asha)
+    assert hidden["published"] is False and hidden["entries"] == []
+    assert len((await client.get(f"{_HACK}/{hackathon['id']}/leaderboard", headers=auth_headers)).json()["entries"]) == 2
+
+    # Only a valid score is accepted, and only for a submission of this hackathon.
+    bad = await client.post(
+        f"{_HACK}/{hackathon['id']}/task-submissions/{red1}/grade", json={"score": -1}, headers=auth_headers
+    )
+    assert bad.status_code == 422
+    other = await _open_hackathon(client, auth_headers)
+    wrong = await client.post(
+        f"{_HACK}/{other['id']}/task-submissions/{red1}/grade", json={"score": 5}, headers=auth_headers
+    )
+    assert wrong.status_code == 404
+    denied = await client.post(
+        f"{_HACK}/{hackathon['id']}/task-submissions/{red1}/grade", json={"score": 50}, headers=asha
+    )
+    assert denied.status_code in (403, 422)
 
 
 async def test_achievements_reflect_what_the_team_actually_did(client, db_session, auth_headers, sent_emails):
     hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    one, two = await _add_tasks(client, auth_headers, hackathon, ["Task one", "Task two"])
     first = {a["code"] for a in (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()}
     assert first == {"participant"}
-    await client.put(
-        f"{_HACK}/{hackathon['id']}/teams/me/report", files={"file": ("r.pdf", _PDF, "application/pdf")}, headers=ravi
+
+    submitted = await client.put(_task_url(hackathon, one), data={"repo_url": "https://example.com/a"}, headers=ravi)
+    achievements = (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()
+    tasks_award = next(a for a in achievements if a["code"] == "submitted")
+    assert tasks_award["detail"] == "Your team has submitted 1 of 2 tasks."  # a teammate's submission counts for all
+
+    await client.post(
+        f"{_HACK}/{hackathon['id']}/task-submissions/{submitted.json()['id']}/grade", json={"score": 10}, headers=auth_headers
     )
-    after = {a["code"] for a in (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()}
-    assert after == {"participant", "report"}  # the teammate's upload counts for the whole team
+    assert "winner" in {a["code"] for a in (await client.get(f"{_HACK}/achievements/me", headers=asha)).json()}
+
+
+# ---------------- marks, sub-tasks, rubric ----------------
+
+
+def _rubric_task(title="Provision the server", marks=20):
+    return {
+        "title": title,
+        "marks": marks,
+        "description": None,
+        "sub_tasks": [{"title": "Launch the instance", "points": 10}, {"title": "Open the ports", "points": 5}],
+        "rubric": [
+            {"criterion": "Correct instance type and region", "points": 12},
+            {"criterion": "Security group allows only what is needed", "points": 8},
+        ],
+    }
+
+
+async def test_a_task_has_marks_optional_description_sub_tasks_and_a_rubric_that_must_fit(
+    client, db_session, auth_headers
+):
+    hackathon = await _open_hackathon(client, auth_headers)
+    url = f"{_HACK}/{hackathon['id']}/problem-statements"
+
+    created = await client.post(url, json=_rubric_task(), headers=auth_headers)
+    assert created.status_code == 201, created.text
+    task = created.json()
+    assert task["marks"] == 20 and task["description"] is None  # description is optional
+    assert [s["points"] for s in task["sub_tasks"]] == [10, 5]
+    assert [r["points"] for r in task["rubric"]] == [12, 8]
+    assert all(item["id"] for item in [*task["sub_tasks"], *task["rubric"]])
+
+    # Sub-tasks or rubric adding up to more than the marks are refused, with the numbers in the message.
+    too_many_sub = {**_rubric_task(), "sub_tasks": [{"title": "A", "points": 15}, {"title": "B", "points": 10}]}
+    over = await client.post(url, json=too_many_sub, headers=auth_headers)
+    assert over.status_code == 422 and "25" in over.text and "20" in over.text
+    too_many_rubric = {**_rubric_task(), "rubric": [{"criterion": "Everything", "points": 21}]}
+    assert (await client.post(url, json=too_many_rubric, headers=auth_headers)).status_code == 422
+    no_marks = {**_rubric_task(), "marks": 0}
+    assert (await client.post(url, json=no_marks, headers=auth_headers)).status_code == 422  # set the marks first
+    assert (await client.post(url, json={"title": "Plain task", "marks": 5}, headers=auth_headers)).status_code == 201
+    blank = {**_rubric_task(), "rubric": [{"criterion": "  ", "points": 1}]}
+    assert (await client.post(url, json=blank, headers=auth_headers)).status_code == 422
+
+    # Editing keeps the ids of rules that already existed, so marks awarded against them stay attached.
+    rule_ids = [r["id"] for r in task["rubric"]]
+    edited = await client.put(
+        f"{url}/{task['id']}",
+        json={**_rubric_task(), "rubric": [{**task["rubric"][0], "criterion": "Instance type"}, task["rubric"][1]]},
+        headers=auth_headers,
+    )
+    assert edited.status_code == 200, edited.text
+    assert [r["id"] for r in edited.json()["rubric"]] == rule_ids
+    assert edited.json()["rubric"][0]["criterion"] == "Instance type"
+
+
+async def test_students_see_marks_sub_tasks_and_the_rubric_skeleton(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json=_rubric_task(), headers=auth_headers)).json()
+
+    seen = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=asha)).json()
+    assert seen["max_total"] == 20
+    row = seen["tasks"][0]
+    assert row["marks"] == 20 and [s["title"] for s in row["sub_tasks"]] == ["Launch the instance", "Open the ports"]
+    assert [r["points"] for r in row["rubric"]] == [12, 8]  # the rubric skeleton: criteria and their maximum
+    assert row["submission"] is None
+
+    submitted = await client.put(_task_url(hackathon, task), data={"repo_url": "https://hub.docker.com/r/o/p"}, headers=asha)
+    assert submitted.status_code == 200
+    assert submitted.json()["score"] is None and submitted.json()["rubric_scores"] is None  # not marked yet
+
+
+async def test_rubric_grading_marks_each_rule_and_totals_them(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json=_rubric_task(), headers=auth_headers)).json()
+    rule_a, rule_b = task["rubric"]
+    sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://ghcr.io/o/p"}, headers=asha)).json()
+    grade_url = f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}/grade"
+
+    # Staff list shows the rubric and that nothing has been reviewed yet.
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert rows[0]["reviewed"] is False and rows[0]["task_marks"] == 20
+    assert [r["points"] for r in rows[0]["rubric"]] == [12, 8]
+
+    async def grade(body):
+        return await client.post(grade_url, json=body, headers=auth_headers)
+
+    assert (await grade({"score": 15})).status_code == 422  # a rubric task needs per-rule marks
+    assert (await grade({"rubric_scores": {rule_a["id"]: 10}})).status_code == 422  # every rule must be marked
+    assert (await grade({"rubric_scores": {rule_a["id"]: 13, rule_b["id"]: 1}})).status_code == 422  # above the rule's max
+    assert (await grade({"rubric_scores": {rule_a["id"]: -1, rule_b["id"]: 1}})).status_code == 422
+    assert (await grade({"rubric_scores": {rule_a["id"]: 1, rule_b["id"]: 1, "nope": 3}})).status_code == 422
+
+    ok = await grade({"rubric_scores": {rule_a["id"]: 9, rule_b["id"]: 6}, "feedback": "Solid"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["score"] == 15 and ok.json()["rubric_scores"] == {rule_a["id"]: 9, rule_b["id"]: 6}
+
+    # The student sees the marks per rule, the total and the feedback; staff see it as reviewed.
+    mine = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()["tasks"][0]["submission"]
+    assert mine["score"] == 15 and mine["rubric_scores"][rule_b["id"]] == 6 and mine["feedback"] == "Solid"
+    rows = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()
+    assert rows[0]["reviewed"] is True and rows[0]["score"] == 15
+
+    # A task with no rubric takes one score, capped at the task's marks.
+    plain = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "Plain", "marks": 10}, headers=auth_headers)).json()
+    plain_sub = (await client.put(_task_url(hackathon, plain), data={"repo_url": "https://x.io/p"}, headers=asha)).json()
+    plain_url = f"{_HACK}/{hackathon['id']}/task-submissions/{plain_sub['id']}/grade"
+    assert (await client.post(plain_url, json={"score": 11}, headers=auth_headers)).status_code == 422
+    assert (await client.post(plain_url, json={"score": 7}, headers=auth_headers)).json()["score"] == 7
+    assert (await client.post(plain_url, json={}, headers=auth_headers)).status_code == 422
+
+
+async def test_a_scored_task_keeps_its_marks_and_rubric_but_can_be_retitled(client, db_session, auth_headers, sent_emails):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json=_rubric_task(), headers=auth_headers)).json()
+    sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://ghcr.io/o/p"}, headers=asha)).json()
+    rule_a, rule_b = task["rubric"]
+    await client.post(
+        f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}/grade",
+        json={"rubric_scores": {rule_a["id"]: 12, rule_b["id"]: 8}},
+        headers=auth_headers,
+    )
+    url = f"{_HACK}/{hackathon['id']}/problem-statements/{task['id']}"
+    changed_marks = await client.put(url, json={**_rubric_task(marks=30), "rubric": task["rubric"]}, headers=auth_headers)
+    assert changed_marks.status_code == 422 and "already been scored" in changed_marks.text
+    changed_points = await client.put(
+        url, json={**_rubric_task(), "rubric": [{**rule_a, "points": 10}, rule_b]}, headers=auth_headers
+    )
+    assert changed_points.status_code == 422
+    retitled = await client.put(
+        url, json={**_rubric_task(title="Provision the EC2 server"), "rubric": task["rubric"]}, headers=auth_headers
+    )
+    assert retitled.status_code == 200 and retitled.json()["title"] == "Provision the EC2 server"
+
+
+async def test_students_see_their_place_per_task_and_overall_only_while_the_leaderboard_is_shown(
+    client, db_session, auth_headers, sent_emails
+):
+    hackathon, red, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails, max_team_size=2)
+    await _add(client, auth_headers, hackathon, [("Meena S", "meena@example.com"), ("Kiran P", "kiran@example.com")])
+    tokens = {e: t for e, _n, t in sent_emails}
+    meena = await _set_password_and_login(client, "meena@example.com", tokens["meena@example.com"])
+    blue = (await client.post(f"{_HACK}/{hackathon['id']}/teams/me", json={"name": "Blue Team"}, headers=meena)).json()
+    kiran = await _set_password_and_login(client, "kiran@example.com", tokens["kiran@example.com"])
+    await client.post(f"{_HACK}/{hackathon['id']}/teams/{blue['id']}/join/me", headers=kiran)
+    one = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "One", "marks": 10}, headers=auth_headers)).json()
+    two = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "Two", "marks": 10}, headers=auth_headers)).json()
+
+    async def submit_and_grade(headers, task, score):
+        sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/a"}, headers=headers)).json()
+        r = await client.post(
+            f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}/grade", json={"score": score}, headers=auth_headers
+        )
+        assert r.status_code == 200, r.text
+
+    await submit_and_grade(asha, one, 9)  # red:  one=9
+    await submit_and_grade(meena, one, 6)  # blue: one=6
+    await submit_and_grade(asha, two, 3)  # red:  two=3 (red total 12)
+    await submit_and_grade(meena, two, 8)  # blue: two=8 (blue total 14)
+
+    red_view = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()
+    assert red_view["max_total"] == 20 and red_view["leaderboard_visible"] is True
+    assert (red_view["team_rank"], red_view["team_total"], red_view["teams_ranked"]) == (2, 12, 2)
+    places = {t["title"]: (t["task_rank"], t["task_teams_scored"]) for t in red_view["tasks"]}
+    assert places == {"One": (1, 2), "Two": (2, 2)}
+    blue_view = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=kiran)).json()
+    assert (blue_view["team_rank"], blue_view["team_total"]) == (1, 14)
+
+    # The bar chart's scale: the board reports the maximum total available.
+    board = next(b for b in (await client.get(f"{_HACK}/leaderboard/me", headers=asha)).json() if b["hackathon_id"] == hackathon["id"])
+    assert board["max_total"] == 20
+
+    # Hiding the leaderboard hides everyone's standing, including the team's own place.
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"leaderboard_visible": False}, headers=auth_headers)
+    hidden = (await client.get(f"{_HACK}/{hackathon['id']}/tasks/me", headers=ravi)).json()
+    assert hidden["team_rank"] is None and all(t["task_rank"] is None for t in hidden["tasks"])
+    assert hidden["tasks"][0]["submission"]["score"] == 9  # their own marks are still theirs to see

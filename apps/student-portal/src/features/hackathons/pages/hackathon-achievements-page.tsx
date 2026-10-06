@@ -1,4 +1,4 @@
-import { Award as AwardIcon, FileText, Flag, Medal, Rocket, Trophy } from "lucide-react";
+import { Award as AwardIcon, Flag, Medal, Rocket, Trophy } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,7 +11,6 @@ const ICONS: Record<Award["code"], typeof Trophy> = {
   third_place: Medal,
   participant: Flag,
   submitted: Rocket,
-  report: FileText,
 };
 
 export function HackathonAchievementsPage() {

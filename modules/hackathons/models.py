@@ -28,6 +28,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_model import TimestampedBase
@@ -72,10 +73,10 @@ class Hackathon(TimestampedBase):
         nullable=False,
         index=True,
     )
-    # Team scores are shown to participants only once the organiser flips this
-    # on, so a half-judged board is never visible.
+    # Whether participants can see the team leaderboard. On by default so it
+    # updates live as tasks are scored; the organiser can hide it while judging.
     leaderboard_visible: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="false", nullable=False
+        Boolean, default=True, server_default="true", nullable=False
     )
 
 
@@ -88,8 +89,15 @@ class ProblemStatement(TimestampedBase):
         ForeignKey("hackathons.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
+    # Optional: the admin form shows it behind a toggle.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # Maximum marks for the task. 0 = no maximum set (older tasks), scored freely.
+    marks: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # [{"id", "title", "points"}]: the parts of the task and what each is worth.
+    sub_tasks: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    # [{"id", "criterion", "points"}]: what staff mark a submission on; points sum to at most `marks`.
+    rubric: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
 
 
 class Team(TimestampedBase):
@@ -159,3 +167,36 @@ class TeamReport(TimestampedBase):
     uploaded_by_student_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("students.id", ondelete="SET NULL"), nullable=True
     )
+
+
+class TaskSubmission(TimestampedBase):
+    """A team's work on one task (problem statement): a report file and/or a
+    repository / registry URL, scored by staff. One row per team per task; the
+    leaderboard ranks teams by the sum of their task scores.
+
+    The older whole-hackathon `Submission` and `TeamReport` tables are no
+    longer written to (their data was copied here when this table was added).
+    """
+
+    __tablename__ = "hackathon_task_submissions"
+    __table_args__ = (UniqueConstraint("team_id", "problem_statement_id", name="uq_hackathon_task_submission"),)
+
+    team_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("hackathon_teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    problem_statement_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("hackathon_problem_statements.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    repo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    report_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    report_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    report_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    report_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    submitted_by_student_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("students.id", ondelete="SET NULL"), nullable=True
+    )
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # {rubric rule id: marks awarded}; `score` is their sum (or a free score for tasks with no rubric).
+    rubric_scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)

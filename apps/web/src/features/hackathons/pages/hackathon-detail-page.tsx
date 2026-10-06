@@ -12,17 +12,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useChangeHackathonStatus,
   useHackathon,
-  useHackathonSubmissions,
   useHackathonTeams,
+  useStaffLeaderboard,
+  useTaskSubmissions,
   useUpdateHackathon,
 } from "@/features/hackathons/api/hackathons-hooks";
 import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
-import { hackathonsApi } from "@/features/hackathons/api/hackathons-api";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
-import { GradeSubmissionRow } from "@/features/hackathons/components/grade-submission-row";
+import { SubmissionsTab } from "@/features/hackathons/components/submissions-tab";
 import { HackathonFormDialog } from "@/features/hackathons/components/hackathon-form-dialog";
 import { HackathonStatusBadge } from "@/features/hackathons/components/hackathon-status-badge";
 import {
@@ -45,7 +46,9 @@ export function HackathonDetailPage() {
   const navigate = useNavigate();
   const { data: hackathon, isLoading } = useHackathon(hackathonId);
   const { data: teams, isLoading: teamsLoading } = useHackathonTeams(hackathonId);
-  const { data: submissions, isLoading: submissionsLoading } = useHackathonSubmissions(hackathonId);
+  const { data: submissions } = useTaskSubmissions(hackathonId);
+  const { data: leaderboard } = useStaffLeaderboard(hackathonId);
+  const unreviewedCount = (submissions ?? []).filter((s) => !s.reviewed).length;
   const changeStatus = useChangeHackathonStatus(hackathonId ?? "");
   const updateHackathon = useUpdateHackathon(hackathonId ?? "");
   const [editOpen, setEditOpen] = useState(false);
@@ -80,6 +83,20 @@ export function HackathonDetailPage() {
         </Button>
       </div>
 
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="submissions">
+            Submissions
+            {unreviewedCount > 0 && (
+              <span className="ml-2 rounded-full bg-amber-100 px-1.5 text-xs font-semibold text-amber-800">
+                {unreviewedCount}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="mt-0">
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card>
@@ -133,48 +150,15 @@ export function HackathonDetailPage() {
                       {team.member_names.length > 0 && (
                         <p className="text-muted-foreground">{team.member_names.join(", ")}</p>
                       )}
-                      {team.problem_statement_title && (
-                        <p className="text-xs text-muted-foreground">Problem: {team.problem_statement_title}</p>
-                      )}
-                      {team.has_report && team.report_filename && (
-                        <button
-                          type="button"
-                          className="text-xs text-primary hover:underline"
-                          onClick={() => hackathonsApi.downloadTeamReport(hackathon.id, team.id, team.report_filename as string)}
-                        >
-                          Download report ({team.report_filename})
-                        </button>
-                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {team.tasks_submitted} task{team.tasks_submitted === 1 ? "" : "s"} submitted · {team.total_score}{" "}
+                        points
+                      </p>
                     </li>
                   ))}
                 </ul>
               ) : (
                 <p className="py-4 text-center text-sm text-muted-foreground">No teams yet.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Submissions</CardTitle>
-              <CardDescription>Review and grade each team's project.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {submissionsLoading ? (
-                <Skeleton className="h-24 w-full" />
-              ) : submissions && submissions.length > 0 ? (
-                <div>
-                  {submissions.map((submission) => (
-                    <GradeSubmissionRow
-                      key={submission.id}
-                      hackathonId={hackathon.id}
-                      submission={submission}
-                      team={teams?.find((t) => t.id === submission.team_id)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="py-4 text-center text-sm text-muted-foreground">No submissions yet.</p>
               )}
             </CardContent>
           </Card>
@@ -185,10 +169,28 @@ export function HackathonDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">Leaderboard</CardTitle>
               <CardDescription>
-                Participants see team scores only after you publish them, so judge first.
+                Live ranking by total task score. Participants see it too unless you hide it here.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {leaderboard && leaderboard.entries.length > 0 ? (
+                <ol className="space-y-1 text-sm">
+                  {leaderboard.entries.map((entry) => (
+                    <li key={`${entry.rank}-${entry.team_name}`} className="flex items-center justify-between gap-2">
+                      <span>
+                        <span className="mr-2 inline-block w-5 text-right font-semibold">{entry.rank}</span>
+                        {entry.team_name}
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {entry.tasks_scored} scored
+                        </span>
+                      </span>
+                      <span className="font-semibold">{entry.score}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-muted-foreground">Nothing scored yet. Teams appear when you award a score.</p>
+              )}
               <label className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -226,6 +228,12 @@ export function HackathonDetailPage() {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="submissions" className="mt-0">
+          <SubmissionsTab hackathonId={hackathon.id} />
+        </TabsContent>
+      </Tabs>
 
       <HackathonFormDialog open={editOpen} onOpenChange={setEditOpen} hackathon={hackathon} />
     </div>

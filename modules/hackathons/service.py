@@ -6,10 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
-from modules.hackathons.models import Hackathon, HackathonStatus, Submission, Team, TeamMember
+from modules.hackathons.models import Hackathon, HackathonStatus, Team, TeamMember
 from modules.hackathons.repository import (
     HackathonRepository,
-    SubmissionRepository,
     TeamMemberRepository,
     TeamRepository,
 )
@@ -158,86 +157,3 @@ class TeamService:
             }
             names[team.id] = [students.get(m.student_id, "Unknown student") for m in members]
         return names
-
-
-class SubmissionService:
-    def __init__(self, db: AsyncSession):
-        self.db = db
-        self.repo = SubmissionRepository(db)
-        self.team_repo = TeamRepository(db)
-        self.member_repo = TeamMemberRepository(db)
-        self.hackathon_repo = HackathonRepository(db)
-
-    async def submit_project(
-        self,
-        organization_id: uuid.UUID,
-        hackathon_id: uuid.UUID,
-        team_id: uuid.UUID,
-        student_id: uuid.UUID,
-        title: str,
-        description: str | None,
-        repo_url: str | None,
-        demo_url: str | None,
-    ) -> Submission:
-        hackathon = await self.hackathon_repo.get_by_id(hackathon_id, organization_id)
-        if not hackathon:
-            raise NotFoundError("Hackathon", hackathon_id)
-        if hackathon.status not in (HackathonStatus.REGISTRATION_OPEN, HackathonStatus.ONGOING):
-            raise ValidationError("This hackathon is not currently accepting submissions.")
-
-        team = await self.team_repo.get_by_id(team_id)
-        if not team or team.hackathon_id != hackathon_id:
-            raise NotFoundError("Team", team_id)
-        member = await self.member_repo.get(team_id, student_id)
-        if not member:
-            raise ValidationError("You are not a member of this team.")
-
-        existing = await self.repo.get_by_team(team_id)
-        if existing:
-            updated = await self.repo.update(
-                existing,
-                title=title,
-                description=description,
-                repo_url=repo_url,
-                demo_url=demo_url,
-                submitted_at=datetime.now(timezone.utc),
-            )
-            logger.info("hackathon_submission_updated", submission_id=str(updated.id))
-            return updated
-
-        submission = await self.repo.create(
-            team_id=team_id,
-            title=title,
-            description=description,
-            repo_url=repo_url,
-            demo_url=demo_url,
-            submitted_at=datetime.now(timezone.utc),
-        )
-        logger.info("hackathon_submission_created", submission_id=str(submission.id))
-        return submission
-
-    async def get_for_team(self, team_id: uuid.UUID) -> Submission | None:
-        return await self.repo.get_by_team(team_id)
-
-    async def list_for_hackathon(self, hackathon_id: uuid.UUID, organization_id: uuid.UUID) -> list[Submission]:
-        hackathon = await self.hackathon_repo.get_by_id(hackathon_id, organization_id)
-        if not hackathon:
-            raise NotFoundError("Hackathon", hackathon_id)
-        return await self.repo.list_for_hackathon(hackathon_id)
-
-    async def grade_submission(
-        self, submission_id: uuid.UUID, organization_id: uuid.UUID, score: int, feedback: str | None
-    ) -> Submission:
-        submission = await self.repo.get_by_id(submission_id)
-        if not submission:
-            raise NotFoundError("Submission", submission_id)
-        team = await self.team_repo.get_by_id(submission.team_id)
-        if not team:
-            raise NotFoundError("Team", submission.team_id)
-        hackathon = await self.hackathon_repo.get_by_id(team.hackathon_id, organization_id)
-        if not hackathon:
-            raise NotFoundError("Hackathon", team.hackathon_id)
-
-        updated = await self.repo.update(submission, score=score, feedback=feedback)
-        logger.info("hackathon_submission_graded", submission_id=str(submission_id), score=score)
-        return updated
