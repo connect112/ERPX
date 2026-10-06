@@ -44,6 +44,31 @@ export function useHackathonTeams(id: string | undefined) {
   });
 }
 
+/** Everyone invited to the hackathon, with contact details, team and sign-in status. */
+export function useParticipants(id: string | undefined) {
+  return useQuery({
+    queryKey: [...hackathonsKeys.all, id ?? "", "participants"],
+    queryFn: () => hackathonsApi.participants(id as string),
+    enabled: !!id,
+    refetchInterval: 20_000,
+  });
+}
+
+export function useParticipantActions(hackathonId: string) {
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: [...hackathonsKeys.all, hackathonId] });
+  return {
+    remove: useMutation({
+      mutationFn: ({ studentIds, deleteAccount }: { studentIds: string[]; deleteAccount: boolean }) =>
+        hackathonsApi.removeParticipants(hackathonId, studentIds, deleteAccount),
+      onSuccess: refresh,
+    }),
+    sendLinks: useMutation({
+      mutationFn: (studentIds: string[] | null) => hackathonsApi.sendLoginLinks(hackathonId, studentIds),
+    }),
+  };
+}
+
 /** Every team with its members' contact details. */
 export function useRoster(id: string | undefined) {
   return useQuery({

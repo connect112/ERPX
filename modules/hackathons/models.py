@@ -212,3 +212,22 @@ class TaskSubmission(TimestampedBase):
     # `submitted_at`, so a resubmission shows as unreviewed again (its old score stays
     # on the leaderboard until it is re-scored).
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class HackathonParticipant(TimestampedBase):
+    """Someone invited to a hackathon (bulk-added by an organiser, or added to a team by one).
+    `created_at` is when they were invited. People who are in one of its teams count as
+    participants too, even without a row here."""
+
+    __tablename__ = "hackathon_participants"
+    __table_args__ = (UniqueConstraint("hackathon_id", "student_id", name="uq_hackathon_participant"),)
+
+    hackathon_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("hackathons.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    invited_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

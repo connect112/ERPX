@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +31,7 @@ from modules.authentication.models import UserStatus
 from modules.authentication.repository import AuthRepository
 from modules.authorization.repository import AuthorizationRepository
 from modules.authorization.service import AuthorizationService
-from modules.hackathons.models import Hackathon
+from modules.hackathons.models import Hackathon, HackathonParticipant
 from modules.students.models import Student
 from modules.students.repository import StudentRepository
 from modules.users.repository import UserProfileRepository
@@ -67,6 +68,13 @@ class ParticipantProvisioner:
         self.student_repo = StudentRepository(db)
         self.profile_repo = UserProfileRepository(db)
         self.authz_repo = AuthorizationRepository(db)
+
+    async def _record(self, hackathon_id: uuid.UUID, student_id: uuid.UUID, invited_by: uuid.UUID) -> None:
+        await self.db.execute(
+            pg_insert(HackathonParticipant)
+            .values(hackathon_id=hackathon_id, student_id=student_id, invited_by_user_id=invited_by)
+            .on_conflict_do_nothing(constraint="uq_hackathon_participant")
+        )
 
     async def _find_unlinked_student(self, organization_id: uuid.UUID, email: str) -> Student | None:
         return (
@@ -147,6 +155,7 @@ class ParticipantProvisioner:
         if existing_user is not None:
             linked = await self.student_repo.get_by_user_id(existing_user.id)
             if linked is not None and linked.organization_id == organization_id:
+                await self._record(hackathon.id, linked.id, created_by_user_id)
                 if resend_to_existing:
                     # A fresh link for someone who lost the first email.
                     token = await self.auth_repo.create_password_reset_token(
@@ -186,6 +195,7 @@ class ParticipantProvisioner:
         await authz.assign_role(user.id, student_role_id, organization_id, assigned_by_user_id=created_by_user_id)
         student.user_id = user.id
         await self.db.flush()
+        await self._record(hackathon.id, student.id, created_by_user_id)
 
         token = await self.auth_repo.create_password_reset_token(user.id, ttl_hours=SET_PASSWORD_TOKEN_TTL_HOURS)
         return ProvisionedLogin(user_id=user.id, email=email, full_name=student.full_name, reset_token=token.token)

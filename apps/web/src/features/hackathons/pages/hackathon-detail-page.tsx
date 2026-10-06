@@ -23,6 +23,7 @@ import {
 } from "@/features/hackathons/api/hackathons-hooks";
 import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
+import { ParticipantsTab } from "@/features/hackathons/components/participants-tab";
 import { ResubmissionCard } from "@/features/hackathons/components/resubmission-card";
 import { SubmissionsTab } from "@/features/hackathons/components/submissions-tab";
 import { TeamsTab } from "@/features/hackathons/components/teams-tab";
@@ -88,6 +89,7 @@ export function HackathonDetailPage() {
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="participants">Participants</TabsTrigger>
           <TabsTrigger value="teams">
             Teams
             {(teams?.length ?? 0) > 0 && (
@@ -238,6 +240,10 @@ export function HackathonDetailPage() {
           </Card>
         </div>
       </div>
+        </TabsContent>
+
+        <TabsContent value="participants" className="mt-0">
+          <ParticipantsTab hackathon={hackathon} />
         </TabsContent>
 
         <TabsContent value="teams" className="mt-0">

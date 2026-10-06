@@ -21,7 +21,8 @@ from app.core.logging_config import get_logger
 from modules.authentication.models import PasswordResetToken, User
 from modules.authentication.repository import AuthRepository
 from modules.authorization.repository import AuthorizationRepository
-from modules.hackathons.models import Hackathon, Team, TeamMember
+from modules.hackathons.models import Hackathon, HackathonParticipant, Team, TeamMember
+from modules.hackathons.participants_admin import ParticipantAdminService
 from modules.hackathons.provisioning import (
     PARTICIPANT_ROLE_SLUG,
     SET_PASSWORD_TOKEN_TTL_HOURS,
@@ -106,13 +107,15 @@ class TeamAdminService:
         return list(by_team.values())
 
     async def candidates(self, organization_id: uuid.UUID, hackathon_id: uuid.UUID, query: str) -> list[Student]:
-        """Students with a login who are not in any team of this hackathon yet (matching name, email or code)."""
+        """People invited to this hackathon who are not in a team yet (matching name, email or code)."""
         in_a_team = (
             select(TeamMember.student_id)
             .join(Team, Team.id == TeamMember.team_id)
             .where(Team.hackathon_id == hackathon_id)
         )
+        invited = select(HackathonParticipant.student_id).where(HackathonParticipant.hackathon_id == hackathon_id)
         stmt = select(Student).where(
+            Student.id.in_(invited),
             Student.organization_id == organization_id,
             Student.deleted_at.is_(None),
             Student.user_id.is_not(None),
@@ -278,8 +281,8 @@ class TeamAdminService:
         everywhere, cancels any unused set-password links, and (by default) emails a
         fresh one to the new address."""
         student = await self._student(organization_id, student_id)
-        if await self._current_team(hackathon_id, student_id) is None:
-            raise NotFoundError("Team member", student_id)
+        if not await ParticipantAdminService(self.db).is_participant(hackathon_id, student_id):
+            raise NotFoundError("Participant", student_id)
         user = await self.auth_repo.get_user_by_id(student.user_id) if student.user_id else None
         if user is not None:
             if user.is_superuser:
@@ -328,8 +331,8 @@ class TeamAdminService:
     ) -> tuple[str, str, str]:
         """A fresh set-password link for someone who lost (or never got) the first email."""
         student = await self._student(organization_id, student_id)
-        if await self._current_team(hackathon_id, student_id) is None:
-            raise NotFoundError("Team member", student_id)
+        if not await ParticipantAdminService(self.db).is_participant(hackathon_id, student_id):
+            raise NotFoundError("Participant", student_id)
         if student.user_id is None or not student.email:
             raise ValidationError("This person has no login to send a link for.")
         token = await self.auth_repo.create_password_reset_token(
