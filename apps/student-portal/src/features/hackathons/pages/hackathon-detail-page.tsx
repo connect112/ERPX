@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  useBrowseHackathons,
   useBrowseTeams,
   useCreateTeam,
   useJoinTeam,
@@ -16,9 +17,20 @@ import {
   useTeamSubmission,
 } from "@/features/hackathons/api/hackathons-hooks";
 
+// The server's reason (name already taken, team full, registration closed...)
+// is what a student needs to see; a silent failure just looks like a broken button.
+function errorText(error: unknown, fallback: string): string {
+  return (
+    (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? fallback
+  );
+}
+
 export function HackathonDetailPage() {
   const { hackathonId } = useParams<{ hackathonId: string }>();
   const id = hackathonId as string;
+  const { data: hackathons } = useBrowseHackathons();
+  const hackathon = hackathons?.find((h) => h.id === id);
+  const maxTeamSize = hackathon?.max_team_size ?? 4;
 
   const { data: myTeam, isLoading: myTeamLoading } = useMyTeam(id);
   const { data: browsableTeams } = useBrowseTeams(id, !myTeamLoading && !myTeam);
@@ -48,9 +60,9 @@ export function HackathonDetailPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Your Team</h1>
+        <h1 className="text-2xl font-semibold">{hackathon ? `${hackathon.title} - your team` : "Your Team"}</h1>
         <p className="text-sm text-muted-foreground">
-          Create a team, or join one that's still recruiting.
+          Create a team, or join one that's still recruiting (up to {maxTeamSize} people per team).
         </p>
       </div>
 
@@ -59,7 +71,7 @@ export function HackathonDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Create a team</CardTitle>
-              <CardDescription>You'll be the first member — invite others once created.</CardDescription>
+              <CardDescription>You'll be the first member. Tell your friends your team name so they can join it.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <Input
@@ -74,6 +86,7 @@ export function HackathonDetailPage() {
               >
                 {createTeam.isPending ? "Creating…" : "Create team"}
               </Button>
+              {createTeam.isError && <p className="text-sm text-destructive">{errorText(createTeam.error, "Could not create the team.")}</p>}
             </CardContent>
           </Card>
 
@@ -85,25 +98,34 @@ export function HackathonDetailPage() {
             <CardContent>
               {browsableTeams && browsableTeams.length > 0 ? (
                 <ul className="divide-y">
-                  {browsableTeams.map((team) => (
-                    <li key={team.id} className="flex items-center justify-between py-2">
-                      <span className="text-sm font-medium">{team.name}</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={joinTeam.isPending}
-                        onClick={() => joinTeam.mutate(team.id)}
-                      >
-                        Join
-                      </Button>
-                    </li>
-                  ))}
+                  {browsableTeams.map((team) => {
+                    const full = team.member_count >= maxTeamSize;
+                    return (
+                      <li key={team.id} className="flex items-center justify-between py-2">
+                        <span className="text-sm font-medium">
+                          {team.name}
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            {team.member_count}/{maxTeamSize}
+                          </span>
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={joinTeam.isPending || full}
+                          onClick={() => joinTeam.mutate(team.id)}
+                        >
+                          {full ? "Full" : "Join"}
+                        </Button>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="py-4 text-center text-sm text-muted-foreground">
                   No teams to join yet — be the first to create one.
                 </p>
               )}
+              {joinTeam.isError && <p className="mt-2 text-sm text-destructive">{errorText(joinTeam.error, "Could not join the team.")}</p>}
             </CardContent>
           </Card>
         </div>

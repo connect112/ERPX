@@ -18,6 +18,7 @@ import {
   useHackathonSubmissions,
   useHackathonTeams,
 } from "@/features/hackathons/api/hackathons-hooks";
+import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
 import { GradeSubmissionRow } from "@/features/hackathons/components/grade-submission-row";
 import { HackathonFormDialog } from "@/features/hackathons/components/hackathon-form-dialog";
 import { HackathonStatusBadge } from "@/features/hackathons/components/hackathon-status-badge";
@@ -103,6 +104,8 @@ export function HackathonDetailPage() {
             </CardContent>
           </Card>
 
+          <ParticipantsCard hackathonId={hackathon.id} />
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Teams</CardTitle>
@@ -115,7 +118,15 @@ export function HackathonDetailPage() {
                 <ul className="divide-y">
                   {teams.map((team) => (
                     <li key={team.id} className="py-2 text-sm">
-                      {team.name}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{team.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {team.member_count} / {hackathon.max_team_size}
+                        </span>
+                      </div>
+                      {team.member_names.length > 0 && (
+                        <p className="text-muted-foreground">{team.member_names.join(", ")}</p>
+                      )}
                     </li>
                   ))}
                 </ul>

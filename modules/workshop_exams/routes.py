@@ -11,11 +11,12 @@ import io
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Request, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ServiceUnavailableError, ValidationError
 from app.core.limiter import limiter
+from app.core.logging_config import get_logger
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
@@ -58,6 +59,8 @@ from modules.workshop_exams.tasks import enqueue_certificates, enqueue_invite_be
 
 from packages.email.service import EmailAttachment, email_service
 from packages.email.templates import workshop_certificate_email
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 public_router = APIRouter()
@@ -428,7 +431,15 @@ async def send_certificates_now(
         exam, include_in_progress=bool(payload and payload.include_in_progress)
     )
     await db.commit()
-    enqueue_certificates(ids)
+    try:
+        enqueue_certificates(ids)
+    except Exception as exc:  # noqa: BLE001 - e.g. the message broker is down
+        # Un-mark the exam so pressing Send again (or the scheduler) retries;
+        # otherwise these certificates would never go out.
+        exam.certificates_dispatched_at = None
+        await db.commit()
+        logger.warning("workshop_certificates_enqueue_failed", exam_id=str(exam_id), exc_info=True)
+        raise ServiceUnavailableError("Couldn't queue the certificate emails just now. Please try again.") from exc
     return MessageResponse(message=f"Queued {len(ids)} certificate email(s). The exam is now closed.")
 
 
@@ -449,7 +460,11 @@ async def public_join_info(code: str, request: Request, db: AsyncSession = Depen
 @public_router.post("/workshop-exams/join/{code}/register", response_model=RegisterResponse)
 @limiter.exempt
 async def public_register(
-    code: str, payload: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)
+    code: str,
+    payload: RegisterRequest,
+    request: Request,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
     exam = await service.get_by_public_code(code)
@@ -460,12 +475,13 @@ async def public_register(
         existing_id = await service.resend_existing_link(exam, str(payload.email))
         await db.commit()
         if existing_id:
-            enqueue_invite_best_effort(existing_id)
+            background.add_task(enqueue_invite_best_effort, existing_id)
         return RegisterResponse(already_registered=True)
     attendee.invited_at = datetime.now(timezone.utc)
     await db.commit()
-    # Backup copy of their personal link, in case they close this tab.
-    enqueue_invite_best_effort(attendee.id)
+    # Backup copy of their personal link, in case they close this tab. Queued
+    # after the response so a slow broker can never keep a student waiting.
+    background.add_task(enqueue_invite_best_effort, attendee.id)
     return RegisterResponse(token=attendee.access_token)
 
 

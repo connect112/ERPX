@@ -86,6 +86,12 @@ class TeamRepository:
         result = await self.db.execute(select(Team).where(Team.id == team_id))
         return result.scalar_one_or_none()
 
+    async def get_by_id_for_update(self, team_id: uuid.UUID) -> Team | None:
+        """Row-locks the team so two students joining at the same moment
+        are counted one after the other and can't both take the last seat."""
+        result = await self.db.execute(select(Team).where(Team.id == team_id).with_for_update())
+        return result.scalar_one_or_none()
+
     async def list_for_hackathon(self, hackathon_id: uuid.UUID) -> list[Team]:
         result = await self.db.execute(
             select(Team).where(Team.hackathon_id == hackathon_id).order_by(Team.created_at.asc())

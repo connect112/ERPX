@@ -96,7 +96,7 @@ async def register(payload: UserRegisterRequest, request: Request, db: AsyncSess
 
 
 @router.post("/login")
-@limiter.limit("10/minute")
+@limiter.limit(lambda: settings.AUTH_LOGIN_RATE_LIMIT)
 async def login(
     payload: UserLoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ):
@@ -193,7 +193,7 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request, db: 
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-@limiter.limit("5/minute")
+@limiter.limit(lambda: settings.AUTH_RESET_PASSWORD_RATE_LIMIT)
 async def reset_password(payload: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     await service.reset_password(payload.token, payload.new_password)

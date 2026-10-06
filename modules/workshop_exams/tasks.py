@@ -167,7 +167,15 @@ async def _dispatch_due() -> int:
             # Persist the certificate numbers before queueing the sends
             # that read them back.
             await db.commit()
-            enqueue_certificates(ids)
+            try:
+                enqueue_certificates(ids)
+            except Exception:  # noqa: BLE001 - broker trouble: don't mark the exam as done
+                # Numbers are kept; clearing the flag lets the next tick queue
+                # whoever still has no certificate instead of losing them.
+                logger.warning("workshop_certificates_enqueue_failed", exam_id=str(exam.id), exc_info=True)
+                exam.certificates_dispatched_at = None
+                await db.commit()
+                queued -= len(ids)
     return queued
 
 

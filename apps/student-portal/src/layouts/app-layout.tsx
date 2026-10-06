@@ -10,6 +10,7 @@ import {
   Megaphone,
   MessageCircle,
   Moon,
+  PartyPopper,
   Sun,
   Trophy,
 } from "lucide-react";
@@ -51,7 +52,10 @@ const navItems: NavItem[] = [
   { to: "/schedule", label: "My Schedule", icon: CalendarClock, end: false },
   { to: "/announcements", label: "Announcements", icon: Megaphone, end: false },
   { to: "/messages", label: "Messages", icon: MessageCircle, end: false },
-  // Workshops/Hackathons/Internships deliberately not shown here: this
+  // Hackathons are shown for events that onboard participants as students
+  // (the page only lists hackathons that are open or ongoing, so it is
+  // empty the rest of the time). Workshops/Internships deliberately not
+  // shown here: this
   // student-portal instance serves one commercial course, and these were
   // built (with no permission gate — see the ownership-endpoint note
   // above) for a multi-program institute context where a student might
@@ -59,8 +63,8 @@ const navItems: NavItem[] = [
   // org. Not deleted — apps/web's admin pages for all three are untouched
   // — just re-add these two lines whenever a program that actually wants
   // this exists: { to: "/workshops", label: "Workshops", icon: Wrench },
-  // { to: "/hackathons", label: "Hackathons", icon: PartyPopper }, plus
-  // internships below.
+  // plus internships below.
+  { to: "/hackathons", label: "Hackathons", icon: PartyPopper, end: false },
   { to: "/placements", label: "Placements", icon: Briefcase, end: false },
   { to: "/bookmarks", label: "My Bookmarks", icon: Bookmark, end: false },
   { to: "/transcript", label: "My Transcript", icon: Award, end: false },

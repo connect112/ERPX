@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from modules.hackathons.models import HackathonStatus
 
@@ -68,6 +68,10 @@ class TeamPublic(BaseModel):
     created_by_student_id: uuid.UUID
     name: str
     created_at: datetime
+    # Filled in by the list endpoints so students can see which teams are
+    # full and staff can see who is in each team.
+    member_count: int = 0
+    member_names: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -112,6 +116,30 @@ class SubmissionPublic(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ParticipantRow(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    email: EmailStr
+    phone: str | None = Field(default=None, max_length=32)
+
+
+class ParticipantsRequest(BaseModel):
+    participants: list[ParticipantRow] = Field(..., min_length=1, max_length=300)
+    # Email a fresh set-password link to people who already have a login.
+    resend_to_existing: bool = False
+
+
+class ParticipantError(BaseModel):
+    email: str
+    reason: str
+
+
+class ParticipantsResponse(BaseModel):
+    created: int
+    resent: int = 0
+    already_have_login: int
+    errors: list[ParticipantError]
 
 
 class MessageResponse(BaseModel):

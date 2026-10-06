@@ -133,6 +133,13 @@ class Settings(BaseSettings):
 
     # ---- Rate Limiting ----
     RATE_LIMIT_DEFAULT: str = "100/minute"
+    # Per-IP caps on login and on setting a password from an emailed link.
+    # A hackathon/workshop room puts a couple of hundred students behind one
+    # venue IP, so organisers raise these (env) for the event and put them
+    # back afterwards. Per-account lockout after repeated failures is
+    # separate and unaffected.
+    AUTH_LOGIN_RATE_LIMIT: str = "10/minute"
+    AUTH_RESET_PASSWORD_RATE_LIMIT: str = "5/minute"
     # Per-IP cap for the anonymous landing-page view beacon
     # (POST /marketing/landing-pages/{id}/views). Generous for a real
     # visitor (one beacon per page load) but bounds automated view-count

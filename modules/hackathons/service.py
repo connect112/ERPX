@@ -1,6 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
@@ -90,9 +91,15 @@ class TeamService:
         if existing_team:
             raise ConflictError("You are already part of a team for this hackathon.")
 
-        team = await self.repo.create(
-            hackathon_id=hackathon_id, created_by_student_id=student_id, name=name
-        )
+        # Two teams can't share a name in one hackathon (unique constraint);
+        # report that plainly instead of letting it surface as a server error.
+        try:
+            async with self.db.begin_nested():
+                team = await self.repo.create(
+                    hackathon_id=hackathon_id, created_by_student_id=student_id, name=name
+                )
+        except IntegrityError:
+            raise ConflictError(f'A team named "{name}" already exists. Please choose another name.') from None
         await self.member_repo.create(
             team_id=team.id, student_id=student_id, joined_at=datetime.now(timezone.utc)
         )
@@ -104,7 +111,7 @@ class TeamService:
     ) -> TeamMember:
         hackathon = await self._get_registerable_hackathon(hackathon_id, organization_id)
 
-        team = await self.repo.get_by_id(team_id)
+        team = await self.repo.get_by_id_for_update(team_id)
         if not team or team.hackathon_id != hackathon_id:
             raise NotFoundError("Team", team_id)
 
@@ -136,6 +143,21 @@ class TeamService:
         if not hackathon:
             raise NotFoundError("Hackathon", hackathon_id)
         return await self.repo.list_for_hackathon(hackathon_id)
+
+    async def members_by_team(
+        self, teams: list[Team], organization_id: uuid.UUID
+    ) -> dict[uuid.UUID, list[str]]:
+        """Member names per team, for the team lists (one query per team is
+        fine at hackathon scale: tens of teams)."""
+        names: dict[uuid.UUID, list[str]] = {}
+        for team in teams:
+            members = await self.member_repo.list_for_team(team.id)
+            students = {
+                s.id: s.full_name
+                for s in await self.student_repo.list_for_ids([m.student_id for m in members], organization_id)
+            }
+            names[team.id] = [students.get(m.student_id, "Unknown student") for m in members]
+        return names
 
 
 class SubmissionService:

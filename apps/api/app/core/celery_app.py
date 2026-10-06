@@ -118,5 +118,6 @@ celery_app.autodiscover_tasks(
         "modules.payroll",
         "modules.lms.announcements",
         "modules.workshop_exams",
+        "modules.hackathons",
     ]
 )

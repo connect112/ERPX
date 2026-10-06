@@ -37,6 +37,8 @@ export function useHackathonTeams(id: string | undefined) {
     queryKey: hackathonsKeys.teams(id ?? ""),
     queryFn: () => hackathonsApi.listTeams(id as string),
     enabled: !!id,
+    // Teams form live while an event is on.
+    refetchInterval: 15_000,
   });
 }
 

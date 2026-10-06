@@ -58,6 +58,15 @@ export interface TeamPublic {
   created_by_student_id: string;
   name: string;
   created_at: string;
+  member_count: number;
+  member_names: string[];
+}
+
+export interface ParticipantsResult {
+  created: number;
+  resent: number;
+  already_have_login: number;
+  errors: { email: string; reason: string }[];
 }
 
 export interface SubmissionPublic {
@@ -89,6 +98,14 @@ export const hackathonsApi = {
     apiClient.post<HackathonPublic>(`/hackathons/${id}/status`, { status }).then((r) => r.data),
 
   listTeams: (id: string) => apiClient.get<TeamPublic[]>(`/hackathons/${id}/teams`).then((r) => r.data),
+
+  addParticipants: (id: string, participants: { name: string; email: string }[], resendToExisting: boolean) =>
+    apiClient
+      .post<ParticipantsResult>(`/hackathons/${id}/participants`, {
+        participants,
+        resend_to_existing: resendToExisting,
+      })
+      .then((r) => r.data),
 
   listSubmissions: (id: string) =>
     apiClient.get<SubmissionPublic[]>(`/hackathons/${id}/submissions`).then((r) => r.data),

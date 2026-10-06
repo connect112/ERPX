@@ -23,6 +23,7 @@ export interface TeamPublic {
   created_by_student_id: string;
   name: string;
   created_at: string;
+  member_count: number;
 }
 
 export interface TeamMemberPublic {

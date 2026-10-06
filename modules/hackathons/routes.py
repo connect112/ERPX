@@ -1,8 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
@@ -14,6 +15,9 @@ from modules.hackathons.schemas import (
     HackathonStatusChangeRequest,
     HackathonUpdateRequest,
     MessageResponse,
+    ParticipantError,
+    ParticipantsRequest,
+    ParticipantsResponse,
     SubmissionCreateRequest,
     SubmissionGradeRequest,
     SubmissionPublic,
@@ -22,7 +26,9 @@ from modules.hackathons.schemas import (
     TeamPublic,
     TeamWithMembersPublic,
 )
+from modules.hackathons.provisioning import ParticipantProvisioner
 from modules.hackathons.service import HackathonService, SubmissionService, TeamService
+from modules.hackathons.tasks import enqueue_welcome_emails
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
 from modules.students.repository import StudentRepository
@@ -103,7 +109,15 @@ async def browse_teams(
 ):
     service = TeamService(db)
     teams = await service.list_teams(hackathon_id, student.organization_id)
-    return [TeamPublic.model_validate(t) for t in teams]
+    # Students see how full each team is (so they don't try a full one),
+    # but not who is in other teams.
+    names = await service.members_by_team(teams, student.organization_id)
+    out = []
+    for team in teams:
+        item = TeamPublic.model_validate(team)
+        item.member_count = len(names[team.id])
+        out.append(item)
+    return out
 
 
 @router.post("/{hackathon_id}/teams/{team_id}/join/me", response_model=TeamMemberPublic)
@@ -249,7 +263,53 @@ async def list_teams(
 ):
     service = TeamService(db)
     teams = await service.list_teams(hackathon_id, organization_id)
-    return [TeamPublic.model_validate(t) for t in teams]
+    names = await service.members_by_team(teams, organization_id)
+    out = []
+    for team in teams:
+        item = TeamPublic.model_validate(team)
+        item.member_names = names[team.id]
+        item.member_count = len(item.member_names)
+        out.append(item)
+    return out
+
+
+@router.post("/{hackathon_id}/participants", response_model=ParticipantsResponse)
+async def add_participants(
+    hackathon_id: uuid.UUID,
+    payload: ParticipantsRequest,
+    background: BackgroundTasks,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "students.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a student login for every pasted name+email and email each
+    person a set-password link. Accounts that already exist as students are
+    left alone (they can already take part)."""
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    result = await ParticipantProvisioner(db).provision(
+        organization_id,
+        hackathon,
+        [(p.name, str(p.email), p.phone) for p in payload.participants],
+        created_by_user_id=user.id,
+        resend_to_existing=payload.resend_to_existing,
+    )
+    # Commit first, then queue: a worker must never get (or a student an
+    # email with) a token for a row that was rolled back. Queueing runs after
+    # the response is sent, so a slow or unreachable broker can't hang the
+    # request (the accounts are saved either way).
+    await db.commit()
+    background.add_task(
+        enqueue_welcome_emails,
+        [(c.email, c.full_name, c.reset_token) for c in [*result.created, *result.resent]],
+        hackathon.title,
+        settings.STUDENT_PORTAL_URL,
+    )
+    return ParticipantsResponse(
+        created=len(result.created),
+        resent=len(result.resent),
+        already_have_login=len(result.already_ready),
+        errors=[ParticipantError(email=e, reason=r) for e, r in result.errors],
+    )
 
 
 @router.get("/{hackathon_id}/submissions", response_model=list[SubmissionPublic])
