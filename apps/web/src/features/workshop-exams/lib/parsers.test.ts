@@ -237,3 +237,58 @@ describe("code insert helpers", () => {
     expect(empty.selectionStart).toBe(5);
   });
 });
+
+describe("headings on their own line", () => {
+  it("starts a new question at a bare 'Q19.' heading that is followed straight by a code block", () => {
+    const text = [
+      "Q18. First question?",
+      "A. yes",
+      "B. no",
+      "Answer: A",
+      "",
+      "Q19.",
+      "```bash",
+      "$ echo hi",
+      "```",
+      "What does it print?",
+      "A. hi",
+      "*B. bye",
+      "",
+      "Question 20:",
+      "Second line is the real question",
+      "A. one",
+      "B. two",
+      "Answer: B",
+    ].join("\n");
+    const { rows, errors } = parseQuestions(text);
+    expect(errors).toEqual([]);
+    expect(rows).toHaveLength(3);
+    expect(rows[1].text).toBe("```bash\n$ echo hi\n```\nWhat does it print?");
+    expect(rows[1].correct_indices).toEqual([1]);
+    expect(rows[2].text).toBe("Second line is the real question");
+    expect(rows[2].correct_indices).toEqual([1]);
+  });
+});
+
+describe("numbered steps inside a question", () => {
+  it("keeps '1.' / '2.' step lines inside the question when the questions are labelled Q1., Q2.", () => {
+    const text = [
+      "Q1. Which step is wrong?",
+      "1. install",
+      "2. run",
+      "3.",
+      "A. step 1",
+      "B. step 2",
+      "Answer: B",
+      "",
+      "Q2. Next?",
+      "A. x",
+      "B. y",
+      "Answer: A",
+    ].join("\n");
+    const { rows, errors } = parseQuestions(text);
+    expect(errors).toEqual([]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].text).toBe("Which step is wrong?\n1. install\n2. run\n3.");
+  });
+});

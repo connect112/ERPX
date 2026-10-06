@@ -38,8 +38,13 @@ export function parseAttendees(text: string): ParseResult<AttendeeInput> {
   return { rows, errors };
 }
 
-// A line that starts a numbered question: "Q18.", "Q 18)", "Question 3:", "7."
-const QUESTION_START_RE = /^\s*(?:Q(?:uestion)?\s*)?\d+\s*[.):]\s+\S/i;
+// A line that starts a numbered question: "Q18. text", "Q 18) text", "Question 3: text", "7. text",
+// or a heading on its own line ("Q19." / "Question 19:") when the question begins on the next line
+// (e.g. straight into a code block). A bare "7." alone is not treated as a heading: it is more likely a list item.
+const QUESTION_START_RE = /^\s*(?:(?:Q(?:uestion)?\s*)?\d+\s*[.):]\s+\S|Q(?:uestion)?\s*\d+\s*[.):]?\s*$)/i;
+// The "Q18." / "Question 3:" form on its own. When a paste uses this form, a plain "1. text" line
+// inside a question (a numbered step) no longer starts a new question; see startsQuestion().
+const Q_PREFIXED_RE = /^\s*Q(?:uestion)?\s*\d+\s*[.):](?:\s|$)/i;
 const QUESTION_PREFIX_RE = /^\s*(?:Q(?:uestion)?\s*)?\d+\s*[.):]\s*/i;
 // An option label: "A.", "A)", "(A)", optionally preceded by a star marking it correct.
 const OPTION_LABEL_RE = /^\s*(\*\s*)?\(?([A-Ha-h])[.)]\s+(\*\s*)?(.*)$/;
@@ -79,7 +84,15 @@ function tidy(lines: string[]): string {
  */
 function splitBlocks(lines: string[]): string[][] {
   const inCode = fenceMask(lines);
-  const startsQuestion = (index: number) => !inCode[index] && QUESTION_START_RE.test(lines[index]);
+  const usesQPrefix = lines.some((l, i) => !inCode[i] && Q_PREFIXED_RE.test(l));
+  // With "Q1."-style questions in the paste, a plain "2. text" line only starts a question when it
+  // begins a paragraph (after a blank line); in the middle of a question it is just a numbered step.
+  const startsQuestion = (index: number) => {
+    if (inCode[index]) return false;
+    if (Q_PREFIXED_RE.test(lines[index])) return true;
+    if (!QUESTION_START_RE.test(lines[index])) return false;
+    return !usesQPrefix || index === 0 || !lines[index - 1].trim();
+  };
   const hasNumbering = lines.some((_, i) => startsQuestion(i));
   const blocks: string[][] = [];
   let current: string[] = [];
