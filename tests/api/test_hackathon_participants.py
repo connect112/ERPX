@@ -50,7 +50,7 @@ def sent_emails(monkeypatch):
     from modules.hackathons import routes
 
     captured: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(routes, "enqueue_welcome_emails", lambda logins, title, url: captured.extend(logins))
+    monkeypatch.setattr(routes, "enqueue_welcome_emails", lambda logins, title, url, **_kw: captured.extend(logins))
     return captured
 
 

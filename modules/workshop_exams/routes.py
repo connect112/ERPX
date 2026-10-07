@@ -58,7 +58,7 @@ from modules.workshop_exams.service import WorkshopExamService
 from modules.workshop_exams.tasks import enqueue_certificates, enqueue_invite_best_effort, enqueue_invites
 
 from packages.email.service import EmailAttachment, email_service
-from packages.email.templates import workshop_certificate_email
+from modules.email_templates.render import render_email
 
 logger = get_logger(__name__)
 
@@ -222,7 +222,12 @@ async def email_test_certificate(
     service = WorkshopExamService(db)
     exam = await service.get_exam(exam_id, organization_id)
     pdf = await _sample_pdf(service, exam, payload)
-    subject, text, html = workshop_certificate_email("Sample Student Name", exam.title)
+    subject, text, html = await render_email(
+        db,
+        "workshop_certificate",
+        {"full_name": "Sample Student Name", "exam_title": exam.title},
+        organization_id=organization_id,
+    )
     sent = await email_service.send(
         str(payload.email),
         f"[TEST] {subject}",

@@ -193,6 +193,8 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("reports.run", "reports", "Browse the report catalog, run reports, and view execution history"),
     ("reports.schedule", "reports", "Create, update, and deactivate scheduled report emails"),
     ("audit.view", "audit", "View the organization's audit trail"),
+    ("email_templates.view", "email_templates", "View the wording of the emails ERPX sends"),
+    ("email_templates.manage", "email_templates", "Edit email templates and send test emails"),
     ("documents.view", "documents", "View and download uploaded documents"),
     ("documents.manage", "documents", "Upload and delete documents"),
     ("trainers.view", "trainers", "View trainer profiles"),

@@ -34,8 +34,8 @@ from modules.notifications.service import NotificationService
 from modules.organizations.repository import OrganizationRepository
 from modules.organizations.service import SYSTEM_ORG_SLUG
 from modules.payroll.service import PayrollService
+from modules.email_templates.render import render_email, render_email_sync
 from packages.email.service import EmailAttachment, email_service
-from packages.email.templates import payroll_draft_ready_email, payslip_ready_email
 
 logger = get_logger(__name__)
 
@@ -140,7 +140,11 @@ def auto_generate_monthly_drafts_task() -> None:
 def send_payroll_draft_ready_email_task(
     self, to_email: str, full_name: str, period_label: str, review_url: str
 ) -> None:
-    subject, text, html = payroll_draft_ready_email(full_name, period_label, review_url)
+    subject, text, html = render_email_sync(
+        "payroll_draft_ready",
+        {"full_name": full_name, "period_label": period_label, "review_url": review_url},
+        recipient_email=to_email,
+    )
     success = run_async(email_service.send(to_email, subject, text, html))
     if not success:
         logger.warning("payroll_draft_ready_email_retry", to=to_email, attempt=self.request.retries)
@@ -159,7 +163,12 @@ async def _send_payslip_email(payslip_id: str, organization_id: str, period_labe
             return True  # nothing to retry -- there's no address to send to
 
         pdf_bytes = await payroll_service.get_payslip_pdf(uuid.UUID(payslip_id), uuid.UUID(organization_id))
-        subject, text, html = payslip_ready_email(employee.full_name, period_label)
+        subject, text, html = await render_email(
+            db,
+            "payslip_ready",
+            {"full_name": employee.full_name, "period_label": period_label},
+            organization_id=uuid.UUID(organization_id),
+        )
         filename = f"payslip-{period_label.replace(' ', '-').lower()}.pdf"
         return await email_service.send(
             employee.email, subject, text, html,

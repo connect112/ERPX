@@ -114,6 +114,7 @@ const BroadcastPage = lazy(() => import("@/features/notifications/pages/broadcas
 const CommunicationLogPage = lazy(() => import("@/features/communication/pages/communication-log-page").then((m) => ({ default: m.CommunicationLogPage })));
 const EventsListPage = lazy(() => import("@/features/events/pages/events-list-page").then((m) => ({ default: m.EventsListPage })));
 const BackupsPage = lazy(() => import("@/features/backups/pages/backups-page").then((m) => ({ default: m.BackupsPage })));
+const EmailTemplatesPage = lazy(() => import("@/features/email-templates/pages/email-templates-page").then((m) => ({ default: m.EmailTemplatesPage })));
 const IntegrationsPage = lazy(() => import("@/features/integrations/pages/integrations-page").then((m) => ({ default: m.IntegrationsPage })));
 const MonitoringPage = lazy(() => import("@/features/monitoring/pages/monitoring-page").then((m) => ({ default: m.MonitoringPage })));
 const OrganizationDetailPage = lazy(() => import("@/features/organizations/pages/organization-detail-page").then((m) => ({ default: m.OrganizationDetailPage })));
@@ -277,6 +278,7 @@ export const router = createBrowserRouter([
       { path: "administration/audit-logs", element: <AuditLogListPage /> },
       { path: "administration/broadcast", element: <BroadcastPage /> },
       { path: "administration/backups", element: <BackupsPage /> },
+      { path: "administration/email-templates", element: <EmailTemplatesPage /> },
       { path: "administration/integrations", element: <IntegrationsPage /> },
       { path: "administration/monitoring", element: <MonitoringPage /> },
       { path: "communication/logs", element: <CommunicationLogPage /> },
