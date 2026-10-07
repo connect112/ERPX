@@ -7,12 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import NotFoundError, ServiceUnavailableError, ValidationError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authentication.repository import AuthRepository
 from modules.authorization.dependencies import require_permissions
+from modules.hackathons.ai_evaluation import AIEvaluationService, EvaluationError
 from modules.hackathons.models import HackathonStatus
+from modules.hackathons.tasks import enqueue_ai_evaluations
 from modules.hackathons.participation import (
     MAX_REPORT_BYTES,
     ParticipationService,
@@ -50,6 +52,7 @@ from modules.hackathons.schemas import (
     RosterTeamPublic,
     TaskGradeRequest,
     TaskPublic,
+    AIEvaluateAllRequest,
     TaskSubmissionAdmin,
     TaskSubmissionInfo,
     TasksResponse,
@@ -265,6 +268,7 @@ async def list_my_tasks(
 async def submit_my_task(
     hackathon_id: uuid.UUID,
     task_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     repo_url: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
     student: Student = Depends(get_current_student),
@@ -276,7 +280,11 @@ async def submit_my_task(
     submission = await ParticipationService(db).save_task_submission(
         hackathon, student, task_id, repo_url, file.filename if file is not None else None, data
     )
-    return _submission_info(submission)
+    result = _submission_info(submission)
+    if hackathon.ai_evaluation_auto and data is not None:
+        # After the response, so the team never waits on the queue; a few seconds later so it is saved first.
+        background_tasks.add_task(enqueue_ai_evaluations, hackathon.id, [submission.id], automatic=True, countdown=10)
+    return result
 
 
 @router.get("/{hackathon_id}/tasks/{task_id}/submission/me/report")
@@ -430,6 +438,32 @@ async def list_teams(
     return out
 
 
+def _admin_row(row) -> TaskSubmissionAdmin:
+    return TaskSubmissionAdmin(
+        id=row.submission.id,
+        team_id=row.submission.team_id,
+        team_name=row.team_name,
+        members=row.members,
+        task_id=row.submission.problem_statement_id,
+        task_title=row.task.title,
+        task_order=row.task.order_index,
+        task_marks=row.task.marks,
+        rubric=row.task.rubric or [],
+        repo_url=row.submission.repo_url,
+        report_filename=row.submission.report_filename,
+        report_size_bytes=row.submission.report_size_bytes,
+        submitted_at=row.submission.submitted_at,
+        score=row.submission.score,
+        rubric_scores=row.submission.rubric_scores,
+        reviewed=is_reviewed(row.submission),
+        resubmission_count=row.submission.resubmission_count,
+        feedback=row.submission.feedback,
+        ai_evaluated_at=row.submission.ai_evaluated_at,
+        ai_reasons=row.submission.ai_reasons,
+        ai_error=row.submission.ai_error,
+    )
+
+
 @router.get("/{hackathon_id}/task-submissions", response_model=list[TaskSubmissionAdmin])
 async def list_task_submissions(
     hackathon_id: uuid.UUID,
@@ -439,29 +473,48 @@ async def list_task_submissions(
 ):
     await HackathonService(db).get_hackathon(hackathon_id, organization_id)
     rows = await ParticipationService(db).list_task_submissions(hackathon_id)
-    return [
-        TaskSubmissionAdmin(
-            id=row.submission.id,
-            team_id=row.submission.team_id,
-            team_name=row.team_name,
-            members=row.members,
-            task_id=row.submission.problem_statement_id,
-            task_title=row.task.title,
-            task_order=row.task.order_index,
-            task_marks=row.task.marks,
-            rubric=row.task.rubric or [],
-            repo_url=row.submission.repo_url,
-            report_filename=row.submission.report_filename,
-            report_size_bytes=row.submission.report_size_bytes,
-            submitted_at=row.submission.submitted_at,
-            score=row.submission.score,
-            rubric_scores=row.submission.rubric_scores,
-            reviewed=is_reviewed(row.submission),
-            resubmission_count=row.submission.resubmission_count,
-            feedback=row.submission.feedback,
-        )
-        for row in rows
-    ]
+    return [_admin_row(row) for row in rows]
+
+
+@router.post("/{hackathon_id}/task-submissions/ai-evaluate", response_model=MessageResponse)
+async def ai_evaluate_all(
+    hackathon_id: uuid.UUID,
+    payload: AIEvaluateAllRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read and mark many reports in the background (a few seconds apart). The leaderboard updates as each one
+    finishes; reports that can't be read are left for you with the reason shown on them."""
+    await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    ids = await AIEvaluationService(db).evaluable_ids(hackathon_id, payload.scope)
+    if not ids:
+        return MessageResponse(message="Nothing to evaluate: no submission with a report is waiting.")
+    if not enqueue_ai_evaluations(hackathon_id, ids, automatic=False):
+        raise ServiceUnavailableError("Couldn't start the evaluation just now. Please try again.")
+    return MessageResponse(
+        message=f"Evaluating {len(ids)} report{'' if len(ids) == 1 else 's'} in the background. Marks appear as each finishes."
+    )
+
+
+@router.post("/{hackathon_id}/task-submissions/{submission_id}/ai-evaluate", response_model=TaskSubmissionAdmin)
+async def ai_evaluate_one(
+    hackathon_id: uuid.UUID,
+    submission_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read this report, mark it against the task's success criteria and apply the marks now (replacing any
+    earlier marks). Takes a few seconds."""
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    try:
+        await AIEvaluationService(db).evaluate(hackathon, submission_id, automatic=False)
+    except EvaluationError as exc:
+        await db.commit()  # keeps the reason shown on the submission
+        raise ValidationError(str(exc)) from None
+    rows = await ParticipationService(db).list_task_submissions(hackathon_id)
+    return _admin_row(next(row for row in rows if row.submission.id == submission_id))
 
 
 @router.get("/{hackathon_id}/task-submissions/{submission_id}/report")

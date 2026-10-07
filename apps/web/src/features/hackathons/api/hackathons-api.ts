@@ -17,6 +17,8 @@ export interface HackathonPublic {
   status: HackathonStatus;
   leaderboard_visible: boolean;
   resubmission_enabled: boolean;
+  /** Each report is read and marked automatically as soon as a team submits it. */
+  ai_evaluation_auto: boolean;
   max_resubmissions: number;
   leaderboard_share_enabled: boolean;
   leaderboard_slug: string | null;
@@ -65,6 +67,7 @@ export interface HackathonUpdatePayload {
   prize_pool?: number;
   leaderboard_visible?: boolean;
   resubmission_enabled?: boolean;
+  ai_evaluation_auto?: boolean;
   max_resubmissions?: number;
   leaderboard_share_enabled?: boolean;
   leaderboard_slug?: string;
@@ -149,6 +152,10 @@ export interface TaskSubmissionAdmin {
   /** How many times the team changed it after first submitting. */
   resubmission_count: number;
   feedback: string | null;
+  /** When the automatic evaluation marked it, with a reason per criterion id; or why it couldn't. */
+  ai_evaluated_at: string | null;
+  ai_reasons: Record<string, string> | null;
+  ai_error: string | null;
 }
 
 export interface LeaderboardEntry {
@@ -333,6 +340,17 @@ export const hackathonsApi = {
         rubric_scores: marks.rubricScores ?? null,
         feedback: feedback || null,
       })
+      .then((r) => r.data),
+
+  /** Read this report and mark it against the task's success criteria now (takes a few seconds). */
+  aiEvaluateSubmission: (id: string, submissionId: string) =>
+    apiClient
+      .post<TaskSubmissionAdmin>(`/hackathons/${id}/task-submissions/${submissionId}/ai-evaluate`)
+      .then((r) => r.data),
+  /** Evaluate many reports in the background: the ones not marked yet, or every report (replaces marks). */
+  aiEvaluateAll: (id: string, scope: "unreviewed" | "all") =>
+    apiClient
+      .post<{ message: string }>(`/hackathons/${id}/task-submissions/ai-evaluate`, { scope })
       .then((r) => r.data),
 
   /** Delete a team's submission (and its marks); the team can then submit that task again. */

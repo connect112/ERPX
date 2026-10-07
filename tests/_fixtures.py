@@ -38,7 +38,7 @@ from modules.authentication.tasks import send_password_reset_email_task, send_ve
 from modules.authorization.service import AuthorizationService
 from modules.crm.followups.tasks import send_followup_sms_task, send_followup_whatsapp_task
 from modules.lms.announcements.tasks import send_announcement_email_task
-from modules.hackathons.tasks import send_participant_welcome_task
+from modules.hackathons.tasks import ai_evaluate_submission_task, send_participant_welcome_task
 from modules.workshop_exams.tasks import send_certificate_task, send_invite_task
 from modules.organizations.models import Organization
 from modules.organizations.repository import OrganizationRepository
@@ -56,6 +56,7 @@ def _no_background_email(monkeypatch):
     monkeypatch.setattr(send_invite_task, "apply_async", lambda *a, **kw: None)
     monkeypatch.setattr(send_certificate_task, "apply_async", lambda *a, **kw: None)
     monkeypatch.setattr(send_participant_welcome_task, "apply_async", lambda *a, **kw: None)
+    monkeypatch.setattr(ai_evaluate_submission_task, "apply_async", lambda *a, **kw: None)
 
 
 @pytest_asyncio.fixture

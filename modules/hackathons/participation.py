@@ -473,8 +473,9 @@ class ParticipationService:
         score: int | None,
         rubric_scores: dict[str, int] | None,
         feedback: str | None,
+        ai_reasons: dict[str, str] | None = None,
     ) -> TaskSubmission:
-        """Award marks. For a task with a rubric every rule must be marked (0..its points)
+        """Award marks (`ai_reasons` is given only by the automatic evaluation, which records why). For a task with a rubric every rule must be marked (0..its points)
         and the score is their sum; for a task without one a single score (up to the
         task's marks, when it has any) is taken."""
         submission = await self._staff_submission(hackathon_id, submission_id)
@@ -503,6 +504,10 @@ class ParticipationService:
             submission.score = score
         submission.feedback = (feedback or "").strip() or None
         submission.reviewed_at = _now()
+        # Marks from a person replace the automatic ones (and their reasons); automatic marks record theirs.
+        submission.ai_evaluated_at = _now() if ai_reasons is not None else None
+        submission.ai_reasons = ai_reasons
+        submission.ai_error = None
         await self.db.flush()
         await self.db.refresh(submission, attribute_names=["updated_at"])
         return submission
