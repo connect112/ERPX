@@ -1,4 +1,5 @@
 import type { LeaderboardEntry } from "@/features/hackathons/api/hackathons-api";
+import { barPercent, topScore } from "@/features/hackathons/lib/bar-scale";
 
 const PODIUM_COLORS: Record<number, string> = {
   1: "bg-amber-400",
@@ -7,12 +8,12 @@ const PODIUM_COLORS: Record<number, string> = {
 };
 
 /**
- * Bar graph of team totals. Bars are scaled to the most marks available across all the
- * tasks (or to the top score if that is larger), so a bar's height is progress towards the maximum.
+ * Bar graph of team totals. The leading team's score fills the chart and every other bar is its
+ * share of that, so a team that pulls ahead makes everyone else's bar shorter.
  */
-export function ScoreBarChart({ entries, maxTotal }: { entries: LeaderboardEntry[]; maxTotal: number }) {
+export function ScoreBarChart({ entries }: { entries: LeaderboardEntry[] }) {
   const shown = entries.slice(0, 12);
-  const scale = Math.max(maxTotal, ...shown.map((e) => e.score), 1);
+  const scale = topScore(shown.map((e) => e.score));
   const ticks = [scale, Math.round(scale / 2), 0];
 
   return (
@@ -30,7 +31,7 @@ export function ScoreBarChart({ entries, maxTotal }: { entries: LeaderboardEntry
           </div>
           <div className="relative flex h-52 items-end gap-3 border-b px-1" style={{ minWidth: `${shown.length * 4.5}rem` }}>
             {shown.map((entry) => {
-              const percent = Math.max(2, Math.round((entry.score / scale) * 100));
+              const percent = barPercent(entry.score, scale);
               return (
                 <div key={`${entry.rank}-${entry.team_name}`} className="flex h-full w-16 flex-col items-center justify-end">
                   <span className="mb-1 text-xs font-semibold tabular-nums">{entry.score}</span>
@@ -57,7 +58,7 @@ export function ScoreBarChart({ entries, maxTotal }: { entries: LeaderboardEntry
         </div>
       </div>
       <figcaption className="text-xs text-muted-foreground">
-        Total marks per team{maxTotal > 0 && scale === maxTotal ? ` (out of ${maxTotal})` : ""}
+        Total marks per team, scaled to the top score
         {entries.length > shown.length ? `, top ${shown.length} teams shown` : ""}.
       </figcaption>
     </figure>

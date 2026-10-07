@@ -86,7 +86,7 @@ export function PublicLeaderboardPage() {
             <CardContent>
               {data.entries.length > 0 ? (
                 <div className="space-y-6">
-                  <ScoreBarChart entries={data.entries} maxTotal={data.max_total} />
+                  <ScoreBarChart entries={data.entries} />
                   <ol className="divide-y">
                     {data.entries.map((entry) => (
                       <li key={`${entry.rank}-${entry.team_name}`} className="flex items-center gap-4 py-3">

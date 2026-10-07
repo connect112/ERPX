@@ -43,10 +43,7 @@ export function HackathonLeaderboardPage() {
               <CardContent>
                 {board.entries.length > 0 ? (
                   <div className="space-y-6">
-                    <ScoreBarChart
-                      entries={board.entries}
-                      maxTotal={board.max_total}
-                    />
+                    <ScoreBarChart entries={board.entries} />
                     <ol className="divide-y">
                       {board.entries.map((entry) => (
                         <li
