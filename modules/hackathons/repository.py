@@ -58,9 +58,12 @@ class HackathonRepository:
         )
         return list(result.scalars().all()), total
 
+    # Fields an organiser may empty again by sending null (every other null means "leave it as it is").
+    _CLEARABLE = {"timer_starts_at", "timer_ends_at"}
+
     async def update(self, hackathon: Hackathon, **fields) -> Hackathon:
         for key, value in fields.items():
-            if value is not None:
+            if value is not None or key in self._CLEARABLE:
                 setattr(hackathon, key, value)
         await self.db.flush()
         await self.db.refresh(hackathon)

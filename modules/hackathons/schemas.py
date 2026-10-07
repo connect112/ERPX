@@ -37,6 +37,22 @@ class HackathonUpdateRequest(BaseModel):
     leaderboard_share_enabled: bool | None = None
     leaderboard_slug: str | None = Field(default=None, min_length=3, max_length=60)
     leaderboard_show_members: bool | None = None
+    # Send null to clear a time. Both are moments in time (with a timezone, e.g. ending in Z).
+    timer_starts_at: datetime | None = None
+    timer_ends_at: datetime | None = None
+
+    @field_validator("timer_starts_at", "timer_ends_at")
+    @classmethod
+    def _needs_a_timezone(cls, value):
+        if value is not None and value.tzinfo is None:
+            raise ValueError("Give the time with its timezone.")
+        return value
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self):
+        if self.timer_starts_at and self.timer_ends_at and self.timer_ends_at <= self.timer_starts_at:
+            raise ValueError("The timer must end after it starts.")
+        return self
 
     @field_validator("leaderboard_slug", mode="before")
     @classmethod
@@ -75,6 +91,8 @@ class HackathonPublic(BaseModel):
     leaderboard_share_enabled: bool = False
     leaderboard_slug: str | None = None
     leaderboard_show_members: bool = False
+    timer_starts_at: datetime | None = None
+    timer_ends_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -480,4 +498,8 @@ class PublicLeaderboard(BaseModel):
     max_total: int = 0
     show_members: bool = False
     updated_at: datetime
+    # The event's countdown, and the server's clock so a screen with the wrong time still counts down right.
+    timer_starts_at: datetime | None = None
+    timer_ends_at: datetime | None = None
+    server_time: datetime
     entries: list[PublicLeaderboardEntry]
