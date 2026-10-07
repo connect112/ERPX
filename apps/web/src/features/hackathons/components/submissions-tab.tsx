@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Download, ExternalLink, Trash2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, Download, ExternalLink, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,10 +12,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { type TaskSubmissionAdmin, hackathonsApi } from "@/features/hackathons/api/hackathons-api";
 import {
+  useAiEvaluateAll,
+  useAiEvaluateSubmission,
   useDeleteTaskSubmission,
   useGradeTaskSubmission,
+  useHackathon,
   useHackathonTeams,
   useTaskSubmissions,
+  useUpdateHackathon,
 } from "@/features/hackathons/api/hackathons-hooks";
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -108,6 +112,7 @@ function ReviewPanel({
   const [feedback, setFeedback] = useState(submission.feedback ?? "");
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
   const grade = useGradeTaskSubmission(hackathonId);
+  const aiEvaluate = useAiEvaluateSubmission(hackathonId);
 
   const fields = hasRubric
     ? rules.map((r) => ({ key: r.id, label: r.criterion, max: r.points }))
@@ -173,6 +178,42 @@ function ReviewPanel({
 
       <ReportPreview hackathonId={hackathonId} submission={submission} />
 
+      <div className="space-y-2 rounded-md border border-violet-200 bg-violet-50/60 p-3 dark:border-violet-900 dark:bg-violet-950/20">
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={aiEvaluate.isPending || !submission.report_filename}
+            title={submission.report_filename ? undefined : "There is no report to read"}
+            onClick={() => {
+              if (
+                !submission.reviewed ||
+                submission.ai_evaluated_at ||
+                window.confirm("This was marked by a person. Evaluate it with AI and replace those marks?")
+              ) {
+                aiEvaluate.mutate(submission.id);
+              }
+            }}
+          >
+            <Sparkles className="h-4 w-4" />
+            {aiEvaluate.isPending ? "Reading the report..." : submission.ai_evaluated_at ? "Evaluate again with AI" : "Evaluate with AI"}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Reads the report and marks each success criterion. The marks are applied straight away; you can change any of them.
+          </span>
+        </div>
+        {submission.ai_evaluated_at && (
+          <p className="text-xs text-violet-900 dark:text-violet-200">
+            Marked automatically on {new Date(submission.ai_evaluated_at).toLocaleString()}. Check the reasons below. Saving
+            marks yourself replaces the automatic ones.
+          </p>
+        )}
+        {submission.ai_error && !aiEvaluate.isError && (
+          <p className="text-xs text-amber-800 dark:text-amber-300">Automatic evaluation: {submission.ai_error}</p>
+        )}
+        {aiEvaluate.isError && <p className="text-xs text-destructive">{errorMessage(aiEvaluate.error, "Could not evaluate.")}</p>}
+      </div>
+
       <div className="text-sm">
         <span className="font-medium">Registry / repository URL: </span>
         {submission.repo_url ? (
@@ -195,8 +236,13 @@ function ReviewPanel({
         </div>
         <div className="space-y-2">
           {parsed.map((f, index) => (
-            <div key={f.key} className="flex items-center gap-3">
-              <span className="flex-1 text-sm">{f.label}</span>
+            <div key={f.key} className="flex items-start gap-3">
+              <span className="flex-1 text-sm">
+                {f.label}
+                {submission.ai_reasons?.[f.key] && (
+                  <span className="mt-0.5 block text-xs italic text-muted-foreground">{submission.ai_reasons[f.key]}</span>
+                )}
+              </span>
               <Input
                 ref={(el) => {
                   inputs.current[index] = el;
@@ -310,6 +356,7 @@ function ReviewDialog({
                   </span>
                   {s.reviewed ? (
                     <Badge variant="success" className="shrink-0">
+                      {s.ai_evaluated_at && "AI "}
                       {s.score}
                       {s.task_marks > 0 && ` / ${s.task_marks}`}
                     </Badge>
@@ -324,7 +371,7 @@ function ReviewDialog({
           </ul>
           {/* Keyed by submission so each one starts from its own saved marks (and keeps its "Saved" note). */}
           <ReviewPanel
-            key={selected.id}
+            key={`${selected.id}-${selected.ai_evaluated_at ?? ""}`}
             hackathonId={hackathonId}
             submission={selected}
             onSaved={() => next && setSelectedId(next.id)}
@@ -341,6 +388,21 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
   const { data: teams } = useHackathonTeams(hackathonId);
   const [openTeamId, setOpenTeamId] = useState<string | null>(null);
   const [onlyUnreviewed, setOnlyUnreviewed] = useState(false);
+  const { data: hackathon } = useHackathon(hackathonId);
+  const updateHackathon = useUpdateHackathon(hackathonId);
+  const evaluateAll = useAiEvaluateAll(hackathonId);
+  const [evaluatingUntil, setEvaluatingUntil] = useState(0);
+
+  // After starting a bulk evaluation, look for new marks every few seconds for a couple of minutes.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (evaluatingUntil <= Date.now()) return;
+    const timer = setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: ["hackathons"] });
+      if (Date.now() > evaluatingUntil) clearInterval(timer);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [evaluatingUntil, queryClient]);
 
   const rows = useMemo(() => {
     const byTeam = new Map<string, TaskSubmissionAdmin[]>();
@@ -358,7 +420,65 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
 
   const totalUnreviewed = rows.reduce((sum, r) => sum + r.unreviewed, 0);
 
+  const aiCount = (submissions ?? []).filter((s) => s.ai_evaluated_at).length;
+  const readable = (submissions ?? []).filter((s) => s.report_filename).length;
+
   return (
+    <div className="space-y-4">
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="h-4 w-4 text-violet-600" />
+          Automatic evaluation
+        </CardTitle>
+        <CardDescription>
+          Reads each team's report (PDF, Word or PowerPoint) and marks it against the task's success criteria, with a
+          reason for every mark. Marks go straight onto the leaderboard and you can change any of them. {aiCount} of{" "}
+          {readable} reports marked automatically so far.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={hackathon?.ai_evaluation_auto ?? true}
+            disabled={!hackathon || updateHackathon.isPending}
+            onChange={(e) => updateHackathon.mutate({ ai_evaluation_auto: e.target.checked })}
+          />
+          <span>
+            Evaluate every report automatically when a team submits it (marks you gave by hand are never replaced this
+            way)
+          </span>
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={evaluateAll.isPending}
+            onClick={() =>
+              evaluateAll.mutate("unreviewed", { onSuccess: () => setEvaluatingUntil(Date.now() + 180_000) })
+            }
+          >
+            Evaluate all unreviewed
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={evaluateAll.isPending}
+            onClick={() => {
+              if (window.confirm("Evaluate every report again? This replaces all marks, including ones you gave by hand."))
+                evaluateAll.mutate("all", { onSuccess: () => setEvaluatingUntil(Date.now() + 180_000) });
+            }}
+          >
+            Re-evaluate everything
+          </Button>
+          {evaluateAll.isSuccess && <span className="text-sm text-muted-foreground">{evaluateAll.data.message}</span>}
+          {evaluateAll.isError && <span className="text-sm text-destructive">{errorMessage(evaluateAll.error, "Could not start.")}</span>}
+        </div>
+      </CardContent>
+    </Card>
+
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Submissions by team</CardTitle>
@@ -442,5 +562,6 @@ export function SubmissionsTab({ hackathonId }: { hackathonId: string }) {
         />
       )}
     </Card>
+    </div>
   );
 }

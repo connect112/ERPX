@@ -1,5 +1,6 @@
 import re
 import uuid
+from typing import Literal
 from datetime import date, datetime
 
 from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator, model_validator
@@ -33,6 +34,7 @@ class HackathonUpdateRequest(BaseModel):
     prize_pool: float | None = Field(default=None, ge=0)
     leaderboard_visible: bool | None = None
     resubmission_enabled: bool | None = None
+    ai_evaluation_auto: bool | None = None
     max_resubmissions: int | None = Field(default=None, ge=0, le=50)
     leaderboard_share_enabled: bool | None = None
     leaderboard_slug: str | None = Field(default=None, min_length=3, max_length=60)
@@ -88,6 +90,7 @@ class HackathonPublic(BaseModel):
     status: HackathonStatus
     leaderboard_visible: bool = True
     resubmission_enabled: bool = True
+    ai_evaluation_auto: bool = True
     max_resubmissions: int = 2
     leaderboard_share_enabled: bool = False
     leaderboard_slug: str | None = None
@@ -325,6 +328,15 @@ class TaskSubmissionAdmin(BaseModel):
     # Changed after first being submitted (and so possibly needs another look).
     resubmission_count: int = 0
     feedback: str | None
+    # Marked by the automatic evaluation (when) with a reason per criterion id, or why it couldn't be.
+    ai_evaluated_at: datetime | None = None
+    ai_reasons: dict[str, str] | None = None
+    ai_error: str | None = None
+
+
+class AIEvaluateAllRequest(BaseModel):
+    # unreviewed = submissions not marked yet; all = every submission that has a report (replaces marks).
+    scope: Literal["unreviewed", "all"] = "unreviewed"
 
 
 class TaskGradeRequest(BaseModel):

@@ -103,6 +103,8 @@ class Hackathon(TimestampedBase):
         Boolean, default=True, server_default="true", nullable=False
     )
     max_resubmissions: Mapped[int] = mapped_column(Integer, default=2, server_default="2", nullable=False)
+    # Evaluate each report automatically as soon as a team submits it.
+    ai_evaluation_auto: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
 
 class ProblemStatement(TimestampedBase):
@@ -236,6 +238,11 @@ class TaskSubmission(TimestampedBase):
     # `submitted_at`, so a resubmission shows as unreviewed again (its old score stays
     # on the leaderboard until it is re-scored).
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Automatic evaluation of the report: when it marked this submission and why (per criterion id), or why it
+    # couldn't. A person marking it afterwards clears these.
+    ai_evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ai_reasons: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    ai_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class HackathonParticipant(TimestampedBase):

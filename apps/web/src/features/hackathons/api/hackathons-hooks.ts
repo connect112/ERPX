@@ -188,6 +188,23 @@ export function useDeleteTaskSubmission(hackathonId: string) {
   });
 }
 
+export function useAiEvaluateSubmission(hackathonId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (submissionId: string) => hackathonsApi.aiEvaluateSubmission(hackathonId, submissionId),
+    // Even a refusal saves its reason on the submission, so refresh on both outcomes.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: [...hackathonsKeys.all, hackathonId] }),
+  });
+}
+
+export function useAiEvaluateAll(hackathonId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (scope: "unreviewed" | "all") => hackathonsApi.aiEvaluateAll(hackathonId, scope),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: [...hackathonsKeys.all, hackathonId] }),
+  });
+}
+
 export function useGradeTaskSubmission(hackathonId: string) {
   const queryClient = useQueryClient();
   return useMutation({
