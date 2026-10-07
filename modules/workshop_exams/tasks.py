@@ -17,9 +17,7 @@ from app.core.exceptions import ConflictError
 from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
-from modules.organizations.models import Organization
-from modules.workshop_exams.certificate_pdf import build_certificate_pdf
-from modules.workshop_exams.certificate_template import build_templated_certificate_pdf
+from modules.workshop_exams.certificate_render import render_certificate, verify_url
 from modules.workshop_exams.models import WorkshopExam, WorkshopExamAttendee
 from modules.workshop_exams.service import WorkshopExamService
 from modules.email_templates.render import render_email
@@ -32,10 +30,6 @@ _STAGGER_SECONDS = 2
 
 def exam_url(token: str) -> str:
     return f"{settings.FRONTEND_URL.rstrip('/')}/workshop-exam/{token}"
-
-
-def verify_url(certificate_number: str) -> str:
-    return f"{settings.FRONTEND_URL.rstrip('/')}/verify-workshop-certificate/{certificate_number}"
 
 
 def enqueue_invites(attendee_ids: list[uuid.UUID]) -> None:
@@ -99,34 +93,7 @@ async def _send_certificate(attendee_id: uuid.UUID) -> bool:
         attendee, exam = loaded
         if attendee.certificate_number is None or attendee.certificate_sent_at is not None:
             return True
-        org = (
-            await db.execute(select(Organization).where(Organization.id == exam.organization_id))
-        ).scalar_one_or_none()
-        issuer = org.name if org else "GIR Technologies"
-        template = await WorkshopExamService(db).get_template(exam.id) if exam.has_certificate_template else None
-        if template is not None:
-            # The admin's own artwork with this attendee's name printed on it.
-            pdf = build_templated_certificate_pdf(
-                template_jpeg=template.data,
-                width_px=template.width_px,
-                height_px=template.height_px,
-                layout=WorkshopExamService.layout_of(exam),
-                attendee_name=attendee.name,
-                certificate_number=attendee.certificate_number,
-                verify_url=verify_url(attendee.certificate_number),
-            )
-        else:
-            body = exam.certificate_text or f'has participated in the workshop "{exam.title}".'
-            pdf = build_certificate_pdf(
-                attendee_name=attendee.name,
-                heading=exam.certificate_heading,
-                body_text=body,
-                issuer_name=issuer,
-                issued_on=attendee.submitted_at
-                or (attendee.created_at if attendee.certificate_only else datetime.now(timezone.utc)),
-                certificate_number=attendee.certificate_number,
-                verify_url=verify_url(attendee.certificate_number),
-            )
+        pdf = await render_certificate(db, exam, attendee)
         subject, text, html = await render_email(
             db,
             "workshop_certificate",
@@ -171,10 +138,10 @@ async def _dispatch_due() -> int:
         for exam in await service.due_exams():
             try:
                 ids = await service.dispatch_certificates(exam)
-            except ConflictError:
-                # Someone is still inside their time limit; the next 5-minute
+            except ConflictError as exc:
+                # Someone is still writing or a certificate is awaiting review; the next 5-minute
                 # run tries again once they have finished.
-                logger.info("workshop_certificates_waiting_for_writers", exam_id=str(exam.id))
+                logger.info("workshop_certificates_waiting", exam_id=str(exam.id), reason=str(exc)[:120])
                 continue
             queued += len(ids)
             logger.info("workshop_certificates_dispatched", exam_id=str(exam.id), count=len(ids))

@@ -22,8 +22,10 @@ from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.users.dependencies import get_current_user_organization_id
 from modules.workshop_exams import certificate_ids
+from modules.workshop_exams.certificate_render import render_certificate
 from modules.workshop_exams.certificate_template import (
     MAX_UPLOAD_BYTES,
+    NameAdjust,
     TemplateError,
     normalize_template,
     sample_certificate_pdf,
@@ -59,7 +61,10 @@ from modules.workshop_exams.schemas import (
     QuestionsAddRequest,
     RegisterRequest,
     RegisterResponse,
+    ReviewItem,
+    ReviewResponse,
     SendCertificatesRequest,
+    VerifyRequest,
 )
 from modules.workshop_exams.hackathon_certificates import HackathonCertificates
 from modules.workshop_exams.service import WorkshopExamService
@@ -529,6 +534,116 @@ async def send_certificates_now(
     return MessageResponse(message=f"Queued {len(ids)} certificate email(s). The exam is now closed.")
 
 
+# ---------------- review certificates before they are sent (optional) ----------------
+
+
+@router.post("/{exam_id}/certificates/review", response_model=ReviewResponse)
+async def open_certificate_review(
+    exam_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Everyone who gets a certificate, with their ID, verified state and any name fix. Gives anyone without an ID
+    one now, so what is reviewed is exactly what will be sent."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    items = await service.review_items(exam)
+    result = ReviewResponse(required=exam.certificate_review, items=[ReviewItem.model_validate(a) for a in items])
+    await db.commit()
+    return result
+
+
+@router.put("/{exam_id}/attendees/{attendee_id}/certificate/adjust", response_model=ReviewItem)
+async def adjust_attendee_certificate(
+    exam_id: uuid.UUID,
+    attendee_id: uuid.UUID,
+    payload: NameAdjust | None = None,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change the size / position of one person's name on their certificate (send nothing, or null, to reset)."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    attendee = await service.set_adjust(exam, attendee_id, payload.model_dump() if payload else None)
+    return ReviewItem.model_validate(attendee)
+
+
+@router.post("/{exam_id}/attendees/{attendee_id}/certificate/verify", response_model=ReviewItem)
+async def verify_attendee_certificate(
+    exam_id: uuid.UUID,
+    attendee_id: uuid.UUID,
+    payload: VerifyRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    return ReviewItem.model_validate(await service.set_verified(exam, attendee_id, payload.verified))
+
+
+@router.post("/{exam_id}/certificates/verify-all", response_model=MessageResponse)
+async def verify_all_certificates(
+    exam_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Skip the check: mark every certificate that hasn't gone out as verified."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    count = await service.verify_all(exam)
+    return MessageResponse(message=f"Marked {count} certificate(s) as verified.")
+
+
+@router.get("/{exam_id}/attendees/{attendee_id}/certificate/preview")
+async def preview_attendee_certificate(
+    exam_id: uuid.UUID,
+    attendee_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """This person's certificate exactly as it will be emailed (their name, ID and any fix)."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    attendee = await service._attendee(exam, attendee_id)
+    if not service.has_certificate(attendee):
+        raise ValidationError("This person hasn't taken the exam, so they have no certificate.")
+    number = attendee.certificate_number or f"{(exam.certificate_id_pattern or 'WS')[:6]}-PREVIEW"
+    pdf = await render_certificate(db, exam, attendee, number)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="certificate.pdf"', "Cache-Control": "private, no-store"},
+    )
+
+
+@router.post("/{exam_id}/attendees/{attendee_id}/certificate/send", response_model=MessageResponse)
+async def send_attendee_certificate(
+    exam_id: uuid.UUID,
+    attendee_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Email this one person's certificate now (again, if it went out before), to their current address. Nothing
+    is sent automatically when an address is changed; this is how a corrected address gets its certificate."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    attendee = await service.prepare_single_send(exam, attendee_id)
+    result = MessageResponse(message=f"The certificate is being sent to {attendee.email}.")
+    await db.commit()
+    try:
+        enqueue_certificates([attendee.id])
+    except Exception as exc:  # noqa: BLE001 - e.g. the message broker is down
+        logger.warning("workshop_certificate_enqueue_failed", attendee_id=str(attendee.id), exc_info=True)
+        raise ServiceUnavailableError("Couldn't queue the email just now. Please try again.") from exc
+    return result
+
+
 @router.post("/{exam_id}/certificates/hackathon", response_model=HackathonCertificatesResponse)
 async def send_hackathon_certificates(
     exam_id: uuid.UUID,
@@ -562,6 +677,13 @@ async def send_hackathon_certificates(
         return response
     ids = await helper.issue(exam, plan)
     await db.commit()
+    if exam.certificate_review:
+        # They are added with their IDs, but nothing goes out until the admin has reviewed and sent them.
+        response.held_for_review = True
+        response.message = (
+            f"Added {len(ids)} people for {plan.hackathon_title}. Open Review certificates to check and send them."
+        )
+        return response
     try:
         enqueue_certificates(ids)
     except Exception:  # noqa: BLE001 - e.g. the message broker is down

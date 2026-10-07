@@ -7,6 +7,13 @@ import { Label } from "@/components/ui/label";
 import "@/features/workshop-exams/components/certificate-fonts.css";
 import { CertificateIdFormat } from "@/features/workshop-exams/components/certificate-id-format";
 import {
+  baselineOffset,
+  FONT_CSS,
+  measureText,
+  PLAIN_FONTS,
+  SCRIPT_FONTS,
+} from "@/features/workshop-exams/lib/certificate-render";
+import {
   type CertificateFont,
   type CertificateLayout,
   DEFAULT_CERTIFICATE_LAYOUT,
@@ -15,19 +22,6 @@ import {
 } from "@/features/workshop-exams/api/workshop-exams-api";
 
 const SAMPLE_NAME = "Sample Student Name";
-
-const FONT_CSS: Record<CertificateFont, { family: string; style: string; weight: number; label: string; script: boolean }> = {
-  sans_bold: { family: "Helvetica, Arial, sans-serif", style: "normal", weight: 700, label: "Sans-serif bold", script: false },
-  serif_bold: { family: "'Times New Roman', Times, serif", style: "normal", weight: 700, label: "Serif bold", script: false },
-  serif_bold_italic: { family: "'Times New Roman', Times, serif", style: "italic", weight: 700, label: "Serif bold italic", script: false },
-  great_vibes: { family: "'Great Vibes', cursive", style: "normal", weight: 400, label: "Great Vibes (elegant script)", script: true },
-  allura: { family: "Allura, cursive", style: "normal", weight: 400, label: "Allura (flowing script)", script: true },
-  alex_brush: { family: "'Alex Brush', cursive", style: "normal", weight: 400, label: "Alex Brush (brush script)", script: true },
-  pinyon_script: { family: "'Pinyon Script', cursive", style: "normal", weight: 400, label: "Pinyon Script (formal)", script: true },
-  parisienne: { family: "Parisienne, cursive", style: "normal", weight: 400, label: "Parisienne (casual script)", script: true },
-};
-const PLAIN_FONTS = (Object.keys(FONT_CSS) as CertificateFont[]).filter((key) => !FONT_CSS[key].script);
-const SCRIPT_FONTS = (Object.keys(FONT_CSS) as CertificateFont[]).filter((key) => FONT_CSS[key].script);
 
 const FONT_GROUPS = (
   <>
@@ -49,25 +43,6 @@ const FONT_GROUPS = (
 );
 
 const DEFAULT_GRADIENT_END = "#38bdf8";
-
-let measureContext: CanvasRenderingContext2D | null | undefined;
-
-/** Width and vertical metrics of `text` in the given font, to place the preview exactly where the PDF draws it. */
-function measureText(text: string, key: CertificateFont, sizePx: number) {
-  if (measureContext === undefined) measureContext = document.createElement("canvas").getContext("2d");
-  const font = FONT_CSS[key];
-  if (!measureContext || sizePx <= 0) return { width: 0, ascent: sizePx * 0.8, descent: sizePx * 0.2 };
-  measureContext.font = `${font.style} ${font.weight} ${sizePx}px ${font.family}`;
-  const m = measureContext.measureText(text);
-  return {
-    width: m.width,
-    ascent: m.fontBoundingBoxAscent ?? sizePx * 0.8,
-    descent: m.fontBoundingBoxDescent ?? sizePx * 0.2,
-  };
-}
-
-/** Distance from the top of a line box (line-height 1) down to the text baseline. */
-const baselineOffset = (sizePx: number, ascent: number, descent: number) => (sizePx - (ascent + descent)) / 2 + ascent;
 
 function errorMessage(error: unknown, fallback: string): string {
   const message = (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error

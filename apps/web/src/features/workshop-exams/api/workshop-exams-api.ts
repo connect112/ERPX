@@ -80,6 +80,8 @@ export interface WorkshopExam {
   /** How certificate IDs look, e.g. "GIR-{YYYY}-{#4}"; null = the default style. */
   certificate_id_pattern: string | null;
   certificate_id_start: number;
+  /** When on, certificates are only sent once each has been checked and marked verified. */
+  certificate_review: boolean;
   question_count: number;
   attendee_count: number;
   created_at: string;
@@ -105,6 +107,7 @@ export interface ExamUpdatePayload {
   /** "" clears it (back to the default style). */
   certificate_id_pattern?: string;
   certificate_id_start?: number;
+  certificate_review?: boolean;
 }
 
 /** An ID format that has not been saved yet, so previews can show it. */
@@ -143,8 +146,35 @@ export interface Attendee {
   total_marks: number | null;
   certificate_number: string | null;
   certificate_sent_at: string | null;
+  certificate_verified_at: string | null;
   /** Only here to receive a certificate (e.g. a hackathon participant); not part of the exam. */
   certificate_only: boolean;
+}
+
+/** A fix for how one person's name is printed on their own certificate. */
+export interface NameAdjust {
+  /** Multiplies the font size (1 = as designed). */
+  size: number;
+  /** Moves the name right (+) / left (-), as a fraction of the page width. */
+  dx: number;
+  /** Moves the name down (+) / up (-), as a fraction of the page height. */
+  dy: number;
+}
+
+export interface ReviewItem {
+  id: string;
+  name: string;
+  email: string;
+  certificate_number: string | null;
+  certificate_verified_at: string | null;
+  certificate_sent_at: string | null;
+  certificate_only: boolean;
+  certificate_adjust: NameAdjust | null;
+}
+
+export interface CertificateReview {
+  required: boolean;
+  items: ReviewItem[];
 }
 
 export interface Dashboard {
@@ -180,6 +210,8 @@ export interface HackathonCertificatesResult {
   on_exam: number;
   no_email: number;
   sent: boolean;
+  /** The people were added, but their certificates wait for review instead of being sent. */
+  held_for_review?: boolean;
   message: string;
 }
 
@@ -263,6 +295,30 @@ export const workshopExamsApi = {
       .post<{ message: string }>(`/workshop-exams/${id}/certificates/send-now`, {
         include_in_progress: includeInProgress,
       })
+      .then((r) => r.data),
+  /** Everyone who gets a certificate (each with an ID), their verified state and any name fix. */
+  openCertificateReview: (id: string) =>
+    apiClient.post<CertificateReview>(`/workshop-exams/${id}/certificates/review`).then((r) => r.data),
+  /** Size / position fix for one person's name; null resets it. Needs verifying again afterwards. */
+  adjustCertificate: (id: string, attendeeId: string, adjust: NameAdjust | null) =>
+    apiClient
+      .put<ReviewItem>(`/workshop-exams/${id}/attendees/${attendeeId}/certificate/adjust`, adjust)
+      .then((r) => r.data),
+  verifyCertificate: (id: string, attendeeId: string, verified: boolean) =>
+    apiClient
+      .post<ReviewItem>(`/workshop-exams/${id}/attendees/${attendeeId}/certificate/verify`, { verified })
+      .then((r) => r.data),
+  verifyAllCertificates: (id: string) =>
+    apiClient.post<{ message: string }>(`/workshop-exams/${id}/certificates/verify-all`).then((r) => r.data),
+  /** The certificate exactly as it will be emailed. */
+  attendeeCertificatePdf: (id: string, attendeeId: string) =>
+    apiClient
+      .get<Blob>(`/workshop-exams/${id}/attendees/${attendeeId}/certificate/preview`, { responseType: "blob" })
+      .then((r) => r.data),
+  /** Email this one certificate now (again if it went out before), to the person's current address. */
+  sendCertificate: (id: string, attendeeId: string) =>
+    apiClient
+      .post<{ message: string }>(`/workshop-exams/${id}/attendees/${attendeeId}/certificate/send`)
       .then((r) => r.data),
   /** Without confirm: who would get this exam's certificate from a hackathon. With confirm: add them and send. */
   hackathonCertificates: (

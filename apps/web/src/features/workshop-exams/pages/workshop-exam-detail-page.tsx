@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Award, Check, Copy, Download, Pencil, Plus, RotateCcw, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, Award, Check, ClipboardCheck, Copy, Download, Pencil, Plus, RotateCcw, Send, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { CertificateDesigner } from "@/features/workshop-exams/components/certificate-designer";
 import { AttendeeEditDialog } from "@/features/workshop-exams/components/attendee-edit-dialog";
+import { CertificateReviewDialog } from "@/features/workshop-exams/components/certificate-review-dialog";
 import { CodeTextarea } from "@/features/workshop-exams/components/code-textarea";
 import { HackathonCertificatesDialog } from "@/features/workshop-exams/components/hackathon-certificates-dialog";
 import { RichText } from "@/features/workshop-exams/components/rich-text";
@@ -159,9 +160,20 @@ function attendeeStatus(a: Attendee): { label: string; variant: "secondary" | "i
   return { label: "Not started", variant: "secondary" };
 }
 
+/** Where a person's certificate stands. An ID alone doesn't mean it is on its way: it is only queued once sending started. */
+function certificateStatus(exam: WorkshopExam, a: Attendee): string {
+  if (a.certificate_sent_at) return "Sent";
+  if (!a.certificate_number) return "-";
+  const sendingStarted = exam.certificates_dispatched_at !== null || (a.certificate_only && !exam.certificate_review);
+  if (a.certificate_verified_at) return sendingStarted ? "Queued" : "Verified";
+  if (exam.certificate_review) return "To review";
+  return sendingStarted ? "Queued" : "Ready";
+}
+
 function LiveTab({ exam }: { exam: WorkshopExam }) {
   const queryClient = useQueryClient();
   const [hackathonCertificatesOpen, setHackathonCertificatesOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [editing, setEditing] = useState<Attendee | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const attendeeAction = async (action: () => Promise<{ message: string }>) => {
@@ -187,6 +199,8 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
       // off silently: let the admin decide.
       if ((error as { response?: { status?: number } })?.response?.status !== 409) return;
       const reason = errorMessage(error, "Some students are still writing.");
+      // Not about people still writing: certificates are waiting for review, which sending anyway wouldn't fix.
+      if (reason.includes("reviewed")) return;
       if (window.confirm(`${reason}\n\nSend now anyway? Their exams will be submitted as they stand.`)) {
         sendNow.mutate(true);
       }
@@ -240,8 +254,16 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
           <Award className="h-4 w-4" />
           Certificates for a hackathon
         </Button>
+        <Button variant="outline" onClick={() => setReviewOpen(true)}>
+          <ClipboardCheck className="h-4 w-4" />
+          Review certificates
+          {exam.certificate_review && <span className="rounded bg-sky-100 px-1.5 text-xs text-sky-800">required</span>}
+        </Button>
         {sendNow.isSuccess && <span className="self-center text-sm text-muted-foreground">{sendNow.data.message}</span>}
-        {sendNow.isError && (sendNow.error as { response?: { status?: number } })?.response?.status !== 409 && (
+        {sendNow.isError && (
+          (sendNow.error as { response?: { status?: number } })?.response?.status !== 409 ||
+          errorMessage(sendNow.error, "").includes("reviewed")
+        ) && (
           <span className="self-center text-sm text-destructive">
             {errorMessage(sendNow.error, "Could not send certificates.")}
           </span>
@@ -281,7 +303,7 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
                     </TableCell>
                     <TableCell>{a.score != null ? `${a.score} / ${a.total_marks}` : "-"}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {a.certificate_sent_at ? "Sent" : a.certificate_number ? "Queued" : "-"}
+                      {certificateStatus(exam, a)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-right">
                       <Button size="sm" variant="ghost" title="Edit name or email" onClick={() => setEditing(a)}>
@@ -354,6 +376,7 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
           {notice.text}
         </p>
       )}
+      {reviewOpen && <CertificateReviewDialog exam={exam} onClose={() => setReviewOpen(false)} />}
       {editing && <AttendeeEditDialog examId={exam.id} attendee={editing} onClose={() => setEditing(null)} />}
       {hackathonCertificatesOpen && (
         <HackathonCertificatesDialog exam={exam} onClose={() => setHackathonCertificatesOpen(false)} />
