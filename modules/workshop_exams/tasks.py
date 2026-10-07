@@ -122,7 +122,8 @@ async def _send_certificate(attendee_id: uuid.UUID) -> bool:
                 heading=exam.certificate_heading,
                 body_text=body,
                 issuer_name=issuer,
-                issued_on=attendee.submitted_at or datetime.now(timezone.utc),
+                issued_on=attendee.submitted_at
+                or (attendee.created_at if attendee.certificate_only else datetime.now(timezone.utc)),
                 certificate_number=attendee.certificate_number,
                 verify_url=verify_url(attendee.certificate_number),
             )
