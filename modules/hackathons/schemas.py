@@ -1,9 +1,12 @@
+import re
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator, model_validator
 
+from app.core.config import settings
 from modules.hackathons.models import HackathonStatus
+from modules.hackathons.slugs import clean_slug
 
 
 class HackathonCreateRequest(BaseModel):
@@ -31,6 +34,21 @@ class HackathonUpdateRequest(BaseModel):
     leaderboard_visible: bool | None = None
     resubmission_enabled: bool | None = None
     max_resubmissions: int | None = Field(default=None, ge=0, le=50)
+    leaderboard_share_enabled: bool | None = None
+    leaderboard_slug: str | None = Field(default=None, min_length=3, max_length=60)
+    leaderboard_show_members: bool | None = None
+
+    @field_validator("leaderboard_slug", mode="before")
+    @classmethod
+    def _clean_slug(cls, value):
+        return clean_slug(value) if isinstance(value, str) else value
+
+    @field_validator("leaderboard_slug")
+    @classmethod
+    def _slug_shape(cls, value):
+        if value is not None and not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", value):
+            raise ValueError("Use only letters, numbers and single hyphens in the link name.")
+        return value
 
 
 class HackathonStatusChangeRequest(BaseModel):
@@ -54,9 +72,20 @@ class HackathonPublic(BaseModel):
     leaderboard_visible: bool = True
     resubmission_enabled: bool = True
     max_resubmissions: int = 2
+    leaderboard_share_enabled: bool = False
+    leaderboard_slug: str | None = None
+    leaderboard_show_members: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def leaderboard_share_url(self) -> str | None:
+        """Where the public live leaderboard lives (whether or not sharing is currently on)."""
+        if not self.leaderboard_slug:
+            return None
+        return f"{settings.STUDENT_PORTAL_URL.rstrip('/')}/live/{self.leaderboard_slug}"
 
 
 class HackathonListResponse(BaseModel):
@@ -434,3 +463,21 @@ class ParticipantBulkResult(BaseModel):
 class LoginLinksRequest(BaseModel):
     # None = everyone who hasn't signed in yet.
     student_ids: list[uuid.UUID] | None = Field(default=None, max_length=300)
+
+
+class PublicLeaderboardEntry(BaseModel):
+    rank: int
+    team_name: str
+    score: int
+    tasks_scored: int
+    members: list[str] = Field(default_factory=list)  # empty unless the organiser chose to show names
+
+
+class PublicLeaderboard(BaseModel):
+    title: str
+    theme: str | None
+    status: HackathonStatus
+    max_total: int = 0
+    show_members: bool = False
+    updated_at: datetime
+    entries: list[PublicLeaderboardEntry]

@@ -1,4 +1,6 @@
+import time
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Response, UploadFile, status
 from sqlalchemy import select
@@ -41,6 +43,8 @@ from modules.hackathons.schemas import (
     ParticipantsResponse,
     ProblemStatementInput,
     ProblemStatementPublic,
+    PublicLeaderboard,
+    PublicLeaderboardEntry,
     ReportInfo,
     RosterMemberPublic,
     RosterTeamPublic,
@@ -926,3 +930,52 @@ async def regenerate_team_code(
     await HackathonService(db).get_hackathon(hackathon_id, organization_id)
     code = await TeamAdminService(db).regenerate_code(hackathon_id, team_id)
     return MessageResponse(message=f"The new team code is {code}.")
+
+
+# ---------------- public live leaderboard (no login) ----------------
+
+# Several people can have the presentation page open at once and it polls, so the answer is built at
+# most once every few seconds per link rather than once per request.
+_PUBLIC_CACHE_SECONDS = 3
+_public_cache: dict[str, tuple[float, PublicLeaderboard | None]] = {}
+
+
+@router.get("/public/leaderboard/{slug}", response_model=PublicLeaderboard)
+async def public_leaderboard(slug: str, response: Response, db: AsyncSession = Depends(get_db)):
+    """The live leaderboard of a hackathon whose organiser turned on link sharing. Deliberately open
+    (no login): it shows team names and scores (and member names only if the organiser chose to)."""
+    key = slug.strip().lower()[:60]
+    now = time.monotonic()
+    cached = _public_cache.get(key)
+    if cached is None or now - cached[0] > _PUBLIC_CACHE_SECONDS:
+        hackathon = await HackathonService(db).public_leaderboard(key)
+        board: PublicLeaderboard | None = None
+        if hackathon is not None:
+            participation = ParticipationService(db)
+            rows = await participation.leaderboard(hackathon)
+            board = PublicLeaderboard(
+                title=hackathon.title,
+                theme=hackathon.theme,
+                status=hackathon.status,
+                max_total=await participation.max_total(hackathon.id),
+                show_members=hackathon.leaderboard_show_members,
+                updated_at=datetime.now(timezone.utc),
+                entries=[
+                    PublicLeaderboardEntry(
+                        rank=r.rank,
+                        team_name=r.team_name,
+                        score=r.score,
+                        tasks_scored=r.tasks_scored,
+                        members=r.members if hackathon.leaderboard_show_members else [],
+                    )
+                    for r in rows
+                ],
+            )
+        if len(_public_cache) > 500:
+            _public_cache.clear()
+        _public_cache[key] = cached = (now, board)
+    if cached[1] is None:
+        raise NotFoundError("Leaderboard")
+    response.headers["Cache-Control"] = "public, max-age=3"
+    response.headers["X-Robots-Tag"] = "noindex"
+    return cached[1]

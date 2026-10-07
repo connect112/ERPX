@@ -117,6 +117,26 @@ export interface LeaderboardEntry {
   members: string[];
 }
 
+/** One row of the public live leaderboard. */
+export interface PublicLeaderboardEntry {
+  rank: number;
+  team_name: string;
+  score: number;
+  tasks_scored: number;
+  /** Empty unless the organiser chose to show member names. */
+  members: string[];
+}
+
+export interface PublicLeaderboard {
+  title: string;
+  theme: string | null;
+  status: string;
+  max_total: number;
+  show_members: boolean;
+  updated_at: string;
+  entries: PublicLeaderboardEntry[];
+}
+
 export interface LeaderboardBoard {
   hackathon_id: string;
   hackathon_title: string;
@@ -136,6 +156,10 @@ export interface Award {
 }
 
 export const hackathonsApi = {
+  /** The shared live leaderboard (open to anyone with the link). */
+  publicLeaderboard: (slug: string) =>
+    apiClient.get<PublicLeaderboard>(`/hackathons/public/leaderboard/${encodeURIComponent(slug)}`).then((r) => r.data),
+
   browse: () => apiClient.get<HackathonPublic[]>("/hackathons/me").then((r) => r.data),
 
   myTeam: (hackathonId: string) =>

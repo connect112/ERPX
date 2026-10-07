@@ -67,6 +67,18 @@ export function useHackathonLeaderboards() {
   });
 }
 
+/** The public live leaderboard, kept fresh while it is on a screen. */
+export function usePublicLeaderboard(slug: string) {
+  return useQuery({
+    queryKey: ["hackathons", "public-leaderboard", slug],
+    queryFn: () => hackathonsApi.publicLeaderboard(slug),
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
+    // An unknown or switched-off link is a plain 404: don't hammer it with retries.
+    retry: false,
+  });
+}
+
 export function useHackathonAchievements() {
   return useQuery({
     queryKey: ["hackathons", "achievements"],

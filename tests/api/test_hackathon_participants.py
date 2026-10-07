@@ -1121,3 +1121,92 @@ async def test_staff_can_replace_a_team_code_and_teams_made_by_staff_get_one(cli
     assert made.status_code == 201
     codes = [t["join_code"] for t in (await client.get(f"{_HACK}/{hackathon['id']}/roster", headers=auth_headers)).json()]
     assert len(codes) == 2 and len(set(codes)) == 2
+
+
+# ---------------- public live leaderboard link ----------------
+
+
+@pytest.fixture
+def no_public_cache(monkeypatch):
+    from modules.hackathons import routes
+
+    monkeypatch.setattr(routes, "_PUBLIC_CACHE_SECONDS", 0)
+    routes._public_cache.clear()
+
+
+async def _public(client, slug):
+    return await client.get(f"{_HACK}/public/leaderboard/{slug}")  # deliberately no auth headers
+
+
+async def test_the_public_leaderboard_link_is_off_until_shared_and_needs_no_login(client, db_session, auth_headers, sent_emails, no_public_cache):
+    hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
+    task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "One", "marks": 50}, headers=auth_headers)).json()
+    sub = (await client.put(_task_url(hackathon, task), data={"repo_url": "https://x.io/1"}, headers=asha)).json()
+    await client.post(f"{_HACK}/{hackathon['id']}/task-submissions/{sub['id']}/grade", json={"score": 42}, headers=auth_headers)
+
+    # Nothing is shared by default.
+    assert hackathon["leaderboard_share_enabled"] is False and hackathon["leaderboard_slug"] is None
+    assert hackathon["leaderboard_share_url"] is None
+    assert (await _public(client, "devsecstorm")).status_code == 404
+
+    # Turning sharing on picks a link name from the title; the page then works without any login.
+    on = await client.patch(f"{_HACK}/{hackathon['id']}", json={"leaderboard_share_enabled": True}, headers=auth_headers)
+    assert on.status_code == 200, on.text
+    slug = on.json()["leaderboard_slug"]
+    assert slug.startswith("devsecstorm") and on.json()["leaderboard_share_url"].endswith(f"/live/{slug}")
+    page = await _public(client, slug)
+    assert page.status_code == 200, page.text
+    body = page.json()
+    assert body["title"] == "DevSecStorm" and body["max_total"] == 50
+    assert [(e["rank"], e["team_name"], e["score"]) for e in body["entries"]] == [(1, "Red Team", 42)]
+    assert body["entries"][0]["members"] == [] and body["show_members"] is False  # names stay private by default
+    assert page.headers["x-robots-tag"] == "noindex" and "max-age" in page.headers["cache-control"]
+    assert (await _public(client, slug.upper())).status_code == 200  # case doesn't matter
+
+    # Showing member names is the organiser's choice.
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"leaderboard_show_members": True}, headers=auth_headers)
+    shown = (await _public(client, slug)).json()
+    assert set(shown["entries"][0]["members"]) == {"Asha Rao", "Ravi Kumar"} and shown["show_members"] is True
+
+    # The page follows the scores live (no stale copy), and turning sharing off closes it at once.
+    sub2 = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json={"title": "Two", "marks": 50}, headers=auth_headers)).json()
+    s2 = (await client.put(_task_url(hackathon, sub2), data={"repo_url": "https://x.io/2"}, headers=asha)).json()
+    await client.post(f"{_HACK}/{hackathon['id']}/task-submissions/{s2['id']}/grade", json={"score": 8}, headers=auth_headers)
+    assert (await _public(client, slug)).json()["entries"][0]["score"] == 50
+    await client.patch(f"{_HACK}/{hackathon['id']}", json={"leaderboard_share_enabled": False}, headers=auth_headers)
+    assert (await _public(client, slug)).status_code == 404
+    # The link name is kept for next time.
+    assert (await client.get(f"{_HACK}/{hackathon['id']}", headers=auth_headers)).json()["leaderboard_slug"] == slug
+
+
+async def test_the_link_name_can_be_edited_but_not_duplicated_or_malformed(client, db_session, auth_headers, sent_emails, no_public_cache):
+    first = await _open_hackathon(client, auth_headers)
+    second = await _open_hackathon(client, auth_headers)
+    url = f"{_HACK}/{first['id']}"
+    await client.patch(url, json={"leaderboard_share_enabled": True}, headers=auth_headers)
+    old = (await client.get(url, headers=auth_headers)).json()["leaderboard_slug"]
+
+    # Edited to whatever the organiser likes; it is tidied (lower case, spaces and underscores to hyphens).
+    edited = await client.patch(url, json={"leaderboard_slug": "  Pentrix Live_Finals 2026 "}, headers=auth_headers)
+    assert edited.status_code == 200 and edited.json()["leaderboard_slug"] == "pentrix-live-finals-2026"
+    assert edited.json()["leaderboard_share_url"].endswith("/live/pentrix-live-finals-2026")
+    assert (await _public(client, "pentrix-live-finals-2026")).status_code == 200
+    assert (await _public(client, old)).status_code == 404  # the old link stops working
+
+    # Another hackathon can't take the same link name (the same hackathon re-saving it is fine).
+    await client.patch(f"{_HACK}/{second['id']}", json={"leaderboard_share_enabled": True}, headers=auth_headers)
+    clash = await client.patch(f"{_HACK}/{second['id']}", json={"leaderboard_slug": "Pentrix-Live-Finals-2026"}, headers=auth_headers)
+    assert clash.status_code == 409 and "already used" in clash.text
+    assert (await client.patch(url, json={"leaderboard_slug": "pentrix-live-finals-2026"}, headers=auth_headers)).status_code == 200
+
+    # Too short / odd characters only / cleared: refused; sharing off + the same slug on a third hackathon still clashes.
+    for bad in ("ab", "!!!", "-"):
+        assert (await client.patch(url, json={"leaderboard_slug": bad}, headers=auth_headers)).status_code == 422, bad
+    kept = await client.patch(url, json={"leaderboard_slug": None}, headers=auth_headers)
+    assert kept.status_code == 200 and kept.json()["leaderboard_slug"] == "pentrix-live-finals-2026"  # can't be cleared
+
+    # Only organisers who manage hackathons can change any of it.
+    await _add(client, auth_headers, first, [("Asha Rao", "asha@example.com")])
+    asha = await _set_password_and_login(client, "asha@example.com", sent_emails[-1][2])
+    assert (await client.patch(url, json={"leaderboard_share_enabled": False}, headers=asha)).status_code == 403
+    assert (await _public(client, "pentrix-live-finals-2026")).status_code == 200

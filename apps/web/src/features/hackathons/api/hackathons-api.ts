@@ -18,6 +18,11 @@ export interface HackathonPublic {
   leaderboard_visible: boolean;
   resubmission_enabled: boolean;
   max_resubmissions: number;
+  leaderboard_share_enabled: boolean;
+  leaderboard_slug: string | null;
+  leaderboard_show_members: boolean;
+  /** Where the public live leaderboard lives (set once a link name exists, even while sharing is off). */
+  leaderboard_share_url: string | null;
   created_at: string;
 }
 
@@ -56,6 +61,9 @@ export interface HackathonUpdatePayload {
   leaderboard_visible?: boolean;
   resubmission_enabled?: boolean;
   max_resubmissions?: number;
+  leaderboard_share_enabled?: boolean;
+  leaderboard_slug?: string;
+  leaderboard_show_members?: boolean;
 }
 
 export interface TeamPublic {

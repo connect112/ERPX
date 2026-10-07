@@ -80,6 +80,15 @@ class Hackathon(TimestampedBase):
     )
     # Whether a team may change a task submission after it has been made, and how
     # many times (the first submission does not count).
+    # A public, no-login live leaderboard for presenting on a screen. `leaderboard_slug` is the
+    # organiser's chosen link name (unique across hackathons); the page is only reachable while sharing is on.
+    leaderboard_share_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    leaderboard_slug: Mapped[str | None] = mapped_column(String(60), nullable=True, unique=True)
+    leaderboard_show_members: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     resubmission_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )

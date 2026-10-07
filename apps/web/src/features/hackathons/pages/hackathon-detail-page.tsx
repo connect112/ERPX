@@ -22,6 +22,7 @@ import {
   useUpdateHackathon,
 } from "@/features/hackathons/api/hackathons-hooks";
 import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
+import { LeaderboardShareCard } from "@/features/hackathons/components/leaderboard-share-card";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
 import { ParticipantsTab } from "@/features/hackathons/components/participants-tab";
 import { ResubmissionCard } from "@/features/hackathons/components/resubmission-card";
@@ -213,6 +214,8 @@ export function HackathonDetailPage() {
               </label>
             </CardContent>
           </Card>
+
+          <LeaderboardShareCard hackathon={hackathon} />
 
           <ResubmissionCard hackathon={hackathon} />
 
