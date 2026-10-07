@@ -42,6 +42,9 @@ from modules.workshop_exams.schemas import (
     ExamUpdateRequest,
     InvitesRequest,
     InvitesResponse,
+    CertificateRecipient,
+    HackathonCertificatesRequest,
+    HackathonCertificatesResponse,
     MessageResponse,
     PublicExamInfo,
     PublicJoinInfo,
@@ -54,6 +57,7 @@ from modules.workshop_exams.schemas import (
     RegisterResponse,
     SendCertificatesRequest,
 )
+from modules.workshop_exams.hackathon_certificates import HackathonCertificates
 from modules.workshop_exams.service import WorkshopExamService
 from modules.workshop_exams.tasks import enqueue_certificates, enqueue_invite_best_effort, enqueue_invites
 
@@ -396,6 +400,8 @@ async def export_results(
         + ["Started", "Submitted", "Score", "Total", "Certificate No", "Certificate sent"]
     )
     for a in await service.list_attendees(exam.id):
+        if a.certificate_only:
+            continue  # given a certificate only; they did not sit the exam
         writer.writerow(
             [
                 _csv_safe(a.name),
@@ -446,6 +452,52 @@ async def send_certificates_now(
         logger.warning("workshop_certificates_enqueue_failed", exam_id=str(exam_id), exc_info=True)
         raise ServiceUnavailableError("Couldn't queue the certificate emails just now. Please try again.") from exc
     return MessageResponse(message=f"Queued {len(ids)} certificate email(s). The exam is now closed.")
+
+
+@router.post("/{exam_id}/certificates/hackathon", response_model=HackathonCertificatesResponse)
+async def send_hackathon_certificates(
+    exam_id: uuid.UUID,
+    payload: HackathonCertificatesRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage", "hackathons.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Give the people of a hackathon this exam's certificate (same design and wording), emailed with their
+    own name on it. Without `confirm` it only lists who would receive one; with it, they are added and sent.
+    Nobody is invited to, or scored in, the exam itself."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    helper = HackathonCertificates(db)
+    plan = await helper.plan(exam, organization_id, payload.hackathon_id, payload.audience, payload.top_n)
+    response = HackathonCertificatesResponse(
+        hackathon_title=plan.hackathon_title,
+        recipients=[
+            CertificateRecipient(name=r.name, email=r.email, team_name=r.team_name, status=r.status)
+            for r in plan.recipients
+        ],
+        will_send=plan.will_send,
+        already_sent=plan.count("already_sent"),
+        on_exam=plan.count("on_exam"),
+        no_email=plan.count("no_email"),
+    )
+    if not payload.confirm:
+        return response
+    if plan.will_send == 0:
+        response.message = "Nobody needs a certificate right now."
+        return response
+    ids = await helper.issue(exam, plan)
+    await db.commit()
+    try:
+        enqueue_certificates(ids)
+    except Exception:  # noqa: BLE001 - e.g. the message broker is down
+        # The people are saved with their certificate numbers; pressing the button again sends the unsent ones.
+        logger.warning("hackathon_certificates_enqueue_failed", exam_id=str(exam_id), exc_info=True)
+        raise ServiceUnavailableError(
+            "The certificates are ready but couldn't be queued just now. Press Send again to retry."
+        ) from None
+    response.sent = True
+    response.message = f"Queued {len(ids)} certificate email(s) for {plan.hackathon_title}."
+    return response
 
 
 # ---------------- public: attendee flow (token = credential) ----------------

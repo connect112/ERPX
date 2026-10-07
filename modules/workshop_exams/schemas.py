@@ -200,12 +200,15 @@ class AttendeeAdmin(BaseModel):
     total_marks: int | None
     certificate_number: str | None
     certificate_sent_at: datetime | None
+    # Only here to receive a certificate (e.g. a hackathon participant); not part of the exam.
+    certificate_only: bool = False
 
     model_config = {"from_attributes": True}
 
 
 class DashboardResponse(BaseModel):
     total_attendees: int
+    certificate_only: int = 0
     invited: int
     not_started: int
     in_progress: int
@@ -300,3 +303,41 @@ class CertificateVerification(BaseModel):
     attendee_name: str | None = None
     exam_title: str | None = None
     issued_at: datetime | None = None
+
+
+# ---- Certificates for hackathon participants ----
+
+
+class HackathonCertificatesRequest(BaseModel):
+    hackathon_id: uuid.UUID
+    # all: everyone invited; teams: people who are in a team; scored: teams with at least one scored task;
+    # top: the best N teams (ties included).
+    audience: Literal["all", "teams", "scored", "top"] = "all"
+    top_n: int | None = Field(default=None, ge=1, le=50)
+    # False: only say who would get one. True: add them and send.
+    confirm: bool = False
+
+    @model_validator(mode="after")
+    def _top_needs_a_number(self):
+        if self.audience == "top" and not self.top_n:
+            raise ValueError("Say how many top teams should get a certificate.")
+        return self
+
+
+class CertificateRecipient(BaseModel):
+    name: str
+    email: str | None
+    team_name: str | None
+    # new | resend | already_sent | on_exam | no_email
+    status: str
+
+
+class HackathonCertificatesResponse(BaseModel):
+    hackathon_title: str
+    recipients: list[CertificateRecipient]
+    will_send: int
+    already_sent: int
+    on_exam: int
+    no_email: int
+    sent: bool = False
+    message: str = ""

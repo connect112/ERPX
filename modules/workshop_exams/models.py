@@ -137,3 +137,6 @@ class WorkshopExamAttendee(TimestampedBase):
 
     certificate_number: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True, index=True)
     certificate_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Added only to receive a certificate (a hackathon participant, say): never invited to, scored in or
+    # counted in the exam itself.
+    certificate_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)

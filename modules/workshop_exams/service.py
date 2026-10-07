@@ -287,7 +287,7 @@ class WorkshopExamService:
         now = _now()
         ids = []
         for attendee in attendees:
-            if attendee.submitted_at is not None:
+            if attendee.submitted_at is not None or attendee.certificate_only:
                 continue
             if attendee.invited_at is not None and not resend_all:
                 continue
@@ -300,19 +300,21 @@ class WorkshopExamService:
         # Someone who closed their tab never presses Submit; once their timer
         # has run out their saved answers are scored so they show up here.
         await self.finalize_expired(exam)
-        attendees = await self.list_attendees(exam.id)
+        everyone = await self.list_attendees(exam.id)
+        attendees = [a for a in everyone if not a.certificate_only]
         submitted = [a for a in attendees if a.submitted_at is not None]
         started = [a for a in attendees if a.started_at is not None]
         percents = [a.score * 100 / a.total_marks for a in submitted if a.total_marks]
         return {
             "total_attendees": len(attendees),
+            "certificate_only": len(everyone) - len(attendees),
             "invited": sum(1 for a in attendees if a.invited_at is not None),
             "not_started": len(attendees) - len(started),
             "in_progress": len(started) - len(submitted),
             "submitted": len(submitted),
-            "certificates_sent": sum(1 for a in attendees if a.certificate_sent_at is not None),
+            "certificates_sent": sum(1 for a in everyone if a.certificate_sent_at is not None),
             "average_score_percent": round(sum(percents) / len(percents), 1) if percents else None,
-            "attendees": attendees,
+            "attendees": everyone,
         }
 
     # ---------------- public: attendee flow ----------------
@@ -366,7 +368,15 @@ class WorkshopExamService:
             clean_info[field["key"]] = value
 
         email = email.strip().lower()
-        if await self._find_by_email(exam.id, email):
+        existing = await self._find_by_email(exam.id, email)
+        if existing is not None and existing.certificate_only:
+            # They were only given a certificate (e.g. as a hackathon participant); now they want to sit the exam.
+            existing.certificate_only = False
+            existing.name = name
+            existing.info = clean_info
+            await self.db.flush()
+            return existing
+        if existing is not None:
             return None
         _, attendee_count = await self.counts_for(exam.id)
         if attendee_count >= _MAX_ATTENDEES:
@@ -622,7 +632,7 @@ class WorkshopExamService:
         for attendee in attendees:
             if attendee.submitted_at is None and attendee.started_at is not None:
                 await self._finalize(attendee, questions)
-            if attendee.submitted_at is None:
+            if attendee.submitted_at is None and not attendee.certificate_only:
                 continue
             if attendee.certificate_number is None:
                 attendee.certificate_number = await self._new_certificate_number()
@@ -663,5 +673,5 @@ class WorkshopExamService:
             "valid": True,
             "attendee_name": attendee.name,
             "exam_title": exam.title,
-            "issued_at": attendee.submitted_at,
+            "issued_at": attendee.submitted_at or attendee.created_at,
         }
