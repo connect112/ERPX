@@ -23,6 +23,9 @@ export interface HackathonPublic {
   leaderboard_show_members: boolean;
   /** Where the public live leaderboard lives (set once a link name exists, even while sharing is off). */
   leaderboard_share_url: string | null;
+  /** The event's countdown: counts down to the start, then to the end. */
+  timer_starts_at: string | null;
+  timer_ends_at: string | null;
   created_at: string;
 }
 
@@ -64,6 +67,9 @@ export interface HackathonUpdatePayload {
   leaderboard_share_enabled?: boolean;
   leaderboard_slug?: string;
   leaderboard_show_members?: boolean;
+  /** ISO moments (with timezone); null clears one. */
+  timer_starts_at?: string | null;
+  timer_ends_at?: string | null;
 }
 
 export interface TeamPublic {

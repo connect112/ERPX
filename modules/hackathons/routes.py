@@ -969,6 +969,9 @@ async def public_leaderboard(slug: str, response: Response, db: AsyncSession = D
                 max_total=await participation.max_total(hackathon.id),
                 show_members=hackathon.leaderboard_show_members,
                 updated_at=datetime.now(timezone.utc),
+                timer_starts_at=hackathon.timer_starts_at,
+                timer_ends_at=hackathon.timer_ends_at,
+                server_time=datetime.now(timezone.utc),
                 entries=[
                     PublicLeaderboardEntry(
                         rank=r.rank,
@@ -987,4 +990,5 @@ async def public_leaderboard(slug: str, response: Response, db: AsyncSession = D
         raise NotFoundError("Leaderboard")
     response.headers["Cache-Control"] = "public, max-age=3"
     response.headers["X-Robots-Tag"] = "noindex"
-    return cached[1]
+    # The clock is stamped per response (the rest may be a few seconds old), so screens can correct their own.
+    return cached[1].model_copy(update={"server_time": datetime.now(timezone.utc)})

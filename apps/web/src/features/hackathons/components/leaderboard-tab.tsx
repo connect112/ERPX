@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import type { HackathonPublic } from "@/features/hackathons/api/hackathons-api";
 import { useStaffLeaderboard, useUpdateHackathon } from "@/features/hackathons/api/hackathons-hooks";
+import { EventTimerCard } from "@/features/hackathons/components/event-timer-card";
 import { LeaderboardShareCard } from "@/features/hackathons/components/leaderboard-share-card";
 import { ScoreBarChart } from "@/features/hackathons/components/score-bar-chart";
 
@@ -60,6 +61,7 @@ export function LeaderboardTab({ hackathon }: { hackathon: HackathonPublic }) {
       </div>
 
       <div className="space-y-6">
+        <EventTimerCard hackathon={hackathon} />
         <LeaderboardShareCard hackathon={hackathon} />
         <Card>
           <CardHeader>

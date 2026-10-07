@@ -1,11 +1,13 @@
-import { Maximize2 } from "lucide-react";
-import { useEffect } from "react";
+import { Maximize2, Moon, Sun } from "lucide-react";
+import { useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTheme } from "@/components/theme-provider";
 import { usePublicLeaderboard } from "@/features/hackathons/api/hackathons-hooks";
+import { EventTimer } from "@/features/hackathons/components/event-timer";
 import { ScoreBarChart } from "@/features/hackathons/components/score-bar-chart";
 
 const MEDAL: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
@@ -18,6 +20,14 @@ export function PublicLeaderboardPage() {
   const { slug = "" } = useParams<{ slug: string }>();
   const { data, isError, isLoading, dataUpdatedAt } = usePublicLeaderboard(slug);
   const title = data?.title;
+  const { theme, setTheme } = useTheme();
+  const isDark =
+    theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  // How far this screen's clock is from the server's, so the countdown is right even on a projector with the wrong time.
+  const clockOffset = useMemo(
+    () => (data ? Date.parse(data.server_time) - (dataUpdatedAt || Date.now()) : 0),
+    [data, dataUpdatedAt]
+  );
 
   useEffect(() => {
     document.title = title ? `${title} - leaderboard` : "Leaderboard";
@@ -53,6 +63,16 @@ export function PublicLeaderboardPage() {
               type="button"
               size="sm"
               variant="outline"
+              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+            >
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {isDark ? "Light" : "Dark"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
               onClick={() => {
                 if (document.fullscreenElement) void document.exitFullscreen();
                 else void document.documentElement.requestFullscreen?.();
@@ -63,6 +83,10 @@ export function PublicLeaderboardPage() {
             </Button>
           </div>
         </div>
+
+        {data && (data.timer_starts_at || data.timer_ends_at) && (
+          <EventTimer startsAt={data.timer_starts_at} endsAt={data.timer_ends_at} offsetMs={clockOffset} size="large" />
+        )}
 
         {isLoading ? (
           <Skeleton className="h-40 w-full" />

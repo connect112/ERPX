@@ -53,6 +53,11 @@ class HackathonService:
         # but not cleared (turn sharing off instead).
         if "leaderboard_slug" in fields and fields["leaderboard_slug"] is None:
             del fields["leaderboard_slug"]
+        # A timer edited one end at a time must still make sense against the other end already saved.
+        starts = fields.get("timer_starts_at", hackathon.timer_starts_at)
+        ends = fields.get("timer_ends_at", hackathon.timer_ends_at)
+        if starts is not None and ends is not None and ends <= starts:
+            raise ValidationError("The timer must end after it starts.")
         slug = fields.get("leaderboard_slug")
         if slug is None and fields.get("leaderboard_share_enabled") and not hackathon.leaderboard_slug:
             slug = fields["leaderboard_slug"] = await self._free_slug(hackathon.title)

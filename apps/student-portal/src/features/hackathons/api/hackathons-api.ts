@@ -15,6 +15,9 @@ export interface HackathonPublic {
   prize_pool: number | null;
   status: "draft" | "registration_open" | "ongoing" | "completed" | "cancelled";
   leaderboard_visible: boolean;
+  /** The event's countdown (set by the organiser). */
+  timer_starts_at: string | null;
+  timer_ends_at: string | null;
   created_at: string;
 }
 
@@ -134,6 +137,10 @@ export interface PublicLeaderboard {
   max_total: number;
   show_members: boolean;
   updated_at: string;
+  timer_starts_at: string | null;
+  timer_ends_at: string | null;
+  /** The server's clock when this was sent, to correct a screen with the wrong time. */
+  server_time: string;
   entries: PublicLeaderboardEntry[];
 }
 

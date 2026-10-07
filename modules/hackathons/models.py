@@ -89,6 +89,11 @@ class Hackathon(TimestampedBase):
     leaderboard_show_members: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    # The event's countdown, set by the organiser and shown on the presentation page and to participants.
+    # Before `timer_starts_at` it counts down to the start, then to `timer_ends_at`. Display only: it does
+    # not open or close anything.
+    timer_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    timer_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resubmission_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )

@@ -12,6 +12,7 @@ import {
   useJoinTeamWithCode,
   useMyTeam,
 } from "@/features/hackathons/api/hackathons-hooks";
+import { EventTimer } from "@/features/hackathons/components/event-timer";
 import { TasksSection } from "@/features/hackathons/components/tasks-section";
 
 // The server's reason (name already taken, team full, registration closed...)
@@ -48,8 +49,11 @@ export function HackathonDetailPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div>
+      <div className="space-y-2">
         <h1 className="text-2xl font-semibold">{hackathon ? `${hackathon.title} - your team` : "Your Team"}</h1>
+        {hackathon && (hackathon.timer_starts_at || hackathon.timer_ends_at) && (
+          <EventTimer startsAt={hackathon.timer_starts_at} endsAt={hackathon.timer_ends_at} />
+        )}
         <p className="text-sm text-muted-foreground">
           Create a team, or join your teammates' team with its team code (up to {maxTeamSize} people per team).
         </p>
