@@ -37,6 +37,7 @@ class HackathonUpdateRequest(BaseModel):
     leaderboard_share_enabled: bool | None = None
     leaderboard_slug: str | None = Field(default=None, min_length=3, max_length=60)
     leaderboard_show_members: bool | None = None
+    leaderboard_show_graph: bool | None = None
     # Send null to clear a time. Both are moments in time (with a timezone, e.g. ending in Z).
     timer_starts_at: datetime | None = None
     timer_ends_at: datetime | None = None
@@ -91,6 +92,7 @@ class HackathonPublic(BaseModel):
     leaderboard_share_enabled: bool = False
     leaderboard_slug: str | None = None
     leaderboard_show_members: bool = False
+    leaderboard_show_graph: bool = True
     timer_starts_at: datetime | None = None
     timer_ends_at: datetime | None = None
     created_at: datetime
@@ -243,6 +245,8 @@ class LeaderboardBoard(BaseModel):
     published: bool
     # Total marks available across all tasks, so a chart can show progress to the maximum.
     max_total: int = 0
+    # Whether to draw the bar graph (otherwise the teams are shown as a grid of cards).
+    show_graph: bool = True
     entries: list[LeaderboardEntry] = Field(default_factory=list)
 
 
@@ -497,6 +501,7 @@ class PublicLeaderboard(BaseModel):
     status: HackathonStatus
     max_total: int = 0
     show_members: bool = False
+    show_graph: bool = True
     updated_at: datetime
     # The event's countdown, and the server's clock so a screen with the wrong time still counts down right.
     timer_starts_at: datetime | None = None

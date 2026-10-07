@@ -94,6 +94,11 @@ class Hackathon(TimestampedBase):
     # not open or close anything.
     timer_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     timer_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Whether the leaderboard shows the bar graph (everywhere it appears). Off shows the teams as a spacious
+    # grid of cards instead.
+    leaderboard_show_graph: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
     resubmission_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )

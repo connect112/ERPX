@@ -21,6 +21,8 @@ export interface HackathonPublic {
   leaderboard_share_enabled: boolean;
   leaderboard_slug: string | null;
   leaderboard_show_members: boolean;
+  /** Whether the leaderboard draws the bar graph (off: a grid of team cards). */
+  leaderboard_show_graph: boolean;
   /** Where the public live leaderboard lives (set once a link name exists, even while sharing is off). */
   leaderboard_share_url: string | null;
   /** The event's countdown: counts down to the start, then to the end. */
@@ -67,6 +69,7 @@ export interface HackathonUpdatePayload {
   leaderboard_share_enabled?: boolean;
   leaderboard_slug?: string;
   leaderboard_show_members?: boolean;
+  leaderboard_show_graph?: boolean;
   /** ISO moments (with timezone); null clears one. */
   timer_starts_at?: string | null;
   timer_ends_at?: string | null;
@@ -161,6 +164,7 @@ export interface LeaderboardBoard {
   hackathon_title: string;
   published: boolean;
   max_total: number;
+  show_graph: boolean;
   entries: LeaderboardEntry[];
 }
 

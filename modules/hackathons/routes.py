@@ -181,6 +181,7 @@ async def my_leaderboards(
                 hackathon_title=hackathon.title,
                 published=hackathon.leaderboard_visible,
                 max_total=await participation.max_total(hackathon.id),
+                show_graph=hackathon.leaderboard_show_graph,
                 entries=entries,
             )
         )
@@ -521,6 +522,7 @@ async def staff_leaderboard(
         hackathon_title=hackathon.title,
         published=hackathon.leaderboard_visible,
         max_total=await ParticipationService(db).max_total(hackathon.id),
+        show_graph=hackathon.leaderboard_show_graph,
         entries=[
             LeaderboardEntry(rank=r.rank, team_name=r.team_name, score=r.score, tasks_scored=r.tasks_scored, members=r.members)
             for r in rows
@@ -968,6 +970,7 @@ async def public_leaderboard(slug: str, response: Response, db: AsyncSession = D
                 status=hackathon.status,
                 max_total=await participation.max_total(hackathon.id),
                 show_members=hackathon.leaderboard_show_members,
+                show_graph=hackathon.leaderboard_show_graph,
                 updated_at=datetime.now(timezone.utc),
                 timer_starts_at=hackathon.timer_starts_at,
                 timer_ends_at=hackathon.timer_ends_at,

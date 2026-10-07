@@ -8,6 +8,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useHackathonLeaderboards } from "@/features/hackathons/api/hackathons-hooks";
 import { ScoreBarChart } from "@/features/hackathons/components/score-bar-chart";
+import { TeamGrid } from "@/features/hackathons/components/team-grid";
 
 const MEDAL: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
@@ -43,30 +44,36 @@ export function HackathonLeaderboardPage() {
               <CardContent>
                 {board.entries.length > 0 ? (
                   <div className="space-y-6">
-                    <ScoreBarChart entries={board.entries} />
-                    <ol className="divide-y">
-                      {board.entries.map((entry) => (
-                        <li
-                          key={`${entry.rank}-${entry.team_name}`}
-                          className="flex items-center gap-4 py-3"
-                        >
-                          <span className="w-10 text-center text-xl font-semibold">
-                            {MEDAL[entry.rank] ?? entry.rank}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium">{entry.team_name}</p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {entry.tasks_scored} task
-                              {entry.tasks_scored === 1 ? "" : "s"} scored ·{" "}
-                              {entry.members.join(", ")}
-                            </p>
-                          </div>
-                          <span className="text-lg font-semibold">
-                            {entry.score}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
+                    {board.show_graph ? (
+                      <>
+                        <ScoreBarChart entries={board.entries} />
+                        <ol className="divide-y">
+                          {board.entries.map((entry) => (
+                            <li
+                              key={`${entry.rank}-${entry.team_name}`}
+                              className="flex items-center gap-4 py-3"
+                            >
+                              <span className="w-10 text-center text-xl font-semibold">
+                                {MEDAL[entry.rank] ?? entry.rank}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium">{entry.team_name}</p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {entry.tasks_scored} task
+                                  {entry.tasks_scored === 1 ? "" : "s"} scored ·{" "}
+                                  {entry.members.join(", ")}
+                                </p>
+                              </div>
+                              <span className="text-lg font-semibold">
+                                {entry.score}
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      </>
+                    ) : (
+                      <TeamGrid entries={board.entries} />
+                    )}
                   </div>
                 ) : (
                   <p className="py-4 text-center text-sm text-muted-foreground">
