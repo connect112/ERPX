@@ -21,6 +21,7 @@ from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.users.dependencies import get_current_user_organization_id
+from modules.workshop_exams import certificate_ids
 from modules.workshop_exams.certificate_template import (
     MAX_UPLOAD_BYTES,
     TemplateError,
@@ -33,6 +34,8 @@ from modules.workshop_exams.schemas import (
     AttendeeUpdateRequest,
     AttendeesImportRequest,
     AttendeesImportResponse,
+    CertificateIdPreview,
+    CertificateIdPreviewRequest,
     CertificatePreviewRequest,
     CertificateTestEmailRequest,
     CertificateVerification,
@@ -191,9 +194,28 @@ async def _sample_pdf(service: WorkshopExamService, exam, payload: CertificatePr
     template = await service.get_template(exam.id)
     if template is None:
         raise ValidationError("Upload the certificate design first.")
+    pattern = payload.id_pattern if payload.id_pattern is not None else exam.certificate_id_pattern
+    start = payload.id_start if payload.id_start is not None else exam.certificate_id_start
+    sample_number = certificate_ids.examples(pattern, start, datetime.now(timezone.utc), 1)[0] if pattern else None
     return sample_certificate_pdf(
-        template.data, template.width_px, template.height_px, service.layout_of(exam, payload.layout)
+        template.data, template.width_px, template.height_px, service.layout_of(exam, payload.layout), sample_number
     )
+
+
+@router.post("/{exam_id}/certificate/id-preview", response_model=CertificateIdPreview)
+async def preview_certificate_ids(
+    exam_id: uuid.UUID,
+    payload: CertificateIdPreviewRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """What IDs in the given format would look like (nothing is saved or used up)."""
+    await WorkshopExamService(db).get_exam(exam_id, organization_id)
+    if payload.pattern is None:
+        raise ValidationError("Enter a format for the certificate ID.")
+    now = datetime.now(timezone.utc)
+    return CertificateIdPreview(examples=certificate_ids.examples(payload.pattern, payload.start, now, 4))
 
 
 @router.post("/{exam_id}/certificate/preview")

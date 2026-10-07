@@ -1,9 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import "@/features/workshop-exams/components/certificate-fonts.css";
+import { CertificateIdFormat } from "@/features/workshop-exams/components/certificate-id-format";
 import {
   type CertificateFont,
   type CertificateLayout,
@@ -14,11 +16,58 @@ import {
 
 const SAMPLE_NAME = "Sample Student Name";
 
-const FONT_CSS: Record<CertificateFont, { family: string; style: string }> = {
-  sans_bold: { family: "Helvetica, Arial, sans-serif", style: "normal" },
-  serif_bold: { family: "'Times New Roman', Times, serif", style: "normal" },
-  serif_bold_italic: { family: "'Times New Roman', Times, serif", style: "italic" },
+const FONT_CSS: Record<CertificateFont, { family: string; style: string; weight: number; label: string; script: boolean }> = {
+  sans_bold: { family: "Helvetica, Arial, sans-serif", style: "normal", weight: 700, label: "Sans-serif bold", script: false },
+  serif_bold: { family: "'Times New Roman', Times, serif", style: "normal", weight: 700, label: "Serif bold", script: false },
+  serif_bold_italic: { family: "'Times New Roman', Times, serif", style: "italic", weight: 700, label: "Serif bold italic", script: false },
+  great_vibes: { family: "'Great Vibes', cursive", style: "normal", weight: 400, label: "Great Vibes (elegant script)", script: true },
+  allura: { family: "Allura, cursive", style: "normal", weight: 400, label: "Allura (flowing script)", script: true },
+  alex_brush: { family: "'Alex Brush', cursive", style: "normal", weight: 400, label: "Alex Brush (brush script)", script: true },
+  pinyon_script: { family: "'Pinyon Script', cursive", style: "normal", weight: 400, label: "Pinyon Script (formal)", script: true },
+  parisienne: { family: "Parisienne, cursive", style: "normal", weight: 400, label: "Parisienne (casual script)", script: true },
 };
+const PLAIN_FONTS = (Object.keys(FONT_CSS) as CertificateFont[]).filter((key) => !FONT_CSS[key].script);
+const SCRIPT_FONTS = (Object.keys(FONT_CSS) as CertificateFont[]).filter((key) => FONT_CSS[key].script);
+
+const FONT_GROUPS = (
+  <>
+    <optgroup label="Plain">
+      {PLAIN_FONTS.map((key) => (
+        <option key={key} value={key}>
+          {FONT_CSS[key].label}
+        </option>
+      ))}
+    </optgroup>
+    <optgroup label="Script">
+      {SCRIPT_FONTS.map((key) => (
+        <option key={key} value={key}>
+          {FONT_CSS[key].label}
+        </option>
+      ))}
+    </optgroup>
+  </>
+);
+
+const DEFAULT_GRADIENT_END = "#38bdf8";
+
+let measureContext: CanvasRenderingContext2D | null | undefined;
+
+/** Width and vertical metrics of `text` in the given font, to place the preview exactly where the PDF draws it. */
+function measureText(text: string, key: CertificateFont, sizePx: number) {
+  if (measureContext === undefined) measureContext = document.createElement("canvas").getContext("2d");
+  const font = FONT_CSS[key];
+  if (!measureContext || sizePx <= 0) return { width: 0, ascent: sizePx * 0.8, descent: sizePx * 0.2 };
+  measureContext.font = `${font.style} ${font.weight} ${sizePx}px ${font.family}`;
+  const m = measureContext.measureText(text);
+  return {
+    width: m.width,
+    ascent: m.fontBoundingBoxAscent ?? sizePx * 0.8,
+    descent: m.fontBoundingBoxDescent ?? sizePx * 0.2,
+  };
+}
+
+/** Distance from the top of a line box (line-height 1) down to the text baseline. */
+const baselineOffset = (sizePx: number, ascent: number, descent: number) => (sizePx - (ascent + descent)) / 2 + ascent;
 
 function errorMessage(error: unknown, fallback: string): string {
   const message = (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error
@@ -27,6 +76,28 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
+
+/** A believable ID for the preview, in the exam's format when it has a simple one. */
+function previewId(pattern: string, start: number): string {
+  const text = pattern.trim();
+  if (!text) return "WS-2026-3F9A12C4";
+  const year = String(new Date().getFullYear());
+  return text.replace(/\{([^{}]*)\}/g, (_, raw: string) => {
+    const token = raw.trim().toUpperCase();
+    if (token === "YYYY") return year;
+    if (token === "YY") return year.slice(2);
+    if (token === "MM") return String(new Date().getMonth() + 1).padStart(2, "0");
+    const counted = /^([#ADL])(\d{1,2})$/.exec(token);
+    if (counted) {
+      const n = Number(counted[2]);
+      if (counted[1] === "#") return String(start).padStart(n, "0");
+      const pool = counted[1] === "D" ? "0123456789" : counted[1] === "L" ? "ABCDEFGHJKMNPQRSTUVWXYZ" : "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      return Array.from({ length: n }, (_x, i) => pool[(i * 7 + 3) % pool.length]).join("");
+    }
+    const range = /^(\d+)-(\d+)$/.exec(token);
+    return range ? range[1] : "";
+  });
+}
 
 /**
  * The admin uploads their finished certificate (without a name) and drags a
@@ -39,8 +110,12 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
   const [layout, setLayout] = useState<CertificateLayout>(exam.certificate_layout ?? DEFAULT_CERTIFICATE_LAYOUT);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
-  const [boxHeight, setBoxHeight] = useState(0);
+  const [boxSize, setBoxSize] = useState({ width: 0, height: 0 });
   const [testEmail, setTestEmail] = useState("");
+  const [placing, setPlacing] = useState<"name" | "id">("name");
+  const [fontsReady, setFontsReady] = useState(0);
+  const [idPattern, setIdPattern] = useState(exam.certificate_id_pattern ?? "");
+  const [idStart, setIdStart] = useState(exam.certificate_id_start);
   const boxRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const dragging = useRef(false);
@@ -67,15 +142,28 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
     };
   }, [exam.id, exam.has_certificate_template, imageVersion]);
 
-  // Name size is a fraction of the page height, so track the preview's height.
+  // Sizes are fractions of the page, so track the preview's width and height.
   useEffect(() => {
     const box = boxRef.current;
     if (!box) return;
-    const observer = new ResizeObserver(() => setBoxHeight(box.clientHeight));
+    const update = () => setBoxSize({ width: box.clientWidth, height: box.clientHeight });
+    const observer = new ResizeObserver(update);
     observer.observe(box);
-    setBoxHeight(box.clientHeight);
+    update();
     return () => observer.disconnect();
   }, [imageUrl]);
+
+  // The script fonts load on demand; measure again once they have arrived.
+  useEffect(() => {
+    let cancelled = false;
+    const families = SCRIPT_FONTS.map((key) => FONT_CSS[key].family.split(",")[0].replace(/'/g, ""));
+    void Promise.all(families.map((family) => document.fonts.load(`32px "${family}"`).catch(() => []))).then(
+      () => !cancelled && setFontsReady((n) => n + 1),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["workshop-exams"] });
 
@@ -95,8 +183,9 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
     mutationFn: () => workshopExamsApi.update(exam.id, { certificate_layout: layout }),
     onSuccess: refresh,
   });
+  const idDraft = { ...(idPattern.trim() ? { id_pattern: idPattern.trim() } : {}), id_start: idStart };
   const preview = useMutation({
-    mutationFn: () => workshopExamsApi.certificatePreviewPdf(exam.id, layout),
+    mutationFn: () => workshopExamsApi.certificatePreviewPdf(exam.id, layout, idDraft),
     onSuccess: (blob) => {
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank", "noopener");
@@ -104,19 +193,17 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
     },
   });
   const sendTest = useMutation({
-    mutationFn: () => workshopExamsApi.emailTestCertificate(exam.id, testEmail.trim(), layout),
+    mutationFn: () => workshopExamsApi.emailTestCertificate(exam.id, testEmail.trim(), layout, idDraft),
   });
 
   const place = useCallback((event: React.PointerEvent | PointerEvent) => {
     const box = boxRef.current;
     if (!box) return;
     const rect = box.getBoundingClientRect();
-    setLayout((l) => ({
-      ...l,
-      name_x: clamp01((event.clientX - rect.left) / rect.width),
-      name_y: clamp01((event.clientY - rect.top) / rect.height),
-    }));
-  }, []);
+    const x = clamp01((event.clientX - rect.left) / rect.width);
+    const y = clamp01((event.clientY - rect.top) / rect.height);
+    setLayout((l) => (placing === "id" ? { ...l, id_x: x, id_y: y } : { ...l, name_x: x, name_y: y }));
+  }, [placing]);
 
   const nudge = (event: React.KeyboardEvent) => {
     const step = event.shiftKey ? 0.01 : 0.002;
@@ -129,7 +216,11 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
     const move = moves[event.key];
     if (!move || locked) return;
     event.preventDefault();
-    setLayout((l) => ({ ...l, name_x: clamp01(l.name_x + move[0]), name_y: clamp01(l.name_y + move[1]) }));
+    setLayout((l) =>
+      placing === "id"
+        ? { ...l, id_x: clamp01(l.id_x + move[0]), id_y: clamp01(l.id_y + move[1]) }
+        : { ...l, name_x: clamp01(l.name_x + move[0]), name_y: clamp01(l.name_y + move[1]) },
+    );
   };
 
   const set = <K extends keyof CertificateLayout>(key: K, value: CertificateLayout[K]) =>
@@ -137,6 +228,31 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
 
   const dirty = JSON.stringify(layout) !== JSON.stringify(exam.certificate_layout ?? DEFAULT_CERTIFICATE_LAYOUT);
   const font = FONT_CSS[layout.font];
+  const sampleId = previewId(idPattern, idStart);
+
+  // Where and how big the sample name and ID are drawn: shrink a long name like the PDF does, and put the
+  // text's baseline (not its top) at the chosen point.
+  const shown = useMemo(() => {
+    void fontsReady;
+    let nameSize = layout.font_size * boxSize.height;
+    const limit = layout.max_width * boxSize.width;
+    const floor = nameSize * 0.4;
+    let nameMetrics = measureText(SAMPLE_NAME, layout.font, nameSize);
+    if (nameMetrics.width > limit && nameMetrics.width > 0) {
+      nameSize = Math.max(floor, (nameSize * limit) / nameMetrics.width);
+      nameMetrics = measureText(SAMPLE_NAME, layout.font, nameSize);
+    }
+    const idSize = layout.id_font_size * boxSize.height;
+    const idMetrics = measureText(sampleId, layout.id_font, idSize);
+    return {
+      nameSize,
+      nameTop: layout.name_y * boxSize.height - baselineOffset(nameSize, nameMetrics.ascent, nameMetrics.descent),
+      idSize,
+      idTop: layout.id_y * boxSize.height - baselineOffset(idSize, idMetrics.ascent, idMetrics.descent),
+    };
+  }, [layout, boxSize, fontsReady, sampleId]);
+  const idFont = FONT_CSS[layout.id_font];
+  const gradient = layout.color_end && layout.color_end.toLowerCase() !== layout.color.toLowerCase();
 
   return (
     <div className="space-y-3">
@@ -150,6 +266,17 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
           if (file) upload.mutate(file);
           e.target.value = "";
         }}
+      />
+
+      <CertificateIdFormat
+        examId={exam.id}
+        savedPattern={exam.certificate_id_pattern}
+        savedStart={exam.certificate_id_start}
+        pattern={idPattern}
+        start={idStart}
+        onPattern={setIdPattern}
+        onStart={setIdStart}
+        locked={locked}
       />
 
       {!exam.has_certificate_template ? (
@@ -171,19 +298,35 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            Click or drag on the certificate to place the name (arrow keys nudge it). The text shown is only a
-            sample - use "Preview PDF" to see exactly what students get.
+            Click or drag on the certificate to place the {placing === "id" ? "certificate ID" : "name"} (arrow keys
+            nudge it). The text shown is only a sample - use "Preview PDF" to see exactly what students get.
           </p>
+          {layout.show_id && (
+            <div className="flex items-center gap-2 text-sm" role="group" aria-label="What to move">
+              <span className="text-muted-foreground">Moving:</span>
+              {(["name", "id"] as const).map((target) => (
+                <Button
+                  key={target}
+                  type="button"
+                  size="sm"
+                  variant={placing === target ? "default" : "outline"}
+                  onClick={() => setPlacing(target)}
+                >
+                  {target === "name" ? "Student name" : "Certificate ID"}
+                </Button>
+              ))}
+            </div>
+          )}
 
           <div
             ref={boxRef}
             tabIndex={0}
             role="slider"
-            aria-label="Position of the student's name on the certificate"
+            aria-label={`Position of the ${placing === "id" ? "certificate ID" : "student name"} on the certificate`}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={Math.round(layout.name_x * 100)}
-            aria-valuetext={`${Math.round(layout.name_x * 100)}% from the left, ${Math.round(layout.name_y * 100)}% from the top`}
+            aria-valuenow={Math.round((placing === "id" ? layout.id_x : layout.name_x) * 100)}
+            aria-valuetext={`${Math.round((placing === "id" ? layout.id_x : layout.name_x) * 100)}% from the left, ${Math.round((placing === "id" ? layout.id_y : layout.name_y) * 100)}% from the top`}
             className="relative touch-none select-none overflow-hidden rounded-md border outline-none focus-visible:ring-2 focus-visible:ring-ring"
             style={{ cursor: locked ? "default" : "crosshair" }}
             onPointerDown={(e) => {
@@ -205,19 +348,28 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
             {imageUrl && (
               <>
                 <span
-                  className="pointer-events-none absolute whitespace-nowrap leading-none"
+                  className="pointer-events-none absolute whitespace-nowrap"
                   style={{
                     left: `${layout.name_x * 100}%`,
-                    top: `${layout.name_y * 100}%`,
-                    transform: "translate(-50%, -85%)",
-                    fontSize: `${layout.font_size * boxHeight}px`,
+                    top: `${shown.nameTop}px`,
+                    transform: "translateX(-50%)",
+                    fontSize: `${shown.nameSize}px`,
+                    lineHeight: 1,
+                    padding: "0 0.12em",
                     fontFamily: font.family,
                     fontStyle: font.style,
-                    fontWeight: 700,
-                    color: layout.color,
-                    maxWidth: `${layout.max_width * 100}%`,
-                    overflow: "hidden",
-                    outline: "1px dashed rgba(37, 99, 235, 0.7)",
+                    fontWeight: font.weight,
+                    fontSynthesis: "none",
+                    ...(gradient
+                      ? {
+                          backgroundImage: `linear-gradient(90deg, ${layout.color}, ${layout.color_end})`,
+                          WebkitBackgroundClip: "text",
+                          backgroundClip: "text",
+                          WebkitTextFillColor: "transparent",
+                          color: "transparent",
+                        }
+                      : { color: layout.color }),
+                    outline: placing === "name" ? "1px dashed rgba(37, 99, 235, 0.7)" : "none",
                     outlineOffset: "2px",
                   }}
                 >
@@ -227,6 +379,32 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
                   className="pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-600 ring-2 ring-white"
                   style={{ left: `${layout.name_x * 100}%`, top: `${layout.name_y * 100}%` }}
                 />
+                {layout.show_id && (
+                  <>
+                    <span
+                      className="pointer-events-none absolute whitespace-nowrap"
+                      style={{
+                        left: `${layout.id_x * 100}%`,
+                        top: `${shown.idTop}px`,
+                        fontSize: `${shown.idSize}px`,
+                        lineHeight: 1,
+                        fontFamily: idFont.family,
+                        fontStyle: idFont.style,
+                        fontWeight: idFont.weight,
+                        fontSynthesis: "none",
+                        color: layout.id_color,
+                        outline: placing === "id" ? "1px dashed rgba(5, 150, 105, 0.8)" : "none",
+                        outlineOffset: "2px",
+                      }}
+                    >
+                      {sampleId}
+                    </span>
+                    <span
+                      className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-600/80 ring-2 ring-white"
+                      style={{ left: `${layout.id_x * 100}%`, top: `${layout.id_y * 100}%` }}
+                    />
+                  </>
+                )}
               </>
             )}
           </div>
@@ -241,13 +419,11 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
                 value={layout.font}
                 onChange={(e) => set("font", e.target.value as CertificateFont)}
               >
-                <option value="sans_bold">Sans-serif bold</option>
-                <option value="serif_bold">Serif bold</option>
-                <option value="serif_bold_italic">Serif bold italic</option>
+                {FONT_GROUPS}
               </select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="cd-color">Text colour</Label>
+              <Label htmlFor="cd-color">{layout.color_end !== null ? "Gradient starts with" : "Text colour"}</Label>
               <input
                 id="cd-color"
                 type="color"
@@ -256,6 +432,43 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
                 value={layout.color}
                 onChange={(e) => set("color", e.target.value)}
               />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  disabled={locked}
+                  checked={layout.color_end !== null}
+                  onChange={(e) => set("color_end", e.target.checked ? DEFAULT_GRADIENT_END : null)}
+                />
+                <span>Gradient text (fades from the first colour on the left to a second colour on the right)</span>
+              </label>
+              {layout.color_end !== null && (
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="cd-color-end" className="text-sm">
+                    Gradient ends with
+                  </Label>
+                  <input
+                    id="cd-color-end"
+                    type="color"
+                    className="h-9 w-24 rounded-md border bg-background p-1"
+                    disabled={locked}
+                    value={layout.color_end}
+                    onChange={(e) => set("color_end", e.target.value)}
+                  />
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={locked}
+                onClick={() =>
+                  setLayout((l) => ({ ...l, font: "great_vibes", color: "#1e3a8a", color_end: DEFAULT_GRADIENT_END }))
+                }
+              >
+                Try: elegant blue script
+              </Button>
             </div>
             <div className="space-y-1">
               <Label htmlFor="cd-size">Text size</Label>
@@ -301,6 +514,66 @@ export function CertificateDesigner({ exam }: { exam: WorkshopExam }) {
               your design empty).
             </span>
           </label>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                disabled={locked}
+                checked={layout.show_id}
+                onChange={(e) => {
+                  set("show_id", e.target.checked);
+                  setPlacing(e.target.checked ? "id" : "name");
+                }}
+              />
+              <span>
+                Print each certificate's ID on the design (for a spot like "Certificate ID: ____"). Then use
+                "Moving: Certificate ID" above and click right after the label; the ID starts at that point.
+              </span>
+            </label>
+            {layout.show_id && (
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label htmlFor="cd-id-font">ID font</Label>
+                  <select
+                    id="cd-id-font"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    disabled={locked}
+                    value={layout.id_font}
+                    onChange={(e) => set("id_font", e.target.value as CertificateFont)}
+                  >
+                    {FONT_GROUPS}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="cd-id-color">ID colour</Label>
+                  <input
+                    id="cd-id-color"
+                    type="color"
+                    className="h-9 w-full rounded-md border bg-background p-1"
+                    disabled={locked}
+                    value={layout.id_color}
+                    onChange={(e) => set("id_color", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="cd-id-size">ID size</Label>
+                  <input
+                    id="cd-id-size"
+                    type="range"
+                    min={0.8}
+                    max={5}
+                    step={0.1}
+                    className="w-full"
+                    disabled={locked}
+                    value={layout.id_font_size * 100}
+                    onChange={(e) => set("id_font_size", Number(e.target.value) / 100)}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="flex flex-wrap gap-2">
             <Button disabled={!dirty || save.isPending || locked} onClick={() => save.mutate()}>

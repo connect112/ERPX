@@ -135,12 +135,12 @@ class HackathonCertificates:
             )
             self.db.add(attendee)
             await self.db.flush()
-            attendee.certificate_number = await self.exams._new_certificate_number()
+            attendee.certificate_number = await self.exams._new_certificate_number(exam)
             await self.db.flush()
             ids.append(attendee.id)
         for attendee in plan.to_resend:
             if attendee.certificate_number is None:
-                attendee.certificate_number = await self.exams._new_certificate_number()
+                attendee.certificate_number = await self.exams._new_certificate_number(exam)
             ids.append(attendee.id)
         await self.db.flush()
         return ids

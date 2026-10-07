@@ -1,0 +1,30 @@
+/* Script fonts for the certificate designer preview (SIL Open Font License; same files the API prints with). */
+@font-face {
+  font-family: "Great Vibes";
+  src: url("../../../assets/fonts/GreatVibes-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Allura";
+  src: url("../../../assets/fonts/Allura-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Alex Brush";
+  src: url("../../../assets/fonts/AlexBrush-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Pinyon Script";
+  src: url("../../../assets/fonts/PinyonScript-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Parisienne";
+  src: url("../../../assets/fonts/Parisienne-Regular.ttf") format("truetype");
+  font-display: swap;
+}
