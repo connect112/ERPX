@@ -160,6 +160,43 @@ def test_files_travel_to_the_provider_as_document_and_image_blocks_before_the_te
     assert blocks[2] == {"type": "text", "text": "mark this"}
 
 
+async def test_a_model_that_refuses_temperature_is_called_again_without_it_and_remembered(monkeypatch):
+    import httpx
+
+    from app.core.config import settings
+    from packages.ai import client as ai_client
+
+    monkeypatch.setattr(settings, "AI_API_KEY", "test-key")
+    monkeypatch.setattr(ai_client.AnthropicClient, "_no_temperature", set())
+    sent: list[dict] = []
+
+    class FakeHttp:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json, headers):
+            sent.append(dict(json))
+            request = httpx.Request("POST", url)
+            if "temperature" in json:
+                body = {"error": {"type": "invalid_request_error", "message": "`temperature` is deprecated for this model."}}
+                return httpx.Response(400, json=body, request=request)
+            return httpx.Response(200, json={"model": "m", "content": [{"type": "text", "text": "ok"}], "usage": {}}, request=request)
+
+    monkeypatch.setattr(ai_client.httpx, "AsyncClient", FakeHttp)
+    client = ai_client.AnthropicClient()
+    first = await client.complete("sys", [AIMessage("user", "hi")], temperature=0.2)
+    assert first.text == "ok" and ["temperature" in p for p in sent] == [True, False]
+    sent.clear()
+    await client.complete("sys", [AIMessage("user", "again")], temperature=0.2)  # remembered: no wasted first try
+    assert ["temperature" in p for p in sent] == [False]
+
+
 # ---------------- understanding the AI's answer ----------------
 
 

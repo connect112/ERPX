@@ -97,8 +97,16 @@ def _provider_reason(response: httpx.Response) -> str:
     return f": {text[:200]}" if text else ""
 
 
+def _rejects_temperature(response: httpx.Response) -> bool:
+    """Newer models refuse the `temperature` setting ("`temperature` is deprecated for this model")."""
+    return response.status_code == 400 and "temperature" in _provider_reason(response).lower()
+
+
 class AnthropicClient(AIClient):
     """Calls the Anthropic Messages API (https://api.anthropic.com/v1/messages)."""
+
+    # Models that answered 400 to `temperature`; they are called without it from then on.
+    _no_temperature: set[str] = set()
 
     def __init__(self) -> None:
         self.api_key = settings.AI_API_KEY
@@ -124,9 +132,10 @@ class AnthropicClient(AIClient):
             "model": self.model,
             "system": system_prompt,
             "max_tokens": max_tokens or self.default_max_tokens,
-            "temperature": temperature,
             "messages": [{"role": m.role, "content": _anthropic_content(m)} for m in messages],
         }
+        if self.model not in self._no_temperature:
+            payload["temperature"] = temperature
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": "2023-06-01",
@@ -138,6 +147,13 @@ class AnthropicClient(AIClient):
                 response = await client.post(
                     f"{self.base_url}/v1/messages", json=payload, headers=headers
                 )
+                if "temperature" in payload and _rejects_temperature(response):
+                    # This model doesn't take a temperature: remember that and ask again without it.
+                    self._no_temperature.add(self.model)
+                    payload.pop("temperature")
+                    response = await client.post(
+                        f"{self.base_url}/v1/messages", json=payload, headers=headers
+                    )
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:
