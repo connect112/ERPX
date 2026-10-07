@@ -19,6 +19,7 @@ const MessagingPage = lazy(() => import("@/features/messaging/pages/messaging-pa
 const HackathonsPage = lazy(() => import("@/features/hackathons/pages/hackathons-page").then((m) => ({ default: m.HackathonsPage })));
 const HackathonLeaderboardPage = lazy(() => import("@/features/hackathons/pages/hackathon-leaderboard-page").then((m) => ({ default: m.HackathonLeaderboardPage })));
 const HackathonAchievementsPage = lazy(() => import("@/features/hackathons/pages/hackathon-achievements-page").then((m) => ({ default: m.HackathonAchievementsPage })));
+const PublicLeaderboardPage = lazy(() => import("@/features/hackathons/pages/public-leaderboard-page").then((m) => ({ default: m.PublicLeaderboardPage })));
 const HackathonDetailPage = lazy(() => import("@/features/hackathons/pages/hackathon-detail-page").then((m) => ({ default: m.HackathonDetailPage })));
 // Workshops/Internships routes remain intentionally removed — see the
 // comment in layouts/app-layout.tsx. Hackathons are enabled for events that
@@ -33,6 +34,11 @@ export const router = createBrowserRouter([
   {
     path: "/reset-password",
     element: <ResetPasswordPage />,
+  },
+  {
+    // Public (no login): the shared live leaderboard for a projector.
+    path: "/live/:slug",
+    element: <PublicLeaderboardPage />,
   },
   {
     path: "/",

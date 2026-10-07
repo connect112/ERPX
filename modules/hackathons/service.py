@@ -1,7 +1,9 @@
+import secrets
 import uuid
 from datetime import date, datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,7 @@ from modules.hackathons.repository import (
     TeamMemberRepository,
     TeamRepository,
 )
+from modules.hackathons.slugs import slugify_title
 from modules.hackathons.team_codes import create_team_with_code, normalize_code
 from modules.students.repository import StudentRepository
 
@@ -45,9 +48,45 @@ class HackathonService:
         self, hackathon_id: uuid.UUID, organization_id: uuid.UUID, **fields
     ) -> Hackathon:
         hackathon = await self.get_hackathon(hackathon_id, organization_id)
-        updated = await self.repo.update(hackathon, **fields)
+        # The public leaderboard link: turning sharing on without a link name picks one from the title,
+        # and a link name another hackathon already uses is refused plainly. A link name can be changed
+        # but not cleared (turn sharing off instead).
+        if "leaderboard_slug" in fields and fields["leaderboard_slug"] is None:
+            del fields["leaderboard_slug"]
+        slug = fields.get("leaderboard_slug")
+        if slug is None and fields.get("leaderboard_share_enabled") and not hackathon.leaderboard_slug:
+            slug = fields["leaderboard_slug"] = await self._free_slug(hackathon.title)
+        if slug is not None and await self._slug_taken(slug, hackathon.id):
+            raise ConflictError("That link name is already used by another hackathon. Try a different one.")
+        try:
+            async with self.db.begin_nested():
+                updated = await self.repo.update(hackathon, **fields)
+        except IntegrityError:
+            raise ConflictError("That link name is already used by another hackathon. Try a different one.") from None
         logger.info("hackathon_updated", hackathon_id=str(hackathon_id))
         return updated
+
+    async def _slug_taken(self, slug: str, except_id: uuid.UUID) -> bool:
+        return (
+            await self.db.execute(
+                select(Hackathon.id).where(Hackathon.leaderboard_slug == slug, Hackathon.id != except_id)
+            )
+        ).first() is not None
+
+    async def _free_slug(self, title: str) -> str:
+        base = slugify_title(title)
+        candidate = base
+        while await self._slug_taken(candidate, uuid.UUID(int=0)):
+            candidate = f"{base}-{secrets.token_hex(2)}"
+        return candidate
+
+    async def public_leaderboard(self, slug: str):
+        """The hackathon behind a shared leaderboard link, or None (unknown link, or sharing is off)."""
+        return (
+            await self.db.execute(
+                select(Hackathon).where(Hackathon.leaderboard_slug == slug, Hackathon.leaderboard_share_enabled.is_(True))
+            )
+        ).scalar_one_or_none()
 
     async def change_status(
         self, hackathon_id: uuid.UUID, organization_id: uuid.UUID, status: HackathonStatus
