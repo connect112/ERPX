@@ -82,6 +82,8 @@ class WorkshopExam(TimestampedBase):
     # `certificate_id_counter` counts the in-order numbers handed out so far; the next one is start + counter.
     certificate_id_pattern: Mapped[str | None] = mapped_column(String(80), nullable=True)
     certificate_id_start: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    # Optional step before sending: the admin looks at every certificate and marks it verified.
+    certificate_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     certificate_id_counter: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
@@ -145,3 +147,7 @@ class WorkshopExamAttendee(TimestampedBase):
     # Added only to receive a certificate (a hackathon participant, say): never invited to, scored in or
     # counted in the exam itself.
     certificate_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # Review before sending: when the admin confirmed this certificate, and any fix to how the name is printed
+    # ({"size", "dx", "dy"}, see certificate_template.NameAdjust).
+    certificate_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    certificate_adjust: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

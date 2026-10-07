@@ -111,6 +111,18 @@ class WorkshopExamService:
         # the client actually sent.
         if exam.certificates_dispatched_at is not None and ("certificate_id_pattern" in fields or "certificate_id_start" in fields):
             raise ValidationError("Certificates have already been sent, so the certificate ID format can't be changed.")
+        if any(
+            key in fields and fields[key] != getattr(exam, key) for key in ("certificate_id_pattern", "certificate_id_start")
+        ):
+            given = (
+                await self.db.execute(
+                    select(WorkshopExamAttendee.id)
+                    .where(WorkshopExamAttendee.exam_id == exam.id, WorkshopExamAttendee.certificate_number.is_not(None))
+                    .limit(1)
+                )
+            ).first()
+            if given:
+                raise ValidationError("Some certificates already have an ID, so the ID format can't be changed any more.")
         for key, value in fields.items():
             setattr(exam, key, value)
         await self.db.flush()
@@ -313,6 +325,8 @@ class WorkshopExamService:
             clean = " ".join(name.split())
             if not clean:
                 raise ValidationError("The name can't be empty.")
+            if clean != attendee.name:
+                attendee.certificate_verified_at = None  # a different name needs looking at again
             attendee.name = clean
         email_changed = False
         if email is not None:
@@ -333,6 +347,61 @@ class WorkshopExamService:
             attendee.invited_at = _now()
             await self.db.flush()
         return attendee, link
+
+    # ---------------- certificate review (optional step before sending) ----------------
+
+    @staticmethod
+    def has_certificate(attendee: WorkshopExamAttendee) -> bool:
+        return attendee.submitted_at is not None or attendee.certificate_only
+
+    async def review_items(self, exam: WorkshopExam) -> list[WorkshopExamAttendee]:
+        """Everyone who gets a certificate (submitted the exam, or is certificate-only), each with their ID already
+        given so the review shows exactly what will be sent."""
+        items = [a for a in await self.list_attendees(exam.id) if self.has_certificate(a)]
+        for attendee in items:
+            if attendee.certificate_number is None:
+                attendee.certificate_number = await self._new_certificate_number(exam)
+                await self.db.flush()
+        return items
+
+    async def set_verified(self, exam: WorkshopExam, attendee_id: uuid.UUID, verified: bool) -> WorkshopExamAttendee:
+        attendee = await self._attendee(exam, attendee_id)
+        if verified and not self.has_certificate(attendee):
+            raise ValidationError("This person hasn't taken the exam, so there is no certificate to verify.")
+        attendee.certificate_verified_at = _now() if verified else None
+        await self.db.flush()
+        return attendee
+
+    async def verify_all(self, exam: WorkshopExam) -> int:
+        count = 0
+        for attendee in await self.review_items(exam):
+            if attendee.certificate_verified_at is None and attendee.certificate_sent_at is None:
+                attendee.certificate_verified_at = _now()
+                count += 1
+        await self.db.flush()
+        return count
+
+    async def set_adjust(
+        self, exam: WorkshopExam, attendee_id: uuid.UUID, adjust: dict | None
+    ) -> WorkshopExamAttendee:
+        """How this one person's name is printed (size / position). Needs another look afterwards."""
+        attendee = await self._attendee(exam, attendee_id)
+        attendee.certificate_adjust = adjust if adjust and adjust != {"size": 1.0, "dx": 0.0, "dy": 0.0} else None
+        attendee.certificate_verified_at = None
+        await self.db.flush()
+        return attendee
+
+    async def prepare_single_send(self, exam: WorkshopExam, attendee_id: uuid.UUID) -> WorkshopExamAttendee:
+        """Ready one person's certificate to be (re)sent now, e.g. after correcting their email address."""
+        attendee = await self._attendee(exam, attendee_id)
+        if not self.has_certificate(attendee):
+            raise ValidationError("This person hasn't taken the exam, so they have no certificate.")
+        if attendee.certificate_number is None:
+            attendee.certificate_number = await self._new_certificate_number(exam)
+        attendee.certificate_verified_at = _now()
+        attendee.certificate_sent_at = None
+        await self.db.flush()
+        return attendee
 
     async def reset_submission(self, exam: WorkshopExam, attendee_id: uuid.UUID) -> WorkshopExamAttendee:
         """Throw away a person's attempt (answers, score, timer) so they can sit the exam again with the same
@@ -728,6 +797,19 @@ class WorkshopExamService:
                 f"{len(writing)} student(s) are still writing the exam. Wait for them to finish, "
                 "or send now and submit their exams as they stand."
             )
+        if exam.certificate_review:
+            waiting = [
+                a
+                for a in attendees
+                if (self.has_certificate(a) or a.started_at is not None)
+                and a.certificate_sent_at is None
+                and a.certificate_verified_at is None
+            ]
+            if waiting:
+                raise ConflictError(
+                    f"{len(waiting)} certificate(s) haven't been reviewed yet. Open Review certificates and check "
+                    "them, or use Verify everyone to skip the check."
+                )
         pending: list[uuid.UUID] = []
         for attendee in attendees:
             if attendee.submitted_at is None and attendee.started_at is not None:

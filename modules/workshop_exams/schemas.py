@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from modules.workshop_exams import certificate_ids
-from modules.workshop_exams.certificate_template import CertificateLayout
+from modules.workshop_exams.certificate_template import CertificateLayout, NameAdjust
 from modules.workshop_exams.models import WorkshopExamStatus
 
 # Name and email are always asked, so an admin-defined field can't reuse them.
@@ -93,6 +93,7 @@ class ExamUpdateRequest(BaseModel):
     # "" clears it (back to the default ID style).
     certificate_id_pattern: str | None = Field(default=None, max_length=certificate_ids.MAX_PATTERN_LENGTH)
     certificate_id_start: int | None = Field(default=None, ge=0, le=999_999_999)
+    certificate_review: bool | None = None
 
     @field_validator("info_fields")
     @classmethod
@@ -153,6 +154,7 @@ class ExamPublicAdmin(BaseModel):
     certificate_layout: CertificateLayout | None = None
     certificate_id_pattern: str | None = None
     certificate_id_start: int = 1
+    certificate_review: bool = False
     question_count: int = 0
     attendee_count: int = 0
     created_at: datetime
@@ -234,10 +236,34 @@ class AttendeeAdmin(BaseModel):
     total_marks: int | None
     certificate_number: str | None
     certificate_sent_at: datetime | None
+    certificate_verified_at: datetime | None = None
     # Only here to receive a certificate (e.g. a hackathon participant); not part of the exam.
     certificate_only: bool = False
 
     model_config = {"from_attributes": True}
+
+
+class ReviewItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    email: str
+    certificate_number: str | None
+    certificate_verified_at: datetime | None
+    certificate_sent_at: datetime | None
+    certificate_only: bool
+    certificate_adjust: NameAdjust | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ReviewResponse(BaseModel):
+    # Whether sending waits until every certificate has been verified.
+    required: bool
+    items: list[ReviewItem]
+
+
+class VerifyRequest(BaseModel):
+    verified: bool = True
 
 
 class AttendeeUpdateRequest(BaseModel):
@@ -386,4 +412,6 @@ class HackathonCertificatesResponse(BaseModel):
     on_exam: int
     no_email: int
     sent: bool = False
+    # The people were added, but their certificates wait for review instead of being sent.
+    held_for_review: bool = False
     message: str = ""

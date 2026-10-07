@@ -26,20 +26,26 @@ export function AttendeeEditDialog({
   const queryClient = useQueryClient();
   const [name, setName] = useState(attendee.name);
   const [email, setEmail] = useState(attendee.email);
-  const [sendLink, setSendLink] = useState(true);
+  const [sendLink, setSendLink] = useState(false);
+  const [sendCertificate, setSendCertificate] = useState(false);
 
   const emailChanged = email.trim().toLowerCase() !== attendee.email.toLowerCase();
   const nameChanged = name.trim().replace(/\s+/g, " ") !== attendee.name;
   const changed = nameChanged || emailChanged;
   const canSendLink = emailChanged && !attendee.certificate_only && !attendee.submitted_at;
   const certificateSent = attendee.certificate_sent_at !== null;
+  // A person who has a certificate can have it sent to a corrected address, but only when asked.
+  const canSendCertificate = emailChanged && attendee.certificate_number !== null;
 
   const save = useMutation({
-    mutationFn: () =>
-      workshopExamsApi.updateAttendee(examId, attendee.id, {
+    mutationFn: async () => {
+      const saved = await workshopExamsApi.updateAttendee(examId, attendee.id, {
         ...(nameChanged ? { name: name.trim() } : {}),
         ...(emailChanged ? { email: email.trim(), send_link: canSendLink && sendLink } : {}),
-      }),
+      });
+      if (canSendCertificate && sendCertificate) await workshopExamsApi.sendCertificate(examId, attendee.id);
+      return saved;
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["workshop-exams"] });
       onClose();
@@ -74,6 +80,17 @@ export function AttendeeEditDialog({
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-0.5" checked={sendLink} onChange={(e) => setSendLink(e.target.checked)} />
               <span>Email their exam link to the new address</span>
+            </label>
+          )}
+          {canSendCertificate && (
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={sendCertificate}
+                onChange={(e) => setSendCertificate(e.target.checked)}
+              />
+              <span>{certificateSent ? "Send their certificate again to the new address" : "Send their certificate to the new address now"}</span>
             </label>
           )}
           {certificateSent && (

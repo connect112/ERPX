@@ -206,6 +206,12 @@ export function HackathonCertificatesDialog({ exam, onClose }: { exam: WorkshopE
             </div>
           )}
 
+          {exam.certificate_review && !sent && (
+            <p className="rounded-md bg-sky-50 p-2 text-sm text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
+              Review is switched on for this exam: these people are added with their certificate ready, but nothing is
+              emailed until you check them in Review certificates and send.
+            </p>
+          )}
           {sentMessage && <p className="rounded-md bg-emerald-50 p-2 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">{sentMessage}</p>}
           {send.isError && <p className="text-sm text-destructive">{errorMessage(send.error, "Could not send the certificates.")}</p>}
 
@@ -227,7 +233,13 @@ export function HackathonCertificatesDialog({ exam, onClose }: { exam: WorkshopE
               }}
             >
               <Send className="h-4 w-4" />
-              {send.isPending ? "Sending..." : plan ? `Send ${plan.will_send} certificate${plan.will_send === 1 ? "" : "s"}` : "Send"}
+              {send.isPending
+                ? "Working..."
+                : plan
+                  ? `${exam.certificate_review ? "Add" : "Send"} ${plan.will_send} certificate${plan.will_send === 1 ? "" : "s"}`
+                  : exam.certificate_review
+                    ? "Add"
+                    : "Send"}
             </Button>
           </div>
         </div>

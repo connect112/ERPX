@@ -84,6 +84,14 @@ class CertificateLayout(BaseModel):
     show_verification: bool = False
 
 
+class NameAdjust(BaseModel):
+    """A fix for one person's name on their own certificate (a long name, a design that sits differently)."""
+
+    size: float = Field(default=1.0, ge=0.3, le=2.0)  # multiplies the font size
+    dx: float = Field(default=0.0, ge=-0.5, le=0.5)  # moves right, fraction of the page width
+    dy: float = Field(default=0.0, ge=-0.3, le=0.3)  # moves down, fraction of the page height
+
+
 class TemplateError(ValueError):
     """The uploaded file can't be used as a certificate template."""
 
@@ -158,6 +166,7 @@ def build_templated_certificate_pdf(
     attendee_name: str,
     certificate_number: str,
     verify_url: str,
+    adjust: NameAdjust | None = None,
 ) -> bytes:
     attendee_name = printable_name(attendee_name)
     # Page keeps the artwork's own proportions, A4-sized along its long edge.
@@ -172,12 +181,22 @@ def build_templated_certificate_pdf(
     c.drawImage(ImageReader(io.BytesIO(template_jpeg)), 0, 0, width=page_w, height=page_h)
 
     font = _pdf_font(layout.font)
+    adjust = adjust or NameAdjust()
     size = layout.font_size * page_h
     limit = layout.max_width * page_w
     floor = size * 0.4
     while size > floor and c.stringWidth(attendee_name, font, size) > limit:
         size -= 0.5
-    _draw_name(c, layout, attendee_name, font, size, layout.name_x * page_w, page_h - layout.name_y * page_h)
+    size *= adjust.size  # the admin's fix comes after the automatic fit, so it can go smaller or larger than it
+    _draw_name(
+        c,
+        layout,
+        attendee_name,
+        font,
+        size,
+        (layout.name_x + adjust.dx) * page_w,
+        page_h - (layout.name_y + adjust.dy) * page_h,
+    )
 
     if layout.show_id:
         c.setFillColor(_hex(layout.id_color))
