@@ -107,10 +107,14 @@ export interface Attendee {
   total_marks: number | null;
   certificate_number: string | null;
   certificate_sent_at: string | null;
+  /** Only here to receive a certificate (e.g. a hackathon participant); not part of the exam. */
+  certificate_only: boolean;
 }
 
 export interface Dashboard {
   total_attendees: number;
+  /** People given a certificate only (they are not counted in the exam numbers). */
+  certificate_only: number;
   invited: number;
   not_started: number;
   in_progress: number;
@@ -118,6 +122,29 @@ export interface Dashboard {
   certificates_sent: number;
   average_score_percent: number | null;
   attendees: Attendee[];
+}
+
+export type HackathonAudience = "all" | "teams" | "scored" | "top";
+
+/** What will happen to each person: new / resend = a certificate is sent; the others are left alone. */
+export type RecipientStatus = "new" | "resend" | "already_sent" | "on_exam" | "no_email";
+
+export interface CertificateRecipient {
+  name: string;
+  email: string | null;
+  team_name: string | null;
+  status: RecipientStatus;
+}
+
+export interface HackathonCertificatesResult {
+  hackathon_title: string;
+  recipients: CertificateRecipient[];
+  will_send: number;
+  already_sent: number;
+  on_exam: number;
+  no_email: number;
+  sent: boolean;
+  message: string;
 }
 
 export const workshopExamsApi = {
@@ -181,6 +208,14 @@ export const workshopExamsApi = {
       .post<{ message: string }>(`/workshop-exams/${id}/certificates/send-now`, {
         include_in_progress: includeInProgress,
       })
+      .then((r) => r.data),
+  /** Without confirm: who would get this exam's certificate from a hackathon. With confirm: add them and send. */
+  hackathonCertificates: (
+    id: string,
+    payload: { hackathon_id: string; audience: HackathonAudience; top_n?: number; confirm: boolean }
+  ) =>
+    apiClient
+      .post<HackathonCertificatesResult>(`/workshop-exams/${id}/certificates/hackathon`, payload)
       .then((r) => r.data),
   downloadResults: async (id: string) => {
     const response = await apiClient.get(`/workshop-exams/${id}/results.csv`, { responseType: "blob" });

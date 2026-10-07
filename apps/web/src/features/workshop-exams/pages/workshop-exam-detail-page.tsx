@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Copy, Download, Plus, Send, X } from "lucide-react";
+import { ArrowLeft, Award, Check, Copy, Download, Plus, Send, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { CertificateDesigner } from "@/features/workshop-exams/components/certificate-designer";
 import { CodeTextarea } from "@/features/workshop-exams/components/code-textarea";
+import { HackathonCertificatesDialog } from "@/features/workshop-exams/components/hackathon-certificates-dialog";
 import { RichText } from "@/features/workshop-exams/components/rich-text";
 import { QuestionEditor } from "@/features/workshop-exams/components/question-editor";
 import { BLANK_QUESTION } from "@/features/workshop-exams/lib/question-draft";
@@ -151,6 +152,7 @@ export function WorkshopExamDetailPage() {
 // ---------------- Live ----------------
 
 function attendeeStatus(a: Attendee): { label: string; variant: "secondary" | "info" | "success" } {
+  if (a.certificate_only) return { label: "Certificate only", variant: "secondary" };
   if (a.submitted_at) return { label: "Submitted", variant: "success" };
   if (a.started_at) return { label: "Writing", variant: "info" };
   return { label: "Not started", variant: "secondary" };
@@ -158,6 +160,7 @@ function attendeeStatus(a: Attendee): { label: string; variant: "secondary" | "i
 
 function LiveTab({ exam }: { exam: WorkshopExam }) {
   const queryClient = useQueryClient();
+  const [hackathonCertificatesOpen, setHackathonCertificatesOpen] = useState(false);
   const { data } = useQuery({
     queryKey: ["workshop-exams", exam.id, "dashboard"],
     queryFn: () => workshopExamsApi.dashboard(exam.id),
@@ -185,11 +188,12 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
     { label: "Submitted", value: data?.submitted },
     { label: "Avg score", value: data?.average_score_percent != null ? `${data.average_score_percent}%` : "-" },
     { label: "Certificates sent", value: data?.certificates_sent },
+    { label: "Certificate only", value: data?.certificate_only },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-7">
         {stats.map((s) => (
           <Card key={s.label}>
             <CardContent className="p-4">
@@ -219,6 +223,10 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
         >
           <Send className="h-4 w-4" />
           Send certificates now
+        </Button>
+        <Button variant="outline" onClick={() => setHackathonCertificatesOpen(true)}>
+          <Award className="h-4 w-4" />
+          Certificates for a hackathon
         </Button>
         {sendNow.isSuccess && <span className="self-center text-sm text-muted-foreground">{sendNow.data.message}</span>}
         {sendNow.isError && (sendNow.error as { response?: { status?: number } })?.response?.status !== 409 && (
@@ -276,6 +284,9 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
           </Table>
         </CardContent>
       </Card>
+      {hackathonCertificatesOpen && (
+        <HackathonCertificatesDialog exam={exam} onClose={() => setHackathonCertificatesOpen(false)} />
+      )}
     </div>
   );
 }
@@ -305,7 +316,9 @@ function AttendeesTab({ exam }: { exam: WorkshopExam }) {
     onSuccess: invalidate,
   });
 
-  const notInvited = (attendees ?? []).filter((a) => !a.invited_at && !a.submitted_at).length;
+  // People given a certificate only (e.g. hackathon participants) are not part of the exam: no link, no count.
+  const examAttendees = (attendees ?? []).filter((a) => !a.certificate_only);
+  const notInvited = examAttendees.filter((a) => !a.invited_at && !a.submitted_at).length;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -383,7 +396,7 @@ function AttendeesTab({ exam }: { exam: WorkshopExam }) {
             </Button>
             <Button
               variant="outline"
-              disabled={(attendees?.length ?? 0) === 0 || invite.isPending}
+              disabled={examAttendees.length === 0 || invite.isPending}
               onClick={() => {
                 if (window.confirm("Re-send the link to everyone who hasn't submitted yet?")) invite.mutate(true);
               }}
@@ -393,8 +406,7 @@ function AttendeesTab({ exam }: { exam: WorkshopExam }) {
           </div>
           {invite.isSuccess && <p className="text-sm text-muted-foreground">Queued {invite.data.queued} email(s).</p>}
           <p className="text-sm text-muted-foreground">
-            {attendees?.length ?? 0} attendee(s) in total, {(attendees ?? []).filter((a) => a.invited_at).length}{" "}
-            invited.
+            {examAttendees.length} attendee(s) in total, {examAttendees.filter((a) => a.invited_at).length} invited.
           </p>
         </CardContent>
       </Card>
