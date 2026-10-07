@@ -1,10 +1,20 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { HackathonPublic } from "@/features/hackathons/api/hackathons-api";
-import { useStaffLeaderboard, useUpdateHackathon } from "@/features/hackathons/api/hackathons-hooks";
+import {
+  useStaffLeaderboard,
+  useUpdateHackathon,
+} from "@/features/hackathons/api/hackathons-hooks";
 import { EventTimerCard } from "@/features/hackathons/components/event-timer-card";
 import { LeaderboardShareCard } from "@/features/hackathons/components/leaderboard-share-card";
 import { ScoreBarChart } from "@/features/hackathons/components/score-bar-chart";
+import { TeamGrid } from "@/features/hackathons/components/team-grid";
 
 const MEDAL: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
@@ -33,27 +43,41 @@ export function LeaderboardTab({ hackathon }: { hackathon: HackathonPublic }) {
             {isLoading ? (
               <Skeleton className="h-52 w-full" />
             ) : board && board.entries.length > 0 ? (
-              <div className="space-y-6">
-                <ScoreBarChart entries={board.entries} />
-                <ol className="divide-y">
-                  {board.entries.map((entry) => (
-                    <li key={`${entry.rank}-${entry.team_name}`} className="flex items-center gap-4 py-3">
-                      <span className="w-10 text-center text-xl font-semibold">{MEDAL[entry.rank] ?? entry.rank}</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium">{entry.team_name}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {entry.tasks_scored} task{entry.tasks_scored === 1 ? "" : "s"} scored
-                          {entry.members.length > 0 && ` · ${entry.members.join(", ")}`}
-                        </p>
-                      </div>
-                      <span className="text-lg font-semibold">{entry.score}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
+              board.show_graph ? (
+                <div className="space-y-6">
+                  <ScoreBarChart entries={board.entries} />
+                  <ol className="divide-y">
+                    {board.entries.map((entry) => (
+                      <li
+                        key={`${entry.rank}-${entry.team_name}`}
+                        className="flex items-center gap-4 py-3"
+                      >
+                        <span className="w-10 text-center text-xl font-semibold">
+                          {MEDAL[entry.rank] ?? entry.rank}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">{entry.team_name}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {entry.tasks_scored} task
+                            {entry.tasks_scored === 1 ? "" : "s"} scored
+                            {entry.members.length > 0 &&
+                              ` · ${entry.members.join(", ")}`}
+                          </p>
+                        </div>
+                        <span className="text-lg font-semibold">
+                          {entry.score}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : (
+                <TeamGrid entries={board.entries} compact />
+              )
             ) : (
               <p className="py-6 text-center text-sm text-muted-foreground">
-                No task has been scored yet. Teams appear here as soon as you award a score.
+                No task has been scored yet. Teams appear here as soon as you
+                award a score.
               </p>
             )}
           </CardContent>
@@ -65,23 +89,47 @@ export function LeaderboardTab({ hackathon }: { hackathon: HackathonPublic }) {
         <LeaderboardShareCard hackathon={hackathon} />
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Participants' view</CardTitle>
+            <CardTitle className="text-base">Leaderboard display</CardTitle>
             <CardDescription>
               {hackathon.leaderboard_visible
                 ? "Participants can see this leaderboard in the student portal."
                 : "Hidden: participants can't see the leaderboard right now (you still can)."}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <label className="flex items-start gap-2 text-sm">
               <input
                 type="checkbox"
                 className="mt-0.5"
                 checked={hackathon.leaderboard_visible}
                 disabled={updateHackathon.isPending}
-                onChange={(e) => updateHackathon.mutate({ leaderboard_visible: e.target.checked })}
+                onChange={(e) =>
+                  updateHackathon.mutate({
+                    leaderboard_visible: e.target.checked,
+                  })
+                }
               />
               <span>Show the leaderboard to participants</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={hackathon.leaderboard_show_graph}
+                disabled={updateHackathon.isPending}
+                onChange={(e) =>
+                  updateHackathon.mutate({
+                    leaderboard_show_graph: e.target.checked,
+                  })
+                }
+              />
+              <span>
+                Show the bar graph
+                <span className="block text-xs text-muted-foreground">
+                  Applies to the participants' leaderboard and the presentation
+                  page. Off shows every team as a card instead.
+                </span>
+              </span>
             </label>
           </CardContent>
         </Card>

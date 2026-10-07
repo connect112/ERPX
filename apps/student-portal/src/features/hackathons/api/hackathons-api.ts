@@ -136,6 +136,8 @@ export interface PublicLeaderboard {
   status: string;
   max_total: number;
   show_members: boolean;
+  /** Whether to draw the bar graph; off shows the teams as a grid of cards. */
+  show_graph: boolean;
   updated_at: string;
   timer_starts_at: string | null;
   timer_ends_at: string | null;
@@ -150,6 +152,8 @@ export interface LeaderboardBoard {
   published: boolean;
   /** Total marks available across all tasks (the full scale of the bar chart). */
   max_total: number;
+  /** Whether to draw the bar graph; off shows the teams as a grid of cards. */
+  show_graph: boolean;
   entries: LeaderboardEntry[];
 }
 

@@ -9,6 +9,7 @@ import { useTheme } from "@/components/theme-provider";
 import { usePublicLeaderboard } from "@/features/hackathons/api/hackathons-hooks";
 import { EventTimer } from "@/features/hackathons/components/event-timer";
 import { ScoreBarChart } from "@/features/hackathons/components/score-bar-chart";
+import { TeamGrid } from "@/features/hackathons/components/team-grid";
 
 const MEDAL: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
@@ -110,22 +111,28 @@ export function PublicLeaderboardPage() {
             <CardContent>
               {data.entries.length > 0 ? (
                 <div className="space-y-6">
-                  <ScoreBarChart entries={data.entries} />
-                  <ol className="divide-y">
-                    {data.entries.map((entry) => (
-                      <li key={`${entry.rank}-${entry.team_name}`} className="flex items-center gap-4 py-3">
-                        <span className="w-10 text-center text-xl font-semibold">{MEDAL[entry.rank] ?? entry.rank}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium">{entry.team_name}</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {entry.tasks_scored} task{entry.tasks_scored === 1 ? "" : "s"} scored
-                            {entry.members.length > 0 && ` · ${entry.members.join(", ")}`}
-                          </p>
-                        </div>
-                        <span className="text-lg font-semibold">{entry.score}</span>
-                      </li>
-                    ))}
-                  </ol>
+                  {data.show_graph ? (
+                    <>
+                        <ScoreBarChart entries={data.entries} />
+                    <ol className="divide-y">
+                      {data.entries.map((entry) => (
+                        <li key={`${entry.rank}-${entry.team_name}`} className="flex items-center gap-4 py-3">
+                          <span className="w-10 text-center text-xl font-semibold">{MEDAL[entry.rank] ?? entry.rank}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">{entry.team_name}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {entry.tasks_scored} task{entry.tasks_scored === 1 ? "" : "s"} scored
+                              {entry.members.length > 0 && ` · ${entry.members.join(", ")}`}
+                            </p>
+                          </div>
+                          <span className="text-lg font-semibold">{entry.score}</span>
+                        </li>
+                      ))}
+                    </ol>
+                    </>
+                  ) : (
+                    <TeamGrid entries={data.entries} />
+                  )}
                 </div>
               ) : (
                 <p className="py-4 text-center text-sm text-muted-foreground">
