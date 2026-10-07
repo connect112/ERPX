@@ -197,6 +197,20 @@ export const workshopExamsApi = {
     apiClient
       .post<{ added: number; skipped_duplicates: number }>(`/workshop-exams/${id}/attendees`, { attendees })
       .then((r) => r.data),
+  /** Correct a name and/or email; the personal exam link stays the same. */
+  updateAttendee: (
+    id: string,
+    attendeeId: string,
+    payload: { name?: string; email?: string; send_link?: boolean }
+  ) => apiClient.patch<Attendee>(`/workshop-exams/${id}/attendees/${attendeeId}`, payload).then((r) => r.data),
+  /** Delete one person's submission so they can sit the exam again with their link. */
+  resetSubmission: (id: string, attendeeId: string) =>
+    apiClient
+      .post<{ message: string }>(`/workshop-exams/${id}/attendees/${attendeeId}/reset-submission`)
+      .then((r) => r.data),
+  /** Remove a person, their submission and any certificate issued to them. */
+  deleteAttendee: (id: string, attendeeId: string) =>
+    apiClient.delete<{ message: string }>(`/workshop-exams/${id}/attendees/${attendeeId}`).then((r) => r.data),
   sendInvites: (id: string, resendAll: boolean) =>
     apiClient
       .post<{ queued: number }>(`/workshop-exams/${id}/invites`, { resend_all: resendAll })

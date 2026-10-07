@@ -282,6 +282,82 @@ class WorkshopExamService:
         )
         return list(result.scalars().all())
 
+    async def _attendee(self, exam: WorkshopExam, attendee_id: uuid.UUID) -> WorkshopExamAttendee:
+        attendee = (
+            await self.db.execute(
+                select(WorkshopExamAttendee).where(
+                    WorkshopExamAttendee.id == attendee_id, WorkshopExamAttendee.exam_id == exam.id
+                )
+            )
+        ).scalar_one_or_none()
+        if attendee is None:
+            raise NotFoundError("Attendee", attendee_id)
+        return attendee
+
+    async def update_attendee(
+        self,
+        exam: WorkshopExam,
+        attendee_id: uuid.UUID,
+        name: str | None,
+        email: str | None,
+        send_link: bool = False,
+    ) -> tuple[WorkshopExamAttendee, bool]:
+        """Correct a person's name and/or email. Their personal link is unchanged (it belongs to the person,
+        not the address). Returns the attendee and whether a link should now be emailed to the new address:
+        only when asked, the address changed, and they still have the exam to sit."""
+        attendee = await self._attendee(exam, attendee_id)
+        if name is not None:
+            clean = " ".join(name.split())
+            if not clean:
+                raise ValidationError("The name can't be empty.")
+            attendee.name = clean
+        email_changed = False
+        if email is not None:
+            new_email = email.strip().lower()
+            if new_email != attendee.email:
+                clash = await self._find_by_email(exam.id, new_email)
+                if clash is not None and clash.id != attendee.id:
+                    raise ConflictError("Another attendee of this exam already uses that email address.")
+                attendee.email = new_email
+                email_changed = True
+        try:
+            async with self.db.begin_nested():
+                await self.db.flush()
+        except IntegrityError:
+            raise ConflictError("Another attendee of this exam already uses that email address.") from None
+        link = send_link and email_changed and not attendee.certificate_only and attendee.submitted_at is None
+        if link:
+            attendee.invited_at = _now()
+            await self.db.flush()
+        return attendee, link
+
+    async def reset_submission(self, exam: WorkshopExam, attendee_id: uuid.UUID) -> WorkshopExamAttendee:
+        """Throw away a person's attempt (answers, score, timer) so they can sit the exam again with the same
+        link. Not once their certificate has been sent: that would leave a valid certificate for an exam that
+        no longer has a result (remove the attendee instead to cancel it)."""
+        attendee = await self._attendee(exam, attendee_id)
+        if attendee.certificate_sent_at is not None:
+            raise ConflictError(
+                "A certificate has already been sent to this person. Remove them from the exam instead, "
+                "which also cancels that certificate."
+            )
+        attendee.answers = {}
+        attendee.started_at = None
+        attendee.submitted_at = None
+        attendee.score = None
+        attendee.total_marks = None
+        # A certificate that was issued but not delivered yet would no longer be earned; the send task skips it.
+        if not attendee.certificate_only:
+            attendee.certificate_number = None
+        await self.db.flush()
+        return attendee
+
+    async def delete_attendee(self, exam: WorkshopExam, attendee_id: uuid.UUID) -> None:
+        """Remove a person and everything of theirs from the exam. Their certificate number stops verifying."""
+        attendee = await self._attendee(exam, attendee_id)
+        await self.db.delete(attendee)
+        await self.db.flush()
+
     async def mark_invites(self, exam: WorkshopExam, resend_all: bool) -> list[uuid.UUID]:
         attendees = await self.list_attendees(exam.id)
         now = _now()

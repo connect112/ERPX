@@ -206,6 +206,18 @@ class AttendeeAdmin(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AttendeeUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: EmailStr | None = None
+    # After changing the email, send the exam link to the new address (if they still have the exam to sit).
+    send_link: bool = False
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trim(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
 class DashboardResponse(BaseModel):
     total_attendees: int
     certificate_only: int = 0

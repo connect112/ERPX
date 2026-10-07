@@ -30,6 +30,7 @@ from modules.workshop_exams.certificate_template import (
 from modules.workshop_exams.schemas import (
     AnswersRequest,
     AttendeeAdmin,
+    AttendeeUpdateRequest,
     AttendeesImportRequest,
     AttendeesImportResponse,
     CertificatePreviewRequest,
@@ -348,6 +349,58 @@ async def list_attendees(
     service = WorkshopExamService(db)
     exam = await service.get_exam(exam_id, organization_id)
     return [AttendeeAdmin.model_validate(a) for a in await service.list_attendees(exam.id)]
+
+
+@router.patch("/{exam_id}/attendees/{attendee_id}", response_model=AttendeeAdmin)
+async def update_attendee(
+    exam_id: uuid.UUID,
+    attendee_id: uuid.UUID,
+    payload: AttendeeUpdateRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Correct an attendee's name or email. Their personal exam link stays the same."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    attendee, send_link = await service.update_attendee(
+        exam, attendee_id, payload.name, str(payload.email) if payload.email else None, payload.send_link
+    )
+    result = AttendeeAdmin.model_validate(attendee)
+    await db.commit()
+    if send_link:
+        enqueue_invite_best_effort(attendee.id)
+    return result
+
+
+@router.post("/{exam_id}/attendees/{attendee_id}/reset-submission", response_model=MessageResponse)
+async def reset_attendee_submission(
+    exam_id: uuid.UUID,
+    attendee_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete one person's submission (answers, score and timer) so they can sit the exam again."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    attendee = await service.reset_submission(exam, attendee_id)
+    return MessageResponse(message=f"{attendee.name}'s submission was deleted. They can sit the exam again with their link.")
+
+
+@router.delete("/{exam_id}/attendees/{attendee_id}", response_model=MessageResponse)
+async def delete_attendee(
+    exam_id: uuid.UUID,
+    attendee_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove an attendee, their submission and any certificate issued to them."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    await service.delete_attendee(exam, attendee_id)
+    return MessageResponse(message="The attendee was removed.")
 
 
 @router.post("/{exam_id}/invites", response_model=InvitesResponse)
