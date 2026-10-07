@@ -558,7 +558,10 @@ async def test_certificate_layout_is_validated_and_saved(client, auth_headers):
     }
     saved = await client.patch(f"{_BASE}/{exam['id']}", json={"certificate_layout": layout}, headers=auth_headers)
     assert saved.status_code == 200, saved.text
-    assert saved.json()["certificate_layout"] == layout
+    # What was sent comes back unchanged; the newer fields (gradient end, ID placement) take their defaults.
+    assert {k: v for k, v in saved.json()["certificate_layout"].items() if k in layout} == layout
+    assert saved.json()["certificate_layout"]["color_end"] is None
+    assert saved.json()["certificate_layout"]["show_id"] is False
 
 
 async def test_preview_prints_a_sample_name_on_the_uploaded_design(client, auth_headers, readable_pdfs):

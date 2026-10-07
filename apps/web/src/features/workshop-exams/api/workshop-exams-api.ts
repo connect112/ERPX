@@ -14,7 +14,15 @@ export interface InfoField {
   options: string[];
 }
 
-export type CertificateFont = "sans_bold" | "serif_bold" | "serif_bold_italic";
+export type CertificateFont =
+  | "sans_bold"
+  | "serif_bold"
+  | "serif_bold_italic"
+  | "great_vibes"
+  | "allura"
+  | "alex_brush"
+  | "pinyon_script"
+  | "parisienne";
 
 /** Where and how each student's name is printed on the uploaded design (fractions of the page). */
 export interface CertificateLayout {
@@ -23,8 +31,17 @@ export interface CertificateLayout {
   font_size: number;
   max_width: number;
   color: string;
+  /** Second colour: the name is painted as a left-to-right gradient from `color` to this. */
+  color_end: string | null;
   font: CertificateFont;
   show_verification: boolean;
+  /** Print the certificate ID (left-aligned at id_x / id_y, e.g. after a "Certificate ID:" label). */
+  show_id: boolean;
+  id_x: number;
+  id_y: number;
+  id_font_size: number;
+  id_color: string;
+  id_font: CertificateFont;
 }
 
 export const DEFAULT_CERTIFICATE_LAYOUT: CertificateLayout = {
@@ -33,8 +50,15 @@ export const DEFAULT_CERTIFICATE_LAYOUT: CertificateLayout = {
   font_size: 0.07,
   max_width: 0.7,
   color: "#1f2937",
+  color_end: null,
   font: "sans_bold",
   show_verification: false,
+  show_id: false,
+  id_x: 0.82,
+  id_y: 0.27,
+  id_font_size: 0.018,
+  id_color: "#1f2937",
+  id_font: "sans_bold",
 };
 
 export interface WorkshopExam {
@@ -53,6 +77,9 @@ export interface WorkshopExam {
   certificate_text: string | null;
   has_certificate_template: boolean;
   certificate_layout: CertificateLayout | null;
+  /** How certificate IDs look, e.g. "GIR-{YYYY}-{#4}"; null = the default style. */
+  certificate_id_pattern: string | null;
+  certificate_id_start: number;
   question_count: number;
   attendee_count: number;
   created_at: string;
@@ -75,6 +102,15 @@ export interface ExamUpdatePayload {
   certificate_release_at?: string | null;
   info_fields?: InfoField[];
   certificate_layout?: CertificateLayout;
+  /** "" clears it (back to the default style). */
+  certificate_id_pattern?: string;
+  certificate_id_start?: number;
+}
+
+/** An ID format that has not been saved yet, so previews can show it. */
+export interface CertificateIdDraft {
+  id_pattern?: string;
+  id_start?: number;
 }
 
 export interface QuestionInput {
@@ -175,14 +211,19 @@ export const workshopExamsApi = {
     apiClient
       .get<Blob>(`/workshop-exams/${id}/certificate/template`, { responseType: "blob" })
       .then((r) => r.data),
-  certificatePreviewPdf: (id: string, layout: CertificateLayout) =>
+  certificatePreviewPdf: (id: string, layout: CertificateLayout, draft: CertificateIdDraft = {}) =>
     apiClient
-      .post<Blob>(`/workshop-exams/${id}/certificate/preview`, { layout }, { responseType: "blob" })
+      .post<Blob>(`/workshop-exams/${id}/certificate/preview`, { layout, ...draft }, { responseType: "blob" })
       .then((r) => r.data),
-  emailTestCertificate: (id: string, email: string, layout: CertificateLayout) =>
+  emailTestCertificate: (id: string, email: string, layout: CertificateLayout, draft: CertificateIdDraft = {}) =>
     apiClient
-      .post<{ message: string }>(`/workshop-exams/${id}/certificate/test-email`, { email, layout })
+      .post<{ message: string }>(`/workshop-exams/${id}/certificate/test-email`, { email, layout, ...draft })
       .then((r) => r.data),
+  /** What IDs in this format look like (nothing is saved). Rejects with a message if the format is unusable. */
+  certificateIdExamples: (id: string, pattern: string, start: number) =>
+    apiClient
+      .post<{ examples: string[] }>(`/workshop-exams/${id}/certificate/id-preview`, { pattern, start })
+      .then((r) => r.data.examples),
 
   questions: (id: string) => apiClient.get<Question[]>(`/workshop-exams/${id}/questions`).then((r) => r.data),
   updateQuestion: (id: string, questionId: string, payload: QuestionInput) =>

@@ -3,12 +3,13 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.core.logging_config import get_logger
+from modules.workshop_exams import certificate_ids
 from modules.workshop_exams.certificate_template import CertificateLayout
 from modules.workshop_exams.models import (
     WorkshopExam,
@@ -108,6 +109,8 @@ class WorkshopExamService:
         # Unlike a plain PATCH, certificate_release_at may legitimately be
         # set to None (to unschedule), so the caller passes only the keys
         # the client actually sent.
+        if exam.certificates_dispatched_at is not None and ("certificate_id_pattern" in fields or "certificate_id_start" in fields):
+            raise ValidationError("Certificates have already been sent, so the certificate ID format can't be changed.")
         for key, value in fields.items():
             setattr(exam, key, value)
         await self.db.flush()
@@ -648,17 +651,38 @@ class WorkshopExamService:
 
     # ---------------- certificates ----------------
 
-    async def _new_certificate_number(self) -> str:
+    async def _new_certificate_number(self, exam: WorkshopExam) -> str:
+        """A fresh, unique certificate ID in the exam's format (WS-<year>-<hex> when none is set)."""
+        parts = certificate_ids.parse(exam.certificate_id_pattern) if exam.certificate_id_pattern else None
         year = _now().year
-        while True:
-            number = f"WS-{year}-{secrets.token_hex(4).upper()}"
+        for _ in range(200):
+            if parts is None:
+                number = f"WS-{year}-{secrets.token_hex(4).upper()}"
+            else:
+                sequence = None
+                if certificate_ids.uses_sequence(parts):
+                    # Atomic, so two certificates issued at once never get the same number.
+                    used = (
+                        await self.db.execute(
+                            update(WorkshopExam)
+                            .where(WorkshopExam.id == exam.id)
+                            .values(certificate_id_counter=WorkshopExam.certificate_id_counter + 1)
+                            .returning(WorkshopExam.certificate_id_counter)
+                            .execution_options(synchronize_session=False)
+                        )
+                    ).scalar_one()
+                    sequence = exam.certificate_id_start + used - 1
+                number = certificate_ids.render(parts, _now(), sequence)
             exists = (
                 await self.db.execute(
                     select(WorkshopExamAttendee.id).where(WorkshopExamAttendee.certificate_number == number)
                 )
             ).first()
-            if not exists:
+            if not exists and len(number) <= 50:
                 return number
+        raise ConflictError(
+            "Could not make an unused certificate ID in that format. Add more digits or random characters to it."
+        )
 
     def _is_writing(self, attendee: WorkshopExamAttendee, exam: WorkshopExam) -> bool:
         """Started, not submitted, and still inside their time limit."""
@@ -711,7 +735,7 @@ class WorkshopExamService:
             if attendee.submitted_at is None and not attendee.certificate_only:
                 continue
             if attendee.certificate_number is None:
-                attendee.certificate_number = await self._new_certificate_number()
+                attendee.certificate_number = await self._new_certificate_number(exam)
                 await self.db.flush()
             if attendee.certificate_sent_at is None:
                 pending.append(attendee.id)

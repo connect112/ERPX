@@ -9,6 +9,8 @@ being re-encoded or shown at any size in the browser.
 
 import io
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from PIL import Image, UnidentifiedImageError
@@ -18,6 +20,8 @@ from reportlab.graphics.barcode import qr
 from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from modules.workshop_exams.certificate_pdf import printable_name
@@ -29,11 +33,34 @@ _MAX_SIDE_PX = 2600
 _MAX_PIXELS = 36_000_000
 _PAGE_LONG_SIDE_PT = 842.0  # A4 long edge
 
+_FONT_DIR = Path(__file__).parent / "fonts"
+# Script fonts shipped with the app (SIL Open Font License, see fonts/README.md).
+_SCRIPT_FONT_FILES = {
+    "great_vibes": "GreatVibes-Regular.ttf",
+    "allura": "Allura-Regular.ttf",
+    "alex_brush": "AlexBrush-Regular.ttf",
+    "pinyon_script": "PinyonScript-Regular.ttf",
+    "parisienne": "Parisienne-Regular.ttf",
+}
 _FONTS = {
     "sans_bold": "Helvetica-Bold",
     "serif_bold": "Times-Bold",
     "serif_bold_italic": "Times-BoldItalic",
 }
+FontName = Literal[
+    "sans_bold", "serif_bold", "serif_bold_italic", "great_vibes", "allura", "alex_brush", "pinyon_script", "parisienne"
+]
+
+
+@lru_cache(maxsize=None)
+def _pdf_font(key: str) -> str:
+    """The reportlab font name for a layout font, registering the bundled TTF the first time it is used."""
+    if key in _FONTS:
+        return _FONTS[key]
+    name = f"cert-{key}"
+    if name not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont(name, str(_FONT_DIR / _SCRIPT_FONT_FILES[key])))
+    return name
 
 
 class CertificateLayout(BaseModel):
@@ -42,7 +69,16 @@ class CertificateLayout(BaseModel):
     font_size: float = Field(default=0.07, ge=0.02, le=0.2)  # fraction of page height
     max_width: float = Field(default=0.7, ge=0.1, le=1)  # the name shrinks to fit this much of the width
     color: str = Field(default="#1f2937", pattern=r"^#[0-9a-fA-F]{6}$")
-    font: Literal["sans_bold", "serif_bold", "serif_bold_italic"] = "sans_bold"
+    # When set, the name is painted as a left-to-right gradient from `color` to this colour.
+    color_end: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    font: FontName = "sans_bold"
+    # The certificate ID (the exam's ID format), printed left-aligned where the design has its "Certificate ID:" label.
+    show_id: bool = False
+    id_x: float = Field(default=0.82, ge=0, le=1)  # left edge, fraction of width
+    id_y: float = Field(default=0.27, ge=0, le=1)  # baseline, fraction of height from the top
+    id_font_size: float = Field(default=0.018, ge=0.008, le=0.08)  # fraction of page height
+    id_color: str = Field(default="#1f2937", pattern=r"^#[0-9a-fA-F]{6}$")
+    id_font: FontName = "sans_bold"
     # Off by default: a finished design rarely has room for it. When on, a
     # small certificate number + verification QR go in the bottom-right corner.
     show_verification: bool = False
@@ -93,6 +129,26 @@ def _hex(color: str):
     return colors.HexColor(color)
 
 
+def _draw_name(c, layout: CertificateLayout, text: str, font: str, size: float, centre_x: float, baseline: float) -> None:
+    if not layout.color_end or layout.color_end.lower() == layout.color.lower():
+        c.setFillColor(_hex(layout.color))
+        c.setFont(font, size)
+        c.drawCentredString(centre_x, baseline, text)
+        return
+    # Gradient: the text becomes a clip (render mode 7) and the gradient is painted through it.
+    width = c.stringWidth(text, font, size)
+    left = centre_x - width / 2
+    c.saveState()
+    pen = c.beginText()
+    pen.setTextRenderMode(7)
+    pen.setFont(font, size)
+    pen.setTextOrigin(left, baseline)
+    pen.textOut(text)
+    c.drawText(pen)
+    c.linearGradient(left, baseline, left + width, baseline, (_hex(layout.color), _hex(layout.color_end)), extend=True)
+    c.restoreState()
+
+
 def build_templated_certificate_pdf(
     *,
     template_jpeg: bytes,
@@ -115,15 +171,18 @@ def build_templated_certificate_pdf(
     c.setTitle(f"Certificate - {attendee_name}")
     c.drawImage(ImageReader(io.BytesIO(template_jpeg)), 0, 0, width=page_w, height=page_h)
 
-    font = _FONTS[layout.font]
+    font = _pdf_font(layout.font)
     size = layout.font_size * page_h
     limit = layout.max_width * page_w
     floor = size * 0.4
     while size > floor and c.stringWidth(attendee_name, font, size) > limit:
         size -= 0.5
-    c.setFillColor(_hex(layout.color))
-    c.setFont(font, size)
-    c.drawCentredString(layout.name_x * page_w, page_h - layout.name_y * page_h, attendee_name)
+    _draw_name(c, layout, attendee_name, font, size, layout.name_x * page_w, page_h - layout.name_y * page_h)
+
+    if layout.show_id:
+        c.setFillColor(_hex(layout.id_color))
+        c.setFont(_pdf_font(layout.id_font), layout.id_font_size * page_h)
+        c.drawString(layout.id_x * page_w, page_h - layout.id_y * page_h, certificate_number)
 
     if layout.show_verification:
         margin = 0.025 * page_w
@@ -145,8 +204,14 @@ def build_templated_certificate_pdf(
 SAMPLE_NAME = "Sample Student Name"
 
 
-def sample_certificate_pdf(template_jpeg: bytes, width_px: int, height_px: int, layout: CertificateLayout) -> bytes:
-    number = f"WS-{datetime.now().year}-SAMPLE00"
+def sample_certificate_pdf(
+    template_jpeg: bytes,
+    width_px: int,
+    height_px: int,
+    layout: CertificateLayout,
+    sample_number: str | None = None,
+) -> bytes:
+    number = sample_number or f"WS-{datetime.now().year}-SAMPLE00"
     return build_templated_certificate_pdf(
         template_jpeg=template_jpeg,
         width_px=width_px,

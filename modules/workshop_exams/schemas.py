@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
+from modules.workshop_exams import certificate_ids
 from modules.workshop_exams.certificate_template import CertificateLayout
 from modules.workshop_exams.models import WorkshopExamStatus
 
@@ -46,6 +47,17 @@ class InfoField(BaseModel):
         return self
 
 
+def _validate_id_pattern(value: str | None) -> str | None:
+    """Blank means "use the default style"; anything else must be a usable ID format."""
+    if value is None or not value.strip():
+        return None
+    try:
+        certificate_ids.parse(value)
+    except certificate_ids.PatternError as exc:
+        raise ValueError(str(exc)) from None
+    return value.strip()
+
+
 def _validate_info_fields(fields: list[InfoField]) -> list[InfoField]:
     keys = [f.key for f in fields]
     if len(keys) != len(set(keys)):
@@ -78,11 +90,16 @@ class ExamUpdateRequest(BaseModel):
     certificate_release_at: datetime | None = None
     info_fields: list[InfoField] | None = Field(default=None, max_length=12)
     certificate_layout: CertificateLayout | None = None
+    # "" clears it (back to the default ID style).
+    certificate_id_pattern: str | None = Field(default=None, max_length=certificate_ids.MAX_PATTERN_LENGTH)
+    certificate_id_start: int | None = Field(default=None, ge=0, le=999_999_999)
 
     @field_validator("info_fields")
     @classmethod
     def _check_fields(cls, v):
         return _validate_info_fields(v) if v is not None else v
+
+    _check_pattern = field_validator("certificate_id_pattern")(_validate_id_pattern)
 
 
 class SendCertificatesRequest(BaseModel):
@@ -91,8 +108,23 @@ class SendCertificatesRequest(BaseModel):
 
 
 class CertificatePreviewRequest(BaseModel):
-    # Omitted = use the saved layout; sent = preview an unsaved one.
+    # Omitted = use the saved layout / ID format; sent = preview an unsaved one.
     layout: CertificateLayout | None = None
+    id_pattern: str | None = Field(default=None, max_length=certificate_ids.MAX_PATTERN_LENGTH)
+    id_start: int | None = Field(default=None, ge=0, le=999_999_999)
+
+    _check_pattern = field_validator("id_pattern")(_validate_id_pattern)
+
+
+class CertificateIdPreviewRequest(BaseModel):
+    pattern: str = Field(max_length=certificate_ids.MAX_PATTERN_LENGTH)
+    start: int = Field(default=1, ge=0, le=999_999_999)
+
+    _check_pattern = field_validator("pattern")(_validate_id_pattern)
+
+
+class CertificateIdPreview(BaseModel):
+    examples: list[str]
 
 
 class CertificateTestEmailRequest(CertificatePreviewRequest):
@@ -119,6 +151,8 @@ class ExamPublicAdmin(BaseModel):
     certificate_text: str | None
     has_certificate_template: bool = False
     certificate_layout: CertificateLayout | None = None
+    certificate_id_pattern: str | None = None
+    certificate_id_start: int = 1
     question_count: int = 0
     attendee_count: int = 0
     created_at: datetime

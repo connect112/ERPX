@@ -78,6 +78,11 @@ class WorkshopExam(TimestampedBase):
         Boolean, default=False, server_default="false", nullable=False
     )
     certificate_layout: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # How certificate IDs look (see certificate_ids.py). NULL = the original WS-<year>-<hex> style.
+    # `certificate_id_counter` counts the in-order numbers handed out so far; the next one is start + counter.
+    certificate_id_pattern: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    certificate_id_start: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    certificate_id_counter: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
 class WorkshopExamCertificateTemplate(TimestampedBase):
