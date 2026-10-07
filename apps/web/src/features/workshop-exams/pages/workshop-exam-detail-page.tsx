@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Award, Check, Copy, Download, Plus, Send, X } from "lucide-react";
+import { ArrowLeft, Award, Check, Copy, Download, Pencil, Plus, RotateCcw, Send, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { CertificateDesigner } from "@/features/workshop-exams/components/certificate-designer";
+import { AttendeeEditDialog } from "@/features/workshop-exams/components/attendee-edit-dialog";
 import { CodeTextarea } from "@/features/workshop-exams/components/code-textarea";
 import { HackathonCertificatesDialog } from "@/features/workshop-exams/components/hackathon-certificates-dialog";
 import { RichText } from "@/features/workshop-exams/components/rich-text";
@@ -161,6 +162,17 @@ function attendeeStatus(a: Attendee): { label: string; variant: "secondary" | "i
 function LiveTab({ exam }: { exam: WorkshopExam }) {
   const queryClient = useQueryClient();
   const [hackathonCertificatesOpen, setHackathonCertificatesOpen] = useState(false);
+  const [editing, setEditing] = useState<Attendee | null>(null);
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const attendeeAction = async (action: () => Promise<{ message: string }>) => {
+    try {
+      const result = await action();
+      setNotice({ tone: "ok", text: result.message });
+      await queryClient.invalidateQueries({ queryKey: ["workshop-exams"] });
+    } catch (error) {
+      setNotice({ tone: "error", text: errorMessage(error, "That didn't work.") });
+    }
+  };
   const { data } = useQuery({
     queryKey: ["workshop-exams", exam.id, "dashboard"],
     queryFn: () => workshopExamsApi.dashboard(exam.id),
@@ -249,6 +261,7 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
                 <TableHead>Status</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>Certificate</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -270,12 +283,57 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
                     <TableCell className="text-muted-foreground">
                       {a.certificate_sent_at ? "Sent" : a.certificate_number ? "Queued" : "-"}
                     </TableCell>
+                    <TableCell className="whitespace-nowrap text-right">
+                      <Button size="sm" variant="ghost" title="Edit name or email" onClick={() => setEditing(a)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      {!a.certificate_only && (a.started_at || a.submitted_at) && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title={
+                            a.certificate_sent_at
+                              ? "Their certificate was already sent; remove them to cancel it"
+                              : "Delete this submission so they can sit the exam again"
+                          }
+                          disabled={a.certificate_sent_at !== null}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `Delete ${a.name}'s submission? Their answers, score and timer are cleared and they can sit the exam again with the same link.`
+                              )
+                            ) {
+                              void attendeeAction(() => workshopExamsApi.resetSubmission(exam.id, a.id));
+                            }
+                          }}
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        title="Remove this person from the exam"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Remove ${a.name} from this exam? Their submission is deleted${a.certificate_number ? " and their certificate stops being valid" : ""}. This can't be undone.`
+                            )
+                          ) {
+                            void attendeeAction(() => workshopExamsApi.deleteAttendee(exam.id, a.id));
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })}
               {(data?.attendees.length ?? 0) === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5 + exam.info_fields.length} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={6 + exam.info_fields.length} className="py-8 text-center text-muted-foreground">
                     Nobody has registered yet.
                   </TableCell>
                 </TableRow>
@@ -284,6 +342,19 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
           </Table>
         </CardContent>
       </Card>
+      {notice && (
+        <p
+          role="status"
+          className={`rounded-md p-2 text-sm ${
+            notice.tone === "ok"
+              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+              : "bg-destructive/10 text-destructive"
+          }`}
+        >
+          {notice.text}
+        </p>
+      )}
+      {editing && <AttendeeEditDialog examId={exam.id} attendee={editing} onClose={() => setEditing(null)} />}
       {hackathonCertificatesOpen && (
         <HackathonCertificatesDialog exam={exam} onClose={() => setHackathonCertificatesOpen(false)} />
       )}
