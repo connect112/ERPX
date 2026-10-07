@@ -88,7 +88,9 @@ class OrganizationService:
             admin_user.id, ttl_hours=_ADMIN_INVITE_TOKEN_TTL_HOURS
         )
         set_password_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token.token}"
-        send_password_reset_email_task.delay(admin_user.email, admin_user.full_name, set_password_url)
+        send_password_reset_email_task.delay(
+            admin_user.email, admin_user.full_name, set_password_url, "account_invite"
+        )
 
         logger.info("organization_admin_invited", org_id=str(org.id), user_id=str(admin_user.id))
 

@@ -22,8 +22,8 @@ from modules.workshop_exams.certificate_pdf import build_certificate_pdf
 from modules.workshop_exams.certificate_template import build_templated_certificate_pdf
 from modules.workshop_exams.models import WorkshopExam, WorkshopExamAttendee
 from modules.workshop_exams.service import WorkshopExamService
+from modules.email_templates.render import render_email
 from packages.email.service import EmailAttachment, email_service
-from packages.email.templates import workshop_certificate_email, workshop_exam_invite_email
 
 logger = get_logger(__name__)
 
@@ -77,8 +77,16 @@ async def _send_invite(attendee_id: uuid.UUID) -> bool:
         if not loaded:
             return True
         attendee, exam = loaded
-        subject, text, html = workshop_exam_invite_email(
-            attendee.name, exam.title, exam_url(attendee.access_token), exam.duration_minutes
+        subject, text, html = await render_email(
+            db,
+            "workshop_exam_invite",
+            {
+                "full_name": attendee.name,
+                "exam_title": exam.title,
+                "exam_url": exam_url(attendee.access_token),
+                "duration_minutes": exam.duration_minutes,
+            },
+            organization_id=exam.organization_id,
         )
         return await email_service.send(attendee.email, subject, text, html)
 
@@ -118,7 +126,12 @@ async def _send_certificate(attendee_id: uuid.UUID) -> bool:
                 certificate_number=attendee.certificate_number,
                 verify_url=verify_url(attendee.certificate_number),
             )
-        subject, text, html = workshop_certificate_email(attendee.name, exam.title)
+        subject, text, html = await render_email(
+            db,
+            "workshop_certificate",
+            {"full_name": attendee.name, "exam_title": exam.title},
+            organization_id=exam.organization_id,
+        )
         safe_name = "".join(ch if ch.isalnum() else "_" for ch in attendee.name).strip("_") or "participant"
         sent = await email_service.send(
             attendee.email,

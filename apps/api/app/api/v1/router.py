@@ -61,6 +61,8 @@ from modules.students.routes import router as students_router
 from modules.timetable.routes import router as timetable_router
 from modules.trainers.routes import router as trainers_router
 from modules.workflow.routes import router as workflow_router
+from modules.email_templates.routes import event_router as email_template_events_router
+from modules.email_templates.routes import router as email_templates_router
 from modules.hackathons.routes import router as hackathons_router
 from modules.placements.routes import router as placements_router
 from modules.users.routes import router as users_router
@@ -117,6 +119,8 @@ api_router.include_router(workshops_router, prefix="/workshops", tags=["Workshop
 api_router.include_router(workshop_exams_router, prefix="/workshop-exams", tags=["Workshop Exams"])
 api_router.include_router(workshop_exams_public_router, prefix="/public", tags=["Workshop Exams (public)"])
 api_router.include_router(hackathons_router, prefix="/hackathons", tags=["Hackathons"])
+api_router.include_router(email_templates_router, prefix="/email-templates", tags=["Email templates"])
+api_router.include_router(email_template_events_router, prefix="/hackathons", tags=["Email templates"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])
 api_router.include_router(internships_router, prefix="/internships", tags=["Internships"])
 api_router.include_router(alumni_router, prefix="/alumni", tags=["Alumni"])

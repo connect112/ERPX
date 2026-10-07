@@ -231,7 +231,7 @@ class EmployeeService:
         # PasswordResetToken row; complete_registration below is what
         # actually consumes it.
         set_password_url = f"{settings.EMPLOYEE_PORTAL_URL}/complete-registration?token={reset_token.token}"
-        send_password_reset_email_task.delay(user.email, user.full_name, set_password_url)
+        send_password_reset_email_task.delay(user.email, user.full_name, set_password_url, "account_invite")
 
         logger.info("employee_invited", employee_id=str(employee_id), user_id=str(user.id))
         return employee

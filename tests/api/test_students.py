@@ -193,3 +193,25 @@ async def test_resend_login_email_happy_path(client, auth_headers, db_session, o
         f"/api/v1/students/{student.id}/resend-login-email", headers=auth_headers
     )
     assert resend_resp.status_code == 200, resend_resp.text
+
+
+async def test_a_new_login_goes_out_as_an_account_invite_not_a_password_reset(
+    client, auth_headers, db_session, organization, rbac_seeded, monkeypatch
+):
+    """The email for an account an administrator created is its own template (editable separately from
+    'Forgot password'), so the students flow must ask for it."""
+    import modules.students.service as students_service_module
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        students_service_module.send_password_reset_email_task, "delay", lambda *a, **kw: calls.append(a)
+    )
+    student = await _create_student(db_session, organization)
+    course = await _create_course(db_session, organization)
+    resp = await client.post(
+        f"/api/v1/students/{student.id}/create-login-account",
+        json={"course_id": str(course.id)},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(calls) == 1 and calls[0][3] == "account_invite"

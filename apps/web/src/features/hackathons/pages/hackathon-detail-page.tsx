@@ -22,6 +22,7 @@ import {
   useUpdateHackathon,
 } from "@/features/hackathons/api/hackathons-hooks";
 import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
+import { EventEmailsTab } from "@/features/hackathons/components/event-emails-tab";
 import { LeaderboardShareCard } from "@/features/hackathons/components/leaderboard-share-card";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
 import { ParticipantsTab } from "@/features/hackathons/components/participants-tab";
@@ -91,6 +92,7 @@ export function HackathonDetailPage() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="participants">Participants</TabsTrigger>
+          <TabsTrigger value="emails">Emails</TabsTrigger>
           <TabsTrigger value="teams">
             Teams
             {(teams?.length ?? 0) > 0 && (
@@ -247,6 +249,10 @@ export function HackathonDetailPage() {
 
         <TabsContent value="participants" className="mt-0">
           <ParticipantsTab hackathon={hackathon} />
+        </TabsContent>
+
+        <TabsContent value="emails" className="mt-0">
+          <EventEmailsTab hackathon={hackathon} />
         </TabsContent>
 
         <TabsContent value="teams" className="mt-0">

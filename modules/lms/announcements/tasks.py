@@ -9,8 +9,8 @@ immediately without blocking on SMTP for each address individually.
 from app.core.celery_app import celery_app
 from app.core.logging_config import get_logger
 from app.db.session import run_async
+from modules.email_templates.render import render_email_sync
 from packages.email.service import email_service
-from packages.email.templates import announcement_email
 
 logger = get_logger(__name__)
 
@@ -19,7 +19,11 @@ logger = get_logger(__name__)
 def send_announcement_email_task(
     self, to_email: str, full_name: str, title: str, body: str, scope_label: str
 ) -> None:
-    subject, text, html = announcement_email(full_name, title, body, scope_label)
+    subject, text, html = render_email_sync(
+        "announcement",
+        {"full_name": full_name, "title": title, "body": body, "scope_label": scope_label},
+        recipient_email=to_email,
+    )
     success = run_async(email_service.send(to_email, subject, text, html))
     if not success:
         logger.warning("announcement_email_retry", to=to_email, attempt=self.request.retries)

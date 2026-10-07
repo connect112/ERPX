@@ -244,5 +244,5 @@ class StudentService:
             user.id, ttl_hours=SET_PASSWORD_TOKEN_TTL_HOURS
         )
         set_password_url = f"{settings.STUDENT_PORTAL_URL}/reset-password?token={reset_token.token}"
-        send_password_reset_email_task.delay(user.email, user.full_name, set_password_url)
+        send_password_reset_email_task.delay(user.email, user.full_name, set_password_url, "account_invite")
         return f"{settings.STUDENT_PORTAL_URL}/login"

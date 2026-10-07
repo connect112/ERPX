@@ -627,6 +627,8 @@ async def add_participants(
         [(c.email, c.full_name, c.reset_token) for c in [*result.created, *result.resent]],
         hackathon.title,
         settings.STUDENT_PORTAL_URL,
+        hackathon_id=str(hackathon.id),
+        organization_id=str(hackathon.organization_id),
     )
     return ParticipantsResponse(
         created=len(result.created),
@@ -671,7 +673,14 @@ async def _commit_and_queue(db: AsyncSession, background: BackgroundTasks, hacka
     await db.commit()
     jobs = [j for j in jobs if j is not None]
     if jobs:
-        background.add_task(enqueue_welcome_emails, jobs, hackathon.title, settings.STUDENT_PORTAL_URL)
+        background.add_task(
+            enqueue_welcome_emails,
+            jobs,
+            hackathon.title,
+            settings.STUDENT_PORTAL_URL,
+            hackathon_id=str(hackathon.id),
+            organization_id=str(hackathon.organization_id),
+        )
 
 
 @router.get("/{hackathon_id}/roster", response_model=list[RosterTeamPublic])

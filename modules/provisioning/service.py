@@ -175,7 +175,7 @@ class ProvisioningService:
         # "set", which reads slightly oddly for a brand-new account; a
         # dedicated template is a reasonable future polish, not a
         # functional gap — the token/link mechanics are identical either way.
-        send_password_reset_email_task.delay(user.email, user.full_name, set_password_url)
+        send_password_reset_email_task.delay(user.email, user.full_name, set_password_url, "account_invite")
 
         logger.info(
             "student_provisioned",
