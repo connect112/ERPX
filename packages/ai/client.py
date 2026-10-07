@@ -18,6 +18,7 @@ requires real deployment credentials to actually send/complete —
 neither is a mock.
 """
 
+import base64
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -31,9 +32,18 @@ logger = get_logger(__name__)
 
 
 @dataclass
+class AIAttachment:
+    """A file the model reads along with the text: a PDF document or an image."""
+
+    media_type: str  # application/pdf | image/png | image/jpeg | image/gif | image/webp
+    data: bytes
+
+
+@dataclass
 class AIMessage:
     role: str  # "user" | "assistant"
     content: str
+    attachments: list[AIAttachment] = field(default_factory=list)
 
 
 @dataclass
@@ -52,8 +62,39 @@ class AIClient(ABC):
         messages: list[AIMessage],
         max_tokens: int | None = None,
         temperature: float = 0.7,
+        timeout: float | None = None,
     ) -> AICompletionResult:
         """Send a system prompt + conversation turns, return the assistant's reply."""
+
+
+def _anthropic_content(message: AIMessage):
+    """Plain text, or (with files) the PDF / image blocks followed by the text."""
+    if not message.attachments:
+        return message.content
+    blocks: list[dict] = []
+    for attachment in message.attachments:
+        kind = "document" if attachment.media_type == "application/pdf" else "image"
+        blocks.append(
+            {
+                "type": kind,
+                "source": {
+                    "type": "base64",
+                    "media_type": attachment.media_type,
+                    "data": base64.b64encode(attachment.data).decode("ascii"),
+                },
+            }
+        )
+    blocks.append({"type": "text", "text": message.content})
+    return blocks
+
+
+def _provider_reason(response: httpx.Response) -> str:
+    """The provider's own explanation (never a secret), e.g. ": model not found", for the error shown to staff."""
+    try:
+        text = str(response.json().get("error", {}).get("message", "")).strip()
+    except (ValueError, AttributeError):
+        return ""
+    return f": {text[:200]}" if text else ""
 
 
 class AnthropicClient(AIClient):
@@ -72,6 +113,7 @@ class AnthropicClient(AIClient):
         messages: list[AIMessage],
         max_tokens: int | None = None,
         temperature: float = 0.7,
+        timeout: float | None = None,
     ) -> AICompletionResult:
         if not self.api_key:
             raise ServiceUnavailableError(
@@ -83,7 +125,7 @@ class AnthropicClient(AIClient):
             "system": system_prompt,
             "max_tokens": max_tokens or self.default_max_tokens,
             "temperature": temperature,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [{"role": m.role, "content": _anthropic_content(m)} for m in messages],
         }
         headers = {
             "x-api-key": self.api_key,
@@ -92,7 +134,7 @@ class AnthropicClient(AIClient):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
                 response = await client.post(
                     f"{self.base_url}/v1/messages", json=payload, headers=headers
                 )
@@ -101,7 +143,7 @@ class AnthropicClient(AIClient):
         except httpx.HTTPStatusError as exc:
             logger.exception("ai_request_failed", status_code=exc.response.status_code)
             raise ServiceUnavailableError(
-                f"AI provider returned an error (status {exc.response.status_code})."
+                f"AI provider returned an error (status {exc.response.status_code}){_provider_reason(exc.response)}."
             )
         except httpx.HTTPError:
             logger.exception("ai_request_failed")
@@ -133,11 +175,14 @@ class OpenAICompatibleClient(AIClient):
         messages: list[AIMessage],
         max_tokens: int | None = None,
         temperature: float = 0.7,
+        timeout: float | None = None,
     ) -> AICompletionResult:
         if not self.api_key:
             raise ServiceUnavailableError(
                 "AI provider is not configured. Set AI_API_KEY to enable AI features."
             )
+        if any(m.attachments for m in messages):
+            raise ServiceUnavailableError("This AI provider setup can't read PDFs or images.")
 
         payload = {
             "model": self.model,
