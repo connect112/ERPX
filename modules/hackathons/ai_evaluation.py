@@ -26,7 +26,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging_config import get_logger
 from modules.hackathons.models import Hackathon, ProblemStatement, TaskSubmission
 from modules.hackathons.participation import ParticipationService, is_reviewed
-from packages.ai.client import AIMessage, get_ai_client
+from packages.ai.client import AIAttachment, AIMessage, get_ai_client
 
 logger = get_logger(__name__)
 
@@ -34,6 +34,14 @@ MAX_PAGES = 80
 MAX_CHARS = 60_000  # roughly 15k tokens of report
 MIN_CHARS = 200  # less than this is a scan or an empty file, not a report to judge
 MAX_ZIP_ENTRY_BYTES = 25 * 1024 * 1024
+# A PDF with fewer characters per page than this is mostly pictures (screenshots, scans): the model is given the
+# pages themselves to look at. The provider accepts at most 100 pages and 32 MB per request.
+VISUAL_CHARS_PER_PAGE = 500
+MAX_PDF_PAGES_FOR_AI = 100
+MAX_PDF_BYTES_FOR_AI = 20 * 1024 * 1024
+MAX_IMAGES = 12
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+AI_TIMEOUT_SECONDS = 240
 FEEDBACK_PREFIX = "Automatic evaluation: "
 
 
@@ -136,12 +144,84 @@ def extract_report_text(filename: str | None, data: bytes | None) -> str:
     return text
 
 
+_IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+
+
+@dataclass
+class ReportContent:
+    text: str  # what could be read as text (may be empty for a scan)
+    attachments: list[AIAttachment]  # the PDF itself, or the pictures inside a Word / PowerPoint file
+
+
+def _pdf_page_count(data: bytes) -> int:
+    from pypdf import PdfReader
+
+    try:
+        return len(PdfReader(io.BytesIO(data)).pages)
+    except Exception:  # noqa: BLE001 - already judged readable or not by _pdf_text
+        return 0
+
+
+def _office_images(data: bytes, media_dir: str) -> list[AIAttachment]:
+    """The screenshots / pictures inside a .docx or .pptx, in document order, within the provider's limits."""
+    found: list[AIAttachment] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            names = sorted(
+                (n for n in archive.namelist() if n.startswith(media_dir)),
+                key=lambda n: [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", n)],
+            )
+            for name in names:
+                media_type = _IMAGE_TYPES.get(name.rsplit(".", 1)[-1].lower())
+                info = archive.getinfo(name)
+                if media_type and 1024 < info.file_size <= MAX_IMAGE_BYTES:
+                    found.append(AIAttachment(media_type, archive.read(name)))
+                if len(found) >= MAX_IMAGES:
+                    break
+    except zipfile.BadZipFile:
+        return []
+    return found
+
+
+def read_report(filename: str | None, data: bytes | None) -> ReportContent:
+    """What the model is shown for a report: its text, plus the pages / pictures themselves when the report is
+    mostly screenshots or a scan. Raises EvaluationError only when there is genuinely nothing to look at."""
+    if not filename or data is None:
+        raise EvaluationError("No report was uploaded. A link alone can't be evaluated automatically.")
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if extension == "pdf":
+        text = _clip(_pdf_text(data))
+        pages = _pdf_page_count(data)
+        mostly_pictures = pages > 0 and len(text) < VISUAL_CHARS_PER_PAGE * min(pages, MAX_PAGES)
+        if mostly_pictures:
+            if pages <= MAX_PDF_PAGES_FOR_AI and len(data) <= MAX_PDF_BYTES_FOR_AI:
+                return ReportContent(text, [AIAttachment("application/pdf", data)])
+            if len(text) < MIN_CHARS:
+                raise EvaluationError(
+                    f"This report is mostly pictures and is too big to read automatically ({pages} pages, "
+                    f"{len(data) // (1024 * 1024)} MB; the limit is {MAX_PDF_PAGES_FOR_AI} pages and "
+                    f"{MAX_PDF_BYTES_FOR_AI // (1024 * 1024)} MB). Please mark it by hand."
+                )
+        return ReportContent(text, [])
+    if extension in ("docx", "pptx"):
+        text = _clip(_docx_text(data) if extension == "docx" else _pptx_text(data))
+        images = _office_images(data, "word/media/" if extension == "docx" else "ppt/media/")
+        if len(text) < MIN_CHARS and not images:
+            raise EvaluationError(
+                "The report has almost no text and no pictures that could be read, so it can't be evaluated "
+                "automatically. Please mark it by hand."
+            )
+        return ReportContent(text, images)
+    return ReportContent(extract_report_text(filename, data), [])  # raises for types that can't be read
+
+
 # ---------------- asking the model ----------------
 
 SYSTEM_PROMPT = """You are a fair, strict examiner for a hackathon. You mark a team's written report against the \
 task's success criteria.
 
 Rules:
+- The report may include screenshots, terminal output, diagrams or scanned pages, attached as a PDF or as pictures. Read them: a screenshot that clearly shows the required result is evidence.
 - Judge only what the report actually shows. A claim without evidence (commands, configuration, screenshots described \
 in words, results, explanations) earns little. A criterion the report does not address earns 0.
 - Give partial marks where the criterion is partly met. Use whole numbers from 0 to the criterion's maximum.
@@ -170,7 +250,9 @@ def _task_brief(task: ProblemStatement) -> str:
     return "\n\n".join(lines)
 
 
-def build_user_message(task: ProblemStatement, report_text: str, repo_url: str | None) -> str:
+def build_user_message(
+    task: ProblemStatement, report_text: str, repo_url: str | None, attached: bool = False
+) -> str:
     if task.rubric:
         criteria = "\n".join(
             f'- id: {rule["id"]} | criterion: {rule["criterion"]} | maximum marks: {rule["points"]}' for rule in task.rubric
@@ -180,9 +262,15 @@ def build_user_message(task: ProblemStatement, report_text: str, repo_url: str |
     link = (
         f"The team also gave this link, which you cannot open, so do not judge it: {repo_url}\n\n" if repo_url else ""
     )
+    where = (
+        "The team's report is attached (its pages and pictures); the text that could be read from it follows between "
+        "the markers, and may be empty or partial if the pages are scans."
+        if attached
+        else "The team's report follows between the markers."
+    )
     return (
         f"{_task_brief(task)}\n\nSuccess criteria to mark against:\n{criteria}\n\n{link}"
-        f"The team's report follows between the markers.\n<<<REPORT\n{report_text}\nREPORT>>>"
+        f"{where}\n<<<REPORT\n{report_text or '(no readable text)'}\nREPORT>>>"
     )
 
 
@@ -278,12 +366,19 @@ class AIEvaluationService:
             report = (
                 await self.db.execute(select(TaskSubmission.report_data).where(TaskSubmission.id == submission_id))
             ).scalar_one()
-            text = await asyncio.to_thread(extract_report_text, submission.report_filename, report)
+            content = await asyncio.to_thread(read_report, submission.report_filename, report)
             result = await get_ai_client().complete(
                 SYSTEM_PROMPT,
-                [AIMessage("user", build_user_message(task, text, submission.repo_url))],
+                [
+                    AIMessage(
+                        "user",
+                        build_user_message(task, content.text, submission.repo_url, attached=bool(content.attachments)),
+                        content.attachments,
+                    )
+                ],
                 max_tokens=3000,
                 temperature=0.2,
+                timeout=AI_TIMEOUT_SECONDS,
             )
             evaluation = parse_evaluation(task, result.text)
         except EvaluationError as exc:

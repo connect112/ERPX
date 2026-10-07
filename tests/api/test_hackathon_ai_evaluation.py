@@ -14,9 +14,9 @@ import pytest
 from sqlalchemy import select
 
 from modules.hackathons import ai_evaluation
-from modules.hackathons.ai_evaluation import EvaluationError, extract_report_text, parse_evaluation
+from modules.hackathons.ai_evaluation import EvaluationError, extract_report_text, parse_evaluation, read_report
 from modules.hackathons.models import Hackathon, ProblemStatement, TaskSubmission
-from packages.ai.client import AICompletionResult
+from packages.ai.client import AIAttachment, AICompletionResult, AIMessage, _anthropic_content
 from tests.api.test_hackathon_participants import (  # noqa: F401 - fixtures and helpers shared with those tests
     _HACK,
     _rubric_task,
@@ -53,6 +53,26 @@ def _docx(text: str) -> bytes:
     with zipfile.ZipFile(out, "w") as z:
         paragraphs = "".join(f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>" for line in text.split("\n"))
         z.writestr("word/document.xml", f"<w:document><w:body>{paragraphs}</w:body></w:document>")
+    return out.getvalue()
+
+
+def _png() -> bytes:
+    import os
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.frombytes("RGB", (64, 64), os.urandom(64 * 64 * 3)).save(out, format="PNG")
+    return out.getvalue()
+
+
+def _docx_with_pictures(text: str, pictures: int) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        paragraphs = "".join(f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>" for line in text.split("\n"))
+        z.writestr("word/document.xml", f"<w:document><w:body>{paragraphs}</w:body></w:document>")
+        for i in range(1, pictures + 1):
+            z.writestr(f"word/media/image{i}.png", _png())
     return out.getvalue()
 
 
@@ -93,6 +113,51 @@ def test_a_report_that_cannot_be_read_says_why(filename, data, message):
 def test_a_very_long_report_is_trimmed_but_keeps_its_start_and_end():
     text = extract_report_text("r.docx", _docx("START " + ("filler words " * 8000) + " THE-END"))
     assert len(text) < ai_evaluation.MAX_CHARS + 200 and "START" in text and "THE-END" in text and "left out for length" in text
+
+
+# ---------------- scans and screenshots ----------------
+
+
+def test_a_text_report_is_sent_as_text_only():
+    content = read_report("r.pdf", _pdf())
+    assert content.attachments == [] and "t3.medium" in content.text
+
+
+def test_a_scanned_or_screenshot_only_pdf_is_given_to_the_model_as_the_pdf_itself():
+    scan = _pdf("hi")  # a page with (almost) no text
+    content = read_report("r.pdf", scan)
+    assert [a.media_type for a in content.attachments] == ["application/pdf"] and content.attachments[0].data == scan
+
+
+def test_a_pdf_too_big_to_look_at_is_refused_with_the_limits(monkeypatch):
+    monkeypatch.setattr(ai_evaluation, "MAX_PDF_BYTES_FOR_AI", 100)
+    with pytest.raises(EvaluationError, match="mostly pictures and is too big"):
+        read_report("r.pdf", _pdf("hi"))
+
+
+def test_pictures_inside_word_and_powerpoint_files_are_given_to_the_model():
+    docx = read_report("r.docx", _docx_with_pictures(_PARAGRAPH, 3))
+    assert len(docx.attachments) == 3 and all(a.media_type == "image/png" for a in docx.attachments) and "t3.medium" in docx.text
+    only_pictures = read_report("r.docx", _docx_with_pictures("x", 2))  # almost no words, but screenshots
+    assert len(only_pictures.attachments) == 2
+    many = read_report("r.docx", _docx_with_pictures(_PARAGRAPH, ai_evaluation.MAX_IMAGES + 5))
+    assert len(many.attachments) == ai_evaluation.MAX_IMAGES
+
+
+def test_a_document_with_no_text_and_no_pictures_is_refused():
+    with pytest.raises(EvaluationError, match="no pictures"):
+        read_report("r.docx", _docx_with_pictures("x", 0))
+
+
+def test_files_travel_to_the_provider_as_document_and_image_blocks_before_the_text():
+    plain = _anthropic_content(AIMessage("user", "hello"))
+    assert plain == "hello"
+    blocks = _anthropic_content(
+        AIMessage("user", "mark this", [AIAttachment("application/pdf", b"%PDF"), AIAttachment("image/png", b"png")])
+    )
+    assert [b["type"] for b in blocks] == ["document", "image", "text"]
+    assert blocks[0]["source"] == {"type": "base64", "media_type": "application/pdf", "data": "JVBERg=="}
+    assert blocks[2] == {"type": "text", "text": "mark this"}
 
 
 # ---------------- understanding the AI's answer ----------------
@@ -140,8 +205,16 @@ class FakeAI:
         self.answers = list(answers)
         self.calls: list[dict] = []
 
-    async def complete(self, system_prompt, messages, max_tokens=None, temperature=0.7):
-        self.calls.append({"system": system_prompt, "user": messages[0].content, "temperature": temperature})
+    async def complete(self, system_prompt, messages, max_tokens=None, temperature=0.7, timeout=None):
+        self.calls.append(
+            {
+                "system": system_prompt,
+                "user": messages[0].content,
+                "temperature": temperature,
+                "attachments": messages[0].attachments,
+                "timeout": timeout,
+            }
+        )
         answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         if isinstance(answer, Exception):
             raise answer
@@ -188,13 +261,13 @@ def queued(monkeypatch):
     return calls
 
 
-async def _setup(client, db_session, auth_headers, sent_emails, report=None, rubric=True):
+async def _setup(client, db_session, auth_headers, sent_emails, report=None, rubric=True, filename="report.pdf"):
     hackathon, team, asha, ravi = await _two_member_team(client, db_session, auth_headers, sent_emails)
     body = _rubric_task() if rubric else {"title": "Free task", "marks": 20, "description": None, "sub_tasks": [], "rubric": []}
     task = (await client.post(f"{_HACK}/{hackathon['id']}/problem-statements", json=body, headers=auth_headers)).json()
     sent = await client.put(
         _task_url(hackathon, task),
-        files={"file": ("report.pdf", report if report is not None else _pdf(), "application/pdf")},
+        files={"file": (filename, report if report is not None else _pdf(), "application/pdf")},
         headers=asha,
     )
     assert sent.status_code == 200, sent.text
@@ -271,12 +344,14 @@ async def test_a_task_with_neither_criteria_nor_marks_cannot_be_evaluated(client
 
 
 async def test_when_it_cannot_evaluate_nothing_is_marked_and_the_reason_is_shown(client, db_session, auth_headers, sent_emails, ai):
-    hackathon, task, asha, row = await _setup(client, db_session, auth_headers, sent_emails, report=_pdf("hi"))
+    hackathon, task, asha, row = await _setup(
+        client, db_session, auth_headers, sent_emails, report=_docx_with_pictures("x", 0), filename="report.docx"
+    )
     ai(_answer())
     refused = await client.post(f"{_HACK}/{hackathon['id']}/task-submissions/{row['id']}/ai-evaluate", headers=auth_headers)
-    assert refused.status_code == 422 and "almost no readable text" in refused.text
+    assert refused.status_code == 422 and "no pictures" in refused.text
     after = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()[0]
-    assert after["score"] is None and after["reviewed"] is False and "almost no readable text" in after["ai_error"]
+    assert after["score"] is None and after["reviewed"] is False and "no pictures" in after["ai_error"]
 
 
 async def test_when_the_ai_service_is_down_nothing_is_marked(client, db_session, auth_headers, sent_emails, ai):
@@ -286,6 +361,18 @@ async def test_when_the_ai_service_is_down_nothing_is_marked(client, db_session,
     assert down.status_code == 422
     after = (await client.get(f"{_HACK}/{hackathon['id']}/task-submissions", headers=auth_headers)).json()[0]
     assert after["score"] is None and after["ai_error"]
+
+
+async def test_a_screenshot_only_report_is_evaluated_from_its_pages(client, db_session, auth_headers, sent_emails, ai):
+    scan = _pdf("hi")
+    hackathon, task, asha, row = await _setup(client, db_session, auth_headers, sent_emails, report=scan)
+    fake = ai(_with_rule_ids(_answer(9, 7), row))
+    done = await client.post(f"{_HACK}/{hackathon['id']}/task-submissions/{row['id']}/ai-evaluate", headers=auth_headers)
+    assert done.status_code == 200, done.text
+    assert done.json()["score"] == 16 and done.json()["ai_error"] is None
+    call = fake.calls[0]
+    assert [a.media_type for a in call["attachments"]] == ["application/pdf"] and call["attachments"][0].data == scan
+    assert "is attached" in call["user"] and call["timeout"] and call["timeout"] >= 120
 
 
 async def test_an_unusable_answer_marks_nothing(client, db_session, auth_headers, sent_emails, ai):
