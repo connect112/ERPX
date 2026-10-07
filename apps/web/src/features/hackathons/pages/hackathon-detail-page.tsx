@@ -23,7 +23,7 @@ import {
 } from "@/features/hackathons/api/hackathons-hooks";
 import { ProblemStatementsAdminCard } from "@/features/hackathons/components/problem-statements-admin-card";
 import { EventEmailsTab } from "@/features/hackathons/components/event-emails-tab";
-import { LeaderboardShareCard } from "@/features/hackathons/components/leaderboard-share-card";
+import { LeaderboardTab } from "@/features/hackathons/components/leaderboard-tab";
 import { ParticipantsCard } from "@/features/hackathons/components/participants-card";
 import { ParticipantsTab } from "@/features/hackathons/components/participants-tab";
 import { ResubmissionCard } from "@/features/hackathons/components/resubmission-card";
@@ -57,6 +57,7 @@ export function HackathonDetailPage() {
   const changeStatus = useChangeHackathonStatus(hackathonId ?? "");
   const updateHackathon = useUpdateHackathon(hackathonId ?? "");
   const [editOpen, setEditOpen] = useState(false);
+  const [tab, setTab] = useState("overview");
 
   if (isLoading || !hackathon) {
     return (
@@ -88,7 +89,7 @@ export function HackathonDetailPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-6">
+      <Tabs value={tab} onValueChange={setTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="participants">Participants</TabsTrigger>
@@ -99,6 +100,7 @@ export function HackathonDetailPage() {
               <span className="ml-2 rounded-full bg-muted px-1.5 text-xs font-semibold">{teams?.length}</span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
           <TabsTrigger value="submissions">
             Submissions
             {unreviewedCount > 0 && (
@@ -214,10 +216,11 @@ export function HackathonDetailPage() {
                 />
                 <span>Show the leaderboard to participants</span>
               </label>
+              <Button variant="outline" size="sm" className="w-full" onClick={() => setTab("leaderboard")}>
+                Open the full leaderboard and presentation link
+              </Button>
             </CardContent>
           </Card>
-
-          <LeaderboardShareCard hackathon={hackathon} />
 
           <ResubmissionCard hackathon={hackathon} />
 
@@ -257,6 +260,10 @@ export function HackathonDetailPage() {
 
         <TabsContent value="teams" className="mt-0">
           <TeamsTab hackathon={hackathon} />
+        </TabsContent>
+
+        <TabsContent value="leaderboard" className="mt-0">
+          <LeaderboardTab hackathon={hackathon} />
         </TabsContent>
 
         <TabsContent value="submissions" className="mt-0">
