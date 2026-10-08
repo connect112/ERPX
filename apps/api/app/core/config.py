@@ -66,6 +66,13 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = "erpx_minio_secret"
     MINIO_BUCKET: str = "erpx-storage"
     MINIO_SECURE: bool = False
+    # Browsers upload and download files straight to storage through presigned URLs, but the storage
+    # server is only reachable inside the server network (as `minio:9000`). When this is set (for
+    # example "/_files"), presigned URLs are returned as "<this prefix>/<bucket>/<key>?<signature>"
+    # instead, relative to the site the user is on; the web server must forward that prefix to the
+    # storage server and send it `Host: <MINIO_ENDPOINT>`, which is what the signature was made for.
+    # Empty = URLs are returned as they are (storage reachable from the browser, e.g. local development).
+    STORAGE_PUBLIC_PREFIX: str = ""
 
     # ---- Search ----
     ELASTICSEARCH_URL: str = "http://elasticsearch:9200"
