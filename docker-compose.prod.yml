@@ -18,6 +18,8 @@ x-backend-env: &backend-env
   MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
   MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   MINIO_SECURE: "false"
+  # Browsers reach storage through /_files on whichever site they are on (see infrastructure/aws-single-host/Caddyfile).
+  STORAGE_PUBLIC_PREFIX: /_files
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   # lms.pentrix.in / staff.pentrix.in / trainer.pentrix.in don't strictly
   # need to be here — every portal's own API calls are same-origin

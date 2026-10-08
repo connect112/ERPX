@@ -37,6 +37,18 @@ DEFAULT_PRESIGN_EXPIRY = timedelta(minutes=15)
 DOWNLOAD_PRESIGN_EXPIRY = timedelta(hours=1)
 
 
+def public_url(url: str) -> str:
+    """A presigned URL the browser can use. With STORAGE_PUBLIC_PREFIX set, the internal storage address is replaced
+    by that prefix (a path on the site the user is on); the signed path and query are left exactly as they were."""
+    prefix = settings.STORAGE_PUBLIC_PREFIX.strip().rstrip("/")
+    if not prefix:
+        return url
+    internal = f"{'https' if settings.MINIO_SECURE else 'http'}://{settings.MINIO_ENDPOINT}"
+    if not url.startswith(internal):
+        return url
+    return prefix + url[len(internal) :]
+
+
 class StorageClient:
     def __init__(self) -> None:
         self._client = Minio(
@@ -59,8 +71,8 @@ class StorageClient:
 
     def presigned_upload_url(self, object_key: str, content_type: str) -> str:
         try:
-            return self._client.presigned_put_object(
-                self.bucket, object_key, expires=DEFAULT_PRESIGN_EXPIRY
+            return public_url(
+                self._client.presigned_put_object(self.bucket, object_key, expires=DEFAULT_PRESIGN_EXPIRY)
             )
         except S3Error as exc:
             logger.exception("storage_presign_upload_failed", object_key=object_key)
@@ -68,8 +80,8 @@ class StorageClient:
 
     def presigned_download_url(self, object_key: str) -> str:
         try:
-            return self._client.presigned_get_object(
-                self.bucket, object_key, expires=DOWNLOAD_PRESIGN_EXPIRY
+            return public_url(
+                self._client.presigned_get_object(self.bucket, object_key, expires=DOWNLOAD_PRESIGN_EXPIRY)
             )
         except S3Error as exc:
             logger.exception("storage_presign_download_failed", object_key=object_key)

@@ -2,7 +2,19 @@ pentrix.in {
 	reverse_proxy pentrix_frontend:80
 }
 
+# File uploads and downloads (expense receipts, documents, message attachments, backups): the browser talks to
+# object storage through /_files on whichever site it is on. Storage only answers requests carrying a valid
+# short-lived signature, and its Host header must be what the API signed (minio:9000).
+(erpx_files) {
+	handle_path /_files/* {
+		reverse_proxy erpx_minio:9000 {
+			header_up Host minio:9000
+		}
+	}
+}
+
 erp.pentrix.in {
+	import erpx_files
 	# ERPX's production web image (apps/web/Dockerfile.prod) serves only its
 	# own static build — it doesn't proxy /api/ internally the way
 	# Pentrix-share's frontend image does, so that split happens here.
@@ -15,6 +27,7 @@ erp.pentrix.in {
 }
 
 lms.pentrix.in {
+	import erpx_files
 	# The student-facing LMS (apps/student-portal) — same split as
 	# erp.pentrix.in above, against the same erpx_api backend.
 	handle /api/* {
@@ -26,6 +39,7 @@ lms.pentrix.in {
 }
 
 staff.pentrix.in {
+	import erpx_files
 	# The employee self-service portal (apps/employee-portal) — same split
 	# as erp.pentrix.in / lms.pentrix.in above, against the same erpx_api
 	# backend.
@@ -38,6 +52,7 @@ staff.pentrix.in {
 }
 
 trainer.pentrix.in {
+	import erpx_files
 	# The trainer self-service portal (apps/trainer-portal) — same split
 	# as erp.pentrix.in / lms.pentrix.in / staff.pentrix.in above, against
 	# the same erpx_api backend.
