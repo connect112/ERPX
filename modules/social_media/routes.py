@@ -33,7 +33,9 @@ from modules.social_media.service import OverviewService, PostService, SettingsS
 from modules.social_media.history import HistoryService
 from modules.social_media.art_routes import router as art_router
 from modules.social_media.analytics_routes import router as analytics_router
+from modules.social_media.lead_routes import router as lead_router
 from modules.social_media.connect_routes import router as connect_router
+from modules.social_media.attribution import AttributionService
 from modules.social_media.inbox import InboxService
 from modules.social_media.inbox_routes import router as inbox_router
 from modules.social_media.publish_routes import router as publish_router
@@ -48,6 +50,7 @@ router.include_router(publish_router)
 router.include_router(connect_router)
 router.include_router(inbox_router)
 router.include_router(analytics_router)
+router.include_router(lead_router)
 
 VIEW = "social_media.view"
 MANAGE = "social_media.manage"
@@ -148,6 +151,11 @@ async def overview(
         if inbox_counts["messages_need_reply"]:
             extra = f", {inbox_counts['messages_high_priority']} high priority" if inbox_counts["messages_high_priority"] else ""
             briefing.append(BriefingItem(level="action", message=f"{inbox_counts['messages_need_reply']} conversation(s) need a reply{extra}.", link="messages"))
+    attention = await AttributionService(db).attention(organization_id)
+    if attention["needs_first_contact"]:
+        briefing.append(BriefingItem(level="action", message=f"{attention['needs_first_contact']} lead(s) from social media haven't been contacted yet.", link="leads"))
+    if attention["overdue_follow_ups"]:
+        briefing.append(BriefingItem(level="action", message=f"{attention['overdue_follow_ups']} follow-up(s) for social media leads are overdue.", link="leads"))
     newest_report = (await db.execute(select(Report).where(Report.organization_id == organization_id, Report.kind == "weekly").order_by(Report.period_start.desc()).limit(1))).scalar_one_or_none()
     if newest_report is not None and (datetime.now(timezone.utc).date() - newest_report.period_end).days <= 9:
         briefing.append(BriefingItem(level="info", message=f"The weekly report for {newest_report.period_start:%d %b} to {newest_report.period_end:%d %b} is ready.", link="reports"))

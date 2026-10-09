@@ -259,9 +259,48 @@ and beat (two new tasks).
 insights `metric_type=total_value` per day, media insights per post); whether every metric is returned for a real account of this
 size is only learned by the first real read, and the Settings page marks insights "verified live" only after a real figure was stored.
 
+## Phase 5b: tracked links, leads and hashtags
+
+**Leads are made by a person** (`leads.py`). Not every comment is a lead, so nothing creates one automatically: in Comments or
+Messages a team member chooses **Create lead** for a genuine enquiry. It needs `social_media.inbox` and the CRM's own
+`crm.leads.manage` (a follow-up also needs `crm.followups.manage`), so no new permission and no RBAC seed. The CRM lead gets source
+"Social Media", an optional assignee and marketing campaign, the course (ERPX only *suggests* a published course whose words the
+enquiry mentions; the person confirms), and a note. Only what is needed is kept: a name, a phone number or email *typed by the
+person* (never taken from Instagram), the public handle, the course and the note. A comment's or message's own words are not copied
+into the CRM. One lead per comment or conversation; a second lead for the same handle is warned about, not blocked.
+
+**Follow-ups made here are quiet reminders** (call, email, meeting, other). The CRM's WhatsApp and SMS follow-ups send a message to
+the lead by themselves, so they can't be made from here, and the CRM follow-up service isn't used (a test enforces it).
+
+**Tracked links** (`links.py`): a short address (`/api/v1/social-media/l/<token>`) for a bio, caption, story or message. Opening it
+counts one visit for the day and redirects to the destination with `utm_source=instagram`, `utm_medium=social`, `utm_campaign` and
+`utm_content` added (parameters already on the destination are never overwritten). The destination is typed by staff with
+`social_media.manage` (https only, no credentials) and can't be supplied by whoever opens the link. It identifies nobody: only a daily
+count is stored (no address, device or referrer), common link-preview robots are sent on but not counted, and a count can still
+include a few automated visits. Links can be paused. The address is public (no login) by design.
+
+**The report** (`attribution.py`, "Campaigns & Leads"): enquiries the keyword rules labelled (a rough pointer), the leads a person
+linked, and how far they got **as the CRM shows today**: contacted, qualified, applied (a non-cancelled admission exists), enrolled
+(converted), plus lost. Broken down by post, tracked link (with opens beside the leads, never as a conversion rate), course and
+origin. The page states its assumptions every time: a lead is counted only because a person linked it, people who enquired another
+way are invisible, linking is the person's judgement, and **ERPX never says a post, link or campaign produced an enrolment**. The
+overview briefing and the list of linked leads flag leads nobody has contacted for two days and overdue follow-ups.
+
+**Hashtags** (`hashtags.py`): for each hashtag the profile used, the typical reach of posts with and without it and how many posts are
+behind each side; compared only with at least three on each side, never called an effect. Also overused tags (on most recent posts),
+repeated identical sets, and posts over Instagram's 30 limit. Measured trends are **not available**: Meta's hashtag search is
+restricted and returns no popularity counts and ERPX doesn't scrape, so the screen says so, and Studio hashtags stay labelled as
+suggestions.
+
+Deploying: migration 0076 (no new permission, no RBAC seed); rebuild and restart api and web (no new tasks, so no worker restart is
+needed, though restarting the worker with the others is harmless).
+
+**Not verified:** nothing here has run against a real Instagram account. The tracked-link redirect assumes the site is served on the
+same host as the API (`FRONTEND_URL` + `/api/v1/...`), as in production; whether Instagram's in-app browser or link scanners open
+the short address in ways that distort the count is only learned in use.
+
 ## Phases still to build
 
-5b. Lead attribution (trackable links and UTM parameters, linking enquiries to the CRM, follow-up reminders, conversion reporting) and measured-versus-suggested hashtag intelligence.
 6. Hardening, recovery procedures, cost controls, accessibility, full regression tests.
 
 ## Meta setup (needed from Phase 4)

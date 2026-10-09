@@ -750,6 +750,141 @@ export interface Report {
   data: ReportData;
 }
 
+// ---------------- tracked links, leads and hashtags ----------------
+
+export type Placement = "bio" | "post" | "story" | "dm" | "comment" | "other";
+
+export interface TrackedLink {
+  id: string;
+  name: string;
+  token: string;
+  short_url: string;
+  final_url: string;
+  destination: string;
+  placement: Placement;
+  post_id: string | null;
+  course_label: string | null;
+  marketing_campaign_id: string | null;
+  utm_campaign: string;
+  utm_content: string | null;
+  is_active: boolean;
+  created_at: string;
+  clicks_total: number;
+  clicks_28d: number;
+  last_click_day: string | null;
+}
+
+export interface LinkPayload {
+  name: string;
+  destination: string;
+  placement: Placement;
+  course_label?: string;
+  marketing_campaign_id?: string;
+  utm_campaign?: string;
+  utm_content?: string;
+}
+
+export interface LeadOptions {
+  courses: { id: string; title: string }[];
+  campaigns: { id: string; name: string }[];
+  team: { id: string; name: string }[];
+}
+
+export interface LeadHint {
+  existing_lead_id: string | null;
+  suggested_course: { course_id: string; title: string; matched: string[] } | null;
+  default_name: string;
+}
+
+export interface LeadPayload {
+  full_name: string;
+  phone?: string;
+  email?: string;
+  course_id?: string;
+  course_label?: string;
+  note?: string;
+  assigned_to_user_id?: string;
+  link_id?: string;
+  marketing_campaign_id?: string;
+  follow_up?: { type: "call" | "email" | "meeting" | "other"; scheduled_at: string; notes?: string };
+}
+
+export interface LeadCreated {
+  lead_id: string;
+  link_id: string;
+  follow_up_id: string | null;
+  warnings: string[];
+  basis: string;
+}
+
+export interface FunnelStage {
+  leads: number;
+  contacted: number;
+  qualified: number;
+  applied: number;
+  enrolled: number;
+  lost: number;
+}
+
+export interface FunnelRow extends FunnelStage {
+  label: string;
+  permalink?: string | null;
+  placement?: string | null;
+  opens?: number;
+}
+
+export interface Funnel {
+  period: { start: string; end: string };
+  enquiries_seen: { comments: number; messages: number; note: string };
+  linked: FunnelStage;
+  by_post: FunnelRow[];
+  by_link: FunnelRow[];
+  by_course: FunnelRow[];
+  by_origin: FunnelRow[];
+  assumptions: string[];
+}
+
+export interface SocialLead {
+  lead_id: string;
+  name: string;
+  status: string;
+  course: string | null;
+  handle: string | null;
+  origin: string;
+  created_at: string;
+  assigned_to: string | null;
+  next_follow_up_at: string | null;
+  follow_up: "none" | "scheduled" | "overdue" | "closed";
+  basis: string;
+  needs_first_contact: boolean;
+}
+
+export interface HashtagItem {
+  tag: string;
+  posts: number;
+  median_reach_with: number | null;
+  posts_with_reach: number;
+  median_reach_without: number | null;
+  posts_without_reach: number;
+  comparison: "higher" | "lower" | "same" | null;
+  caution: string | null;
+  overused: boolean;
+}
+
+export interface HashtagReport {
+  posts_read: number;
+  typical_reach: number | null;
+  typical_reach_posts: number;
+  items: HashtagItem[];
+  average_per_post: number | null;
+  too_many: number;
+  many: number;
+  repeated_sets: { tags: string[]; posts: number }[];
+  label: string;
+  limitations: string[];
+  trend: { available: boolean; reason: string };
+}
+
 export const socialMediaApi = {
   overview: () => apiClient.get<Overview>("/social-media/overview").then((r) => r.data),
   settings: () => apiClient.get<SocialSettings>("/social-media/settings").then((r) => r.data),
@@ -860,6 +995,17 @@ export const socialMediaApi = {
     apiClient.patch<Experiment>(`/social-media/experiments/${id}`, payload).then((r) => r.data),
   deleteExperiment: (id: string) => apiClient.delete(`/social-media/experiments/${id}`).then(() => undefined),
   reports: (kind?: "weekly" | "monthly") => apiClient.get<Report[]>("/social-media/reports", { params: { kind } }).then((r) => r.data),
+  links: () => apiClient.get<TrackedLink[]>("/social-media/links").then((r) => r.data),
+  createLink: (payload: LinkPayload) => apiClient.post<TrackedLink>("/social-media/links", payload).then((r) => r.data),
+  updateLink: (id: string, payload: { name?: string; is_active?: boolean; course_label?: string }) => apiClient.patch<TrackedLink>(`/social-media/links/${id}`, payload).then((r) => r.data),
+  leadOptions: () => apiClient.get<LeadOptions>("/social-media/leads/options").then((r) => r.data),
+  commentLeadHint: (id: string) => apiClient.get<LeadHint>(`/social-media/comments/${id}/lead-hint`).then((r) => r.data),
+  conversationLeadHint: (id: string) => apiClient.get<LeadHint>(`/social-media/conversations/${id}/lead-hint`).then((r) => r.data),
+  leadFromComment: (id: string, payload: LeadPayload) => apiClient.post<LeadCreated>(`/social-media/comments/${id}/lead`, payload).then((r) => r.data),
+  leadFromConversation: (id: string, payload: LeadPayload) => apiClient.post<LeadCreated>(`/social-media/conversations/${id}/lead`, payload).then((r) => r.data),
+  funnel: (days: number) => apiClient.get<Funnel>("/social-media/leads/funnel", { params: { days } }).then((r) => r.data),
+  socialLeads: () => apiClient.get<{ items: SocialLead[] }>("/social-media/leads/people").then((r) => r.data),
+  hashtags: () => apiClient.get<HashtagReport>("/social-media/analytics/hashtags").then((r) => r.data),
   generateReport: (kind: "weekly" | "monthly", periodStart?: string) =>
     apiClient.post<Report>("/social-media/reports", { kind, period_start: periodStart }, { timeout: 60000 }).then((r) => r.data),
 };

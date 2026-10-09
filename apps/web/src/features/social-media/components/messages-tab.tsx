@@ -11,6 +11,8 @@ import type { Conversation, ConversationView } from "@/features/social-media/api
 import { useConversations, useMarkHandled, useThread } from "@/features/social-media/api/social-media-hooks";
 import { InboxStatus, ReplyHistory } from "@/features/social-media/components/inbox-status";
 import { TriageBadges } from "@/features/social-media/components/inbox-parts";
+import { CreateLeadDialog, type LeadTarget } from "@/features/social-media/components/create-lead-dialog";
+import { useCanCreateLead } from "@/features/social-media/lib/use-can-create-lead";
 import { ReplyDialog, type ReplyTarget } from "@/features/social-media/components/reply-dialog";
 import { errorMessage, formatInZone } from "@/features/social-media/lib/format";
 
@@ -31,7 +33,7 @@ function windowText(c: Conversation): string {
   return `Can reply until ${formatInZone(c.window_expires_at, ZONE)}`;
 }
 
-function Thread({ id, onReply, canReply, onClose }: { id: string; onReply: (target: ReplyTarget) => void; canReply: boolean; onClose: () => void }) {
+function Thread({ id, onReply, onLead, canReply, canLead, onClose }: { id: string; onReply: (target: ReplyTarget) => void; onLead: (target: LeadTarget) => void; canReply: boolean; canLead: boolean; onClose: () => void }) {
   const thread = useThread(id);
   const data = thread.data;
   const conversation = data?.conversation;
@@ -81,6 +83,11 @@ function Thread({ id, onReply, canReply, onClose }: { id: string; onReply: (targ
                 Reply
               </Button>
             )}
+            {canLead && (
+              <Button variant="outline" onClick={() => onLead({ kind: "dm", id: conversation.id, handle: conversation.participant_username ?? "unknown" })}>
+                Create lead
+              </Button>
+            )}
             {!canReply && <p className="text-xs text-muted-foreground">Replying needs the social_media.reply permission.</p>}
           </div>
         )}
@@ -96,6 +103,8 @@ export function MessagesTab() {
   const [skip, setSkip] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
   const [target, setTarget] = useState<ReplyTarget | null>(null);
+  const [leadTarget, setLeadTarget] = useState<LeadTarget | null>(null);
+  const canLead = useCanCreateLead();
   const [error, setError] = useState<string | null>(null);
   const conversations = useConversations({ view, q: search.trim() || undefined, skip, limit: PAGE });
   const me = useMyRoles();
@@ -181,16 +190,19 @@ export function MessagesTab() {
       )}
 
       <ReplyHistory kind="dm" />
-      {openId && !target && (
+      {openId && !target && !leadTarget && (
         <Thread
           id={openId}
           canReply={canReply}
+          canLead={canLead}
+          onLead={setLeadTarget}
           onClose={() => setOpenId(null)}
           onReply={(t) => {
             setTarget(t);
           }}
         />
       )}
+      <CreateLeadDialog key={leadTarget?.id ?? "no-lead"} target={leadTarget} onClose={() => setLeadTarget(null)} />
       <ReplyDialog
         key={target?.id ?? "none"}
         target={target}

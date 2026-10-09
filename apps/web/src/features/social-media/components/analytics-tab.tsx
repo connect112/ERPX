@@ -10,6 +10,7 @@ import type { MetricCard, PostInsight } from "@/features/social-media/api/social
 import { useAnalyticsOverview, useAnalyticsPosts, useAnalyticsStatus, useMetricDefinitions, useSyncAnalytics } from "@/features/social-media/api/social-media-hooks";
 import { DayBars } from "@/features/social-media/components/day-bars";
 import { GroupTable } from "@/features/social-media/components/group-table";
+import { HashtagPanel } from "@/features/social-media/components/hashtag-panel";
 import { errorMessage, formatInZone } from "@/features/social-media/lib/format";
 import { GROUP_LABEL, KIND_LABEL, NOT_AVAILABLE, formatChange, formatDay, formatNumber, formatRate, signed } from "@/features/social-media/lib/numbers";
 
@@ -327,6 +328,8 @@ export function AnalyticsTab() {
           {posts.data && <GroupTable rows={posts.data.breakdowns[group as "kind"] ?? []} />}
         </CardContent>
       </Card>
+
+      <HashtagPanel />
 
       <Definitions />
     </div>

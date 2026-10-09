@@ -7,6 +7,7 @@ import { CommentsTab } from "@/features/social-media/components/comments-tab";
 import { MessagesTab } from "@/features/social-media/components/messages-tab";
 import { AnalyticsTab } from "@/features/social-media/components/analytics-tab";
 import { ReportsTab } from "@/features/social-media/components/reports-tab";
+import { LeadsTab } from "@/features/social-media/components/leads-tab";
 import { OverviewTab } from "@/features/social-media/components/overview-tab";
 import { CalendarTab } from "@/features/social-media/components/calendar-tab";
 import { GridPreview } from "@/features/social-media/components/grid-preview";
@@ -18,7 +19,7 @@ import { SettingsTab } from "@/features/social-media/components/settings-tab";
 import { StrategyTab } from "@/features/social-media/components/strategy-tab";
 import { StudioTab } from "@/features/social-media/components/studio-tab";
 
-const TABS = ["overview", "studio", "research", "posts", "calendar", "queue", "comments", "messages", "analytics", "reports", "library", "grid", "strategy", "settings"] as const;
+const TABS = ["overview", "studio", "research", "posts", "calendar", "queue", "comments", "messages", "leads", "analytics", "reports", "library", "grid", "strategy", "settings"] as const;
 
 export function SocialMediaPage() {
   const [params, setParams] = useSearchParams();
@@ -52,6 +53,7 @@ export function SocialMediaPage() {
             <TabsTrigger value="queue">Queue</TabsTrigger>
             <TabsTrigger value="comments">Comments</TabsTrigger>
             <TabsTrigger value="messages">Messages</TabsTrigger>
+            <TabsTrigger value="leads">Campaigns &amp; Leads</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
             <TabsTrigger value="reports">Reports</TabsTrigger>
             <TabsTrigger value="library">Library</TabsTrigger>
@@ -88,6 +90,9 @@ export function SocialMediaPage() {
         </TabsContent>
         <TabsContent value="messages">
           <MessagesTab />
+        </TabsContent>
+        <TabsContent value="leads">
+          <LeadsTab />
         </TabsContent>
         <TabsContent value="analytics">
           <AnalyticsTab />
