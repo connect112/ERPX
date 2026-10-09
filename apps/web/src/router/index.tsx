@@ -96,6 +96,7 @@ const HackathonDetailPage = lazy(() => import("@/features/hackathons/pages/hacka
 const HackathonsListPage = lazy(() => import("@/features/hackathons/pages/hackathons-list-page").then((m) => ({ default: m.HackathonsListPage })));
 const CompaniesListPage = lazy(() => import("@/features/placements/pages/companies-list-page").then((m) => ({ default: m.CompaniesListPage })));
 const PostingDetailPage = lazy(() => import("@/features/placements/pages/posting-detail-page").then((m) => ({ default: m.PostingDetailPage })));
+const SocialMediaPage = lazy(() => import("@/features/social-media/pages/social-media-page").then((m) => ({ default: m.SocialMediaPage })));
 const JobFeedPage = lazy(() => import("@/features/placements/pages/job-feed-page").then((m) => ({ default: m.JobFeedPage })));
 const PostingsListPage = lazy(() => import("@/features/placements/pages/postings-list-page").then((m) => ({ default: m.PostingsListPage })));
 const InternshipsListPage = lazy(() => import("@/features/internships/pages/internships-list-page").then((m) => ({ default: m.InternshipsListPage })));
@@ -257,6 +258,7 @@ export const router = createBrowserRouter([
       { path: "placements/companies", element: <CompaniesListPage /> },
       { path: "placements/postings", element: <PostingsListPage /> },
       { path: "placements/job-feed", element: <JobFeedPage /> },
+      { path: "social-media", element: <SocialMediaPage /> },
       { path: "placements/postings/:postingId", element: <PostingDetailPage /> },
       { path: "internships/postings", element: <InternshipPostingsListPage /> },
       { path: "internships/postings/:postingId", element: <InternshipPostingDetailPage /> },
