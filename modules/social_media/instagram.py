@@ -140,6 +140,26 @@ class InstagramClient:
         result = await self._request("POST", f"{self.ig_user_id}/media_publish", data={"creation_id": creation_id}, publishing=True)
         return self._id(result, publishing=True)
 
+    # ---------------- the account ----------------
+
+    async def me(self) -> dict:
+        """The connected account: its id, username and account type (BUSINESS / MEDIA_CREATOR)."""
+        return await self._request("GET", "me", params={"fields": "user_id,username,account_type"})
+
+    async def list_conversations(self, limit: int = 1) -> list[dict]:
+        result = await self._request("GET", f"{self.ig_user_id}/conversations", params={"platform": "instagram", "limit": limit})
+        items = result.get("data")
+        return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+
+    async def subscribe_webhooks(self, fields: list[str]) -> bool:
+        """Ask Instagram to send this account's notifications (comments, messages) to the app's webhook."""
+        result = await self._request("POST", f"{self.ig_user_id}/subscribed_apps", data={"subscribed_fields": ",".join(fields)})
+        return result.get("success") is True
+
+    async def unsubscribe_webhooks(self) -> bool:
+        result = await self._request("DELETE", f"{self.ig_user_id}/subscribed_apps")
+        return result.get("success") is True
+
     # ---------------- reading ----------------
 
     async def media_permalink(self, media_id: str) -> str | None:

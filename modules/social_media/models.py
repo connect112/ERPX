@@ -72,6 +72,8 @@ class SocialSettings(TimestampedBase):
     retention_days: Mapped[int] = mapped_column(Integer, default=365, server_default="365", nullable=False)
     # {source: {"last_fetch_at", "ok", "error", "count"}}: when each research source was last read and how it went.
     research_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    # A connection in progress: {"nonce", "user_id", "expires"}. One at a time, and a nonce can be used once.
+    connect_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
 
 
 class SocialAccount(TimestampedBase):
@@ -96,6 +98,8 @@ class SocialAccount(TimestampedBase):
     connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # {"token": {"refreshed_at", ...}, "comments": {...}, "messages": {...}}: when things were last read and how it went.
+    sync_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
 
 
 class SocialPost(TimestampedBase):
@@ -262,3 +266,16 @@ class PublishAttempt(TimestampedBase):
     error_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
     error: Mapped[str | None] = mapped_column(String(600), nullable=True)
     http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class WebhookEvent(TimestampedBase):
+    """One notification from Meta, kept just long enough to ignore a retry of it. It holds ids only, never message text."""
+
+    __tablename__ = "social_webhook_events"
+
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    event_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    entry_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    field: Mapped[str] = mapped_column(String(60), nullable=False)
+    object_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

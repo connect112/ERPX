@@ -196,6 +196,26 @@ TEMPLATES: tuple[TemplateDef, ...] = (
         ),
     ),
     TemplateDef(
+        key="social_account_problem",
+        name="Instagram connection problem",
+        category="Social media",
+        description="Tells the people who run the social media page that the Instagram connection needs attention.",
+        when_sent="When the Instagram access token is about to expire, can't be refreshed, or has been revoked.",
+        subject="Social media: {{problem}} ({{account_name}})",
+        body=(
+            "# {{problem}}\n\n"
+            "The Instagram connection for **{{account_name}}** needs your attention.\n\n"
+            "> {{detail}}\n\n"
+            "Open Social Media > Settings in ERPX: {{settings_url}}"
+        ),
+        variables=(
+            Variable("problem", "What happened", "The Instagram connection needs attention"),
+            Variable("account_name", "The Instagram account", "@pentrix"),
+            Variable("detail", "What went wrong and what to do", "The access token could not be refreshed."),
+            Variable("settings_url", "A link to the settings page", "https://erp.example.com/social-media?tab=settings"),
+        ),
+    ),
+    TemplateDef(
         key="workshop_certificate",
         name="Exam certificate",
         category="Workshops & exams",

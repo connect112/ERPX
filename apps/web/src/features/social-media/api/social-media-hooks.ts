@@ -219,3 +219,19 @@ export function useCalendar(start: string, end: string) {
     placeholderData: keepPreviousData,
   });
 }
+
+export function useStartConnect() {
+  return usePostMutation(() => socialMediaApi.startConnect());
+}
+
+export function useDisconnect() {
+  return usePostMutation(() => socialMediaApi.disconnect());
+}
+
+export function useRecheck() {
+  return usePostMutation(() => socialMediaApi.recheck());
+}
+
+export function useRefreshToken() {
+  return usePostMutation(() => socialMediaApi.refreshToken());
+}

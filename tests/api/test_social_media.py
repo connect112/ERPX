@@ -5,7 +5,7 @@ it, and the publishing states can't be reached from the API at all.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from modules.crm.leads.models import Lead, LeadSource
 from modules.social_media import defaults
 from modules.social_media.models import SocialAccount, SocialPost
 from modules.social_media.schemas import AccountPublic
+from modules.social_media.token_crypto import encrypt_token
 from tests._fixtures import _make_user
 
 pytestmark = pytest.mark.api
@@ -119,14 +120,14 @@ async def test_integration_status_is_honest_about_what_is_not_connected_or_verif
     assert by_key["comments_reply"]["note"].lower().count("person") >= 1  # replies are manual only
     built = {c["key"] for c in data["capabilities"] if c["implemented"] == "yes"}
     # built: the grid preview and publishing of images, carousels and stories. Not built: connecting, Reels, comments, messages
-    assert built == {"profile_grid", "publish_image", "publish_carousel", "publish_story"}
-    assert {"connect", "publish_reel", "comments_reply", "dm_reply"}.isdisjoint(built)
+    assert built == {"connect", "profile_grid", "publish_image", "publish_carousel", "publish_story"}
+    assert {"publish_reel", "comments_read", "comments_reply", "dm_read", "dm_reply"}.isdisjoint(built)
     assert data["setup_steps"]
 
 
 def test_an_account_never_exposes_its_token():
     assert "token_encrypted" not in AccountPublic.model_fields
-    assert not [name for name in AccountPublic.model_fields if "token" in name and name != "token_expires_at"]
+    assert not [name for name in AccountPublic.model_fields if "token" in name and name not in ("token_expires_at", "token_days_left")]
 
 
 async def test_the_account_token_is_left_out_of_the_audit_trail():
@@ -355,9 +356,9 @@ async def test_the_overview_counts_posts_and_crm_leads_without_inventing_attribu
 
 
 async def test_the_overview_knows_a_connected_account(client, auth_headers, db_session, organization):
-    db_session.add(SocialAccount(organization_id=organization.id, external_account_id="123", username="pentrix", status="connected", connected_at=datetime.now(timezone.utc)))
+    db_session.add(SocialAccount(organization_id=organization.id, external_account_id="123", username="pentrix", status="connected", token_encrypted=encrypt_token("t"), token_expires_at=datetime.now(timezone.utc) + timedelta(days=40), connected_at=datetime.now(timezone.utc)))
     await db_session.flush()
     data = (await client.get(f"{_BASE}/overview", headers=auth_headers)).json()
     assert data["connected"] is True
     integration = (await client.get(f"{_BASE}/integration", headers=auth_headers)).json()
-    assert integration["account"]["username"] == "pentrix" and "token" not in str(integration["account"]).replace("token_expires_at", "")
+    assert integration["account"]["username"] == "pentrix" and "token" not in str(integration["account"]).replace("token_expires_at", "").replace("token_days_left", "")

@@ -227,6 +227,9 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("social_media.manage", "social_media", "Create and edit social media posts, strategy and settings"),
     ("social_media.approve", "social_media", "Approve social media posts for publishing"),
     ("social_media.publish", "social_media", "Schedule and publish approved social media posts"),
+    ("social_media.connect", "social_media", "Connect, reconnect and disconnect the Instagram account"),
+    ("social_media.inbox", "social_media", "Read Instagram comments and direct messages"),
+    ("social_media.reply", "social_media", "Send replies to Instagram comments and direct messages (always by hand)"),
     ("internships.view", "internships", "View internship postings, applications, and active internships"),
     (
         "internships.manage",

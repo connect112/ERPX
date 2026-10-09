@@ -16,7 +16,8 @@ from app.core.config import settings as app_settings
 from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
 from modules.email_templates.render import render_email_sync
-from modules.social_media.models import SocialPost, SocialSettings
+from modules.social_media.connection import ConnectionService
+from modules.social_media.models import SocialAccount, SocialPost, SocialSettings
 from modules.social_media.publisher import PublisherService
 from packages.email.service import email_service
 
@@ -119,3 +120,64 @@ def send_problem_email_task(self, post_id: str, problem: str, detail: str) -> No
 
 def enqueue_problem_email(post_id: uuid.UUID, problem: str, detail: str) -> None:
     send_problem_email_task.apply_async(args=[str(post_id), problem, detail], ignore_result=True, retry=False)
+
+
+# ---------------- the Instagram connection ----------------
+
+
+async def _refresh_tokens() -> dict:
+    async with get_db_context() as db:
+        return await ConnectionService(db).refresh_due()
+
+
+@celery_app.task(name="social.refresh_tokens", ignore_result=True)
+def refresh_tokens_task() -> dict:
+    """Daily: refresh access tokens that are within 20 days of expiring, and warn when one can't be kept alive."""
+    result = run_async(_refresh_tokens())
+    if any(result.values()):
+        logger.info("social_tokens_refreshed", **result)
+    return result
+
+
+async def _account_details(account_id: uuid.UUID) -> tuple[str, str, list[str]] | None:
+    async with get_db_context() as db:
+        account = (await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))).scalar_one_or_none()
+        if account is None:
+            return None
+        settings = (await db.execute(select(SocialSettings).where(SocialSettings.organization_id == account.organization_id))).scalar_one_or_none()
+        notifications = (settings.notifications if settings else {}) or {}
+        if not notifications.get("notify_on_token_expiry", True):
+            return None
+        return str(account.organization_id), f"@{account.username}" if account.username else "the Instagram account", list(notifications.get("emails") or [])
+
+
+@celery_app.task(name="social.send_account_problem_email", bind=True, max_retries=3)
+def send_account_problem_email_task(self, account_id: str, problem: str, detail: str) -> None:
+    found = run_async(_account_details(uuid.UUID(account_id)))
+    if not found:
+        return
+    organization_id, name, recipients = found
+    if not recipients:
+        logger.info("social_account_problem_not_emailed", reason="no notification address is set")
+        return
+    failed = []
+    for address in recipients:
+        subject, text, html = render_email_sync(
+            "social_account_problem",
+            {
+                "problem": problem[:120],
+                "account_name": name[:120],
+                "detail": detail[:500],
+                "settings_url": f"{app_settings.FRONTEND_URL.rstrip('/')}/social-media?tab=settings",
+            },
+            organization_id=organization_id,
+            recipient_email=address,
+        )
+        if not run_async(email_service.send(address, subject, text, html)):
+            failed.append(address)
+    if failed:
+        raise self.retry(countdown=60 * (self.request.retries + 1))
+
+
+def enqueue_account_problem_email(account_id: uuid.UUID, problem: str, detail: str) -> None:
+    send_account_problem_email_task.apply_async(args=[str(account_id), problem, detail], ignore_result=True, retry=False)

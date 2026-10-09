@@ -72,6 +72,11 @@ x-backend-env: &backend-env
   ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
   ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
   JOOBLE_API_KEY: ${JOOBLE_API_KEY:-}
+  # Social Media: the Meta app used to connect Instagram. Empty until the app exists (see docs/social-media.md).
+  INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+  INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+  INSTAGRAM_WEBHOOK_VERIFY_TOKEN: ${INSTAGRAM_WEBHOOK_VERIFY_TOKEN:-}
+  SOCIAL_TOKEN_ENCRYPTION_KEY: ${SOCIAL_TOKEN_ENCRYPTION_KEY:-}
   # Gmail SMTP relay, not SES: pentrix.in's SES domain identity is
   # unverified (DNS records never propagated) and the account's
   # production-access request was denied, so SES can't yet deliver to

@@ -242,6 +242,20 @@ class Settings(BaseSettings):
     # A Fernet key (python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") used to
     # encrypt stored access tokens. Empty = derived from JWT_SECRET_KEY.
     SOCIAL_TOKEN_ENCRYPTION_KEY: str = ""
+    # The Meta app (Instagram product, "Instagram API setup with Instagram login"). Secrets come from the server
+    # environment, never the repository, the browser or chat.
+    INSTAGRAM_APP_ID: str = ""
+    INSTAGRAM_APP_SECRET: str = ""
+    # Any long random string you also type into the app's webhook settings; Meta sends it back to prove it is Meta.
+    INSTAGRAM_WEBHOOK_VERIFY_TOKEN: str = ""
+    INSTAGRAM_SCOPES: str = (
+        "instagram_business_basic,instagram_business_content_publish,instagram_business_manage_comments,"
+        "instagram_business_manage_messages,instagram_business_manage_insights"
+    )
+    # Empty = FRONTEND_URL + /api/v1/social-media/connect/callback. Must match what is registered in the Meta app exactly.
+    INSTAGRAM_REDIRECT_URI: str = ""
+    INSTAGRAM_AUTHORIZE_URL: str = "https://www.instagram.com/oauth/authorize"
+    INSTAGRAM_TOKEN_URL: str = "https://api.instagram.com/oauth/access_token"
 
     # ---- Job feed (Placements) ----
     # Adzuna (https://developer.adzuna.com) and Jooble (https://jooble.org/api/about) are used only when their keys

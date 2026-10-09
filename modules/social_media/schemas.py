@@ -202,7 +202,10 @@ class CapabilityInfo(BaseModel):
     label: str
     api: Literal["supported", "needs_app_review", "restricted", "unavailable"]
     implemented: str  # "phase N" while not built, "yes" when built
+    # True only when the real thing has happened with the real account (a post published, a notification received).
     verified_live: bool = False
+    # What Instagram answered when the account's permissions were probed.
+    live_check: Literal["passed", "needs_app_review", "failed", "not_run"] = "not_run"
     note: str
 
 
@@ -220,6 +223,7 @@ class AccountPublic(BaseModel):
     connected_at: datetime | None
     last_synced_at: datetime | None
     last_error: str | None
+    token_days_left: int | None = None
 
 
 class IntegrationOverview(BaseModel):
@@ -228,6 +232,12 @@ class IntegrationOverview(BaseModel):
     connected: bool
     capabilities: list[CapabilityInfo]
     setup_steps: list[str]
+    # What to paste into the Meta app, and whether this server has what it needs to connect.
+    app_configured: bool = False
+    redirect_uri: str = ""
+    webhook_url: str = ""
+    webhook_verify_token_set: bool = False
+    scopes_requested: list[str] = []
 
 
 # ---------------- posts ----------------
