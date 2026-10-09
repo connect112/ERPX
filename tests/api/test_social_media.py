@@ -117,7 +117,8 @@ async def test_integration_status_is_honest_about_what_is_not_connected_or_verif
     by_key = {c["key"]: c for c in data["capabilities"]}
     assert by_key["save_share_identities"]["api"] == "unavailable"
     assert by_key["comments_reply"]["note"].lower().count("person") >= 1  # replies are manual only
-    assert all(c["implemented"] != "yes" for c in data["capabilities"])  # nothing is built yet
+    built = {c["key"] for c in data["capabilities"] if c["implemented"] == "yes"}
+    assert built == {"profile_grid"}  # only the planned-posts grid preview exists; connecting, publishing and replies are not built
     assert data["setup_steps"]
 
 

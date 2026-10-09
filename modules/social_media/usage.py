@@ -77,6 +77,24 @@ class UsageService:
         await self.db.flush()
         return row
 
+    async def record_fixed(
+        self, organization_id: uuid.UUID, user_id: uuid.UUID | None, post_id: uuid.UUID | None, kind: str, model: str, cost_inr: float
+    ) -> AIUsage:
+        """A call that is priced per item rather than per token (an image)."""
+        row = AIUsage(
+            organization_id=organization_id,
+            user_id=user_id,
+            post_id=post_id,
+            kind=kind,
+            model=model or "unknown",
+            input_tokens=0,
+            output_tokens=0,
+            est_cost_inr=Decimal(str(cost_inr)).quantize(Decimal("0.0001")),
+        )
+        self.db.add(row)
+        await self.db.flush()
+        return row
+
     async def summary(self, organization_id: uuid.UUID, settings: SocialSettings) -> dict:
         since = month_start(settings)
         rows = (

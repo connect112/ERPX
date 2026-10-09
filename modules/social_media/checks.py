@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.social_media import render
 from modules.social_media.history import HistoryService
 from modules.social_media.models import PostStatus, ResearchItem, SocialPost, SocialSettings, VerificationStatus
 from modules.social_media.research import CVE_RE, ResearchService, SourceUnavailable
@@ -206,6 +207,25 @@ async def run_checks(
     cover = len(content.get("thumbnail_text") or "")
     if rules.get("max_cover_text_chars") and cover > rules["max_cover_text_chars"]:
         warnings.append(_warning("warning", "chk_cover_text_long", f"The cover text has {cover} characters; the design rules allow {rules['max_cover_text_chars']}."))
+
+    # ---- artwork ----
+    art = post.artwork or {}
+    design = post.design or {}
+    brand = settings.brand or {}
+    if not art.get("files"):
+        warnings.append(_warning("info", "chk_no_artwork", "No artwork has been made for this post yet."))
+    else:
+        problems = [p for f in art["files"] for p in f.get("validation", {}).get("problems", [])]
+        if problems:
+            warnings.append(_warning("blocking", "chk_artwork_invalid", f"The artwork doesn't meet the design rules: {problems[0]}"))
+        pillar = next((p["label"] for p in settings.pillars or [] if p["key"] == post.pillar), None)
+        now_fp = render.current_fingerprint(post.format, content, design, post.title, pillar, brand)
+        if now_fp is None or now_fp != art.get("fingerprint"):
+            warnings.append(_warning("blocking", "chk_artwork_stale", "The words or design have changed since the artwork was made. Make the artwork again so it matches."))
+        if not brand.get("logo_key"):
+            warnings.append(_warning("warning", "chk_no_logo", "No approved logo is uploaded, so the artwork has no logo."))
+        if art.get("synthetic_background"):
+            warnings.append(_warning("info", "chk_synthetic_background", "The background is AI-generated. It is decoration, not a real photograph, so don't present it as evidence."))
 
     # ---- a Reel concept is not a video ----
     if post.format == "reel" and not content.get("asset_key"):

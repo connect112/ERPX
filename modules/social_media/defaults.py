@@ -27,7 +27,7 @@ DEFAULT_BRAND = {
         "ink": "#0F172A",
         "primary": "#1D4ED8",
         "accent": "#0EA5E9",
-        "muted": "#64748B",
+        "muted": "#475569",
     },
     "colors_confirmed": False,
     "fonts": {"heading": "Inter", "body": "Inter"},
@@ -144,14 +144,14 @@ CAPABILITIES = [
      "note": "Meta's hashtag search is limited and does not return popularity counts; suggestions are labelled as AI-generated."},
     {"key": "save_share_identities", "label": "Who saved or shared a post", "api": "unavailable", "implemented": "never",
      "note": "Not provided by the API. Counts may be available; identities are not."},
-    {"key": "profile_grid", "label": "Full live profile grid preview", "api": "supported", "implemented": "phase 2",
-     "note": "Built from the media the API returns plus planned posts; anything missing is shown as missing."},
+    {"key": "profile_grid", "label": "Nine-post profile grid preview", "api": "supported", "implemented": "yes",
+     "note": "Built from the designed posts known to ERPX. Posts already on your live profile are added once the account is connected (phase 4); until then they are shown as missing."},
 ]
 
 ROADMAP = [
     {"phase": 1, "title": "Data model, strategy and settings, draft and approval workflow, ERP lead link", "status": "done"},
-    {"phase": 2, "title": "Research, AI studio and fact checks are built (2a). Artwork rendering and the 9-post grid preview are next (2b)", "status": "next"},
-    {"phase": 3, "title": "Content calendar, durable scheduling and reliable publishing", "status": "planned"},
+    {"phase": 2, "title": "AI research and content studio, source verification, artwork rendering, 9-post grid preview", "status": "done"},
+    {"phase": 3, "title": "Content calendar, durable scheduling and reliable publishing", "status": "next"},
     {"phase": 4, "title": "Instagram connection, comments and DMs with manual-only replies", "status": "planned"},
     {"phase": 5, "title": "Analytics, trend intelligence, growth reports and lead attribution", "status": "planned"},
     {"phase": 6, "title": "Security hardening, recovery, cost controls, accessibility and full regression tests", "status": "planned"},

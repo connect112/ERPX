@@ -68,10 +68,30 @@ Environment variables (all optional): `AI_API_KEY` (already used by other AI fea
 `SOCIAL_AI_OUTPUT_USD_PER_MTOK`, `SOCIAL_USD_TO_INR` (prices behind the cost estimate; defaults are placeholders to
 adjust to your provider's rates). Migration 0070. No new permissions.
 
+## Phase 2b: artwork, image library and the nine-post grid
+
+| Part | Where |
+|---|---|
+| Deterministic artwork: four templates (editorial, statement, photo, screenshot) on 4:5 posts, carousel slides and 9:16 Story / Reel covers. Every word and the logo are drawn by code with the bundled Inter font | `render.py` |
+| Validation on every render: text fits at a readable size (an over-long text is refused, never clipped), contrast against the lightest and darkest parts behind the text, headline length and cover text from the design rules, safe area for Stories and Reel covers | `render.py`, shown in the artwork dialog |
+| Image library: approved logo, photographs, real screenshots. Uploads are size-capped, decoded and re-encoded by the server (metadata dropped), SVG refused | `assets.py`, `/social-media/assets` |
+| The logo is placed pixel for pixel (only scaled; empty transparent margins trimmed). On a dark design it sits on a light chip | `render.py` |
+| Optional AI backgrounds for the Photo template: only the picture is generated; it is darkened under a scrim, stored as synthetic and labelled; only inline image data is accepted (no links are fetched) | `image_provider.py`, `artwork.py` |
+| Design and render are separate: change only the wording and it redraws from the stored picture; "new background" replaces only the picture; "remove artwork" keeps the design | `artwork.py` |
+| Artwork is part of approval: the approved hash covers the design and rendered files; a render's fingerprint records the exact text and design it shows, so words changed after drawing block approval until redrawn; artwork that breaks the design rules blocks approval | `service.py` (`content_hash`), `checks.py` |
+| Optional AI proofread of the words drawn on the artwork (cost counted) | `POST /posts/{id}/proofread` |
+| Nine-post grid: colour/layout repetition, abrupt light-dark jumps, repeated headlines or near-identical artwork (perceptual hash), dense text, inconsistent logo, type scale. Shown in the Grid tab, in the artwork dialog and in the approval dialog. The live profile is not readable until the account is connected, and the preview says which posts are missing | `grid.py`, `GET /social-media/grid` |
+
+Environment variables for AI backgrounds (all three must be set; otherwise the feature says it isn't set up):
+`SOCIAL_IMAGE_API_KEY`, `SOCIAL_IMAGE_API_BASE_URL`, `SOCIAL_IMAGE_MODEL` (any `/v1/images/generations` compatible API that
+returns `b64_json`), and optionally `SOCIAL_IMAGE_COST_INR` (estimated cost per image, for the budget). Migration 0071.
+Small shared changes: `upload_bytes` / `read_bytes` on the storage client, the `SOCIAL_IMAGE_*` settings. Font: Inter
+(SIL Open Font License, licence file alongside it in `modules/social_media/fonts`).
+Note: approval hashes now include the design and artwork, so a post approved before this release has a hash made the
+old way; nothing reads that hash until publishing exists (phase 3), and re-approving fixes it.
+
 ## Phases still to build
 
-2b. Artwork rendering (typography and logo drawn by code, never by an image model), logo upload, optional AI
-   backgrounds, nine-post grid preview.
 3. Calendar, durable scheduling, publishing with idempotency and reconciliation of unclear outcomes.
 4. Instagram connection (Meta app), comments and DMs, webhooks, manual-only replies.
 5. Analytics, hashtag and trend research, reports, lead attribution (trackable links and UTM parameters).

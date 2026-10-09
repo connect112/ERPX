@@ -153,6 +153,10 @@ class SocialPost(TimestampedBase):
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # How an AI draft was made: model, the research items used, suggested time and its basis, hashtag basis.
     generation: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    # What the artwork should look like: template, picture, headline overrides (see schemas.Design).
+    design: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    # What was rendered from it: files, validation, metrics and the fingerprint of the text and design they show.
+    artwork: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
 
 
 class ResearchItem(TimestampedBase):
@@ -200,3 +204,28 @@ class AIUsage(TimestampedBase):
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     est_cost_inr: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=Decimal("0"), server_default="0", nullable=False)
+
+
+class SocialAsset(TimestampedBase):
+    """An image the artwork can use: the approved logo, a photo, a lab screenshot, or an AI-generated background.
+    `synthetic` is true for anything an image model made, and is never presented as genuine evidence."""
+
+    __tablename__ = "social_assets"
+    __table_args__ = (Index("ix_social_assets_org_kind", "organization_id", "kind"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # logo | photo | screenshot | background
+    storage_key: Mapped[str] = mapped_column(String(300), nullable=False, unique=True)
+    filename: Mapped[str] = mapped_column(String(200), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    bytes_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    alt_text: Mapped[str] = mapped_column(String(420), default="", server_default="", nullable=False)
+    synthetic: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # For a generated background: the prompt and model used.
+    provenance: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)

@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OverviewTab } from "@/features/social-media/components/overview-tab";
+import { GridPreview } from "@/features/social-media/components/grid-preview";
+import { LibraryTab } from "@/features/social-media/components/library-tab";
 import { PostsTab } from "@/features/social-media/components/posts-tab";
 import { ResearchTab } from "@/features/social-media/components/research-tab";
 import { SettingsTab } from "@/features/social-media/components/settings-tab";
 import { StrategyTab } from "@/features/social-media/components/strategy-tab";
 import { StudioTab } from "@/features/social-media/components/studio-tab";
 
-const TABS = ["overview", "studio", "research", "posts", "strategy", "settings"] as const;
+const TABS = ["overview", "studio", "research", "posts", "library", "grid", "strategy", "settings"] as const;
 
 export function SocialMediaPage() {
   const [params, setParams] = useSearchParams();
@@ -39,6 +42,8 @@ export function SocialMediaPage() {
             <TabsTrigger value="studio">Studio</TabsTrigger>
             <TabsTrigger value="research">Research</TabsTrigger>
             <TabsTrigger value="posts">Posts</TabsTrigger>
+            <TabsTrigger value="library">Library</TabsTrigger>
+            <TabsTrigger value="grid">Grid</TabsTrigger>
             <TabsTrigger value="strategy">Strategy</TabsTrigger>
             <TabsTrigger value="settings">Settings &amp; Integrations</TabsTrigger>
           </TabsList>
@@ -59,6 +64,20 @@ export function SocialMediaPage() {
         </TabsContent>
         <TabsContent value="posts">
           <PostsTab key={params.get("status") ?? ""} initialStatus={params.get("status") ?? ""} />
+        </TabsContent>
+        <TabsContent value="library">
+          <LibraryTab />
+        </TabsContent>
+        <TabsContent value="grid">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile grid preview</CardTitle>
+              <CardDescription>The next nine designed posts as they will sit on the profile, and what makes them look repetitive, dense or inconsistent.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <GridPreview />
+            </CardContent>
+          </Card>
         </TabsContent>
         <TabsContent value="strategy">
           <StrategyTab />
