@@ -12,7 +12,9 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from decimal import Decimal
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -68,6 +70,8 @@ class SocialSettings(TimestampedBase):
     budgets: Mapped[dict] = mapped_column(JSONB, nullable=False)
     notifications: Mapped[dict] = mapped_column(JSONB, nullable=False)
     retention_days: Mapped[int] = mapped_column(Integer, default=365, server_default="365", nullable=False)
+    # {source: {"last_fetch_at", "ok", "error", "count"}}: when each research source was last read and how it went.
+    research_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
 
 
 class SocialAccount(TimestampedBase):
@@ -147,3 +151,52 @@ class SocialPost(TimestampedBase):
     idempotency_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, default=lambda: uuid.uuid4().hex)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # How an AI draft was made: model, the research items used, suggested time and its basis, hashtag basis.
+    generation: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+
+
+class ResearchItem(TimestampedBase):
+    """Something found on an official source (a CISA advisory, a CISA known-exploited entry, an NVD record). It is the
+    cache of what the research found, with where it came from and when it was retrieved."""
+
+    __tablename__ = "social_research_items"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "source", "external_id", name="uq_social_research_item"),
+        Index("ix_social_research_org_published", "organization_id", "published_at"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(30), nullable=False)  # cisa_kev | cisa_advisory | nvd
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    url: Mapped[str] = mapped_column(String(600), nullable=False)
+    title: Mapped[str] = mapped_column(String(400), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    severity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    cve_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    # What the source states (vendor, product, CVSS, due date, ransomware use ...), kept as data, never as instructions.
+    facts: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    # Problems with the item itself, e.g. text that looks like an instruction to an AI.
+    flags: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="new", server_default="new", nullable=False)  # new | used | dismissed
+
+
+class AIUsage(TimestampedBase):
+    """One paid AI call, with an estimated cost, so the monthly budget can be enforced and shown."""
+
+    __tablename__ = "social_ai_usage"
+    __table_args__ = (Index("ix_social_ai_usage_org_created", "organization_id", "created_at"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    post_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_posts.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)  # draft | regenerate | proofread | image
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    est_cost_inr: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=Decimal("0"), server_default="0", nullable=False)

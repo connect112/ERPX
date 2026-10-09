@@ -1,15 +1,19 @@
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OverviewTab } from "@/features/social-media/components/overview-tab";
 import { PostsTab } from "@/features/social-media/components/posts-tab";
+import { ResearchTab } from "@/features/social-media/components/research-tab";
 import { SettingsTab } from "@/features/social-media/components/settings-tab";
 import { StrategyTab } from "@/features/social-media/components/strategy-tab";
+import { StudioTab } from "@/features/social-media/components/studio-tab";
 
-const TABS = ["overview", "posts", "strategy", "settings"] as const;
+const TABS = ["overview", "studio", "research", "posts", "strategy", "settings"] as const;
 
 export function SocialMediaPage() {
   const [params, setParams] = useSearchParams();
+  const [selected, setSelected] = useState<string[]>([]);
   const requested = params.get("tab") ?? "overview";
   const tab = (TABS as readonly string[]).includes(requested) ? requested : "overview";
 
@@ -32,6 +36,8 @@ export function SocialMediaPage() {
         <div className="max-w-full overflow-x-auto">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="studio">Studio</TabsTrigger>
+            <TabsTrigger value="research">Research</TabsTrigger>
             <TabsTrigger value="posts">Posts</TabsTrigger>
             <TabsTrigger value="strategy">Strategy</TabsTrigger>
             <TabsTrigger value="settings">Settings &amp; Integrations</TabsTrigger>
@@ -39,6 +45,17 @@ export function SocialMediaPage() {
         </div>
         <TabsContent value="overview">
           <OverviewTab onOpenTab={openTab} />
+        </TabsContent>
+        <TabsContent value="studio">
+          <StudioTab selected={selected} onSelectedChange={setSelected} onOpenPosts={() => openTab("posts", "draft")} />
+        </TabsContent>
+        <TabsContent value="research">
+          <ResearchTab
+            onDraftFrom={(id) => {
+              setSelected([id]);
+              openTab("studio");
+            }}
+          />
         </TabsContent>
         <TabsContent value="posts">
           <PostsTab key={params.get("status") ?? ""} initialStatus={params.get("status") ?? ""} />

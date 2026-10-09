@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useMyRoles } from "@/features/auth/api/authorization-hooks";
 import type { Capability } from "@/features/social-media/api/social-media-api";
-import { useIntegration, useSocialSettings, useUpdateSocialSettings } from "@/features/social-media/api/social-media-hooks";
+import { useIntegration, useSocialSettings, useUpdateSocialSettings, useUsage } from "@/features/social-media/api/social-media-hooks";
 import { TIMEZONES, errorMessage, formatInZone } from "@/features/social-media/lib/format";
 
 const NATIVE_SELECT = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
@@ -24,6 +24,7 @@ const API_LABEL: Record<Capability["api"], { text: string; variant: "success" | 
 export function SettingsTab() {
   const settings = useSocialSettings();
   const integration = useIntegration();
+  const usage = useUsage();
   const update = useUpdateSocialSettings();
   const me = useMyRoles();
   const canManage = (me.data?.is_superuser ?? false) || (me.data?.effective_permissions ?? []).includes("social_media.manage");
@@ -138,6 +139,31 @@ export function SettingsTab() {
         </CardContent>
       </Card>
 
+      {usage.data && (
+        <Card>
+          <CardHeader>
+            <CardTitle>AI cost this month</CardTitle>
+            <CardDescription>{usage.data.note}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>
+              <span className="text-2xl font-semibold">₹{usage.data.spent_inr.toFixed(2)}</span>{" "}
+              {usage.data.budget_inr > 0 ? `of ₹${usage.data.budget_inr} budget` : "(no budget limit set)"} · {usage.data.calls} AI call(s)
+            </p>
+            {usage.data.over_budget && <p className="text-destructive">The budget is used up, so AI drafting is paused.</p>}
+            {!usage.data.over_budget && usage.data.over_alert && <p className="text-amber-700">Spending has passed {usage.data.alert_at_percent}% of the budget.</p>}
+            {!usage.data.ai_configured && <p className="text-muted-foreground">No AI key is configured on this server.</p>}
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(usage.data.by_kind).map(([kind, v]) => (
+                <Badge key={kind} variant="secondary">
+                  {kind}: {v.calls} (₹{v.est_cost_inr.toFixed(2)})
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Publishing, budget and notifications</CardTitle>
@@ -164,7 +190,7 @@ export function SettingsTab() {
               <p className="text-xs text-muted-foreground">Either way, nothing is published without an approval.</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-budget">Monthly budget for AI and image services (INR)</Label>
+              <Label htmlFor="s-budget">Monthly budget for AI and image services (INR, 0 = no limit)</Label>
               <Input id="s-budget" type="number" min={0} value={budget} onChange={(e) => setBudget(e.target.value)} />
             </div>
             <div className="space-y-1.5">

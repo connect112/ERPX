@@ -11,6 +11,7 @@ from modules.social_media import defaults
 from modules.social_media.models import PostStatus
 from modules.social_media.schemas import (
     AccountPublic,
+    BriefingItem,
     CapabilityInfo,
     IntegrationOverview,
     Overview,
@@ -23,9 +24,13 @@ from modules.social_media.schemas import (
     SettingsUpdate,
 )
 from modules.social_media.service import OverviewService, PostService, SettingsService
+from modules.social_media.history import HistoryService
+from modules.social_media.studio_routes import router as studio_router
+from modules.social_media.usage import UsageService
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+router.include_router(studio_router)
 
 VIEW = "social_media.view"
 MANAGE = "social_media.manage"
@@ -64,8 +69,20 @@ async def overview(
     connected = account is not None and account.status in ("connected", "expiring")
     leads = await service.leads(organization_id)
     waiting, _ = await PostService(db).list(organization_id, status=PostStatus.REVIEW.value, limit=5)
+    briefing = await service.briefing(counts, connected, settings, leads)
+    history = HistoryService(db)
+    considered = len(await history.recent(organization_id, limit=20))
+    for suggestion in history.suggestions(await history.balance(organization_id, settings), considered):
+        briefing.append(BriefingItem(level="info", message=f"Next batch: {suggestion}", link="studio"))
+    usage = await UsageService(db).summary(organization_id, settings)
+    if usage["over_budget"]:
+        briefing.insert(0, BriefingItem(level="warning", message="The monthly AI budget is used up, so AI drafting is paused.", link="settings"))
+    elif usage["over_alert"]:
+        briefing.insert(0, BriefingItem(level="warning", message=f"AI spending has passed {usage['alert_at_percent']}% of the monthly budget (an estimate).", link="settings"))
+    if not (settings.research_state or {}):
+        briefing.append(BriefingItem(level="info", message="Research hasn't been read yet. Open Research to pull the latest CISA advisories.", link="research"))
     result = Overview(
-        briefing=await service.briefing(counts, connected, settings, leads),
+        briefing=briefing,
         post_counts=counts,
         awaiting_approval=[PostService.public(p) for p in waiting],
         leads=leads,

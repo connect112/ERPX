@@ -43,6 +43,19 @@ export interface Source {
 export interface PostWarning {
   severity: "info" | "warning" | "blocking";
   message: string;
+  code?: string | null;
+}
+
+export interface Generation {
+  model?: string;
+  research_items?: string[];
+  hashtag_basis?: string;
+  suggested_time?: { at: string; timezone: string; basis: string; evidence: string };
+  last_check?: {
+    checked_at: string;
+    cves: Record<string, { checked: boolean; found?: boolean; cvss?: number | null; severity?: string | null; kev?: boolean; status?: string | null }>;
+  };
+  claims?: string[];
 }
 
 export interface Post {
@@ -67,6 +80,7 @@ export interface Post {
   attempt_count: number;
   last_error: string | null;
   duplicate_of_id: string | null;
+  generation: Generation;
   created_at: string;
   updated_at: string;
   approval_withdrawn: boolean;
@@ -188,6 +202,70 @@ export interface Overview {
   roadmap: { phase: number; title: string; status: "done" | "next" | "planned" }[];
 }
 
+export interface ResearchItem {
+  id: string;
+  source: "cisa_kev" | "cisa_advisory" | "nvd";
+  external_id: string;
+  url: string;
+  title: string;
+  summary: string | null;
+  published_at: string | null;
+  retrieved_at: string;
+  severity: string | null;
+  cve_ids: string[];
+  facts: Record<string, unknown>;
+  flags: string[];
+  status: "new" | "used" | "dismissed";
+}
+
+export interface ResearchList {
+  items: ResearchItem[];
+  total: number;
+  sources: Record<string, { label: string; last_fetch_at?: string; ok?: boolean; error?: string | null; count?: number }>;
+}
+
+export interface RefreshResult {
+  source: string;
+  label: string;
+  skipped: boolean;
+  ok: boolean;
+  new: number;
+  count: number;
+  error: string | null;
+}
+
+export interface GeneratePayload {
+  topic: string;
+  format: PostFormat;
+  pillar?: string | null;
+  persona_key?: string | null;
+  research_item_ids: string[];
+  notes?: string;
+  time_sensitive?: boolean;
+}
+
+export type RewriteElement = "hooks" | "headline" | "caption" | "cta" | "hashtags" | "thumbnail_text" | "visual_direction" | "alt_text";
+
+export interface HistoryOverview {
+  pillars: { key: string; label: string; target: number; actual: number; recent: number }[];
+  posts_considered: number;
+  suggestions: string[];
+}
+
+export interface UsageOverview {
+  month_start: string;
+  spent_inr: number;
+  budget_inr: number;
+  alert_at_percent: number;
+  over_budget: boolean;
+  over_alert: boolean;
+  calls: number;
+  by_kind: Record<string, { calls: number; est_cost_inr: number }>;
+  is_estimate: boolean;
+  note: string;
+  ai_configured: boolean;
+}
+
 export const socialMediaApi = {
   overview: () => apiClient.get<Overview>("/social-media/overview").then((r) => r.data),
   settings: () => apiClient.get<SocialSettings>("/social-media/settings").then((r) => r.data),
@@ -205,4 +283,17 @@ export const socialMediaApi = {
     id: string,
     payload: { action: TransitionAction; acknowledge_warnings?: boolean; acknowledge_high_risk?: boolean },
   ) => apiClient.post<Post>(`/social-media/posts/${id}/transition`, payload).then((r) => r.data),
+  research: (params: { source?: string; status?: string; q?: string; skip?: number; limit?: number }) =>
+    apiClient.get<ResearchList>("/social-media/research", { params }).then((r) => r.data),
+  refreshResearch: (force: boolean) =>
+    apiClient.post<RefreshResult[]>("/social-media/research/refresh", null, { params: { force } }).then((r) => r.data),
+  lookUpCve: (cve: string) => apiClient.post<ResearchItem>("/social-media/research/cve", { cve }).then((r) => r.data),
+  dismissResearch: (id: string) => apiClient.post(`/social-media/research/${id}/dismiss`).then(() => undefined),
+  generate: (payload: GeneratePayload) =>
+    apiClient.post<Post>("/social-media/studio/generate", payload, { timeout: 120000 }).then((r) => r.data),
+  rewrite: (id: string, element: RewriteElement, instruction: string) =>
+    apiClient.post<Post>(`/social-media/posts/${id}/regenerate`, { element, instruction }, { timeout: 120000 }).then((r) => r.data),
+  checkPost: (id: string) => apiClient.post<Post>(`/social-media/posts/${id}/check`, null, { timeout: 60000 }).then((r) => r.data),
+  history: () => apiClient.get<HistoryOverview>("/social-media/history").then((r) => r.data),
+  usage: () => apiClient.get<UsageOverview>("/social-media/usage").then((r) => r.data),
 };

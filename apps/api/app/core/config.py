@@ -223,6 +223,11 @@ class Settings(BaseSettings):
     AI_MAX_TOKENS: int = 2048
     AI_REQUEST_TIMEOUT_SECONDS: int = 60
 
+    # ---- Social Media: estimated AI cost (shown as an estimate; change if your provider's prices differ) ----
+    SOCIAL_AI_INPUT_USD_PER_MTOK: float = 3.0
+    SOCIAL_AI_OUTPUT_USD_PER_MTOK: float = 15.0
+    SOCIAL_USD_TO_INR: float = 85.0
+
     # ---- Job feed (Placements) ----
     # Adzuna (https://developer.adzuna.com) and Jooble (https://jooble.org/api/about) are used only when their keys
     # are set; Remotive and Arbeitnow need no key.

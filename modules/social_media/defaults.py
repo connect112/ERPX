@@ -150,7 +150,7 @@ CAPABILITIES = [
 
 ROADMAP = [
     {"phase": 1, "title": "Data model, strategy and settings, draft and approval workflow, ERP lead link", "status": "done"},
-    {"phase": 2, "title": "AI research and content studio, source verification, artwork rendering, 9-post grid preview", "status": "next"},
+    {"phase": 2, "title": "Research, AI studio and fact checks are built (2a). Artwork rendering and the 9-post grid preview are next (2b)", "status": "next"},
     {"phase": 3, "title": "Content calendar, durable scheduling and reliable publishing", "status": "planned"},
     {"phase": 4, "title": "Instagram connection, comments and DMs with manual-only replies", "status": "planned"},
     {"phase": 5, "title": "Analytics, trend intelligence, growth reports and lead attribution", "status": "planned"},

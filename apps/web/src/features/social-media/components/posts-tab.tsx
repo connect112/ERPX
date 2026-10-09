@@ -1,4 +1,4 @@
-import { Copy, Pencil, Plus, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, ShieldCheck, Trash2, Wand2 } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -8,12 +8,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMyRoles } from "@/features/auth/api/authorization-hooks";
-import type { Post, PostPayload, TransitionAction } from "@/features/social-media/api/social-media-api";
+import type { Post, PostPayload, RewriteElement, TransitionAction } from "@/features/social-media/api/social-media-api";
 import {
+  useCheckPost,
   useCreatePost,
   useDeletePost,
   useDuplicatePost,
   usePosts,
+  useRewrite,
   useSocialSettings,
   useTransitionPost,
   useUpdatePost,
@@ -30,6 +32,16 @@ import {
 
 const STATUS_FILTERS = ["", "draft", "review", "approved", "scheduled", "published", "failed", "cancelled"] as const;
 const NATIVE_SELECT = "h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+const REWRITE_LABEL: Record<RewriteElement, string> = {
+  hooks: "Hooks",
+  headline: "Headline",
+  caption: "Caption",
+  cta: "Call to action",
+  hashtags: "Hashtags",
+  thumbnail_text: "Cover text",
+  visual_direction: "Visual direction",
+  alt_text: "Alt text",
+};
 
 interface Props {
   initialStatus?: string;
@@ -46,6 +58,12 @@ export function PostsTab({ initialStatus = "" }: Props) {
   const remove = useDeletePost();
   const duplicate = useDuplicatePost();
   const transition = useTransitionPost();
+  const check = useCheckPost();
+  const rewrite = useRewrite();
+  const [rewriting, setRewriting] = useState<Post | null>(null);
+  const [element, setElement] = useState<RewriteElement>("caption");
+  const [instruction, setInstruction] = useState("");
+  const [rewriteError, setRewriteError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<Post | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -112,7 +130,30 @@ export function PostsTab({ initialStatus = "" }: Props) {
     );
   }
 
-  const busy = transition.isPending || remove.isPending || duplicate.isPending;
+  function runCheck(post: Post) {
+    setActionError(null);
+    check.mutate(post.id, {
+      onSuccess: (p) => setNotice(p.warnings.length ? `Checked: ${p.warnings.length} thing(s) to look at.` : "Checked: nothing to flag."),
+      onError: (e) => setActionError(errorMessage(e, "The check didn't finish.")),
+    });
+  }
+
+  function confirmRewrite() {
+    if (!rewriting) return;
+    setRewriteError(null);
+    rewrite.mutate(
+      { id: rewriting.id, element, instruction: instruction.trim() },
+      {
+        onSuccess: (p) => {
+          setRewriting(null);
+          setNotice(p.approval_withdrawn ? "Rewritten. The earlier approval was withdrawn." : "Rewritten.");
+        },
+        onError: (e) => setRewriteError(errorMessage(e, "Couldn't rewrite that.")),
+      },
+    );
+  }
+
+  const busy = transition.isPending || remove.isPending || duplicate.isPending || check.isPending;
 
   return (
     <div className="space-y-4">
@@ -183,6 +224,26 @@ export function PostsTab({ initialStatus = "" }: Props) {
                   </div>
                 </div>
                 {post.content.caption && <p className="line-clamp-2 text-sm text-muted-foreground">{post.content.caption}</p>}
+                {post.content.hashtags.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {post.content.hashtags.map((h) => `#${h}`).join(" ")}
+                    {post.generation.hashtag_basis === "ai_suggested" ? " · AI-suggested, not a measured trend" : ""}
+                  </p>
+                )}
+                {post.generation.suggested_time && (
+                  <p className="text-xs text-muted-foreground" title={post.generation.suggested_time.evidence}>
+                    Suggested time: {formatInZone(post.generation.suggested_time.at, post.generation.suggested_time.timezone)} (a {post.generation.suggested_time.basis} assumption, not measured)
+                  </p>
+                )}
+                {post.generation.last_check && (
+                  <p className="text-xs text-muted-foreground">
+                    Last checked {formatInZone(post.generation.last_check.checked_at, timeZone)}
+                    {Object.entries(post.generation.last_check.cves).map(
+                      ([cve, info]) =>
+                        ` · ${cve}: ${info.checked ? (info.found ? `in NVD${info.cvss != null ? `, CVSS ${info.cvss}` : ""}${info.kev ? ", known exploited" : ""}` : "NOT in NVD") : "not checked"}`,
+                    )}
+                  </p>
+                )}
                 {post.warnings.length > 0 && (
                   <ul className="space-y-1 text-xs">
                     {post.warnings.map((w, i) => (
@@ -200,6 +261,25 @@ export function PostsTab({ initialStatus = "" }: Props) {
                       <Button size="sm" variant="outline" onClick={() => openEditor(post)}>
                         <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
                       </Button>
+                    )}
+                    {["draft", "review", "approved"].includes(post.status) && (
+                      <>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => runCheck(post)}>
+                          <ShieldCheck className="mr-1 h-3.5 w-3.5" /> {check.isPending && check.variables === post.id ? "Checking..." : "Check facts & rules"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => {
+                            setRewriting(post);
+                            setRewriteError(null);
+                            setInstruction("");
+                          }}
+                        >
+                          <Wand2 className="mr-1 h-3.5 w-3.5" /> Rewrite a part
+                        </Button>
+                      </>
                     )}
                     {post.status === "draft" && (
                       <Button size="sm" disabled={busy} onClick={() => act(post, "submit")}>
@@ -275,6 +355,39 @@ export function PostsTab({ initialStatus = "" }: Props) {
         error={editorError}
         onSave={save}
       />
+
+      <Dialog open={rewriting !== null} onOpenChange={(open) => !open && setRewriting(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rewrite one part with AI</DialogTitle>
+            <DialogDescription>Only the part you choose is rewritten. The rest of the post stays as it is.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <select aria-label="Part to rewrite" className={`${NATIVE_SELECT} w-full`} value={element} onChange={(e) => setElement(e.target.value as RewriteElement)}>
+              {(Object.keys(REWRITE_LABEL) as RewriteElement[]).map((key) => (
+                <option key={key} value={key}>
+                  {REWRITE_LABEL[key]}
+                </option>
+              ))}
+            </select>
+            <Input aria-label="Instruction" placeholder="Optional: e.g. shorter, friendlier" maxLength={300} value={instruction} onChange={(e) => setInstruction(e.target.value)} />
+            {rewriting?.status === "approved" && <p className="text-amber-700">This post is approved. Rewriting it withdraws the approval.</p>}
+            {rewriteError && (
+              <p role="alert" className="text-destructive">
+                {rewriteError}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRewriting(null)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmRewrite} disabled={rewrite.isPending}>
+              {rewrite.isPending ? "Rewriting..." : "Rewrite"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={approving !== null} onOpenChange={(open) => !open && setApproving(null)}>
         <DialogContent className="max-w-xl">
