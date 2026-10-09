@@ -82,6 +82,12 @@ class WorkshopExam(TimestampedBase):
     # `certificate_id_counter` counts the in-order numbers handed out so far; the next one is start + counter.
     certificate_id_pattern: Mapped[str | None] = mapped_column(String(80), nullable=True)
     certificate_id_start: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    # A certificate-only exam that belongs to a hackathon: one per award (first, second, third, participation). It
+    # carries that award's design, ID format and attendees, and is hidden from the Workshop Exams list.
+    hackathon_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("hackathons.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    award: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Optional step before sending: the admin looks at every certificate and marks it verified.
     certificate_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     certificate_id_counter: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)

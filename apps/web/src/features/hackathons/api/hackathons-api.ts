@@ -237,7 +237,68 @@ export interface MemberUpdatePayload {
   send_login_link?: boolean;
 }
 
+export interface AwardMember {
+  name: string;
+  email: string | null;
+}
+
+export interface AwardTeam {
+  rank: number;
+  team_name: string;
+  score: number;
+  members: AwardMember[];
+}
+
+/** One of the certificates: 1st, 2nd, 3rd place or participation. `exam_id` is the certificate exam that holds its design. */
+export interface AwardInfo {
+  award: "first" | "second" | "third" | "participation";
+  label: string;
+  exam_id: string;
+  has_design: boolean;
+  review_required: boolean;
+  teams: AwardTeam[];
+  sent: number;
+}
+
+export interface AwardsOverview {
+  awards: AwardInfo[];
+  participation_in_teams: number;
+  participation_everyone: number;
+}
+
+export interface AwardPlan {
+  award: AwardInfo["award"];
+  label: string;
+  exam_id: string;
+  recipients: { name: string; email: string | null; team_name: string | null; status: string }[];
+  will_send: number;
+  already_sent: number;
+  no_email: number;
+  review_required: boolean;
+}
+
+export interface AwardsIssueResult {
+  awards: AwardPlan[];
+  done: boolean;
+  held_for_review: string[];
+  message: string;
+}
+
+export interface AwardsIssueRequest {
+  include_participation: boolean;
+  participation_audience: "teams" | "all";
+  confirm: boolean;
+}
+
 export const hackathonsApi = {
+  /** The winning teams per place and the four award certificates (created on first use). */
+  openAwardCertificates: (id: string) =>
+    apiClient.post<AwardsOverview>(`/hackathons/${id}/certificates/awards`).then((r) => r.data),
+
+  /** Without confirm: who would get which certificate. With confirm: add them and send (or hold for review). */
+  issueAwardCertificates: (id: string, payload: AwardsIssueRequest) =>
+    apiClient.post<AwardsIssueResult>(`/hackathons/${id}/certificates/issue`, payload).then((r) => r.data),
+
   list: (params: HackathonListParams) =>
     apiClient.get<HackathonListResponse>("/hackathons", { params }).then((r) => r.data),
 

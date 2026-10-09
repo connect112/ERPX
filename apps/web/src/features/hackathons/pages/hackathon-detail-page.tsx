@@ -29,6 +29,7 @@ import { ParticipantsTab } from "@/features/hackathons/components/participants-t
 import { ResubmissionCard } from "@/features/hackathons/components/resubmission-card";
 import { SubmissionsTab } from "@/features/hackathons/components/submissions-tab";
 import { TeamsTab } from "@/features/hackathons/components/teams-tab";
+import { WinnerCertificatesTab } from "@/features/hackathons/components/winner-certificates-tab";
 import { HackathonFormDialog } from "@/features/hackathons/components/hackathon-form-dialog";
 import { HackathonStatusBadge } from "@/features/hackathons/components/hackathon-status-badge";
 import {
@@ -109,6 +110,7 @@ export function HackathonDetailPage() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="certificates">Certificates</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-0">
@@ -268,6 +270,10 @@ export function HackathonDetailPage() {
 
         <TabsContent value="submissions" className="mt-0">
           <SubmissionsTab hackathonId={hackathon.id} />
+        </TabsContent>
+
+        <TabsContent value="certificates" className="mt-0">
+          <WinnerCertificatesTab hackathon={hackathon} />
         </TabsContent>
       </Tabs>
 

@@ -19,6 +19,38 @@ def verify_url(certificate_number: str) -> str:
     return f"{settings.FRONTEND_URL.rstrip('/')}/verify-workshop-certificate/{certificate_number}"
 
 
+PLACE_LABELS = {"first": "1st place", "second": "2nd place", "third": "3rd place"}
+
+
+async def certificate_email(
+    db: AsyncSession, exam: WorkshopExam, full_name: str, team_name: str | None = None
+) -> tuple[str, str, str]:
+    """(subject, text, html) of the email that carries a certificate of this exam: the exam certificate email, or for a
+    hackathon award its winner / participation email (with that hackathon's own wording when it has written one)."""
+    from modules.email_templates.render import render_email
+
+    if exam.hackathon_id is None:
+        return await render_email(
+            db, "workshop_certificate", {"full_name": full_name, "exam_title": exam.title}, organization_id=exam.organization_id
+        )
+    from modules.hackathons.models import Hackathon
+
+    hackathon = (await db.execute(select(Hackathon).where(Hackathon.id == exam.hackathon_id))).scalar_one()
+    key = "hackathon_winner_certificate" if exam.award in PLACE_LABELS else "hackathon_participation_certificate"
+    return await render_email(
+        db,
+        key,
+        {
+            "full_name": full_name,
+            "hackathon_title": hackathon.title,
+            "place": PLACE_LABELS.get(exam.award or "", ""),
+            "team_name": team_name or "",
+        },
+        organization_id=exam.organization_id,
+        hackathon_id=exam.hackathon_id,
+    )
+
+
 def adjust_of(attendee: WorkshopExamAttendee) -> NameAdjust | None:
     return NameAdjust.model_validate(attendee.certificate_adjust) if attendee.certificate_adjust else None
 

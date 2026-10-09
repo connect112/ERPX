@@ -68,6 +68,8 @@ def test_every_default_renders_with_its_sample_values_and_uses_only_its_own_plac
         "password_reset",
         "account_invite",
         "hackathon_participant_welcome",
+        "hackathon_winner_certificate",
+        "hackathon_participation_certificate",
         "workshop_exam_invite",
         "workshop_certificate",
         "announcement",
@@ -256,7 +258,8 @@ async def test_a_hackathon_can_have_its_own_welcome_email_and_falls_back_to_the_
 
     # Only event emails are offered on the event page.
     listed = (await client.get(base, headers=auth_headers)).json()
-    assert [t["key"] for t in listed] == ["hackathon_participant_welcome"] and listed[0]["inherited"] is True
+    assert [t["key"] for t in listed] == ["hackathon_participant_welcome", "hackathon_winner_certificate", "hackathon_participation_certificate"]
+    assert all(t["inherited"] for t in listed)
     assert (await client.get(f"{base}/password_reset", headers=auth_headers)).status_code == 404
 
     values = {"full_name": "Asha", "hackathon_title": "One", "set_password_url": "https://x.io/s", "login_url": "https://x.io/l"}

@@ -415,3 +415,62 @@ class HackathonCertificatesResponse(BaseModel):
     # The people were added, but their certificates wait for review instead of being sent.
     held_for_review: bool = False
     message: str = ""
+
+
+# ---- Hackathon winner certificates (1st / 2nd / 3rd place, optionally participation) ----
+
+
+class AwardMember(BaseModel):
+    name: str
+    email: str | None
+
+
+class AwardTeam(BaseModel):
+    rank: int
+    team_name: str
+    score: int
+    members: list[AwardMember]
+
+
+class AwardInfo(BaseModel):
+    award: str
+    label: str
+    # The certificate exam that holds this award's design, ID format and recipients.
+    exam_id: uuid.UUID
+    has_design: bool
+    review_required: bool
+    teams: list[AwardTeam] = []
+    sent: int = 0  # certificates already delivered for this award
+
+
+class AwardsOverview(BaseModel):
+    awards: list[AwardInfo]
+    # How many people a participation certificate would go to (not counting the winners), for each audience.
+    participation_in_teams: int
+    participation_everyone: int
+
+
+class AwardsIssueRequest(BaseModel):
+    include_participation: bool = False
+    participation_audience: Literal["teams", "all"] = "teams"
+    # Without confirm: only who would get what. With it: they are added and sent (or held for review).
+    confirm: bool = False
+
+
+class AwardPlanOut(BaseModel):
+    award: str
+    label: str
+    exam_id: uuid.UUID
+    recipients: list[CertificateRecipient]
+    will_send: int
+    already_sent: int
+    no_email: int
+    review_required: bool
+
+
+class AwardsIssueResponse(BaseModel):
+    awards: list[AwardPlanOut]
+    done: bool = False
+    # Awards whose certificates were added but are waiting for review instead of being emailed.
+    held_for_review: list[str] = []
+    message: str = ""

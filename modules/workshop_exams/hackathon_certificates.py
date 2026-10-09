@@ -87,6 +87,10 @@ class HackathonCertificates:
         elif audience != "all":
             raise ValidationError("Unknown audience.")
 
+        return await self.plan_for(exam, hackathon.title, people)
+
+    async def plan_for(self, exam: WorkshopExam, hackathon_title: str, people) -> Plan:
+        """Who would get this exam's certificate from these people (anything with full_name / email / team_name)."""
         existing = {
             a.email: a
             for a in (
@@ -117,7 +121,7 @@ class HackathonCertificates:
                 recipient = Recipient(person.full_name, email, person.team_name, RESEND)
                 to_resend.append(attendee)
             recipients.append(recipient)
-        plan = Plan(hackathon.title, recipients, to_create, to_resend)
+        plan = Plan(hackathon_title, recipients, to_create, to_resend)
         if plan.will_send > MAX_RECIPIENTS:
             raise ValidationError(f"That is {plan.will_send} people; send at most {MAX_RECIPIENTS} at a time.")
         return plan
@@ -132,6 +136,7 @@ class HackathonCertificates:
                 email=recipient.email,
                 access_token=secrets.token_urlsafe(24),
                 certificate_only=True,
+                info={"team": recipient.team_name} if recipient.team_name else {},
             )
             self.db.add(attendee)
             await self.db.flush()
