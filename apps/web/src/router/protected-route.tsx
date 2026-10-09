@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { Navigate } from "react-router-dom";
 
+import { StudentPortalRedirect } from "@/components/student-portal-redirect";
 import { PageLoader } from "@/components/ui/page-loader";
 import { useSsoBootstrap } from "@/features/auth/lib/use-sso-bootstrap";
 import { useAuthStore } from "@/store/auth-store";
@@ -20,8 +21,11 @@ interface ProtectedRouteProps {
  * employee, student alike) — any authenticated account renders the app
  * shell and sees whatever the sidebar's own permission filtering
  * (app-sidebar.tsx, driven by GET /authorization/me) exposes to them.
- * This deliberately does NOT gate on account "kind" or bounce anyone to
- * another subdomain: that per-portal-kind redirect (formerly
+ * The one exception is an account that is ONLY a student (no staff, trainer or
+ * admin side): it is handed one way to lms.pentrix.in (StudentPortalRedirect),
+ * and lms never sends anyone back. Otherwise this deliberately does NOT gate
+ * on account "kind" or bounce anyone to another subdomain: the old two-way
+ * per-portal-kind redirect (formerly
  * portal-resolution.ts / wrong-portal-screen.tsx here) caused a real,
  * disruptive bug — two portals racing to refresh/rotate the same
  * account's shared SSO cookie concurrently, tripping the refresh-token
@@ -40,5 +44,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  return children;
+  // A student has no business on the admin site: hand them to the student site (one way, see the component).
+  return (
+    <>
+      {children}
+      <StudentPortalRedirect />
+    </>
+  );
 }
