@@ -16,6 +16,7 @@ import {
   useSetExternalJobHidden,
   useUpdateJobFeedSettings,
 } from "@/features/placements/api/placements-hooks";
+import { EXPERIENCE_FILTERS, experienceLabel } from "@/features/placements/lib/experience";
 import { JOB_SITE_TOPICS, jobSiteSearchUrl } from "@/features/placements/lib/job-sites";
 
 const PAGE_SIZE = 50;
@@ -42,6 +43,7 @@ export function JobFeedPage() {
   const hide = useSetExternalJobHidden();
   const [search, setSearch] = useState("");
   const [source, setSource] = useState("");
+  const [experience, setExperience] = useState("");
   const [showHidden, setShowHidden] = useState(true);
   const [skip, setSkip] = useState(0);
   const [keywords, setKeywords] = useState("");
@@ -51,6 +53,7 @@ export function JobFeedPage() {
   const jobs = useExternalJobs({
     q: search || undefined,
     source: source || undefined,
+    experience: experience || undefined,
     include_hidden: showHidden,
     skip,
     limit: PAGE_SIZE,
@@ -260,6 +263,22 @@ export function JobFeedPage() {
                 </option>
               ))}
             </select>
+            <select
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              value={experience}
+              onChange={(e) => {
+                setExperience(e.target.value);
+                setSkip(0);
+              }}
+              aria-label="Experience"
+            >
+              <option value="">Any experience</option>
+              {EXPERIENCE_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
               Show hidden jobs
@@ -276,6 +295,7 @@ export function JobFeedPage() {
                   <TableHead>Job</TableHead>
                   <TableHead>Company</TableHead>
                   <TableHead>Where</TableHead>
+                  <TableHead>Experience</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Posted</TableHead>
                   <TableHead className="text-right">Students see it</TableHead>
@@ -293,6 +313,9 @@ export function JobFeedPage() {
                     </TableCell>
                     <TableCell>{job.company_name}</TableCell>
                     <TableCell className="text-muted-foreground">{job.remote ? "Remote" : job.location ?? "-"}{job.remote && job.location ? ` (${job.location})` : ""}</TableCell>
+                    <TableCell className="whitespace-nowrap" title={job.experience_estimated ? "Guessed from the job title" : undefined}>
+                      {experienceLabel(job)}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{sourceLabel(job.source, labels)}</TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">{job.posted_at ? format(parseISO(job.posted_at), "PP") : "-"}</TableCell>
                     <TableCell className="text-right">
@@ -310,7 +333,7 @@ export function JobFeedPage() {
                 ))}
                 {(jobs.data?.items ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                       No jobs yet. Press Refresh now to read the job sites.
                     </TableCell>
                   </TableRow>

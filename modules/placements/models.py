@@ -12,7 +12,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, SmallInteger, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -139,6 +139,12 @@ class ExternalJob(TimestampedBase):
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     salary_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
     fresher_friendly: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # Years of experience the job asks for, read from its title and description (see experience.py): min, and max
+    # (None = "and more"). Both None = not stated. `estimated` = only guessed from the title (Senior, Junior...).
+    experience_min: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    experience_max: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    experience_estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    experience_parsed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # Hidden by an admin: kept (so it isn't re-added) but not shown to students.
     hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # False once the job is no longer in its source's feed (or no longer matches the filters).

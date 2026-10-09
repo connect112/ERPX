@@ -139,6 +139,10 @@ class ExternalJobPublic(BaseModel):
     posted_at: datetime | None
     salary_text: str | None
     fresher_friendly: bool
+    # Years of experience asked for: min and max (None max = "and more"); both None = not stated.
+    experience_min: int | None = None
+    experience_max: int | None = None
+    experience_estimated: bool = False
     hidden: bool
 
     model_config = {"from_attributes": True}

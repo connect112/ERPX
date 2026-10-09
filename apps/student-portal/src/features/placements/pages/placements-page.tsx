@@ -26,6 +26,7 @@ import {
   useWithdrawPlacementApplication,
 } from "@/features/placements/api/placements-hooks";
 import type { PlacementApplicationStatus } from "@/features/placements/api/placements-api";
+import { EXPERIENCE_FILTERS, experienceLabel } from "@/features/placements/lib/experience";
 import { JOB_SITE_TOPICS, jobSiteSearchUrl } from "@/features/placements/lib/job-sites";
 
 const statusVariant: Record<
@@ -168,8 +169,10 @@ const PAGE_SIZE = 24;
 function JobsFromJobSites() {
   const [search, setSearch] = useState("");
   const [skip, setSkip] = useState(0);
+  const [experience, setExperience] = useState("");
   const { data, isLoading, isError } = useExternalJobs({
     q: search.trim() || undefined,
+    experience: experience || undefined,
     skip,
     limit: PAGE_SIZE,
   });
@@ -187,6 +190,22 @@ function JobsFromJobSites() {
             setSkip(0);
           }}
         />
+        <select
+          className="h-10 rounded-md border bg-background px-3 text-sm"
+          value={experience}
+          onChange={(e) => {
+            setExperience(e.target.value);
+            setSkip(0);
+          }}
+          aria-label="Experience"
+        >
+          <option value="">Any experience</option>
+          {EXPERIENCE_FILTERS.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+        </select>
         {data && (
           <span className="text-sm text-muted-foreground">
             {data.total} job{data.total === 1 ? "" : "s"}
@@ -219,6 +238,10 @@ function JobsFromJobSites() {
               <CardContent className="flex flex-1 flex-col justify-between gap-3">
                 <div className="space-y-2">
                   {job.summary && <p className="line-clamp-3 text-sm text-muted-foreground">{job.summary}</p>}
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Experience: </span>
+                    {experienceLabel(job)}
+                  </p>
                   {job.salary_text && <p className="text-sm">{job.salary_text}</p>}
                   <p className="text-xs text-muted-foreground">
                     {job.posted_at ? `Posted ${formatDistanceToNow(parseISO(job.posted_at), { addSuffix: true })} · ` : ""}

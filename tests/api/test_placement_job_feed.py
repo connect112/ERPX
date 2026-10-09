@@ -117,6 +117,41 @@ def test_company_board_names_are_validated_and_tidied():
             job_feed.clean_boards(bad)
 
 
+# ---------------- years of experience ----------------
+
+
+@pytest.mark.parametrize(
+    "title, summary, job_type, expected",
+    [
+        ("Cloud Engineer", "We need 3-5 years of experience in AWS", None, (3, 5, False)),
+        ("Cloud Engineer", "Experience: 2 to 4 yrs with Kubernetes", None, (2, 4, False)),
+        ("Security Engineer", "5+ years of hands-on experience", None, (5, None, False)),
+        ("SOC Analyst", "Minimum 2 years experience in a SOC", None, (2, None, False)),
+        ("DevOps Engineer", "At least 4 years' relevant experience", None, (4, None, False)),
+        ("Cloud Engineer", "1 year of experience", None, (1, None, False)),
+        ("DevOps Trainee", "0-2 years experience, freshers welcome", None, (0, 2, False)),
+        ("Security Analyst", "Freshers can apply", None, (0, 1, False)),
+        ("Security Analyst", "Entry level role", None, (0, 1, False)),
+        ("Analyst", "A company founded 25+ years ago with 10 years of growth", None, (None, None, False)),  # not experience
+        ("Cloud Engineer", "Great place to work", None, (None, None, False)),
+        ("Cloud Engineer", "3-5 years", None, (None, None, False)),  # a bare range with no mention of experience
+        ("Senior DevOps Engineer", None, None, (5, None, True)),
+        ("Sr. Cloud Engineer", "", None, (5, None, True)),
+        ("Principal Security Architect", None, None, (8, None, True)),
+        ("Engineering Manager, Security", None, None, (8, None, True)),
+        ("Junior SOC Analyst", None, None, (0, 2, True)),
+        ("Cyber Security Intern", None, None, (0, 1, True)),
+        ("Security Analyst", None, "internship", (0, 1, True)),
+        ("Senior Cloud Engineer", "Requires 8-10 years of experience", None, (8, 10, False)),  # the text beats the title
+        ("Cloud Engineer", "Experience: 99 years", None, (None, None, False)),
+    ],
+)
+def test_years_of_experience_are_read_from_the_text_then_guessed_from_the_title(title, summary, job_type, expected):
+    from modules.placements.experience import extract_experience
+
+    assert extract_experience(title, summary, job_type) == expected
+
+
 # ---------------- reading the real feeds (their documented shapes) ----------------
 
 
@@ -351,6 +386,55 @@ async def test_jobs_are_listed_newest_posting_first_and_undated_ones_last(client
     order = ["Cloud Engineer New", "Cloud Engineer Mid", "Cloud Engineer Old", "Cloud Engineer Undated"]
     assert [j["title"] for j in (await client.get(f"{_FEED}/me", headers=student_headers)).json()["items"]] == order
     assert [j["title"] for j in (await client.get(_FEED, headers=auth_headers)).json()["items"]] == order
+
+
+async def test_jobs_carry_their_experience_and_can_be_filtered_by_range(client, auth_headers, db_session, organization, feed):
+    feed.extend([
+        _item("Cloud Engineer Fresher", ext="a", summary="0-2 years experience"),
+        _item("Cloud Engineer Mid", ext="b", summary="3-5 years of experience"),
+        _item("Cloud Engineer Senior", ext="c", summary="7+ years of experience"),
+        _item("Cloud Engineer Open", ext="d", summary="5+ years of experience"),
+        _item("Cloud Engineer Plain", ext="e", summary="Nice team"),
+        _item("Senior Cloud Engineer Guess", ext="f"),
+    ])
+    student, student_headers = await _create_student_with_login(client, db_session, organization)
+    await _refresh(client, auth_headers, db_session, organization)
+
+    def titles(response):
+        return sorted(j["title"] for j in response.json()["items"])
+
+    everything = {j["title"]: j for j in (await client.get(_FEED, headers=auth_headers)).json()["items"]}
+    assert (everything["Cloud Engineer Mid"]["experience_min"], everything["Cloud Engineer Mid"]["experience_max"], everything["Cloud Engineer Mid"]["experience_estimated"]) == (3, 5, False)
+    assert (everything["Cloud Engineer Open"]["experience_min"], everything["Cloud Engineer Open"]["experience_max"]) == (5, None)
+    assert everything["Cloud Engineer Plain"]["experience_min"] is None and everything["Senior Cloud Engineer Guess"]["experience_estimated"] is True
+
+    async def filtered(value, headers=auth_headers, path=_FEED):
+        return titles(await client.get(path, params={"experience": value}, headers=headers))
+
+    assert await filtered("0-3") == ["Cloud Engineer Fresher", "Cloud Engineer Mid"]
+    assert await filtered("1-5") == ["Cloud Engineer Fresher", "Cloud Engineer Mid", "Cloud Engineer Open", "Senior Cloud Engineer Guess"]
+    assert await filtered("3-7") == ["Cloud Engineer Mid", "Cloud Engineer Open", "Cloud Engineer Senior", "Senior Cloud Engineer Guess"]
+    assert await filtered("7+") == ["Cloud Engineer Open", "Cloud Engineer Senior", "Senior Cloud Engineer Guess"]
+    assert await filtered("unknown") == ["Cloud Engineer Plain"]
+    # Students can filter the same way.
+    assert await filtered("0-3", student_headers, f"{_FEED}/me") == ["Cloud Engineer Fresher", "Cloud Engineer Mid"]
+    assert (await client.get(_FEED, params={"experience": "banana"}, headers=auth_headers)).status_code == 422
+
+
+async def test_jobs_saved_before_experience_was_tracked_are_read_by_the_next_refresh(client, auth_headers, db_session, organization, feed):
+    from sqlalchemy import update
+
+    from modules.placements.models import ExternalJob
+
+    feed.append(_item("Cloud Engineer Mid", ext="b", summary="3-5 years of experience"))
+    await _refresh(client, auth_headers, db_session, organization)
+    await db_session.execute(update(ExternalJob).values(experience_min=None, experience_max=None, experience_parsed=False))
+    await db_session.flush()
+    assert (await client.get(_FEED, headers=auth_headers)).json()["items"][0]["experience_min"] is None
+    assert await job_feed.JobFeedService(db_session).backfill_experience(organization.id) == 1
+    job = (await client.get(_FEED, headers=auth_headers)).json()["items"][0]
+    assert (job["experience_min"], job["experience_max"]) == (3, 5)
+    assert await job_feed.JobFeedService(db_session).backfill_experience(organization.id) == 0  # nothing left to read
 
 
 async def test_hiding_a_job_removes_it_for_students_but_not_for_admins_and_it_stays_hidden(client, auth_headers, db_session, organization, feed):
