@@ -136,9 +136,38 @@ worker and beat so the new tasks and schedule are picked up.
 (container status values, JPEG only, up to 10 carousel items; Meta's page states the daily limit as both 50 and 100, so the quota
 is read from the API, not hard-coded). Reels can't be published (no video). Posting needs the account connection (phase 4).
 
+## Phase 4a: connecting Instagram
+
+| Part | Where |
+|---|---|
+| Connect, reconnect, disconnect, check what the account can do, renew the token (Settings tab). Connecting needs the new `social_media.connect` permission | `connect_routes.py`, `connection.py`, `oauth.py` |
+| Instagram login: authorize address, a signed one-use link (10 minutes) tied to the person and organisation that started it, code exchanged for a short-lived then a long-lived (about 60 days) token on the server | `oauth.py` |
+| The token is stored encrypted, never returned, never logged (the HTTP client's request log has tokens, codes and secrets removed) | `token_crypto.py`, `oauth.py` |
+| After connecting, each feature is probed (publishing quota, media, conversations) and recorded as available, unavailable or "needs Meta app review"; the webhook is subscribed to the granted fields | `connection.py` |
+| Daily renewal of tokens within 20 days of expiry (Instagram refreshes tokens at least a day old); a token that can't be kept alive marks the account and emails the people in Settings | `social.refresh_tokens` |
+| Webhook endpoint `GET/POST /social-media/webhooks/instagram`: verification token checked in constant time; every notification's `X-Hub-Signature-256` (HMAC-SHA256 of the raw body with the app secret) checked before the body is read; size capped; retries recognised and ignored; ids only are kept, never message text | `connect_routes.py`, `social_webhook_events` |
+| "Verified" in the capability list now means proven by real use (a post published, a notification received); a passed permission check is shown separately | `routes.py` |
+
+Environment (all optional until you connect): `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_WEBHOOK_VERIFY_TOKEN`,
+`SOCIAL_TOKEN_ENCRYPTION_KEY` (already in `docker-compose.prod.yml` as pass-throughs), and rarely `INSTAGRAM_REDIRECT_URI`,
+`INSTAGRAM_SCOPES`. Migration 0073. New permissions: `social_media.connect`, `social_media.inbox`, `social_media.reply`
+(the last two arrive with the inbox; the seed creates all three). After deploying: run the RBAC seed and restart the Celery
+worker and beat (new daily task).
+
+Meta setup, in order: (1) Professional Instagram account; (2) developers.facebook.com, create a Business app, add Instagram,
+"API setup with Instagram login"; (3) add the redirect address shown on the Settings page, exactly; (4) add the account under
+Roles as an Instagram tester and accept the invitation in the Instagram app; (5) Webhooks: the callback address and your verify
+token shown on the Settings page, subscribe to comments and messages (the app must be Live to receive them); (6) put the app ID,
+secret and verify token in the server's `.env` and restart; (7) press Connect Instagram. For an account you own or manage and have
+added to the app, standard access is enough; other accounts need Meta's app review.
+
+**Not verified:** none of this has run against a real Meta app. Meta's documentation doesn't spell out some response shapes
+(the `/me` fields, the webhook payload for comments and messages), so those are read defensively and anything unrecognised is
+ignored. The first real connection is the real test; the Settings page shows exactly which step failed.
+
 ## Phases still to build
 
-4. Instagram connection (Meta app), comments and DMs, webhooks, manual-only replies.
+4b. Comments and direct messages (read, classify, suggest, and reply by hand only), and acting on webhook notifications.
 5. Analytics, hashtag and trend research, reports, lead attribution (trackable links and UTM parameters).
 6. Hardening, recovery procedures, cost controls, accessibility, full regression tests.
 
@@ -149,6 +178,6 @@ is read from the API, not hard-coded). Reels can't be published (no video). Post
 3. Add the account as a tester and request only the permissions needed; reading and replying to comments and messages,
    and publishing, for accounts beyond your own testers need Meta app review.
 4. Point the app's redirect and webhook URLs at this site.
-5. App ID and secret go in the server environment (names are added in Phase 4); never in the repository or in chat.
+5. App ID, secret and verify token go in the server environment (INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, INSTAGRAM_WEBHOOK_VERIFY_TOKEN); never in the repository or in chat.
 
 Until an account is connected and each feature is exercised against it, the page labels everything "not verified live".

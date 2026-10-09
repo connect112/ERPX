@@ -120,6 +120,11 @@ celery_app.conf.beat_schedule = {
         "task": "social.recover_publishing",
         "schedule": crontab(minute="*/5"),
     },
+    # Instagram access tokens last about 60 days and can be refreshed once they are a day old: refresh any within 20 days.
+    "social-refresh-instagram-tokens": {
+        "task": "social.refresh_tokens",
+        "schedule": crontab(hour=3, minute=15),
+    },
 }
 
 # Modules register their Celery task modules here as they are built, e.g.:

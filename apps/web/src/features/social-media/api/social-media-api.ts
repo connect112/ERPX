@@ -316,6 +316,7 @@ export interface Capability {
   api: "supported" | "needs_app_review" | "restricted" | "unavailable";
   implemented: string;
   verified_live: boolean;
+  live_check: "passed" | "needs_app_review" | "failed" | "not_run";
   note: string;
 }
 
@@ -331,10 +332,16 @@ export interface IntegrationOverview {
     connected_at: string | null;
     last_synced_at: string | null;
     last_error: string | null;
+    token_days_left: number | null;
   } | null;
   connected: boolean;
   capabilities: Capability[];
   setup_steps: string[];
+  app_configured: boolean;
+  redirect_uri: string;
+  webhook_url: string;
+  webhook_verify_token_set: boolean;
+  scopes_requested: string[];
 }
 
 export interface BriefingItem {
@@ -485,6 +492,10 @@ export const socialMediaApi = {
   queue: () => apiClient.get<QueueResult>("/social-media/queue").then((r) => r.data),
   calendar: (start: string, end: string) =>
     apiClient.get<CalendarResult>("/social-media/calendar", { params: { start, end } }).then((r) => r.data),
+  startConnect: () => apiClient.post<{ url: string }>("/social-media/connect/start").then((r) => r.data),
+  disconnect: () => apiClient.post<{ message: string }>("/social-media/connect/disconnect").then((r) => r.data),
+  recheck: () => apiClient.post<{ capabilities: Record<string, string> }>("/social-media/connect/recheck", null, { timeout: 60000 }).then((r) => r.data),
+  refreshToken: () => apiClient.post<{ message: string }>("/social-media/connect/refresh-token", null, { timeout: 60000 }).then((r) => r.data),
   history: () => apiClient.get<HistoryOverview>("/social-media/history").then((r) => r.data),
   usage: () => apiClient.get<UsageOverview>("/social-media/usage").then((r) => r.data),
 };

@@ -10,7 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useMyRoles } from "@/features/auth/api/authorization-hooks";
 import type { Capability } from "@/features/social-media/api/social-media-api";
 import { useIntegration, useSocialSettings, useUpdateSocialSettings, useUsage } from "@/features/social-media/api/social-media-hooks";
-import { TIMEZONES, errorMessage, formatInZone } from "@/features/social-media/lib/format";
+import { ConnectionCard } from "@/features/social-media/components/connection-card";
+import { TIMEZONES, errorMessage } from "@/features/social-media/lib/format";
 
 const NATIVE_SELECT = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 
@@ -82,46 +83,13 @@ export function SettingsTab() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Instagram connection</CardTitle>
-          <CardDescription>Nothing is published, read or sent until an account is connected.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm">
-          {info.account ? (
-            <div className="space-y-1">
-              <p>
-                <span className="font-medium">@{info.account.username ?? info.account.id}</span>{" "}
-                <Badge variant={info.connected ? "success" : "warning"}>{info.account.status}</Badge>
-              </p>
-              {info.account.token_expires_at && <p>Access expires {formatInZone(info.account.token_expires_at, data.timezone)}</p>}
-              {info.account.last_synced_at && <p>Last synced {formatInZone(info.account.last_synced_at, data.timezone)}</p>}
-              {info.account.last_error && <p className="text-destructive">{info.account.last_error}</p>}
-            </div>
-          ) : (
-            <>
-              <Badge variant="secondary">Not connected</Badge>
-              <p className="text-muted-foreground">
-                The connection flow is built in Phase 4, once the Meta app exists. To prepare, follow these steps:
-              </p>
-              <ol className="list-decimal space-y-1 pl-5">
-                {info.setup_steps.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ol>
-              <a className="text-primary underline" href="https://developers.facebook.com/docs/instagram-platform/" target="_blank" rel="noreferrer noopener">
-                Meta&apos;s Instagram platform documentation
-              </a>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <ConnectionCard info={info} timeZone={data.timezone} />
 
       <Card>
         <CardHeader>
           <CardTitle>What Instagram allows, and what is built</CardTitle>
           <CardDescription>
-            Nothing below has been checked against a live account yet. Replies to comments and messages are always written and sent by a person.
+            A permission check only shows Instagram let the call through; a feature is marked proven only after it has really been used (a post published, a notification received). Replies to comments and messages are always written and sent by a person.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -131,7 +99,10 @@ export function SettingsTab() {
                 <span className="font-medium">{cap.label}</span>
                 <Badge variant={API_LABEL[cap.api].variant}>{API_LABEL[cap.api].text}</Badge>
                 <Badge variant="outline">{cap.implemented === "yes" ? "Built" : cap.implemented === "never" ? "Not possible" : `Not built yet (${cap.implemented})`}</Badge>
-                <Badge variant="outline">{cap.verified_live ? "Verified on a live account" : "Not verified live"}</Badge>
+                <Badge variant={cap.live_check === "passed" ? "success" : cap.live_check === "not_run" ? "outline" : "warning"}>
+                  {cap.live_check === "passed" ? "Permission check passed" : cap.live_check === "needs_app_review" ? "Needs Meta app review" : cap.live_check === "failed" ? "Check failed or not permitted" : "Not checked"}
+                </Badge>
+                <Badge variant={cap.verified_live ? "success" : "outline"}>{cap.verified_live ? "Proven by real use" : "Not proven by real use yet"}</Badge>
               </div>
               <p className="mt-1 text-muted-foreground">{cap.note}</p>
             </div>

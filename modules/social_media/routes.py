@@ -2,15 +2,19 @@ import uuid
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import select
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.authorization.repository import AuthorizationRepository
-from modules.social_media import defaults
-from modules.social_media.models import PostStatus, SocialPost
+from app.core.config import settings as app_settings
+from modules.social_media import defaults, oauth
+from modules.social_media.connection import computed_status, days_left
+from modules.social_media.models import PostStatus, SocialPost, WebhookEvent
 from modules.social_media.schemas import (
     AccountPublic,
     BriefingItem,
@@ -28,6 +32,7 @@ from modules.social_media.schemas import (
 from modules.social_media.service import OverviewService, PostService, SettingsService
 from modules.social_media.history import HistoryService
 from modules.social_media.art_routes import router as art_router
+from modules.social_media.connect_routes import router as connect_router
 from modules.social_media.publish_routes import router as publish_router
 from modules.social_media.studio_routes import router as studio_router
 from modules.social_media.usage import UsageService
@@ -37,18 +42,56 @@ router = APIRouter()
 router.include_router(studio_router)
 router.include_router(art_router)
 router.include_router(publish_router)
+router.include_router(connect_router)
 
 VIEW = "social_media.view"
 MANAGE = "social_media.manage"
 APPROVE = "social_media.approve"
 
+LIVE_KEYS = {
+    "publish_image": "publish", "publish_carousel": "publish", "publish_story": "publish", "publish_reel": "publish",
+    "comments_read": "comments", "comments_reply": "comments", "dm_read": "messages", "dm_reply": "messages",
+    "insights": "insights", "webhooks": "webhooks",
+}
+
+
+def live_check(key: str, caps: dict, status_now: str) -> str:
+    """What Instagram answered when the account was probed: passed, needs_app_review, failed, or not_run."""
+    if key == "connect":
+        return "passed" if status_now in ("connected", "expiring") else "not_run"
+    state = caps.get(LIVE_KEYS.get(key, ""))
+    if state in ("available", "subscribed"):
+        return "passed"
+    if state == "needs_app_review":
+        return "needs_app_review"
+    if state in ("unavailable", "error", "not_subscribed"):
+        return "failed"
+    return "not_run"
+
+
+def verified(key: str, status_now: str, published: dict, webhook_events: int) -> bool:
+    """True only when the real thing has happened with the real account (not merely that a permission check passed)."""
+    if key == "connect":
+        return status_now in ("connected", "expiring")
+    if key in ("publish_image", "publish_carousel", "publish_story"):
+        return published.get({"publish_image": "image", "publish_carousel": "carousel", "publish_story": "story"}[key], 0) > 0
+    if key == "webhooks":
+        return webhook_events > 0
+    return False
+
+
 SETUP_STEPS = [
     "Make sure the Instagram account is a Professional account (Business or Creator).",
-    "Create a Meta developer app and add the Instagram product (developers.facebook.com/docs/instagram-platform).",
-    "Add the Instagram account as a tester, then request the permissions you need; messaging, comments and publishing "
-    "for accounts other than your own testers need Meta app review.",
-    "Set the app's redirect and webhook URLs to this site (shown here once the connection is built).",
-    "Connect from this page (Phase 4). Tokens will be stored encrypted on the server and never sent to the browser.",
+    "At developers.facebook.com create an app (type Business), add the Instagram product and open \"API setup with Instagram login\".",
+    "Under \"Set up Instagram business login\", add the redirect address shown below, exactly as it is.",
+    "Under Roles, add the Instagram account as an Instagram tester, then accept the invitation in the Instagram app "
+    "(Settings > Apps and websites > Tester invites).",
+    "Under Webhooks, set the callback address and verify token shown below and subscribe to comments and messages. "
+    "Meta only sends notifications once the app is Live.",
+    "Put the app's ID and secret and your verify token in the server's environment (INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, "
+    "INSTAGRAM_WEBHOOK_VERIFY_TOKEN) and restart. Never paste them into chat or the repository.",
+    "Press Connect Instagram below. For an account you own or manage and have added to the app, Meta's standard access is enough; "
+    "other accounts, or live use of some features, need Meta's app review (advanced access).",
 ]
 
 
@@ -72,7 +115,7 @@ async def overview(
     service = OverviewService(db)
     counts = await service.post_counts(organization_id)
     account = await service.account(organization_id)
-    connected = account is not None and account.status in ("connected", "expiring")
+    connected = computed_status(account, datetime.now(timezone.utc)) in ("connected", "expiring")
     leads = await service.leads(organization_id)
     waiting, _ = await PostService(db).list(organization_id, status=PostStatus.REVIEW.value, limit=5)
     briefing = await service.briefing(counts, connected, settings, leads)
@@ -149,12 +192,42 @@ async def integration(
     db: AsyncSession = Depends(get_db),
 ):
     """The connected account (if any) and an honest list of what Instagram's API offers and what is built."""
+    now = datetime.now(timezone.utc)
     account = await OverviewService(db).account(organization_id)
+    status_now = computed_status(account, now)
+    shown = None
+    if account is not None and account.token_encrypted:
+        shown = AccountPublic.model_validate(account)
+        shown.status = status_now
+        shown.token_days_left = days_left(account, now)
+    published = {
+        fmt: count
+        for fmt, count in (
+            await db.execute(
+                select(SocialPost.format, func.count()).where(
+                    SocialPost.organization_id == organization_id, SocialPost.status == PostStatus.PUBLISHED.value, SocialPost.external_media_id.is_not(None)
+                ).group_by(SocialPost.format)
+            )
+        ).all()
+    }
+    events = (await db.execute(select(func.count()).select_from(WebhookEvent).where(WebhookEvent.organization_id == organization_id))).scalar_one()
+    capabilities = []
+    caps = (account.capabilities or {}) if account is not None else {}
+    for item in defaults.CAPABILITIES:
+        info = CapabilityInfo(**item)
+        info.live_check = live_check(info.key, caps, status_now)
+        info.verified_live = verified(info.key, status_now, published, events)
+        capabilities.append(info)
     return IntegrationOverview(
-        account=AccountPublic.model_validate(account) if account else None,
-        connected=account is not None and account.status in ("connected", "expiring"),
-        capabilities=[CapabilityInfo(**item) for item in defaults.CAPABILITIES],
+        account=shown,
+        connected=status_now in ("connected", "expiring"),
+        capabilities=capabilities,
         setup_steps=SETUP_STEPS,
+        app_configured=oauth.configured(),
+        redirect_uri=oauth.redirect_uri(),
+        webhook_url=oauth.webhook_url(),
+        webhook_verify_token_set=bool(app_settings.INSTAGRAM_WEBHOOK_VERIFY_TOKEN),
+        scopes_requested=oauth.scopes(),
     )
 
 
