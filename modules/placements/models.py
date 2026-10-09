@@ -145,6 +145,8 @@ class ExternalJob(TimestampedBase):
     experience_max: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     experience_estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     experience_parsed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # The AI has been asked to estimate the experience of this job (when the text and title said nothing).
+    experience_ai_done: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # Hidden by an admin: kept (so it isn't re-added) but not shown to students.
     hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # False once the job is no longer in its source's feed (or no longer matches the filters).

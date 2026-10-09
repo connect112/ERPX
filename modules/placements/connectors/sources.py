@@ -40,6 +40,8 @@ class JobItem:
     tags: list[str] = field(default_factory=list)
     posted_at: datetime | None = None
     salary_text: str | None = None
+    # The whole description (up to 20,000 characters) when the source gives it: read for experience, never stored.
+    details: str | None = None
 
 
 class SourceError(Exception):
@@ -103,7 +105,7 @@ def is_configured(source: str) -> bool:
     return source in SOURCES
 
 
-def plain_text(value: str | None) -> str | None:
+def plain_text(value: str | None, limit: int = MAX_SUMMARY_CHARS) -> str | None:
     """Job descriptions come as HTML: the first few hundred characters of readable text."""
     if not value:
         return None
@@ -114,7 +116,7 @@ def plain_text(value: str | None) -> str | None:
     text = re.sub(r"\s*\n\s*", "\n", text).strip()
     if not text:
         return None
-    return text if len(text) <= MAX_SUMMARY_CHARS else text[:MAX_SUMMARY_CHARS].rsplit(" ", 1)[0] + "..."
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "..."
 
 
 def _when(value) -> datetime | None:
@@ -339,6 +341,16 @@ async def fetch_greenhouse(client: httpx.AsyncClient, options: dict) -> list[Job
     return await _read_boards(client, list(options.get("greenhouse") or []), read_one)
 
 
+def _lever_details(job: dict) -> str | None:
+    """Lever's own plain-text description plus its requirement lists (where years of experience are usually said)."""
+    parts = [str(job.get("descriptionPlain") or "")]
+    for block in job.get("lists") or []:
+        parts.append(f"{block.get('text') or ''}\n{plain_text(block.get('content'), 20_000) or ''}")
+    parts.append(str(job.get("additionalPlain") or ""))
+    text = "\n".join(p for p in parts if p.strip()).strip()
+    return text[:20_000] or None
+
+
 async def fetch_lever(client: httpx.AsyncClient, options: dict) -> list[JobItem]:
     async def read_one(client: httpx.AsyncClient, token: str) -> list[JobItem]:
         data = await _get_json(client, f"https://api.lever.co/v0/postings/{token}", params={"mode": "json"})
@@ -361,6 +373,7 @@ async def fetch_lever(client: httpx.AsyncClient, options: dict) -> list[JobItem]
                     remote=(job.get("workplaceType") == "remote") or bool(where and "remote" in where.lower()),
                     job_type=(str(kind).lower().replace(" ", "_") if kind else None),
                     summary=plain_text(job.get("descriptionPlain")),
+                    details=_lever_details(job),
                     tags=[t for t in (cats.get("team"),) if t],
                     posted_at=_when(job.get("createdAt") and int(job["createdAt"]) // 1000),
                 )
@@ -369,6 +382,27 @@ async def fetch_lever(client: httpx.AsyncClient, options: dict) -> list[JobItem]
 
     return await _read_boards(client, list(options.get("lever") or []), read_one)
 
+
+async def enrich_greenhouse(client: httpx.AsyncClient, items: list[JobItem]) -> None:
+    """Greenhouse's list has no descriptions: read each wanted job's own page of data for its full text."""
+    gate = asyncio.Semaphore(5)
+
+    async def one(item: JobItem) -> None:
+        token, _, job_id = item.external_id.partition(":")
+        async with gate:
+            try:
+                data = await _get_json(client, f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{job_id}")
+            except SourceError:
+                return
+        content = html.unescape(str(data.get("content") or ""))  # the HTML arrives escaped
+        item.details = plain_text(content, 20_000)
+        item.summary = plain_text(content)
+
+    await asyncio.gather(*(one(item) for item in items))
+
+
+# Sources whose list has too little text: after filtering, fetch the full text of the jobs that are kept.
+ENRICHERS = {"greenhouse": enrich_greenhouse}
 
 FETCHERS = {
     "adzuna": fetch_adzuna,
