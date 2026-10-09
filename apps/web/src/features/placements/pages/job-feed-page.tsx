@@ -276,6 +276,14 @@ export function JobFeedPage() {
               </TableBody>
             </Table>
           )}
+          {(jobs.data?.items ?? []).some((job) => job.source === "adzuna") && (
+            <p className="border-t p-3 text-xs text-muted-foreground">
+              Jobs by{" "}
+              <a href="https://www.adzuna.in" target="_blank" rel="noopener noreferrer" className="font-medium underline">
+                Adzuna
+              </a>
+            </p>
+          )}
           {total > PAGE_SIZE && (
             <div className="flex items-center justify-between border-t p-3 text-sm">
               <span className="text-muted-foreground">
