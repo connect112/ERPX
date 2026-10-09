@@ -156,19 +156,6 @@ export function JobFeedPage() {
               />
               <span>Only jobs in India, or remote and open to people in India</span>
             </label>
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                checked={settings.data?.fresher_only ?? false}
-                disabled={!settings.data || update.isPending}
-                onChange={(e) => update.mutate({ fresher_only: e.target.checked })}
-              />
-              <span>
-                Only freshers, graduates, juniors and internships. Leave this off to collect every matching job;
-                students can still filter to freshers themselves.
-              </span>
-            </label>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"

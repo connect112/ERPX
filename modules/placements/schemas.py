@@ -163,7 +163,6 @@ class JobSourceStatus(BaseModel):
 
 class JobFeedSettingsPublic(BaseModel):
     keywords: list[str]
-    fresher_only: bool
     india_only: bool
     boards: dict[str, list[str]]
     refreshing: bool = False
@@ -172,7 +171,6 @@ class JobFeedSettingsPublic(BaseModel):
 
 class JobFeedSettingsUpdate(BaseModel):
     keywords: list[str] | None = Field(default=None, max_length=60)
-    fresher_only: bool | None = None
     india_only: bool | None = None
     boards: dict[str, list[str]] | None = None
     sources: dict[str, bool] | None = None

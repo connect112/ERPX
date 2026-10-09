@@ -168,10 +168,8 @@ const PAGE_SIZE = 24;
 function JobsFromJobSites() {
   const [search, setSearch] = useState("");
   const [skip, setSkip] = useState(0);
-  const [freshersOnly, setFreshersOnly] = useState(false);
   const { data, isLoading, isError } = useExternalJobs({
     q: search.trim() || undefined,
-    fresher_only: freshersOnly || undefined,
     skip,
     limit: PAGE_SIZE,
   });
@@ -189,17 +187,6 @@ function JobsFromJobSites() {
             setSkip(0);
           }}
         />
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={freshersOnly}
-            onChange={(e) => {
-              setFreshersOnly(e.target.checked);
-              setSkip(0);
-            }}
-          />
-          Freshers, graduates and internships only
-        </label>
         {data && (
           <span className="text-sm text-muted-foreground">
             {data.total} job{data.total === 1 ? "" : "s"}

@@ -124,7 +124,6 @@ export interface JobSourceStatus {
 
 export interface JobFeedSettings {
   keywords: string[];
-  fresher_only: boolean;
   /** Only jobs in India, or remote and open to India. */
   india_only: boolean;
   /** Company career pages read, by hiring system: { greenhouse: [...], lever: [...] }. */
@@ -136,7 +135,6 @@ export interface JobFeedSettings {
 
 export interface JobFeedSettingsUpdate {
   keywords?: string[];
-  fresher_only?: boolean;
   india_only?: boolean;
   boards?: Record<string, string[]>;
   sources?: Record<string, boolean>;

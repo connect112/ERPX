@@ -157,13 +157,13 @@ def in_india_or_open(item: JobItem) -> bool:
     return False
 
 
-def wanted(item: JobItem, pattern: re.Pattern, fresher_only: bool) -> tuple[bool, bool]:
+def wanted(item: JobItem, pattern: re.Pattern) -> tuple[bool, bool]:
     """(keep it, is it fresher-friendly): the job's title must name one of the wanted roles (tags are too loose: a
     React developer is often tagged "aws")."""
     if not pattern.search(item.title) or _NOT_IT.search(item.title):
         return False, False
     fresher = is_fresher_friendly(item)
-    return (fresher or not fresher_only), fresher
+    return True, fresher
 
 
 class JobFeedService:
@@ -182,7 +182,6 @@ class JobFeedService:
             row = JobFeedSettings(
                 organization_id=organization_id,
                 keywords=list(DEFAULT_KEYWORDS),
-                fresher_only=False,
                 india_only=True,
                 boards={name: list(tokens) for name, tokens in DEFAULT_BOARDS.items()},
                 sources={
@@ -199,7 +198,6 @@ class JobFeedService:
         self,
         organization_id: uuid.UUID,
         keywords: list[str] | None,
-        fresher_only: bool | None,
         sources: dict[str, bool] | None,
         india_only: bool | None = None,
         boards: dict[str, list[str]] | None = None,
@@ -207,8 +205,6 @@ class JobFeedService:
         row = await self.get_settings(organization_id)
         if keywords is not None:
             row.keywords = clean_keywords(keywords)
-        if fresher_only is not None:
-            row.fresher_only = fresher_only
         if india_only is not None:
             row.india_only = india_only
         if boards is not None:
@@ -257,7 +253,7 @@ class JobFeedService:
                     summary[name] = {"error": "something went wrong reading it"}
                     state[name] = {**(state.get(name) or {}), "error": "something went wrong reading it"}
                     continue
-                result = await self._store(organization_id, name, items, pattern, row.fresher_only, row.india_only, now)
+                result = await self._store(organization_id, name, items, pattern, row.india_only, now)
                 summary[name] = result
                 state[name] = {"last_fetch_at": now.isoformat(), "error": None, **result}
 
@@ -271,7 +267,6 @@ class JobFeedService:
         source: str,
         items: list[JobItem],
         pattern: re.Pattern,
-        fresher_only: bool,
         india_only: bool,
         now: datetime,
     ) -> dict:
@@ -286,7 +281,7 @@ class JobFeedService:
         matched = new = 0
         seen: set[str] = set()
         for item in items:
-            keep, fresher = wanted(item, pattern, fresher_only)
+            keep, fresher = wanted(item, pattern)
             if india_only and not in_india_or_open(item):
                 keep = False
             if not keep or item.external_id in seen:
@@ -331,15 +326,12 @@ class JobFeedService:
         source: str | None,
         skip: int,
         limit: int,
-        fresher_only: bool = False,
     ) -> tuple[list[ExternalJob], int]:
         conditions = [ExternalJob.organization_id == organization_id, ExternalJob.is_active.is_(True)]
         if not include_hidden:
             conditions.append(ExternalJob.hidden.is_(False))
         if source:
             conditions.append(ExternalJob.source == source)
-        if fresher_only:
-            conditions.append(ExternalJob.fresher_friendly.is_(True))
         if q and q.strip():
             like = f"%{q.strip()}%"
             conditions.append(
@@ -350,7 +342,8 @@ class JobFeedService:
             await self.db.execute(
                 select(ExternalJob)
                 .where(*conditions)
-                .order_by(ExternalJob.posted_at.desc().nulls_last(), ExternalJob.last_seen_at.desc())
+                # Newest posting first; jobs whose source gives no date go last.
+                .order_by(ExternalJob.posted_at.desc().nulls_last(), ExternalJob.last_seen_at.desc(), ExternalJob.id)
                 .offset(skip)
                 .limit(limit)
             )

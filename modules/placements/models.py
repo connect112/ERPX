@@ -155,6 +155,7 @@ class JobFeedSettings(TimestampedBase):
         ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, unique=True
     )
     keywords: Mapped[list] = mapped_column(JSONB, nullable=False)
+    # No longer used: every matching role is kept (kept as a column so no migration is needed).
     fresher_only: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     # {source name: enabled}
     sources: Mapped[dict] = mapped_column(JSONB, nullable=False)

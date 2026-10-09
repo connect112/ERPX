@@ -54,27 +54,24 @@ def test_job_text_is_turned_from_html_into_a_short_readable_summary():
         ("SOC Analyst (Entry level)", [], None, (True, True)),
         ("Cybersecurity Trainee", [], None, (True, True)),
         ("Cloud Security Engineer", ["internship"], None, (True, True)),  # fresher wording in the tags
-        ("Junior React Developer", ["aws", "cloud"], None, (False, False)),  # a wanted word only in the tags is not enough
         ("Security Analyst", [], "internship", (True, True)),
-        ("Senior DevOps Engineer", [], None, (False, False)),  # right role, but senior
-        ("Lead Cybersecurity Architect", [], None, (False, False)),
+        ("Senior DevOps Engineer", [], None, (True, False)),  # kept (every wanted role is), not marked fresher friendly
+        ("Lead Cybersecurity Architect", [], None, (True, False)),
+        ("Cloud Engineer", [], None, (True, False)),
         ("Marketing Intern", [], None, (False, False)),  # fresher, but not a wanted role
-        ("Cloud Engineer", [], None, (False, False)),  # wanted role, nothing says fresher
         ("Junior Accountant", [], None, (False, False)),
+        ("Junior React Developer", ["aws", "cloud"], None, (False, False)),  # a wanted word only in the tags is not enough
     ],
 )
-def test_only_wanted_roles_that_suit_freshers_are_kept(title, tags, job_type, expected):
+def test_every_wanted_role_is_kept_and_fresher_friendly_ones_are_marked(title, tags, job_type, expected):
     pattern = keyword_pattern(DEFAULT_KEYWORDS)
     item = _item(title=title, tags=tags, job_type=job_type)
-    keep, fresher = wanted(item, pattern, fresher_only=True)
-    assert (keep, fresher) == expected
+    assert wanted(item, pattern) == expected
 
 
-def test_switching_fresher_only_off_keeps_every_wanted_role():
-    pattern = keyword_pattern(DEFAULT_KEYWORDS)
-    assert wanted(_item(title="Cloud Engineer"), pattern, fresher_only=False) == (True, False)
-    assert wanted(_item(title="Senior DevOps Engineer"), pattern, fresher_only=False) == (True, False)
+def test_the_fresher_marking_ignores_senior_titles():
     assert is_fresher_friendly(_item(title="Graduate Cyber Analyst"))
+    assert not is_fresher_friendly(_item(title="Senior Graduate Programme Lead"))
 
 
 def test_a_keyword_must_be_a_word_not_part_of_one():
@@ -85,10 +82,10 @@ def test_a_keyword_must_be_a_word_not_part_of_one():
 
 def test_guards_and_officers_are_not_it_jobs_even_though_the_word_security_matches():
     pattern = keyword_pattern(DEFAULT_KEYWORDS)
-    assert wanted(_item(title="Security Guard"), pattern, fresher_only=False) == (False, False)
-    assert wanted(_item(title="Security Officer - Night Shift"), pattern, fresher_only=False) == (False, False)
-    assert wanted(_item(title="Product Security Engineer"), pattern, fresher_only=False)[0] is True
-    assert wanted(_item(title="Linux System Administrator"), pattern, fresher_only=False)[0] is True
+    assert wanted(_item(title="Security Guard"), pattern) == (False, False)
+    assert wanted(_item(title="Security Officer - Night Shift"), pattern) == (False, False)
+    assert wanted(_item(title="Product Security Engineer"), pattern)[0] is True
+    assert wanted(_item(title="Linux System Administrator"), pattern)[0] is True
 
 
 @pytest.mark.parametrize(
@@ -305,7 +302,7 @@ async def test_a_refresh_that_could_not_be_queued_says_so_and_is_not_left_marked
     assert (await client.get(f"{_FEED}/settings", headers=auth_headers)).json()["refreshing"] is False
 
 
-async def test_the_feed_keeps_wanted_jobs_in_india_and_students_can_filter_to_freshers(client, auth_headers, db_session, organization, feed):
+async def test_the_feed_keeps_every_wanted_job_in_india_for_admins_and_students(client, auth_headers, db_session, organization, feed):
     feed.extend([
         _item("DevSecOps Intern", ext="a", url="https://remotive.com/remote-jobs/devsecops-intern"),
         _item("Senior Cloud Architect", ext="b"),
@@ -326,20 +323,34 @@ async def test_the_feed_keeps_wanted_jobs_in_india_and_students_can_filter_to_fr
     assert mine["total"] == 3
     top = next(j for j in mine["items"] if j["title"] == "DevSecOps Intern")
     assert top["url"] == "https://remotive.com/remote-jobs/devsecops-intern" and top["source"] == "remotive" and top["fresher_friendly"] is True
-    freshers = (await client.get(f"{_FEED}/me", params={"fresher_only": "true"}, headers=student_headers)).json()
-    assert sorted(j["title"] for j in freshers["items"]) == ["DevSecOps Intern", "SOC Analyst Fresher"] and freshers["total"] == 2
     assert [j["title"] for j in (await client.get(f"{_FEED}/me", params={"q": "hyderabad"}, headers=student_headers)).json()["items"]] == ["SOC Analyst Fresher"]
     assert (await client.get(f"{_FEED}/me", params={"source": "jooble"}, headers=student_headers)).json()["total"] == 0
 
 
-async def test_switching_off_the_india_filter_and_the_fresher_filter_keeps_more(client, auth_headers, db_session, organization, feed):
+async def test_switching_off_the_india_filter_keeps_jobs_from_anywhere(client, auth_headers, db_session, organization, feed):
     feed.extend([_item("Cloud Engineer", ext="u", location="USA Only"), _item("Cloud Intern", ext="i")])
-    await client.put(f"{_FEED}/settings", json={"india_only": False, "fresher_only": True}, headers=auth_headers)
     summary = await _refresh(client, auth_headers, db_session, organization)
-    assert summary["remotive"]["matched"] == 1  # fresher-only: the intern only
-    await client.put(f"{_FEED}/settings", json={"fresher_only": False}, headers=auth_headers)
+    assert summary["remotive"]["matched"] == 1  # only the one open to India
+    await client.put(f"{_FEED}/settings", json={"india_only": False}, headers=auth_headers)
     summary = await _refresh(client, auth_headers, db_session, organization, force=True)
-    assert summary["remotive"]["matched"] == 2  # anywhere, any seniority
+    assert summary["remotive"]["matched"] == 2
+
+
+async def test_jobs_are_listed_newest_posting_first_and_undated_ones_last(client, auth_headers, db_session, organization, feed):
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    feed.extend([
+        _item("Cloud Engineer Old", ext="old", posted_at=now - timedelta(days=20)),
+        _item("Cloud Engineer Undated", ext="none"),
+        _item("Cloud Engineer New", ext="new", posted_at=now - timedelta(hours=2)),
+        _item("Cloud Engineer Mid", ext="mid", posted_at=now - timedelta(days=3)),
+    ])
+    student, student_headers = await _create_student_with_login(client, db_session, organization)
+    await _refresh(client, auth_headers, db_session, organization)
+    order = ["Cloud Engineer New", "Cloud Engineer Mid", "Cloud Engineer Old", "Cloud Engineer Undated"]
+    assert [j["title"] for j in (await client.get(f"{_FEED}/me", headers=student_headers)).json()["items"]] == order
+    assert [j["title"] for j in (await client.get(_FEED, headers=auth_headers)).json()["items"]] == order
 
 
 async def test_hiding_a_job_removes_it_for_students_but_not_for_admins_and_it_stays_hidden(client, auth_headers, db_session, organization, feed):
@@ -408,7 +419,7 @@ async def test_the_company_career_pages_are_passed_to_their_connectors(client, a
 
 async def test_settings_show_defaults_which_sources_need_a_key_and_validate_changes(client, auth_headers, feed):
     settings_ = (await client.get(f"{_FEED}/settings", headers=auth_headers)).json()
-    assert settings_["fresher_only"] is False and settings_["india_only"] is True and settings_["refreshing"] is False
+    assert "fresher_only" not in settings_ and settings_["india_only"] is True and settings_["refreshing"] is False
     assert "devsecops" in settings_["keywords"] and "security" in settings_["keywords"]
     assert "okta" in settings_["boards"]["greenhouse"] and "meesho" in settings_["boards"]["lever"]
     by_name = {s["name"]: s for s in settings_["sources"]}
@@ -416,8 +427,8 @@ async def test_settings_show_defaults_which_sources_need_a_key_and_validate_chan
     assert by_name["remotive"]["configured"]
     assert by_name["adzuna"]["configured"] is False and by_name["adzuna"]["enabled"] is False  # no API key on the server
 
-    ok = await client.put(f"{_FEED}/settings", json={"keywords": ["  DevSecOps ", "devsecops", "Pen Testing"], "fresher_only": True, "sources": {"remotive": False}}, headers=auth_headers)
-    assert ok.status_code == 200 and ok.json()["keywords"] == ["devsecops", "pen testing"] and ok.json()["fresher_only"] is True
+    ok = await client.put(f"{_FEED}/settings", json={"keywords": ["  DevSecOps ", "devsecops", "Pen Testing"], "sources": {"remotive": False}}, headers=auth_headers)
+    assert ok.status_code == 200 and ok.json()["keywords"] == ["devsecops", "pen testing"]
     assert {s["name"]: s["enabled"] for s in ok.json()["sources"]}["remotive"] is False
     assert (await client.put(f"{_FEED}/settings", json={"sources": {"linkedin": True}}, headers=auth_headers)).status_code == 422
     assert (await client.put(f"{_FEED}/settings", json={"keywords": ["  ", ""]}, headers=auth_headers)).status_code == 422

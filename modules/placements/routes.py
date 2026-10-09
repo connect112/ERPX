@@ -45,7 +45,6 @@ def _settings_public(row: JobFeedSettings) -> JobFeedSettingsPublic:
     state = row.source_state or {}
     return JobFeedSettingsPublic(
         keywords=row.keywords,
-        fresher_only=row.fresher_only,
         india_only=row.india_only,
         boards=row.boards,
         refreshing=JobFeedService.is_refreshing(row),
@@ -72,7 +71,6 @@ def _settings_public(row: JobFeedSettings) -> JobFeedSettingsPublic:
 async def list_external_jobs_for_student(
     q: str | None = Query(default=None, max_length=100),
     source: str | None = Query(default=None, max_length=30),
-    fresher_only: bool = Query(default=False),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=30, ge=1, le=100),
     student: Student = Depends(get_current_student),
@@ -86,7 +84,6 @@ async def list_external_jobs_for_student(
         source=source,
         skip=skip,
         limit=limit,
-        fresher_only=fresher_only,
     )
     return ExternalJobListResponse(
         items=[ExternalJobPublic.model_validate(r) for r in rows], total=total, skip=skip, limit=limit
@@ -129,7 +126,7 @@ async def update_job_feed_settings(
     db: AsyncSession = Depends(get_db),
 ):
     row = await JobFeedService(db).update_settings(
-        organization_id, payload.keywords, payload.fresher_only, payload.sources, payload.india_only, payload.boards
+        organization_id, payload.keywords, payload.sources, payload.india_only, payload.boards
     )
     return _settings_public(row)
 
