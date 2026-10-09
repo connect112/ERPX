@@ -154,6 +154,10 @@ class SocialPost(TimestampedBase):
     # How an AI draft was made: model, the research items used, suggested time and its basis, hashtag basis.
     generation: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
     # What the artwork should look like: template, picture, headline overrides (see schemas.Design).
+    # When the publisher may try again after a transient failure (None = as soon as it is due).
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When a publisher claimed the post (status "publishing"). A claim that goes stale means a crash or restart.
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     design: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
     # What was rendered from it: files, validation, metrics and the fingerprint of the text and design they show.
     artwork: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
@@ -229,3 +233,32 @@ class SocialAsset(TimestampedBase):
     synthetic: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # For a generated background: the prompt and model used.
     provenance: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+
+
+class PublishAttempt(TimestampedBase):
+    """One try at publishing a post: the record that makes duplicates preventable and an unclear outcome checkable.
+    `publish_started_at` is set (and committed) just before the one call that actually creates the Instagram post, so a
+    crash after it is known to be an *unknown* outcome that has to be checked, while a crash before it is safe to retry."""
+
+    __tablename__ = "social_publish_attempts"
+    __table_args__ = (Index("ix_social_publish_attempts_post", "post_id", "attempt_no"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    post_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("social_posts.id", ondelete="CASCADE"), nullable=False)
+    triggered_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    # started | retry | published | failed | unknown | paused
+    status: Mapped[str] = mapped_column(String(20), default="started", server_default="started", nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Instagram container ids made for this post (children first), reused by a retry while they are still valid.
+    container_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    creation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    publish_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    media_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    caption: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
+    error_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(600), nullable=True)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)

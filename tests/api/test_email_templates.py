@@ -68,6 +68,7 @@ def test_every_default_renders_with_its_sample_values_and_uses_only_its_own_plac
         "password_reset",
         "account_invite",
         "hackathon_participant_welcome",
+        "social_publish_problem",
         "hackathon_winner_certificate",
         "hackathon_participation_certificate",
         "workshop_exam_invite",

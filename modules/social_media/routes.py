@@ -1,6 +1,8 @@
 import uuid
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -8,7 +10,7 @@ from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.authorization.repository import AuthorizationRepository
 from modules.social_media import defaults
-from modules.social_media.models import PostStatus
+from modules.social_media.models import PostStatus, SocialPost
 from modules.social_media.schemas import (
     AccountPublic,
     BriefingItem,
@@ -26,6 +28,7 @@ from modules.social_media.schemas import (
 from modules.social_media.service import OverviewService, PostService, SettingsService
 from modules.social_media.history import HistoryService
 from modules.social_media.art_routes import router as art_router
+from modules.social_media.publish_routes import router as publish_router
 from modules.social_media.studio_routes import router as studio_router
 from modules.social_media.usage import UsageService
 from modules.users.dependencies import get_current_user_organization_id
@@ -33,6 +36,7 @@ from modules.users.dependencies import get_current_user_organization_id
 router = APIRouter()
 router.include_router(studio_router)
 router.include_router(art_router)
+router.include_router(publish_router)
 
 VIEW = "social_media.view"
 MANAGE = "social_media.manage"
@@ -81,6 +85,17 @@ async def overview(
         briefing.insert(0, BriefingItem(level="warning", message="The monthly AI budget is used up, so AI drafting is paused.", link="settings"))
     elif usage["over_alert"]:
         briefing.insert(0, BriefingItem(level="warning", message=f"AI spending has passed {usage['alert_at_percent']}% of the monthly budget (an estimate).", link="settings"))
+    upcoming = (
+        await db.execute(
+            select(SocialPost.scheduled_at)
+            .where(SocialPost.organization_id == organization_id, SocialPost.status == PostStatus.SCHEDULED.value)
+            .order_by(SocialPost.scheduled_at)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if upcoming is not None:
+        local = upcoming.astimezone(ZoneInfo(settings.timezone))
+        briefing.append(BriefingItem(level="info", message=f"{counts.get('scheduled', 0)} post(s) scheduled. The next goes out {local.strftime('%d %b, %H:%M')} ({settings.timezone}).", link="calendar"))
     if not (settings.research_state or {}):
         briefing.append(BriefingItem(level="info", message="Research hasn't been read yet. Open Research to pull the latest CISA advisories.", link="research"))
     result = Overview(

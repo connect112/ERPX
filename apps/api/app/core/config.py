@@ -235,6 +235,14 @@ class Settings(BaseSettings):
     SOCIAL_IMAGE_MODEL: str = ""
     SOCIAL_IMAGE_COST_INR: float = 4.0  # estimated cost of one background, for the budget
 
+    # ---- Social Media: Instagram publishing ----
+    # "Instagram API with Instagram Login" (graph.instagram.com). The version is configurable because Meta retires old ones.
+    INSTAGRAM_GRAPH_BASE_URL: str = "https://graph.instagram.com"
+    INSTAGRAM_GRAPH_VERSION: str = "v25.0"
+    # A Fernet key (python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") used to
+    # encrypt stored access tokens. Empty = derived from JWT_SECRET_KEY.
+    SOCIAL_TOKEN_ENCRYPTION_KEY: str = ""
+
     # ---- Job feed (Placements) ----
     # Adzuna (https://developer.adzuna.com) and Jooble (https://jooble.org/api/about) are used only when their keys
     # are set; Remotive and Arbeitnow need no key.

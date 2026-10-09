@@ -90,9 +90,54 @@ Small shared changes: `upload_bytes` / `read_bytes` on the storage client, the `
 Note: approval hashes now include the design and artwork, so a post approved before this release has a hash made the
 old way; nothing reads that hash until publishing exists (phase 3), and re-approving fixes it.
 
+## Phase 3: calendar, scheduling and publishing
+
+States a post moves through: `draft -> review -> approved -> scheduled -> publishing -> published`, with `failed`, `cancelled`
+and `publish_unknown` (the outcome couldn't be confirmed). A person approves; a person with the new `social_media.publish`
+permission schedules or publishes (separation of duties). Whether approved posts may be scheduled or only published by hand
+is the "After a post is approved" setting. The planned time is not part of what was approved, so moving it keeps an approval.
+
+| Part | Where |
+|---|---|
+| Calendar (month, week, day, in the account timezone; clock-change times are refused), "approved, not scheduled" list, schedule/move/unschedule/publish-now dialog showing the exact caption and everything that blocks | `publish_routes.py`, Calendar tab |
+| Queue: scheduled, publishing, failed and unclear posts with their attempts; retry, check with Instagram, resolve by hand | Queue tab |
+| The publisher: atomic claim of due posts, JPEG conversion, containers, publish, permalink | `publisher.py` |
+| Instagram client (Authorization header only, errors sorted into transient / permanent / token / ambiguous) | `instagram.py` |
+| Encrypted token storage (Fernet, key from `SOCIAL_TOKEN_ENCRYPTION_KEY` or derived from the JWT secret) | `token_crypto.py` |
+| Celery: `social.publish_due` every minute, `social.recover_publishing` every five, problem emails | `tasks.py`, `celery_app.py` |
+| Every try is recorded (what was sent, what Instagram said, when) | `social_publish_attempts`, `GET /posts/{id}/attempts` |
+
+Reliability rules (all covered by tests with a scripted Instagram):
+- **The database is the schedule.** Nothing lives in the queue: a restart or deployment loses nothing. Posts are claimed with one
+  atomic UPDATE, so two workers can never take the same post, even if it is queued twice.
+- **No duplicate posts.** Creating containers can be repeated safely (and a retry reuses the ones already made). The call that
+  creates the post is preceded by a committed note on the attempt. After that, an unclear answer (timeout, dropped connection,
+  server error) is never retried blindly: the container's status and the profile's recent posts are checked first. If that settles
+  it the post is marked published, or retried because Instagram confirms it wasn't. If it can't be settled the post becomes
+  `publish_unknown`, is never sent again by itself, is emailed, and waits for "Check with Instagram" or a person's resolution.
+- **Published means Instagram answered** with the new media id, or the check proves it is on the profile.
+- **Retries** for temporary problems wait 1, 2, 4, 8, 16 minutes (capped at 30) with jitter, up to five attempts, then fail with the
+  last reason and an email. Permanent problems (picture rejected, permission missing) fail at once. An expired or revoked token
+  marks the account as needing reconnection instead of looping.
+- **Recovery** every five minutes: a post stuck in `publishing` after a crash is put back if nothing had been sent, or checked
+  against Instagram if the post-creating call may have been sent; unsettled for an hour it goes to a person.
+- **Stale or changed content is never published.** A post that wakes up more than an hour late is failed as "missed" (not
+  published stale) and emailed. Just before publishing, the approval hash, the artwork, and the facts (NVD, CISA) are checked
+  again; a post whose claims turned wrong or can't be rechecked is paused or retried, not published.
+- Every outcome other than a normal success is a status, an attempt record and, for problems, an email to the addresses in Settings.
+
+Configuration (all optional): `INSTAGRAM_GRAPH_BASE_URL` (default `https://graph.instagram.com`), `INSTAGRAM_GRAPH_VERSION`
+(default `v25.0`; Meta retires old versions), `SOCIAL_TOKEN_ENCRYPTION_KEY`. Images are converted to JPEG (the only format
+Instagram accepts) and fetched by Instagram from `FRONTEND_URL` + the storage proxy path, so that address must be public.
+Migration 0072. After deploying: run the RBAC seed (new permission `social_media.publish`) and rebuild/restart the Celery
+worker and beat so the new tasks and schedule are picked up.
+
+**Not verified:** nothing here has run against a real Instagram account. The client is written from Meta's documentation
+(container status values, JPEG only, up to 10 carousel items; Meta's page states the daily limit as both 50 and 100, so the quota
+is read from the API, not hard-coded). Reels can't be published (no video). Posting needs the account connection (phase 4).
+
 ## Phases still to build
 
-3. Calendar, durable scheduling, publishing with idempotency and reconciliation of unclear outcomes.
 4. Instagram connection (Meta app), comments and DMs, webhooks, manual-only replies.
 5. Analytics, hashtag and trend research, reports, lead attribution (trackable links and UTM parameters).
 6. Hardening, recovery procedures, cost controls, accessibility, full regression tests.

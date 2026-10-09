@@ -454,7 +454,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
 
 def _dhash(image: Image.Image) -> str:
     small = image.convert("L").resize((9, 8), Image.LANCZOS)
-    pixels = list(small.getdata())
+    pixels = list(small.tobytes())  # 8-bit greyscale: one byte per pixel (works on every Pillow version)
     bits = 0
     for row in range(8):
         for col in range(8):

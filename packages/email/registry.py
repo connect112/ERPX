@@ -176,6 +176,26 @@ TEMPLATES: tuple[TemplateDef, ...] = (
         button_color="#0f4c81",
     ),
     TemplateDef(
+        key="social_publish_problem",
+        name="Social media publishing problem",
+        category="Social media",
+        description="Tells the people who run the social media page that a post didn't go out as planned.",
+        when_sent="When a scheduled post fails, is paused before publishing, or its outcome can't be confirmed.",
+        subject="Social media: {{problem}} ({{post_title}})",
+        body=(
+            "# {{problem}}\n\n"
+            "The post **{{post_title}}** needs your attention.\n\n"
+            "> {{detail}}\n\n"
+            "Open the Social Media page in ERPX and check the Queue tab: {{queue_url}}"
+        ),
+        variables=(
+            Variable("problem", "What happened", "A post failed to publish"),
+            Variable("post_title", "The post's working title", "What is a SIEM?"),
+            Variable("detail", "What went wrong and what to do", "Instagram rejected the image."),
+            Variable("queue_url", "A link to the queue", "https://erp.example.com/social-media?tab=queue"),
+        ),
+    ),
+    TemplateDef(
         key="workshop_certificate",
         name="Exam certificate",
         category="Workshops & exams",
