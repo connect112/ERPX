@@ -246,6 +246,15 @@ function JobsFromJobSites() {
         </div>
       )}
 
+      {(data?.items ?? []).some((job) => job.source === "adzuna") && (
+        <p className="text-xs text-muted-foreground">
+          Jobs by{" "}
+          <a href="https://www.adzuna.in" target="_blank" rel="noopener noreferrer" className="font-medium underline">
+            Adzuna
+          </a>
+        </p>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Search on LinkedIn, Naukri and Indeed</CardTitle>
