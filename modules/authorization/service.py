@@ -226,6 +226,7 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("social_media.view", "social_media", "View the social media dashboard, drafts and settings"),
     ("social_media.manage", "social_media", "Create and edit social media posts, strategy and settings"),
     ("social_media.approve", "social_media", "Approve social media posts for publishing"),
+    ("social_media.publish", "social_media", "Schedule and publish approved social media posts"),
     ("internships.view", "internships", "View internship postings, applications, and active internships"),
     (
         "internships.manage",

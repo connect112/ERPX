@@ -168,3 +168,54 @@ export function useProofread() {
 export function useGrid(postId?: string, enabled = true) {
   return useQuery({ queryKey: ["social-media", "grid", postId ?? "all"], queryFn: () => socialMediaApi.grid(postId), enabled });
 }
+
+export function usePost(id: string | null) {
+  return useQuery({ queryKey: ["social-media", "post", id], queryFn: () => socialMediaApi.getPost(id as string), enabled: id !== null });
+}
+
+export function useReadiness(id: string | null) {
+  return useQuery({ queryKey: ["social-media", "readiness", id], queryFn: () => socialMediaApi.readiness(id as string), enabled: id !== null });
+}
+
+export function useSchedule() {
+  return usePostMutation((v: { id: string; scheduledAt: string }) => socialMediaApi.schedule(v.id, v.scheduledAt));
+}
+
+export function useUnschedule() {
+  return usePostMutation((id: string) => socialMediaApi.unschedule(id));
+}
+
+export function usePublishNow() {
+  return usePostMutation((id: string) => socialMediaApi.publishNow(id));
+}
+
+export function useRetry() {
+  return usePostMutation((id: string) => socialMediaApi.retry(id));
+}
+
+export function useReconcile() {
+  return usePostMutation((id: string) => socialMediaApi.reconcile(id));
+}
+
+export function useResolve() {
+  return usePostMutation((v: { id: string; published: boolean; mediaId?: string; permalink?: string }) =>
+    socialMediaApi.resolve(v.id, { published: v.published, media_id: v.mediaId || undefined, permalink: v.permalink || undefined }),
+  );
+}
+
+export function useAttempts(id: string | null) {
+  return useQuery({ queryKey: ["social-media", "attempts", id], queryFn: () => socialMediaApi.attempts(id as string), enabled: id !== null });
+}
+
+export function useQueue() {
+  // A post can change state while the page is open (the worker runs every minute), so look again now and then.
+  return useQuery({ queryKey: ["social-media", "queue"], queryFn: socialMediaApi.queue, refetchInterval: 30000 });
+}
+
+export function useCalendar(start: string, end: string) {
+  return useQuery({
+    queryKey: ["social-media", "calendar", start, end],
+    queryFn: () => socialMediaApi.calendar(start, end),
+    placeholderData: keepPreviousData,
+  });
+}

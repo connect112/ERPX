@@ -110,6 +110,16 @@ celery_app.conf.beat_schedule = {
         "task": "placements.refresh_job_feed",
         "schedule": crontab(minute=17, hour="*/6"),
     },
+    # Social media publishing. The database is the schedule: every minute, posts whose time has come are claimed and
+    # published; every five minutes, posts stuck mid-publish (a crash or restart) are checked against Instagram.
+    "social-publish-due-posts": {
+        "task": "social.publish_due",
+        "schedule": crontab(minute="*"),
+    },
+    "social-recover-stuck-publishing": {
+        "task": "social.recover_publishing",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # Modules register their Celery task modules here as they are built, e.g.:
@@ -126,5 +136,6 @@ celery_app.autodiscover_tasks(
         "modules.workshop_exams",
         "modules.hackathons",
         "modules.placements",
+        "modules.social_media",
     ]
 )

@@ -1,4 +1,4 @@
-import { Copy, ImageIcon, Pencil, Plus, ShieldCheck, Trash2, Wand2 } from "lucide-react";
+import { CalendarClock, Copy, ExternalLink, ImageIcon, Pencil, Plus, ShieldCheck, Trash2, Wand2 } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,7 @@ import {
 import { ArtworkDialog } from "@/features/social-media/components/artwork-dialog";
 import { GridPreview } from "@/features/social-media/components/grid-preview";
 import { PostEditorDialog } from "@/features/social-media/components/post-editor-dialog";
+import { ScheduleDialog } from "@/features/social-media/components/schedule-dialog";
 import {
   FORMAT_LABEL,
   STATUS_LABEL,
@@ -64,6 +65,7 @@ export function PostsTab({ initialStatus = "" }: Props) {
   const rewrite = useRewrite();
   const [rewriting, setRewriting] = useState<Post | null>(null);
   const [artworkId, setArtworkId] = useState<string | null>(null);
+  const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [element, setElement] = useState<RewriteElement>("caption");
   const [instruction, setInstruction] = useState("");
   const [rewriteError, setRewriteError] = useState<string | null>(null);
@@ -268,6 +270,11 @@ export function PostsTab({ initialStatus = "" }: Props) {
                   </ul>
                 )}
                 {post.last_error && <p className="text-xs text-destructive">{post.last_error}</p>}
+                {post.external_permalink && (
+                  <a className="inline-flex items-center gap-1 text-xs text-primary underline" href={post.external_permalink} target="_blank" rel="noreferrer noopener">
+                    <ExternalLink className="h-3 w-3" /> On Instagram
+                  </a>
+                )}
                 {canManage && (
                   <div className="flex flex-wrap gap-2">
                     {["draft", "review", "approved", "cancelled", "failed"].includes(post.status) && post.status !== "cancelled" && (
@@ -321,6 +328,11 @@ export function PostsTab({ initialStatus = "" }: Props) {
                         Withdraw approval
                       </Button>
                     )}
+                    {["approved", "scheduled"].includes(post.status) && (
+                      <Button size="sm" disabled={busy} onClick={() => setScheduleId(post.id)}>
+                        <CalendarClock className="mr-1 h-3.5 w-3.5" /> {post.status === "scheduled" ? "Schedule" : "Schedule or publish"}
+                      </Button>
+                    )}
                     {["draft", "review", "approved", "failed"].includes(post.status) && (
                       <Button size="sm" variant="outline" disabled={busy} onClick={() => act(post, "cancel")}>
                         Cancel post
@@ -371,6 +383,8 @@ export function PostsTab({ initialStatus = "" }: Props) {
         error={editorError}
         onSave={save}
       />
+
+      <ScheduleDialog postId={scheduleId} onOpenChange={(open) => !open && setScheduleId(null)} />
 
       <ArtworkDialog post={artworkPost} open={artworkId !== null} onOpenChange={(open) => !open && setArtworkId(null)} />
 

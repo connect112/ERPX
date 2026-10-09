@@ -72,7 +72,6 @@ def content_hash(post: SocialPost) -> str:
         "format": post.format,
         "content": post.content,
         "sources": post.sources,
-        "scheduled_at": post.scheduled_at.isoformat() if post.scheduled_at else None,
         "design": post.design or {},
         "artwork": [f.get("sha256") for f in (post.artwork or {}).get("files", [])],
     }
@@ -232,13 +231,11 @@ class PostService:
             post.sources = data["sources"]
         if "verification_status" in data and data["verification_status"]:
             post.verification_status = data["verification_status"]
+        # The planned time is not part of what was approved, so changing it keeps an approval.
         if payload.clear_schedule:
-            content_changed |= post.scheduled_at is not None
             post.scheduled_at = None
         elif "scheduled_at" in data and payload.scheduled_at is not None:
-            when = await self._local_time(post.organization_id, payload.scheduled_at)
-            content_changed |= when != post.scheduled_at
-            post.scheduled_at = when
+            post.scheduled_at = await self._local_time(post.organization_id, payload.scheduled_at)
         withdrawn = False
         if post.status == PostStatus.APPROVED.value and content_changed:
             # What was approved is no longer what is saved: it has to be reviewed again.

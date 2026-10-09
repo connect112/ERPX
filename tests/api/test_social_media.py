@@ -118,7 +118,9 @@ async def test_integration_status_is_honest_about_what_is_not_connected_or_verif
     assert by_key["save_share_identities"]["api"] == "unavailable"
     assert by_key["comments_reply"]["note"].lower().count("person") >= 1  # replies are manual only
     built = {c["key"] for c in data["capabilities"] if c["implemented"] == "yes"}
-    assert built == {"profile_grid"}  # only the planned-posts grid preview exists; connecting, publishing and replies are not built
+    # built: the grid preview and publishing of images, carousels and stories. Not built: connecting, Reels, comments, messages
+    assert built == {"profile_grid", "publish_image", "publish_carousel", "publish_story"}
+    assert {"connect", "publish_reel", "comments_reply", "dm_reply"}.isdisjoint(built)
     assert data["setup_steps"]
 
 

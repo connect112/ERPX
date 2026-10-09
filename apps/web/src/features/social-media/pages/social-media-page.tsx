@@ -4,15 +4,17 @@ import { useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OverviewTab } from "@/features/social-media/components/overview-tab";
+import { CalendarTab } from "@/features/social-media/components/calendar-tab";
 import { GridPreview } from "@/features/social-media/components/grid-preview";
 import { LibraryTab } from "@/features/social-media/components/library-tab";
 import { PostsTab } from "@/features/social-media/components/posts-tab";
+import { QueueTab } from "@/features/social-media/components/queue-tab";
 import { ResearchTab } from "@/features/social-media/components/research-tab";
 import { SettingsTab } from "@/features/social-media/components/settings-tab";
 import { StrategyTab } from "@/features/social-media/components/strategy-tab";
 import { StudioTab } from "@/features/social-media/components/studio-tab";
 
-const TABS = ["overview", "studio", "research", "posts", "library", "grid", "strategy", "settings"] as const;
+const TABS = ["overview", "studio", "research", "posts", "calendar", "queue", "library", "grid", "strategy", "settings"] as const;
 
 export function SocialMediaPage() {
   const [params, setParams] = useSearchParams();
@@ -42,6 +44,8 @@ export function SocialMediaPage() {
             <TabsTrigger value="studio">Studio</TabsTrigger>
             <TabsTrigger value="research">Research</TabsTrigger>
             <TabsTrigger value="posts">Posts</TabsTrigger>
+            <TabsTrigger value="calendar">Calendar</TabsTrigger>
+            <TabsTrigger value="queue">Queue</TabsTrigger>
             <TabsTrigger value="library">Library</TabsTrigger>
             <TabsTrigger value="grid">Grid</TabsTrigger>
             <TabsTrigger value="strategy">Strategy</TabsTrigger>
@@ -64,6 +68,12 @@ export function SocialMediaPage() {
         </TabsContent>
         <TabsContent value="posts">
           <PostsTab key={params.get("status") ?? ""} initialStatus={params.get("status") ?? ""} />
+        </TabsContent>
+        <TabsContent value="calendar">
+          <CalendarTab />
+        </TabsContent>
+        <TabsContent value="queue">
+          <QueueTab />
         </TabsContent>
         <TabsContent value="library">
           <LibraryTab />

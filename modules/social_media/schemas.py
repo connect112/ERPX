@@ -354,6 +354,8 @@ class PostPublic(BaseModel):
     last_error: str | None
     duplicate_of_id: uuid.UUID | None
     generation: dict = Field(default_factory=dict)
+    next_attempt_at: datetime | None = None
+    external_media_id: str | None = None
     design: dict = Field(default_factory=dict)
     artwork: dict = Field(default_factory=dict)
     created_at: datetime
@@ -544,3 +546,92 @@ class GridOut(BaseModel):
     live_available: bool
     missing: int
     note: str
+
+
+# ---------------- scheduling, queue, calendar ----------------
+
+
+class ScheduleRequest(BaseModel):
+    # A time without a zone means the account timezone (Settings).
+    scheduled_at: datetime
+
+
+class ResolveRequest(BaseModel):
+    published: bool
+    media_id: str | None = Field(default=None, max_length=100)
+    permalink: str | None = Field(default=None, max_length=500)
+
+    @field_validator("permalink")
+    @classmethod
+    def _permalink(cls, value: str | None) -> str | None:
+        if value and not re.match(r"^https://[^\s]+$", value):
+            raise ValueError("The link must start with https://")
+        return value or None
+
+
+class AttemptPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    attempt_no: int
+    status: str
+    created_at: datetime
+    finished_at: datetime | None
+    publish_started_at: datetime | None
+    media_id: str | None
+    error_kind: str | None
+    error: str | None
+    http_status: int | None
+    caption: str
+
+
+class ReadinessOut(BaseModel):
+    ready: bool
+    problems: list[str]
+    caption: str
+    caption_length: int
+    caption_limit: int
+    publish_mode: str
+    timezone: str
+    account_connected: bool
+    note: str
+
+
+class ReconcileOut(BaseModel):
+    outcome: Literal["published", "not_published", "unknown"]
+    note: str
+    post: PostPublic
+
+
+class QueueItem(BaseModel):
+    post: PostPublic
+    last_attempt: AttemptPublic | None
+
+
+class QueueOut(BaseModel):
+    items: list[QueueItem]
+    timezone: str
+    worker_note: str
+
+
+class CalendarItem(BaseModel):
+    id: uuid.UUID
+    title: str
+    status: str
+    format: str
+    pillar: str | None
+    scheduled_at: datetime
+    local_date: str  # YYYY-MM-DD in the account timezone
+    local_time: str  # HH:MM in the account timezone
+    thumbnail: str | None
+    time_sensitive: bool
+    high_risk: bool
+
+
+class CalendarOut(BaseModel):
+    start: str
+    end: str
+    timezone: str
+    publish_mode: str
+    items: list[CalendarItem]
+    ready_to_schedule: list[CalendarItem]

@@ -81,6 +81,8 @@ export interface Post {
   last_error: string | null;
   duplicate_of_id: string | null;
   generation: Generation;
+  next_attempt_at: string | null;
+  external_media_id: string | null;
   design: Design;
   artwork: Artwork;
   created_at: string;
@@ -172,6 +174,66 @@ export interface GridResult {
   live_available: boolean;
   missing: number;
   note: string;
+}
+
+export interface Attempt {
+  id: string;
+  attempt_no: number;
+  status: "started" | "retry" | "published" | "failed" | "unknown" | "paused";
+  created_at: string;
+  finished_at: string | null;
+  publish_started_at: string | null;
+  media_id: string | null;
+  error_kind: string | null;
+  error: string | null;
+  http_status: number | null;
+  caption: string;
+}
+
+export interface Readiness {
+  ready: boolean;
+  problems: string[];
+  caption: string;
+  caption_length: number;
+  caption_limit: number;
+  publish_mode: "manual" | "scheduled";
+  timezone: string;
+  account_connected: boolean;
+  note: string;
+}
+
+export interface QueueItem {
+  post: Post;
+  last_attempt: Attempt | null;
+}
+
+export interface QueueResult {
+  items: QueueItem[];
+  timezone: string;
+  worker_note: string;
+}
+
+export interface CalendarItem {
+  id: string;
+  title: string;
+  status: PostStatus;
+  format: PostFormat;
+  pillar: string | null;
+  scheduled_at: string;
+  local_date: string;
+  local_time: string;
+  thumbnail: string | null;
+  time_sensitive: boolean;
+  high_risk: boolean;
+}
+
+export interface CalendarResult {
+  start: string;
+  end: string;
+  timezone: string;
+  publish_mode: "manual" | "scheduled";
+  items: CalendarItem[];
+  ready_to_schedule: CalendarItem[];
 }
 
 export interface PostListResponse {
@@ -406,6 +468,23 @@ export const socialMediaApi = {
       .post<{ ok: boolean; issues: { text: string; suggestion: string }[]; current: boolean }>(`/social-media/posts/${id}/proofread`, null, { timeout: 120000 })
       .then((r) => r.data),
   grid: (postId?: string) => apiClient.get<GridResult>("/social-media/grid", { params: { post_id: postId } }).then((r) => r.data),
+  getPost: (id: string) => apiClient.get<Post>(`/social-media/posts/${id}`).then((r) => r.data),
+  readiness: (id: string) => apiClient.get<Readiness>(`/social-media/posts/${id}/readiness`).then((r) => r.data),
+  schedule: (id: string, scheduledAt: string) =>
+    apiClient.post<Post>(`/social-media/posts/${id}/schedule`, { scheduled_at: scheduledAt }).then((r) => r.data),
+  unschedule: (id: string) => apiClient.post<Post>(`/social-media/posts/${id}/unschedule`).then((r) => r.data),
+  publishNow: (id: string) => apiClient.post<Post>(`/social-media/posts/${id}/publish-now`).then((r) => r.data),
+  retry: (id: string) => apiClient.post<Post>(`/social-media/posts/${id}/retry`).then((r) => r.data),
+  reconcile: (id: string) =>
+    apiClient
+      .post<{ outcome: "published" | "not_published" | "unknown"; note: string; post: Post }>(`/social-media/posts/${id}/reconcile`, null, { timeout: 60000 })
+      .then((r) => r.data),
+  resolve: (id: string, payload: { published: boolean; media_id?: string; permalink?: string }) =>
+    apiClient.post<Post>(`/social-media/posts/${id}/resolve`, payload).then((r) => r.data),
+  attempts: (id: string) => apiClient.get<Attempt[]>(`/social-media/posts/${id}/attempts`).then((r) => r.data),
+  queue: () => apiClient.get<QueueResult>("/social-media/queue").then((r) => r.data),
+  calendar: (start: string, end: string) =>
+    apiClient.get<CalendarResult>("/social-media/calendar", { params: { start, end } }).then((r) => r.data),
   history: () => apiClient.get<HistoryOverview>("/social-media/history").then((r) => r.data),
   usage: () => apiClient.get<UsageOverview>("/social-media/usage").then((r) => r.data),
 };
