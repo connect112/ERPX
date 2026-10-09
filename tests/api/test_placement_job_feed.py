@@ -386,6 +386,49 @@ async def test_a_source_is_not_read_again_too_soon_and_jobs_that_leave_the_feed_
     assert [j["title"] for j in (await client.get(_FEED, headers=auth_headers)).json()["items"]] == ["DevOps Intern"]
 
 
+async def test_an_employer_listing_hundreds_of_places_does_not_break_the_refresh(client, auth_headers, db_session, organization, feed, monkeypatch):
+    places = "; ".join([f"City{i}, USA, Remote" for i in range(120)] + ["Bengaluru, India"])
+    assert len(places) > 1000
+    long_job = _item("Product Security Engineer", source="greenhouse", ext="datadog:1", location=places, remote=False, job_type="x" * 80, salary_text="y" * 300)
+
+    async def greenhouse(client, options):
+        return [long_job]
+
+    monkeypatch.setitem(job_feed.FETCHERS, "greenhouse", greenhouse)
+    summary = await _refresh(client, auth_headers, db_session, organization)
+    assert summary["greenhouse"]["new"] == 1
+    stored = (await client.get(_FEED, params={"source": "greenhouse"}, headers=auth_headers)).json()["items"][0]
+    assert stored["location"] == "Bengaluru, India" and len(stored["job_type"]) == 30 and len(stored["salary_text"]) == 120
+
+
+def test_a_very_long_place_list_is_shortened_to_what_fits():
+    assert job_feed.tidy_location(None) is None and job_feed.tidy_location("  Pune   India ") == "Pune India"
+    no_india = "; ".join(f"Somewhere {i}, Country" for i in range(100))
+    shown = job_feed.tidy_location(no_india)
+    assert len(shown) <= 255 and shown.endswith("...")
+
+
+async def test_a_source_whose_jobs_cannot_be_saved_does_not_stop_the_others_or_leave_the_refresh_running(client, auth_headers, db_session, organization, feed, monkeypatch):
+    original = job_feed.JobFeedService._store
+
+    async def failing_store(self, organization_id, source, *args, **kwargs):
+        if source == "greenhouse":
+            raise RuntimeError("database says no")
+        return await original(self, organization_id, source, *args, **kwargs)
+
+    async def greenhouse(client, options):
+        return [_item("Cloud Engineer", source="greenhouse", ext="x:1")]
+
+    monkeypatch.setattr(job_feed.JobFeedService, "_store", failing_store)
+    monkeypatch.setitem(job_feed.FETCHERS, "greenhouse", greenhouse)
+    feed.append(_item("DevOps Intern", ext="ok"))
+    summary = await _refresh(client, auth_headers, db_session, organization)
+    assert summary["greenhouse"] == {"error": "its jobs could not be saved"} and summary["remotive"]["new"] == 1
+    status = (await client.get(f"{_FEED}/settings", headers=auth_headers)).json()
+    assert status["refreshing"] is False
+    assert {s["name"]: s["last_error"] for s in status["sources"]}["greenhouse"] == "its jobs could not be saved"
+
+
 async def test_a_failing_source_is_reported_and_the_others_still_load(client, auth_headers, db_session, organization, feed, monkeypatch):
     async def broken(client, options):
         raise SourceError("the site answered with status 503")

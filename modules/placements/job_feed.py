@@ -144,6 +144,24 @@ def is_fresher_friendly(item: JobItem) -> bool:
     return bool(_FRESHER.search(item.title) or _FRESHER.search(item.summary or "") or _FRESHER.search(" ".join(item.tags)))
 
 
+def tidy_location(text: str | None) -> str | None:
+    """Fit a place into its column. Some employers list hundreds of places in one string: show the Indian ones."""
+    if not text:
+        return None
+    text = " ".join(text.split())
+    if len(text) > 255:
+        parts = [p.strip() for p in re.split(r"[;|]", text) if p.strip()]
+        indian = [p for p in parts if any(word in p.lower() for word in _INDIA_PLACES)]
+        text = "; ".join(indian or parts)
+        if len(text) > 255:
+            text = text[:252].rstrip(" ;,") + "..."
+    return text
+
+
+def _fit(value: str | None, size: int) -> str | None:
+    return value[:size] if value else value
+
+
 def in_india_or_open(item: JobItem) -> bool:
     """Located in India, or remote and open to people in India. Jobs with no place given at all are kept (a remote
     posting with an empty location is worldwide on the sources that do that)."""
@@ -253,7 +271,14 @@ class JobFeedService:
                     summary[name] = {"error": "something went wrong reading it"}
                     state[name] = {**(state.get(name) or {}), "error": "something went wrong reading it"}
                     continue
-                result = await self._store(organization_id, name, items, pattern, row.india_only, now)
+                try:
+                    async with self.db.begin_nested():  # a savepoint: a database problem undoes only this source
+                        result = await self._store(organization_id, name, items, pattern, row.india_only, now)
+                except Exception:  # noqa: BLE001
+                    logger.warning("job_feed_store_failed", source=name, exc_info=True)
+                    summary[name] = {"error": "its jobs could not be saved"}
+                    state[name] = {**(state.get(name) or {}), "error": "its jobs could not be saved"}
+                    continue
                 summary[name] = result
                 state[name] = {"last_fetch_at": now.isoformat(), "error": None, **result}
 
@@ -290,12 +315,13 @@ class JobFeedService:
             matched += 1
             job = existing.get(item.external_id)
             if job is None:
-                job = ExternalJob(organization_id=organization_id, source=source, external_id=item.external_id)
+                job = ExternalJob(organization_id=organization_id, source=source, external_id=item.external_id[:255])
                 self.db.add(job)
                 new += 1
-            job.title, job.company_name, job.url = item.title, item.company, item.url
-            job.location, job.remote, job.job_type = item.location, item.remote, item.job_type
-            job.summary, job.tags, job.posted_at, job.salary_text = item.summary, item.tags, item.posted_at, item.salary_text
+            job.title, job.company_name, job.url = item.title[:255], item.company[:255], item.url
+            job.location, job.remote, job.job_type = tidy_location(item.location), item.remote, _fit(item.job_type, 30)
+            job.summary, job.tags, job.posted_at = item.summary, item.tags[:20], item.posted_at
+            job.salary_text = _fit(item.salary_text, 120)
             job.fresher_friendly, job.is_active, job.last_seen_at = fresher, True, now
         # Gone from the feed (or no longer a match): stop showing it, keep the row.
         for external_id, job in existing.items():
@@ -384,7 +410,11 @@ class JobFeedService:
             await self.clear_stale(organization_id)
             return summary
         finally:
-            row = await self.get_settings(organization_id)
+            try:
+                row = await self.get_settings(organization_id)
+            except Exception:  # noqa: BLE001 - the session is unusable after a database error
+                await self.db.rollback()
+                row = await self.get_settings(organization_id)
             row.refresh_started_at = None
             await self.db.flush()
 
