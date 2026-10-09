@@ -288,7 +288,9 @@ class Source(BaseModel):
 
 class Warning_(BaseModel):
     severity: Literal["info", "warning", "blocking"] = "warning"
-    message: str = Field(max_length=400)
+    message: str = Field(max_length=600)
+    # Set on warnings the automated checks produce (always starts "chk_"); hand-written ones have none.
+    code: str | None = Field(default=None, max_length=50)
 
 
 class PostCreate(BaseModel):
@@ -351,6 +353,7 @@ class PostPublic(BaseModel):
     attempt_count: int
     last_error: str | None
     duplicate_of_id: uuid.UUID | None
+    generation: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     # True when an edit has just withdrawn an earlier approval.
@@ -390,3 +393,88 @@ class Overview(BaseModel):
     leads: LeadSummary
     connected: bool
     roadmap: list[RoadmapItem]
+
+
+# ---------------- research, studio, usage ----------------
+
+
+class ResearchItemPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    source: str
+    external_id: str
+    url: str
+    title: str
+    summary: str | None
+    published_at: datetime | None
+    retrieved_at: datetime
+    severity: str | None
+    cve_ids: list[str]
+    facts: dict
+    flags: list[str]
+    status: str
+
+
+class ResearchListResponse(BaseModel):
+    items: list[ResearchItemPublic]
+    total: int
+    # {source: {"label", "last_fetch_at", "ok", "error", "count"}}: when each source was last read and how it went.
+    sources: dict[str, dict]
+
+
+class RefreshResult(BaseModel):
+    source: str
+    label: str
+    skipped: bool
+    ok: bool
+    new: int
+    count: int
+    error: str | None
+
+
+class CveLookup(BaseModel):
+    cve: str = Field(pattern=r"(?i)^CVE-\d{4}-\d{4,7}$")
+
+
+class GenerateRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+    format: PostFormat = PostFormat.IMAGE
+    pillar: str | None = Field(default=None, max_length=50)
+    persona_key: str | None = Field(default=None, max_length=40)
+    research_item_ids: list[uuid.UUID] = Field(default_factory=list, max_length=5)
+    notes: str = Field(default="", max_length=500)
+    time_sensitive: bool = False
+
+
+class RegenerateRequest(BaseModel):
+    element: Literal["hooks", "headline", "caption", "cta", "hashtags", "thumbnail_text", "visual_direction", "alt_text"]
+    instruction: str = Field(default="", max_length=300)
+
+
+class PillarBalanceOut(BaseModel):
+    key: str
+    label: str
+    target: int
+    actual: int
+    recent: int
+
+
+class HistoryOverview(BaseModel):
+    pillars: list[PillarBalanceOut]
+    posts_considered: int
+    suggestions: list[str]
+
+
+class UsageOverview(BaseModel):
+    month_start: datetime
+    spent_inr: float
+    budget_inr: float
+    alert_at_percent: int
+    over_budget: bool
+    over_alert: bool
+    calls: int
+    by_kind: dict[str, dict]
+    is_estimate: bool
+    note: str
+    ai_configured: bool

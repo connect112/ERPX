@@ -2,7 +2,9 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   socialMediaApi,
+  type GeneratePayload,
   type PostPayload,
+  type RewriteElement,
   type SettingsUpdate,
   type TransitionAction,
 } from "@/features/social-media/api/social-media-api";
@@ -78,4 +80,46 @@ export function useTransitionPost() {
         acknowledge_high_risk: v.acknowledge_high_risk,
       }),
   );
+}
+
+export function useResearch(params: { source?: string; status?: string; q?: string; skip?: number; limit?: number }) {
+  return useQuery({
+    queryKey: ["social-media", "research", params],
+    queryFn: () => socialMediaApi.research(params),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useRefreshResearch() {
+  return usePostMutation((force: boolean) => socialMediaApi.refreshResearch(force));
+}
+
+export function useLookUpCve() {
+  return usePostMutation((cve: string) => socialMediaApi.lookUpCve(cve));
+}
+
+export function useDismissResearch() {
+  return usePostMutation((id: string) => socialMediaApi.dismissResearch(id));
+}
+
+export function useGenerate() {
+  return usePostMutation((payload: GeneratePayload) => socialMediaApi.generate(payload));
+}
+
+export function useRewrite() {
+  return usePostMutation((v: { id: string; element: RewriteElement; instruction: string }) =>
+    socialMediaApi.rewrite(v.id, v.element, v.instruction),
+  );
+}
+
+export function useCheckPost() {
+  return usePostMutation((id: string) => socialMediaApi.checkPost(id));
+}
+
+export function useHistory() {
+  return useQuery({ queryKey: ["social-media", "history"], queryFn: socialMediaApi.history });
+}
+
+export function useUsage() {
+  return useQuery({ queryKey: ["social-media", "usage"], queryFn: socialMediaApi.usage });
 }

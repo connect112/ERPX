@@ -18,7 +18,7 @@ content. It is built in phases; this page records what exists, the rules the cod
   high-risk or time-sensitive posts need the approver to confirm they checked the sources themselves.
 - Access tokens (Phase 4) are stored encrypted, are excluded from the audit trail, and are never returned by the API.
 
-## Phase 1 (this release)
+## Phase 1
 
 | Part | Where |
 |---|---|
@@ -36,10 +36,42 @@ Notes:
   The approved logo is uploaded with the artwork renderer in Phase 2.
 - Changes to these tables are recorded by the application-wide audit hooks.
 
+## Phase 2a: research, AI studio and fact checks
+
+| Part | Where |
+|---|---|
+| Research from official sources: CISA advisories feed, CISA Known Exploited Vulnerabilities, NVD (one CVE at a time). Cached with publication and retrieval dates; a source that can't be reached is reported, never filled in | `modules/social_media/research.py`, `GET/POST /social-media/research…` |
+| AI drafting (image, carousel, Reel concept, Story) from the brand strategy and selected research, and rewriting one element (hooks, headline, caption, CTA, hashtags, cover text, visual direction, alt text) | `studio.py`, `POST /social-media/studio/generate`, `POST /posts/{id}/regenerate` |
+| Automated checks, run on every draft and on demand ("Check facts & rules") | `checks.py`, `POST /posts/{id}/check` |
+| Content history: near-duplicate captions, repeated hooks, overused hashtags, topic mix against the pillar targets | `history.py`, `GET /social-media/history` |
+| Estimated AI cost, monthly budget (0 = no limit) with an alert, shown under Settings | `usage.py`, `GET /social-media/usage` |
+
+What the checks do: look every CVE up in NVD (exists, CVSS score, rejected) and compare the post's claims (CVSS number,
+"critical", "actively exploited" against CISA KEV); require an official, dated, recent source for time-sensitive
+posts; flag promises we never make (guaranteed placement, salary or virality) and course fees, batches or student
+claims that must come from verified data; enforce the design limits; note that a Reel concept is not a video.
+A CVE that an official source the post is built on cites, but NVD doesn't have yet, is a warning; one nobody cites
+is a blocking conflict. Checks never approve anything: they can only flag, downgrade the verification status
+(`unverified`, `conflicting`, `outdated`) and withdraw an approval whose claims no longer hold.
+
+How the studio stays safe:
+- Research text is untrusted. The model only sees it inside a data block that its instructions say contains no
+  instructions; the studio can only save a DRAFT, so text in a source cannot approve, schedule or publish anything.
+  Instruction-like wording in a source is flagged on the item and on the post.
+- The model is told to use only facts present in the sources, and to write evergreen content when there are none.
+  It is never asked for links: a draft's sources are the research items that were selected, with their dates.
+- Hashtags are labelled "AI-suggested, not a measured trend"; the suggested time is labelled a default assumption
+  until real performance data exists (Phase 5).
+- Only fixed official hosts are fetched (CISA, NVD); responses are size-capped; XML with a DOCTYPE is refused.
+
+Environment variables (all optional): `AI_API_KEY` (already used by other AI features), `SOCIAL_AI_INPUT_USD_PER_MTOK`,
+`SOCIAL_AI_OUTPUT_USD_PER_MTOK`, `SOCIAL_USD_TO_INR` (prices behind the cost estimate; defaults are placeholders to
+adjust to your provider's rates). Migration 0070. No new permissions.
+
 ## Phases still to build
 
-2. AI research and content studio, source verification, artwork rendering (typography drawn by code, never by an image
-   model), nine-post grid preview, optional AI backgrounds.
+2b. Artwork rendering (typography and logo drawn by code, never by an image model), logo upload, optional AI
+   backgrounds, nine-post grid preview.
 3. Calendar, durable scheduling, publishing with idempotency and reconciliation of unclear outcomes.
 4. Instagram connection (Meta app), comments and DMs, webhooks, manual-only replies.
 5. Analytics, hashtag and trend research, reports, lead attribution (trackable links and UTM parameters).
