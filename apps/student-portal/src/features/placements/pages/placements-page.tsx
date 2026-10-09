@@ -169,7 +169,8 @@ const PAGE_SIZE = 24;
 function JobsFromJobSites() {
   const [search, setSearch] = useState("");
   const [skip, setSkip] = useState(0);
-  const [experience, setExperience] = useState("");
+  // Students are mostly freshers: start on the jobs asking for 0-3 years; "Any experience" shows everything.
+  const [experience, setExperience] = useState("0-3");
   const { data, isLoading, isError } = useExternalJobs({
     q: search.trim() || undefined,
     experience: experience || undefined,
