@@ -645,3 +645,149 @@ class CalendarOut(BaseModel):
     publish_mode: str
     items: list[CalendarItem]
     ready_to_schedule: list[CalendarItem]
+
+
+# ---------------- inbox: comments and direct messages ----------------
+
+
+class MediaRef(BaseModel):
+    external_id: str
+    caption: str | None
+    permalink: str | None
+    thumbnail_url: str | None
+    # when ERPX published the post, its own artwork is used as the picture
+    artwork_url: str | None = None
+    post_id: uuid.UUID | None = None
+
+
+class ReplyLine(BaseModel):
+    id: str
+    text: str
+    at: datetime | None
+    by: Literal["erpx", "instagram"]
+    status: str
+    sent_by: str | None = None
+
+
+class Triage(BaseModel):
+    category: str
+    priority: str
+    needs_care: bool
+    care_reason: str | None
+
+
+class AiSuggestion(BaseModel):
+    """What an AI drafted. It is a draft only: nothing here has been sent, and a person must write or confirm any reply."""
+
+    summary: str | None
+    reply: str | None
+    note: str | None
+    at: datetime | None
+
+
+class CommentOut(BaseModel):
+    id: uuid.UUID
+    text: str
+    author_username: str | None
+    author_known: bool
+    posted_at: datetime | None
+    status: str
+    triage: Triage
+    suggestion: AiSuggestion
+    media: MediaRef | None
+    replies: list[ReplyLine]
+
+
+class CommentList(BaseModel):
+    items: list[CommentOut]
+    total: int
+
+
+class MessageOut(BaseModel):
+    id: uuid.UUID
+    direction: Literal["in", "out"]
+    text: str | None
+    sent_at: datetime | None
+
+
+class ConversationOut(BaseModel):
+    id: uuid.UUID
+    participant_username: str | None
+    participant_known: bool
+    last_message_at: datetime | None
+    last_user_message_at: datetime | None
+    window_expires_at: datetime | None
+    window_open: bool
+    status: str
+    triage: Triage
+    suggestion: AiSuggestion
+    preview: str | None
+
+
+class ConversationList(BaseModel):
+    items: list[ConversationOut]
+    total: int
+
+
+class ThreadOut(BaseModel):
+    conversation: ConversationOut
+    messages: list[MessageOut]
+    replies: list[ReplyLine]
+
+
+class InboxSummary(BaseModel):
+    connected: bool
+    can_read_comments: bool
+    can_read_messages: bool
+    counts: dict[str, int]
+    last_sync_at: datetime | None
+    stages: dict[str, dict]
+    note: str
+
+
+class SyncOut(BaseModel):
+    skipped: bool
+    message: str | None
+    stages: dict[str, dict]
+
+
+class ReplyRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=5000)
+    # One per reply dialog: sending the same id twice returns the first result and never sends twice.
+    request_id: str = Field(pattern=r"^[A-Za-z0-9_-]{8,64}$")
+    # The text box was filled from an AI suggestion (then edited, or not).
+    from_suggestion: bool = False
+    # For complaints, refunds, legal and security matters: "I am handling this personally".
+    acknowledge_sensitive: bool = False
+
+
+class ReplyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    message: str
+    source: str
+    status: Literal["pending", "sent", "failed", "unknown"]
+    error: str | None
+    external_reply_id: str | None
+    attempted_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    comment_id: uuid.UUID | None
+    conversation_id: uuid.UUID | None
+    acknowledged_sensitive: bool
+    sent_by: str | None = None
+
+
+class HandledRequest(BaseModel):
+    action: Literal["ignore", "reopen"]
+
+
+class ReconcileReplyOut(BaseModel):
+    note: str
+    reply: ReplyOut
+
+
+class ResolveReplyRequest(BaseModel):
+    sent: bool

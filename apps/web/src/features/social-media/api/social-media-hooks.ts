@@ -2,6 +2,11 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   socialMediaApi,
+  type CommentView,
+  type Conversation,
+  type ConversationView,
+  type InboxComment,
+  type ReplyPayload,
   type Design,
   type GeneratePayload,
   type PostPayload,
@@ -234,4 +239,56 @@ export function useRecheck() {
 
 export function useRefreshToken() {
   return usePostMutation(() => socialMediaApi.refreshToken());
+}
+
+
+// ---------------- comments and direct messages ----------------
+
+export function useInboxSummary() {
+  // New comments arrive through the background reader, so look again now and then.
+  return useQuery({ queryKey: ["social-media", "inbox", "summary"], queryFn: socialMediaApi.inboxSummary, refetchInterval: 60000 });
+}
+
+export function useSyncInbox() {
+  return usePostMutation(() => socialMediaApi.syncInbox());
+}
+
+export function useComments(params: { view: CommentView; q?: string; skip?: number; limit?: number }) {
+  return useQuery({ queryKey: ["social-media", "inbox", "comments", params], queryFn: () => socialMediaApi.comments(params), placeholderData: keepPreviousData });
+}
+
+export function useConversations(params: { view: ConversationView; q?: string; skip?: number; limit?: number }) {
+  return useQuery({ queryKey: ["social-media", "inbox", "conversations", params], queryFn: () => socialMediaApi.conversations(params), placeholderData: keepPreviousData });
+}
+
+export function useThread(id: string | null) {
+  return useQuery({ queryKey: ["social-media", "inbox", "thread", id], queryFn: () => socialMediaApi.thread(id as string), enabled: id !== null });
+}
+
+export function useSuggest(kind: "comment" | "dm") {
+  return usePostMutation((id: string): Promise<InboxComment | Conversation> => (kind === "comment" ? socialMediaApi.suggestForComment(id) : socialMediaApi.suggestForConversation(id)));
+}
+
+export function useSendReply(kind: "comment" | "dm") {
+  return usePostMutation((v: { id: string; payload: ReplyPayload }) =>
+    kind === "comment" ? socialMediaApi.replyToComment(v.id, v.payload) : socialMediaApi.replyToConversation(v.id, v.payload),
+  );
+}
+
+export function useMarkHandled(kind: "comment" | "dm") {
+  return usePostMutation((v: { id: string; action: "ignore" | "reopen" }): Promise<InboxComment | Conversation> =>
+    kind === "comment" ? socialMediaApi.markComment(v.id, v.action) : socialMediaApi.markConversation(v.id, v.action),
+  );
+}
+
+export function useReplyHistory() {
+  return useQuery({ queryKey: ["social-media", "inbox", "replies"], queryFn: socialMediaApi.replyHistory });
+}
+
+export function useReconcileReply() {
+  return usePostMutation((id: string) => socialMediaApi.reconcileReply(id));
+}
+
+export function useResolveReply() {
+  return usePostMutation((v: { id: string; sent: boolean }) => socialMediaApi.resolveReply(v.id, v.sent));
 }

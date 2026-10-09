@@ -16,7 +16,9 @@ from app.core.config import settings as app_settings
 from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
 from modules.email_templates.render import render_email_sync
+from app.core.exceptions import ConflictError
 from modules.social_media.connection import ConnectionService
+from modules.social_media.inbox import InboxService
 from modules.social_media.models import SocialAccount, SocialPost, SocialSettings
 from modules.social_media.publisher import PublisherService
 from packages.email.service import email_service
@@ -181,3 +183,49 @@ def send_account_problem_email_task(self, account_id: str, problem: str, detail:
 
 def enqueue_account_problem_email(account_id: uuid.UUID, problem: str, detail: str) -> None:
     send_account_problem_email_task.apply_async(args=[str(account_id), problem, detail], ignore_result=True, retry=False)
+
+
+# ---------------- reading comments and messages ----------------
+
+
+async def _sync_one(organization_id: uuid.UUID) -> str:
+    try:
+        async with get_db_context() as db:
+            result = await InboxService(db).sync(organization_id)
+    except ConflictError as exc:
+        return str(exc)
+    return "skipped" if result["skipped"] else "read"
+
+
+async def _sync_all() -> int:
+    async with get_db_context() as db:
+        organizations = list(
+            (await db.execute(select(SocialAccount.organization_id).where(SocialAccount.token_encrypted.is_not(None), SocialAccount.status.in_(("connected", "expiring"))))).scalars()
+        )
+    for organization_id in organizations:
+        try:
+            await _sync_one(organization_id)
+        except Exception:  # noqa: BLE001 - one organisation's trouble must not stop the others
+            logger.warning("social_inbox_sync_failed", organization_id=str(organization_id), exc_info=True)
+    return len(organizations)
+
+
+@celery_app.task(name="social.sync_account", ignore_result=True)
+def sync_account_task(organization_id: str) -> str:
+    """Read one organisation's new comments and messages (woken by a webhook notification)."""
+    return run_async(_sync_one(uuid.UUID(organization_id)))
+
+
+@celery_app.task(name="social.sync_inbox", ignore_result=True)
+def sync_inbox_task() -> int:
+    """Every half hour, a safety net in case a notification was missed. Cheap: unchanged conversations aren't re-read."""
+    return run_async(_sync_all())
+
+
+def enqueue_sync(organization_id: uuid.UUID) -> bool:
+    try:
+        sync_account_task.apply_async(args=[str(organization_id)], ignore_result=True, retry=False)
+    except Exception:  # noqa: BLE001
+        logger.warning("social_sync_enqueue_failed", organization_id=str(organization_id), exc_info=True)
+        return False
+    return True

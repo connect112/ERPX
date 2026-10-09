@@ -81,12 +81,13 @@ class InstagramClient:
         self._token = token
         self.base = f"{settings.INSTAGRAM_GRAPH_BASE_URL.rstrip('/')}/{settings.INSTAGRAM_GRAPH_VERSION}"
 
-    async def _request(self, method: str, path: str, data: dict | None = None, params: dict | None = None, publishing: bool = False) -> dict:
+    async def _request(self, method: str, path: str, data: dict | None = None, params: dict | None = None, publishing: bool = False, json_body: dict | None = None) -> dict:
         """One call. `publishing=True` marks the call that creates the post: a timeout there is "ambiguous", not "transient"."""
         headers = {"Authorization": f"Bearer {self._token}"}
+        extra = {"json": json_body} if json_body is not None else {}
         try:
             async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                response = await client.request(method, f"{self.base}/{path.lstrip('/')}", data=data, params=params, headers=headers)
+                response = await client.request(method, f"{self.base}/{path.lstrip('/')}", data=data, params=params, headers=headers, **extra)
         except httpx.TimeoutException:
             if publishing:
                 raise InstagramError("ambiguous", "Instagram didn't answer in time, so it isn't known whether the post was created.") from None
@@ -159,6 +160,82 @@ class InstagramClient:
     async def unsubscribe_webhooks(self) -> bool:
         result = await self._request("DELETE", f"{self.ig_user_id}/subscribed_apps")
         return result.get("success") is True
+
+    # ---------------- reading the profile: media, comments, conversations ----------------
+
+    @staticmethod
+    def _page(result: dict) -> tuple[list[dict], str | None]:
+        items = result.get("data")
+        rows = [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+        paging = result.get("paging") if isinstance(result.get("paging"), dict) else {}
+        cursors = paging.get("cursors") if isinstance(paging.get("cursors"), dict) else {}
+        after = cursors.get("after") if paging.get("next") else None  # a cursor with no "next" page is the end
+        return rows, str(after) if after else None
+
+    async def media_page(self, limit: int = 25, after: str | None = None) -> tuple[list[dict], str | None]:
+        params = {"fields": "id,caption,media_type,media_product_type,permalink,thumbnail_url,media_url,timestamp,comments_count", "limit": limit}
+        if after:
+            params["after"] = after
+        return self._page(await self._request("GET", f"{self.ig_user_id}/media", params=params))
+
+    async def list_comments(self, media_id: str, after: str | None = None, limit: int = 50) -> tuple[list[dict], str | None]:
+        """Top-level comments on a post (with their replies where Instagram allows expanding them). The fuller field list
+        is tried first; Instagram's documentation only guarantees id, text and timestamp, so if the fuller list is
+        refused the plain one is used and whatever is missing (who wrote it) is simply shown as not provided."""
+        rich = "id,text,timestamp,username,from,like_count,hidden,replies{id,text,timestamp,username,from}"
+        for fields in (rich, "id,text,timestamp"):
+            params = {"fields": fields, "limit": limit}
+            if after:
+                params["after"] = after
+            try:
+                return self._page(await self._request("GET", f"{media_id}/comments", params=params))
+            except InstagramError as exc:
+                if fields != rich or exc.kind != "permanent" or exc.code not in (100, 12, None):
+                    raise
+        return [], None
+
+    async def list_replies(self, comment_id: str) -> list[dict]:
+        try:
+            rows, _ = self._page(await self._request("GET", f"{comment_id}/replies", params={"fields": "id,text,timestamp,username,from"}))
+        except InstagramError as exc:
+            if exc.kind != "permanent" or exc.code not in (100, 12, None):
+                raise
+            rows, _ = self._page(await self._request("GET", f"{comment_id}/replies", params={"fields": "id,text,timestamp"}))
+        return rows
+
+    async def conversations_page(self, limit: int = 25, after: str | None = None) -> tuple[list[dict], str | None]:
+        params = {"platform": "instagram", "limit": limit}
+        if after:
+            params["after"] = after
+        return self._page(await self._request("GET", f"{self.ig_user_id}/conversations", params=params))
+
+    async def conversation_message_ids(self, conversation_id: str) -> list[dict]:
+        """The ids (and times) of a conversation's messages, newest first."""
+        result = await self._request("GET", conversation_id, params={"fields": "messages"})
+        messages = result.get("messages") if isinstance(result.get("messages"), dict) else {}
+        rows = messages.get("data")
+        return [m for m in rows if isinstance(m, dict) and m.get("id")] if isinstance(rows, list) else []
+
+    async def get_message(self, message_id: str) -> dict:
+        """One message. Instagram only returns the 20 most recent per conversation; an older one answers with an error."""
+        return await self._request("GET", message_id, params={"fields": "id,created_time,from,to,message"})
+
+    # ---------------- sending: only ever called after a person pressed Send (see replies.py) ----------------
+
+    async def reply_to_comment(self, comment_id: str, message: str) -> str:
+        """Post a public reply to a comment. A timeout here is "ambiguous": it may have been posted."""
+        result = await self._request("POST", f"{comment_id}/replies", data={"message": message}, publishing=True)
+        return self._id(result, publishing=True)
+
+    async def send_message(self, recipient_id: str, text: str) -> str:
+        """Send a direct message (only possible within 24 hours of the person's last message). Ambiguous on timeout."""
+        result = await self._request(
+            "POST", f"{self.ig_user_id}/messages", json_body={"recipient": {"id": recipient_id}, "message": {"text": text}}, publishing=True
+        )
+        value = result.get("message_id") or result.get("id")
+        if not value:
+            raise InstagramError("ambiguous", "Instagram's answer had no message id, so it isn't known whether the message was sent.")
+        return str(value)
 
     # ---------------- reading ----------------
 

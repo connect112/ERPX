@@ -424,6 +424,119 @@ export interface UsageOverview {
   image_configured: boolean;
 }
 
+// ---------------- comments and direct messages ----------------
+
+export interface Triage {
+  category: "enquiry" | "complaint" | "question" | "thanks" | "spam" | "other";
+  priority: "high" | "medium" | "low";
+  needs_care: boolean;
+  care_reason: string | null;
+}
+
+export interface AiSuggestion {
+  summary: string | null;
+  reply: string | null;
+  note: string | null;
+  at: string | null;
+}
+
+export type ReplyStatus = "pending" | "sent" | "failed" | "unknown";
+
+export interface ReplyLine {
+  id: string;
+  text: string;
+  at: string | null;
+  by: "erpx" | "instagram";
+  status: string;
+  sent_by: string | null;
+}
+
+export interface ReplyRecord {
+  id: string;
+  kind: "comment" | "dm";
+  message: string;
+  source: "typed" | "suggestion_edited" | "suggestion_unchanged";
+  status: ReplyStatus;
+  error: string | null;
+  external_reply_id: string | null;
+  attempted_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  comment_id: string | null;
+  conversation_id: string | null;
+  acknowledged_sensitive: boolean;
+  sent_by: string | null;
+}
+
+export interface MediaRef {
+  external_id: string;
+  caption: string | null;
+  permalink: string | null;
+  thumbnail_url: string | null;
+  artwork_url: string | null;
+  post_id: string | null;
+}
+
+export interface InboxComment {
+  id: string;
+  text: string;
+  author_username: string | null;
+  author_known: boolean;
+  posted_at: string | null;
+  status: "new" | "answered" | "ignored";
+  triage: Triage;
+  suggestion: AiSuggestion;
+  media: MediaRef | null;
+  replies: ReplyLine[];
+}
+
+export interface InboxMessage {
+  id: string;
+  direction: "in" | "out";
+  text: string | null;
+  sent_at: string | null;
+}
+
+export interface Conversation {
+  id: string;
+  participant_username: string | null;
+  participant_known: boolean;
+  last_message_at: string | null;
+  last_user_message_at: string | null;
+  window_expires_at: string | null;
+  window_open: boolean;
+  status: "open" | "answered" | "ignored";
+  triage: Triage;
+  suggestion: AiSuggestion;
+  preview: string | null;
+}
+
+export interface Thread {
+  conversation: Conversation;
+  messages: InboxMessage[];
+  replies: ReplyLine[];
+}
+
+export interface InboxSummary {
+  connected: boolean;
+  can_read_comments: boolean;
+  can_read_messages: boolean;
+  counts: Record<string, number>;
+  last_sync_at: string | null;
+  stages: Record<string, { ok?: boolean; error?: string | null; note?: string | null; count?: number }>;
+  note: string;
+}
+
+export interface ReplyPayload {
+  message: string;
+  request_id: string;
+  from_suggestion: boolean;
+  acknowledge_sensitive: boolean;
+}
+
+export type CommentView = "unanswered" | "recent" | "enquiries" | "complaints" | "spam" | "all";
+export type ConversationView = "needs_reply" | "enquiries" | "complaints" | "high_priority" | "all";
+
 export const socialMediaApi = {
   overview: () => apiClient.get<Overview>("/social-media/overview").then((r) => r.data),
   settings: () => apiClient.get<SocialSettings>("/social-media/settings").then((r) => r.data),
@@ -498,4 +611,27 @@ export const socialMediaApi = {
   refreshToken: () => apiClient.post<{ message: string }>("/social-media/connect/refresh-token", null, { timeout: 60000 }).then((r) => r.data),
   history: () => apiClient.get<HistoryOverview>("/social-media/history").then((r) => r.data),
   usage: () => apiClient.get<UsageOverview>("/social-media/usage").then((r) => r.data),
+  inboxSummary: () => apiClient.get<InboxSummary>("/social-media/inbox/summary").then((r) => r.data),
+  syncInbox: () =>
+    apiClient.post<{ skipped: boolean; message: string | null; stages: InboxSummary["stages"] }>("/social-media/inbox/sync", null, { timeout: 120000 }).then((r) => r.data),
+  comments: (params: { view: CommentView; q?: string; skip?: number; limit?: number }) =>
+    apiClient.get<{ items: InboxComment[]; total: number }>("/social-media/comments", { params }).then((r) => r.data),
+  suggestForComment: (id: string) =>
+    apiClient.post<InboxComment>(`/social-media/comments/${id}/suggest`, null, { timeout: 120000 }).then((r) => r.data),
+  replyToComment: (id: string, payload: ReplyPayload) =>
+    apiClient.post<ReplyRecord>(`/social-media/comments/${id}/reply`, payload, { timeout: 60000 }).then((r) => r.data),
+  markComment: (id: string, action: "ignore" | "reopen") => apiClient.post<InboxComment>(`/social-media/comments/${id}/handled`, { action }).then((r) => r.data),
+  conversations: (params: { view: ConversationView; q?: string; skip?: number; limit?: number }) =>
+    apiClient.get<{ items: Conversation[]; total: number }>("/social-media/conversations", { params }).then((r) => r.data),
+  thread: (id: string) => apiClient.get<Thread>(`/social-media/conversations/${id}`).then((r) => r.data),
+  suggestForConversation: (id: string) =>
+    apiClient.post<Conversation>(`/social-media/conversations/${id}/suggest`, null, { timeout: 120000 }).then((r) => r.data),
+  replyToConversation: (id: string, payload: ReplyPayload) =>
+    apiClient.post<ReplyRecord>(`/social-media/conversations/${id}/reply`, payload, { timeout: 60000 }).then((r) => r.data),
+  markConversation: (id: string, action: "ignore" | "reopen") =>
+    apiClient.post<Conversation>(`/social-media/conversations/${id}/handled`, { action }).then((r) => r.data),
+  replyHistory: () => apiClient.get<ReplyRecord[]>("/social-media/replies").then((r) => r.data),
+  reconcileReply: (id: string) =>
+    apiClient.post<{ note: string; reply: ReplyRecord }>(`/social-media/replies/${id}/reconcile`, null, { timeout: 60000 }).then((r) => r.data),
+  resolveReply: (id: string, sent: boolean) => apiClient.post<ReplyRecord>(`/social-media/replies/${id}/resolve`, { sent }).then((r) => r.data),
 };

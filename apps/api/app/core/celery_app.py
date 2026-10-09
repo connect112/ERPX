@@ -121,6 +121,11 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute="*/5"),
     },
     # Instagram access tokens last about 60 days and can be refreshed once they are a day old: refresh any within 20 days.
+    # Read new Instagram comments and messages. Webhooks wake this per organisation; every half hour is the safety net.
+    "social-sync-inbox": {
+        "task": "social.sync_inbox",
+        "schedule": crontab(minute="*/30"),
+    },
     "social-refresh-instagram-tokens": {
         "task": "social.refresh_tokens",
         "schedule": crontab(hour=3, minute=15),
