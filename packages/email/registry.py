@@ -111,6 +111,48 @@ TEMPLATES: tuple[TemplateDef, ...] = (
         event_scoped=True,
     ),
     TemplateDef(
+        key="hackathon_winner_certificate",
+        name="Hackathon winner certificate",
+        category="Hackathons",
+        description="Delivers a winning team member's certificate (attached as a PDF).",
+        when_sent="When the certificates for the 1st, 2nd and 3rd place teams are sent.",
+        subject="Congratulations! Your certificate: {{place}} in {{hackathon_title}}",
+        body=(
+            "# Congratulations, {{full_name}}!\n\n"
+            "Your team **{{team_name}}** secured **{{place}}** in **{{hackathon_title}}**. "
+            "Your certificate is attached to this email as a PDF.\n\n"
+            "> Well done, and thank you for taking part."
+        ),
+        variables=(
+            _NAME,
+            Variable("hackathon_title", "The hackathon's title", "DevSecStorm"),
+            Variable("place", "The place the team won", "1st place"),
+            Variable("team_name", "The person's team", "Team Alpha"),
+        ),
+        event_scoped=True,
+        has_attachment=True,
+    ),
+    TemplateDef(
+        key="hackathon_participation_certificate",
+        name="Hackathon participation certificate",
+        category="Hackathons",
+        description="Delivers a participant's certificate of participation (attached as a PDF).",
+        when_sent="When participation certificates are sent to a hackathon's other participants.",
+        subject="Your participation certificate: {{hackathon_title}}",
+        body=(
+            "# Thank you for taking part\n\n"
+            "Hi {{full_name}}, thank you for taking part in **{{hackathon_title}}**. "
+            "Your certificate of participation is attached to this email as a PDF."
+        ),
+        variables=(
+            _NAME,
+            Variable("hackathon_title", "The hackathon's title", "DevSecStorm"),
+            Variable("team_name", "The person's team", "Team Alpha"),
+        ),
+        event_scoped=True,
+        has_attachment=True,
+    ),
+    TemplateDef(
         key="workshop_exam_invite",
         name="Exam invite",
         category="Workshops & exams",

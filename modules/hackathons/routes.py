@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.exceptions import NotFoundError, ServiceUnavailableError, ValidationError
+from app.core.logging_config import get_logger
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authentication.repository import AuthRepository
@@ -70,10 +71,24 @@ from modules.hackathons.service import HackathonService, TeamService
 from modules.hackathons.tasks import enqueue_welcome_emails
 from modules.hackathons.participants_admin import ParticipantAdminService
 from modules.hackathons.team_admin import TeamAdminService
+from modules.workshop_exams.hackathon_awards import AWARDS, PARTICIPATION, HackathonAwards
+from modules.workshop_exams.schemas import (
+    AwardInfo,
+    AwardMember,
+    AwardPlanOut,
+    AwardsIssueRequest,
+    AwardsIssueResponse,
+    AwardsOverview,
+    AwardTeam,
+    CertificateRecipient,
+)
+from modules.workshop_exams.tasks import enqueue_certificates
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
 from modules.students.repository import StudentRepository
 from modules.users.dependencies import get_current_user_organization_id
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -1048,3 +1063,133 @@ async def public_leaderboard(slug: str, response: Response, db: AsyncSession = D
     response.headers["X-Robots-Tag"] = "noindex"
     # The clock is stamped per response (the rest may be a few seconds old), so screens can correct their own.
     return cached[1].model_copy(update={"server_time": datetime.now(timezone.utc)})
+
+
+# ---------------- winner certificates ----------------
+
+
+async def _award_context(db: AsyncSession, hackathon_id: uuid.UUID, organization_id: uuid.UUID):
+    hackathon = await HackathonService(db).get_hackathon(hackathon_id, organization_id)
+    awards = HackathonAwards(db)
+    exams = await awards.ensure_exams(organization_id, hackathon)
+    groups, participants = await awards.groups(organization_id, hackathon, exams)
+    return hackathon, awards, exams, groups, participants
+
+
+@router.post("/{hackathon_id}/certificates/awards", response_model=AwardsOverview)
+async def open_award_certificates(
+    hackathon_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The winning teams for 1st, 2nd and 3rd place (from the leaderboard) and the certificate set-up of each award.
+    The four award certificates (each a design with the ID format, review and test options of an exam certificate) are
+    created the first time this is opened."""
+    hackathon, awards, exams, groups, participants = await _award_context(db, hackathon_id, organization_id)
+    attendee_counts = await awards.exams.sent_counts([e.id for e in exams.values()])
+    items = []
+    for key in AWARDS:
+        group = groups.get(key)
+        exam = exams[key]
+        items.append(
+            AwardInfo(
+                award=key,
+                label=group.label if group else "Participation",
+                exam_id=exam.id,
+                has_design=exam.has_certificate_template,
+                review_required=exam.certificate_review,
+                teams=[
+                    AwardTeam(
+                        rank=t.rank,
+                        team_name=t.team_name,
+                        score=t.score,
+                        members=[AwardMember(name=m.full_name, email=m.email) for m in t.members],
+                    )
+                    for t in (group.teams if group else [])
+                ],
+                sent=attendee_counts.get(exam.id, 0),
+            )
+        )
+    result = AwardsOverview(
+        awards=items,
+        participation_in_teams=len(awards.participation_people(groups, participants, "teams")),
+        participation_everyone=len(awards.participation_people(groups, participants, "all")),
+    )
+    await db.commit()
+    return result
+
+
+@router.post("/{hackathon_id}/certificates/issue", response_model=AwardsIssueResponse)
+async def issue_award_certificates(
+    hackathon_id: uuid.UUID,
+    payload: AwardsIssueRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("hackathons.manage", "workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Give every member of the 1st, 2nd and 3rd place teams their own certificate (and, if asked, the other participants
+    a participation certificate). Without `confirm` it only lists who would get what. With it, the people are added and
+    their certificates emailed, or held for review where the award has review switched on."""
+    hackathon, awards, exams, groups, participants = await _award_context(db, hackathon_id, organization_id)
+    people_by_award = {key: group.people for key, group in groups.items()}
+    if payload.include_participation:
+        people_by_award[PARTICIPATION] = awards.participation_people(groups, participants, payload.participation_audience)
+
+    plans = {}
+    out: list[AwardPlanOut] = []
+    for key in AWARDS:
+        if key not in people_by_award:
+            continue
+        exam = exams[key]
+        plan = await awards.plan(exam, hackathon, people_by_award[key])
+        plans[key] = plan
+        out.append(
+            AwardPlanOut(
+                award=key,
+                label=HackathonAwards.label(key),
+                exam_id=exam.id,
+                recipients=[
+                    CertificateRecipient(name=r.name, email=r.email, team_name=r.team_name, status=r.status)
+                    for r in plan.recipients
+                ],
+                will_send=plan.will_send,
+                already_sent=plan.count("already_sent"),
+                no_email=plan.count("no_email"),
+                review_required=exam.certificate_review,
+            )
+        )
+    if not payload.confirm:
+        await db.commit()
+        return AwardsIssueResponse(awards=out)
+
+    to_send: list[uuid.UUID] = []
+    held: list[str] = []
+    for key, plan in plans.items():
+        if plan.will_send == 0:
+            continue
+        ids = await awards.issue(exams[key], plan)
+        if exams[key].certificate_review:
+            held.append(HackathonAwards.label(key))
+        else:
+            to_send.extend(ids)
+    await db.commit()
+    if to_send:
+        try:
+            enqueue_certificates(to_send)
+        except Exception:  # noqa: BLE001 - e.g. the message broker is down
+            logger.warning("award_certificates_enqueue_failed", hackathon_id=str(hackathon_id), exc_info=True)
+            raise ServiceUnavailableError(
+                "The certificates are ready but couldn't be queued just now. Press Send again to retry."
+            ) from None
+    parts = []
+    if to_send:
+        parts.append(f"Queued {len(to_send)} certificate email(s).")
+    if held:
+        parts.append(f"Added for review (not emailed yet): {', '.join(held)}. Open Review certificates to check and send them.")
+    return AwardsIssueResponse(
+        awards=out,
+        done=True,
+        held_for_review=held,
+        message=" ".join(parts) or "Nobody needs a certificate right now.",
+    )

@@ -17,7 +17,7 @@ from app.core.exceptions import ConflictError
 from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
-from modules.workshop_exams.certificate_render import render_certificate, verify_url
+from modules.workshop_exams.certificate_render import certificate_email, render_certificate, verify_url
 from modules.workshop_exams.models import WorkshopExam, WorkshopExamAttendee
 from modules.workshop_exams.service import WorkshopExamService
 from modules.email_templates.render import render_email
@@ -94,12 +94,7 @@ async def _send_certificate(attendee_id: uuid.UUID) -> bool:
         if attendee.certificate_number is None or attendee.certificate_sent_at is not None:
             return True
         pdf = await render_certificate(db, exam, attendee)
-        subject, text, html = await render_email(
-            db,
-            "workshop_certificate",
-            {"full_name": attendee.name, "exam_title": exam.title},
-            organization_id=exam.organization_id,
-        )
+        subject, text, html = await certificate_email(db, exam, attendee.name, (attendee.info or {}).get("team"))
         safe_name = "".join(ch if ch.isalnum() else "_" for ch in attendee.name).strip("_") or "participant"
         sent = await email_service.send(
             attendee.email,

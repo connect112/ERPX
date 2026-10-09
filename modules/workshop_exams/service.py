@@ -51,6 +51,17 @@ class WorkshopExamService:
         await self.db.refresh(exam)
         return exam
 
+    async def sent_counts(self, exam_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """How many certificates have been delivered, per exam."""
+        if not exam_ids:
+            return {}
+        rows = await self.db.execute(
+            select(WorkshopExamAttendee.exam_id, func.count())
+            .where(WorkshopExamAttendee.exam_id.in_(exam_ids), WorkshopExamAttendee.certificate_sent_at.is_not(None))
+            .group_by(WorkshopExamAttendee.exam_id)
+        )
+        return {exam_id: count for exam_id, count in rows.all()}
+
     async def get_exam(self, exam_id: uuid.UUID, organization_id: uuid.UUID) -> WorkshopExam:
         result = await self.db.execute(
             select(WorkshopExam).where(
@@ -65,7 +76,8 @@ class WorkshopExamService:
     async def list_exams(self, organization_id: uuid.UUID) -> list[tuple[WorkshopExam, int, int]]:
         result = await self.db.execute(
             select(WorkshopExam)
-            .where(WorkshopExam.organization_id == organization_id)
+            # A hackathon's award certificates are managed from the hackathon, not listed here.
+            .where(WorkshopExam.organization_id == organization_id, WorkshopExam.hackathon_id.is_(None))
             .order_by(WorkshopExam.created_at.desc())
         )
         exams = list(result.scalars().all())

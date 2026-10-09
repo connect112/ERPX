@@ -22,7 +22,7 @@ from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.users.dependencies import get_current_user_organization_id
 from modules.workshop_exams import certificate_ids
-from modules.workshop_exams.certificate_render import render_certificate
+from modules.workshop_exams.certificate_render import certificate_email, render_certificate
 from modules.workshop_exams.certificate_template import (
     MAX_UPLOAD_BYTES,
     NameAdjust,
@@ -254,12 +254,7 @@ async def email_test_certificate(
     service = WorkshopExamService(db)
     exam = await service.get_exam(exam_id, organization_id)
     pdf = await _sample_pdf(service, exam, payload)
-    subject, text, html = await render_email(
-        db,
-        "workshop_certificate",
-        {"full_name": "Sample Student Name", "exam_title": exam.title},
-        organization_id=organization_id,
-    )
+    subject, text, html = await certificate_email(db, exam, "Sample Student Name", "Team Sample")
     sent = await email_service.send(
         str(payload.email),
         f"[TEST] {subject}",
