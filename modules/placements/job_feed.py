@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging_config import get_logger
 from modules.placements.connectors.sources import (
+    DEFAULT_BOARDS,
     FETCHERS,
     MIN_INTERVAL_HOURS,
     SOURCES,
@@ -29,6 +30,23 @@ from modules.placements.models import ExternalJob, JobFeedSettings
 logger = get_logger(__name__)
 
 DEFAULT_KEYWORDS = [
+    "security",
+    "ethical",
+    "vapt",
+    "forensic",
+    "malware",
+    "grc",
+    "iam",
+    "firewall",
+    "siem",
+    "soc",
+    "platform engineer",
+    "infrastructure engineer",
+    "systems engineer",
+    "sysadmin",
+    "system administrator",
+    "network engineer",
+    "linux",
     "cyber",
     "cybersecurity",
     "information security",
@@ -56,6 +74,16 @@ DEFAULT_KEYWORDS = [
 ]
 MAX_KEYWORDS = 60
 STALE_AFTER = timedelta(days=21)
+REFRESH_STALE_AFTER = timedelta(minutes=15)  # a refresh marker older than this is from a run that died
+SEARCH_STYLE_SOURCES = {"adzuna", "jooble"}  # their searches are already limited to India
+# "security" also names guards and officers; those are not wanted.
+_NOT_IT = re.compile(r"\b(security (guard|officer|supervisor|manager - (retail|facility))|guard|watchman|bouncer)\b", re.I)
+_INDIA_PLACES = (
+    "india", "bengaluru", "bangalore", "hyderabad", "pune", "mumbai", "navi mumbai", "delhi", "gurgaon", "gurugram",
+    "noida", "chennai", "kolkata", "ahmedabad", "kochi", "cochin", "coimbatore", "jaipur", "indore", "chandigarh",
+    "thiruvananthapuram", "trivandrum", "visakhapatnam", "vizag", "mysuru", "mysore", "nagpur", "bhubaneswar", "lucknow",
+)
+_OPEN_TO_INDIA = ("worldwide", "anywhere", "global", "apac", "asia", "remote - india", "remote, india")
 
 _FRESHER = re.compile(
     r"\b(fresher|freshers|entry[- ]level|graduates?|junior|jr\.?|intern|interns|internship|trainee|apprentice|"
@@ -80,6 +108,29 @@ def clean_keywords(values: list[str]) -> list[str]:
     return seen[:MAX_KEYWORDS]
 
 
+_BOARD_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{1,59}$")
+
+
+def clean_boards(boards: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Company board names, per hiring system, lower-cased and de-duplicated."""
+    unknown = set(boards) - {"greenhouse", "lever"}
+    if unknown:
+        raise ValidationError(f"Company career pages can only be read from Greenhouse and Lever, not {sorted(unknown)[0]}.")
+    cleaned: dict[str, list[str]] = {}
+    for system, names in boards.items():
+        seen: list[str] = []
+        for name in names:
+            token = str(name).strip().lower()
+            if not _BOARD_NAME.match(token):
+                raise ValidationError(f'"{name}" is not a valid company board name (letters, digits, - and _ only).')
+            if token not in seen:
+                seen.append(token)
+        if len(seen) > 120:
+            raise ValidationError("Add at most 120 company pages per hiring system.")
+        cleaned[system] = seen
+    return cleaned
+
+
 def keyword_pattern(keywords: list[str]) -> re.Pattern:
     return re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(k) for k in keywords) + r")(?![a-z0-9])", re.I)
 
@@ -93,13 +144,26 @@ def is_fresher_friendly(item: JobItem) -> bool:
     return bool(_FRESHER.search(item.title) or _FRESHER.search(item.summary or "") or _FRESHER.search(" ".join(item.tags)))
 
 
-def wanted(item: JobItem, pattern: re.Pattern, fresher_only: bool) -> tuple[bool, bool]:
+def in_india_or_open(item: JobItem) -> bool:
+    """Located in India, or remote and open to people in India. Jobs with no place given at all are kept (a remote
+    posting with an empty location is worldwide on the sources that do that)."""
+    if item.source in SEARCH_STYLE_SOURCES:
+        return True
+    place = (item.location or "").lower()
+    if any(word in place for word in _INDIA_PLACES):
+        return True
+    if item.remote and (not place or any(word in place for word in _OPEN_TO_INDIA)):
+        return True
+    return False
+
+
+def wanted(item: JobItem, pattern: re.Pattern) -> tuple[bool, bool]:
     """(keep it, is it fresher-friendly): the job's title must name one of the wanted roles (tags are too loose: a
     React developer is often tagged "aws")."""
-    if not pattern.search(item.title):
+    if not pattern.search(item.title) or _NOT_IT.search(item.title):
         return False, False
     fresher = is_fresher_friendly(item)
-    return (fresher or not fresher_only), fresher
+    return True, fresher
 
 
 class JobFeedService:
@@ -112,12 +176,18 @@ class JobFeedService:
         row = (
             await self.db.execute(select(JobFeedSettings).where(JobFeedSettings.organization_id == organization_id))
         ).scalar_one_or_none()
+        if row is not None and row.keywords == ["__reset__"]:
+            row.keywords = list(DEFAULT_KEYWORDS)  # the wider default replaces the first version's list
         if row is None:
             row = JobFeedSettings(
                 organization_id=organization_id,
                 keywords=list(DEFAULT_KEYWORDS),
-                fresher_only=True,
-                sources={name: name in ("remotive", "arbeitnow") or is_configured(name) for name in SOURCES},
+                india_only=True,
+                boards={name: list(tokens) for name, tokens in DEFAULT_BOARDS.items()},
+                sources={
+                    name: name in ("remotive", "greenhouse", "lever") or (name in ("adzuna", "jooble") and is_configured(name))
+                    for name in SOURCES
+                },
                 source_state={},
             )
             self.db.add(row)
@@ -128,14 +198,17 @@ class JobFeedService:
         self,
         organization_id: uuid.UUID,
         keywords: list[str] | None,
-        fresher_only: bool | None,
         sources: dict[str, bool] | None,
+        india_only: bool | None = None,
+        boards: dict[str, list[str]] | None = None,
     ) -> JobFeedSettings:
         row = await self.get_settings(organization_id)
         if keywords is not None:
             row.keywords = clean_keywords(keywords)
-        if fresher_only is not None:
-            row.fresher_only = fresher_only
+        if india_only is not None:
+            row.india_only = india_only
+        if boards is not None:
+            row.boards = clean_boards(boards)
         if sources is not None:
             unknown = set(sources) - set(SOURCES)
             if unknown:
@@ -152,6 +225,7 @@ class JobFeedService:
         `force`. Returns what happened per source."""
         row = await self.get_settings(organization_id)
         pattern = keyword_pattern(row.keywords)
+        options = dict(row.boards or {})
         now = _now()
         state = dict(row.source_state or {})
         summary: dict[str, dict] = {}
@@ -169,7 +243,7 @@ class JobFeedService:
                     summary[name] = {"skipped": "read recently"}
                     continue
                 try:
-                    items = await FETCHERS[name](client)
+                    items = await FETCHERS[name](client, options)
                 except SourceError as exc:
                     summary[name] = {"error": str(exc)}
                     state[name] = {**(state.get(name) or {}), "error": str(exc)}
@@ -179,7 +253,7 @@ class JobFeedService:
                     summary[name] = {"error": "something went wrong reading it"}
                     state[name] = {**(state.get(name) or {}), "error": "something went wrong reading it"}
                     continue
-                result = await self._store(organization_id, name, items, pattern, row.fresher_only, now)
+                result = await self._store(organization_id, name, items, pattern, row.india_only, now)
                 summary[name] = result
                 state[name] = {"last_fetch_at": now.isoformat(), "error": None, **result}
 
@@ -193,7 +267,7 @@ class JobFeedService:
         source: str,
         items: list[JobItem],
         pattern: re.Pattern,
-        fresher_only: bool,
+        india_only: bool,
         now: datetime,
     ) -> dict:
         existing = {
@@ -207,7 +281,9 @@ class JobFeedService:
         matched = new = 0
         seen: set[str] = set()
         for item in items:
-            keep, fresher = wanted(item, pattern, fresher_only)
+            keep, fresher = wanted(item, pattern)
+            if india_only and not in_india_or_open(item):
+                keep = False
             if not keep or item.external_id in seen:
                 continue
             seen.add(item.external_id)
@@ -266,7 +342,8 @@ class JobFeedService:
             await self.db.execute(
                 select(ExternalJob)
                 .where(*conditions)
-                .order_by(ExternalJob.posted_at.desc().nulls_last(), ExternalJob.last_seen_at.desc())
+                # Newest posting first; jobs whose source gives no date go last.
+                .order_by(ExternalJob.posted_at.desc().nulls_last(), ExternalJob.last_seen_at.desc(), ExternalJob.id)
                 .offset(skip)
                 .limit(limit)
             )
@@ -284,6 +361,32 @@ class JobFeedService:
         job.hidden = hidden
         await self.db.flush()
         return job
+
+    # ---------------- background refresh ----------------
+
+    async def start_refresh(self, organization_id: uuid.UUID) -> bool:
+        """Mark a refresh as running; False when one already is (so a double click doesn't read the sources twice)."""
+        row = await self.get_settings(organization_id)
+        if row.refresh_started_at and _now() - row.refresh_started_at < REFRESH_STALE_AFTER:
+            return False
+        row.refresh_started_at = _now()
+        await self.db.flush()
+        return True
+
+    @staticmethod
+    def is_refreshing(row: JobFeedSettings) -> bool:
+        return bool(row.refresh_started_at and _now() - row.refresh_started_at < REFRESH_STALE_AFTER)
+
+    async def run_refresh(self, organization_id: uuid.UUID, force: bool = False) -> dict[str, dict]:
+        """Read the sources and tidy up, then clear the running marker (also when something goes wrong)."""
+        try:
+            summary = await self.refresh(organization_id, force=force)
+            await self.clear_stale(organization_id)
+            return summary
+        finally:
+            row = await self.get_settings(organization_id)
+            row.refresh_started_at = None
+            await self.db.flush()
 
     async def organizations_with_feed(self) -> list[uuid.UUID]:
         return list((await self.db.execute(select(JobFeedSettings.organization_id))).scalars())

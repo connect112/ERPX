@@ -27,6 +27,7 @@ def _item(title="DevSecOps Intern", source="remotive", ext=None, **kw):
         title=title,
         company=kw.pop("company", "Acme"),
         url=kw.pop("url", "https://example.com/jobs/1"),
+        remote=kw.pop("remote", True),
         **kw,
     )
 
@@ -53,33 +54,67 @@ def test_job_text_is_turned_from_html_into_a_short_readable_summary():
         ("SOC Analyst (Entry level)", [], None, (True, True)),
         ("Cybersecurity Trainee", [], None, (True, True)),
         ("Cloud Security Engineer", ["internship"], None, (True, True)),  # fresher wording in the tags
-        ("Junior React Developer", ["aws", "cloud"], None, (False, False)),  # a wanted word only in the tags is not enough
         ("Security Analyst", [], "internship", (True, True)),
-        ("Senior DevOps Engineer", [], None, (False, False)),  # right role, but senior
-        ("Lead Cybersecurity Architect", [], None, (False, False)),
+        ("Senior DevOps Engineer", [], None, (True, False)),  # kept (every wanted role is), not marked fresher friendly
+        ("Lead Cybersecurity Architect", [], None, (True, False)),
+        ("Cloud Engineer", [], None, (True, False)),
         ("Marketing Intern", [], None, (False, False)),  # fresher, but not a wanted role
-        ("Cloud Engineer", [], None, (False, False)),  # wanted role, nothing says fresher
         ("Junior Accountant", [], None, (False, False)),
+        ("Junior React Developer", ["aws", "cloud"], None, (False, False)),  # a wanted word only in the tags is not enough
     ],
 )
-def test_only_wanted_roles_that_suit_freshers_are_kept(title, tags, job_type, expected):
+def test_every_wanted_role_is_kept_and_fresher_friendly_ones_are_marked(title, tags, job_type, expected):
     pattern = keyword_pattern(DEFAULT_KEYWORDS)
     item = _item(title=title, tags=tags, job_type=job_type)
-    keep, fresher = wanted(item, pattern, fresher_only=True)
-    assert (keep, fresher) == expected
+    assert wanted(item, pattern) == expected
 
 
-def test_switching_fresher_only_off_keeps_every_wanted_role():
-    pattern = keyword_pattern(DEFAULT_KEYWORDS)
-    assert wanted(_item(title="Cloud Engineer"), pattern, fresher_only=False) == (True, False)
-    assert wanted(_item(title="Senior DevOps Engineer"), pattern, fresher_only=False) == (True, False)
+def test_the_fresher_marking_ignores_senior_titles():
     assert is_fresher_friendly(_item(title="Graduate Cyber Analyst"))
+    assert not is_fresher_friendly(_item(title="Senior Graduate Programme Lead"))
 
 
 def test_a_keyword_must_be_a_word_not_part_of_one():
     pattern = keyword_pattern(["sre", "aws"])
     assert pattern.search("SRE Intern") and pattern.search("AWS Cloud")
     assert not pattern.search("Laundromat Assistant") and not pattern.search("Presrestore")
+
+
+def test_guards_and_officers_are_not_it_jobs_even_though_the_word_security_matches():
+    pattern = keyword_pattern(DEFAULT_KEYWORDS)
+    assert wanted(_item(title="Security Guard"), pattern) == (False, False)
+    assert wanted(_item(title="Security Officer - Night Shift"), pattern) == (False, False)
+    assert wanted(_item(title="Product Security Engineer"), pattern)[0] is True
+    assert wanted(_item(title="Linux System Administrator"), pattern)[0] is True
+
+
+@pytest.mark.parametrize(
+    "location, remote, source, expected",
+    [
+        ("Bengaluru, India", False, "greenhouse", True),
+        ("Hyderabad", False, "lever", True),
+        ("Remote - India", True, "greenhouse", True),
+        ("Worldwide", True, "remotive", True),
+        ("Anywhere", True, "remotive", True),
+        (None, True, "remotive", True),
+        ("USA Only", True, "remotive", False),
+        ("Berlin", False, "arbeitnow", False),
+        ("Remote (Homeoffice)", True, "arbeitnow", False),
+        ("San Francisco, CA", False, "greenhouse", False),
+        ("Pune", False, "greenhouse", True),
+        ("Mumbai, Maharashtra", False, "adzuna", True),
+        ("Somewhere unlisted", False, "adzuna", True),  # their searches are already limited to India
+    ],
+)
+def test_only_jobs_in_india_or_remote_and_open_to_india_pass_the_india_filter(location, remote, source, expected):
+    assert job_feed.in_india_or_open(_item(location=location, remote=remote, source=source)) is expected
+
+
+def test_company_board_names_are_validated_and_tidied():
+    assert job_feed.clean_boards({"greenhouse": [" Okta ", "okta", "Data-Dog"], "lever": ["cred"]}) == {"greenhouse": ["okta", "data-dog"], "lever": ["cred"]}
+    for bad in ({"workday": ["x"]}, {"greenhouse": ["has space"]}, {"greenhouse": ["a"]}, {"greenhouse": ["../etc"]}, {"lever": [f"c{i:03d}" for i in range(121)]}):
+        with pytest.raises(job_feed.ValidationError):
+            job_feed.clean_boards(bad)
 
 
 # ---------------- reading the real feeds (their documented shapes) ----------------
@@ -97,7 +132,7 @@ async def test_remotive_jobs_are_read_with_their_link_back():
         {"id": 8, "url": "javascript:alert(1)", "title": "Bad link", "company_name": "X"},
         {"id": 9, "url": "https://remotive.com/9", "title": ""},
     ]}
-    items = await sources.fetch_remotive(_client(lambda request: httpx.Response(200, json=payload)))
+    items = await sources.fetch_remotive(_client(lambda request: httpx.Response(200, json=payload)), {})
     assert len(items) == 1
     job = items[0]
     assert (job.source, job.external_id, job.remote, job.job_type) == ("remotive", "7", True, "internship")
@@ -116,7 +151,7 @@ async def test_arbeitnow_pages_are_followed_until_the_last():
                "description": "<div>x</div>"}
         return httpx.Response(200, json={"data": [row], "links": {"next": "x" if page < 2 else None}})
 
-    items = await sources.fetch_arbeitnow(_client(handler))
+    items = await sources.fetch_arbeitnow(_client(handler), {})
     assert calls == [1, 2] and [i.external_id for i in items] == ["job-1", "job-2"]
     assert items[0].remote is True and items[0].job_type == "full_time" and items[0].posted_at.year == 2026
 
@@ -127,6 +162,8 @@ async def test_adzuna_and_jooble_read_their_search_results_and_dedupe(monkeypatc
     monkeypatch.setattr(settings, "ADZUNA_APP_ID", "id")
     monkeypatch.setattr(settings, "ADZUNA_APP_KEY", "key")
     monkeypatch.setattr(settings, "JOOBLE_API_KEY", "jk")
+    monkeypatch.setattr(sources, "REQUEST_GAP_SECONDS", 0)
+    monkeypatch.setattr(sources, "ADZUNA_PAGES", 1)
     adzuna = {"results": [{"id": "55", "title": "<strong>SOC</strong> Analyst Fresher", "company": {"display_name": "Infy"},
                            "location": {"display_name": "Hyderabad, Telangana"}, "redirect_url": "https://www.adzuna.in/land/ad/55",
                            "created": "2026-10-08T10:00:00Z", "salary_min": 300000, "salary_max": 500000, "contract_time": "full_time",
@@ -137,22 +174,75 @@ async def test_adzuna_and_jooble_read_their_search_results_and_dedupe(monkeypatc
         seen.append(request.url.params["what"])
         return httpx.Response(200, json=adzuna)
 
-    items = await sources.fetch_adzuna(_client(adzuna_handler))
+    items = await sources.fetch_adzuna(_client(adzuna_handler), {})
     assert len(seen) == len(sources.SEARCH_QUERIES) and len(items) == 1  # same job from every search counts once
     assert items[0].title == "SOC Analyst Fresher" and items[0].salary_text == "INR 300,000 - 500,000"
     assert items[0].location == "Hyderabad, Telangana" and items[0].url == "https://www.adzuna.in/land/ad/55"
 
     jooble = {"jobs": [{"id": 9001, "title": "DevOps Intern", "company": "Zeta", "location": "Pune", "snippet": "Learn <b>CI/CD</b>",
                         "link": "https://in.jooble.org/desc/9001", "updated": "2026-10-08T00:00:00.0000000", "type": "Internship", "salary": ""}]}
-    items = await sources.fetch_jooble(_client(lambda request: httpx.Response(200, json=jooble)))
+    items = await sources.fetch_jooble(_client(lambda request: httpx.Response(200, json=jooble)), {})
     assert len(items) == 1 and items[0].summary == "Learn CI/CD" and items[0].job_type == "Internship"
+
+
+async def test_adzuna_follows_pages_for_each_search_until_a_short_page(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "ADZUNA_APP_ID", "id")
+    monkeypatch.setattr(settings, "ADZUNA_APP_KEY", "key")
+    monkeypatch.setattr(sources, "REQUEST_GAP_SECONDS", 0)
+    monkeypatch.setattr(sources, "SEARCH_QUERIES", ["devops engineer", "soc analyst"])
+    monkeypatch.setattr(sources, "ADZUNA_PAGES", 3)
+    requested = []
+
+    def handler(request):
+        page = int(str(request.url.path).rsplit("/", 1)[1])
+        what = request.url.params["what"]
+        requested.append((what, page))
+        count = 50 if page < 2 else 10  # the second page is the last
+        rows = [{"id": f"{what}-{page}-{n}", "title": f"DevOps Engineer {n}", "company": {"display_name": "Acme"}, "location": {"display_name": "Pune"},
+                 "redirect_url": f"https://www.adzuna.in/land/{what}-{page}-{n}", "created": "2026-10-08T10:00:00Z"} for n in range(count)]
+        return httpx.Response(200, json={"results": rows})
+
+    items = await sources.fetch_adzuna(_client(handler), {})
+    assert requested == [("devops engineer", 1), ("devops engineer", 2), ("soc analyst", 1), ("soc analyst", 2)]
+    assert len(items) == 120 and {i.location for i in items} == {"Pune"}
+
+
+async def test_company_career_pages_are_read_from_greenhouse_and_lever_and_a_missing_page_is_skipped():
+    def handler(request):
+        url = str(request.url)
+        if "greenhouse.io/v1/boards/okta/jobs" in url:
+            return httpx.Response(200, json={"jobs": [
+                {"id": 11, "title": "Cloud Security Engineer", "absolute_url": "https://boards.greenhouse.io/okta/jobs/11",
+                 "location": {"name": "Bengaluru, India"}, "updated_at": "2026-10-05T10:00:00-04:00"},
+                {"id": 12, "title": "Bad link", "absolute_url": "javascript:x", "location": {"name": "Pune"}},
+            ]})
+        if "greenhouse.io/v1/boards/ghost/jobs" in url:
+            return httpx.Response(404)
+        if "api.lever.co/v0/postings/cred" in url:
+            return httpx.Response(200, json=[{"id": "abc", "text": "DevOps Intern", "hostedUrl": "https://jobs.lever.co/cred/abc",
+                                              "categories": {"location": "Bangalore", "team": "Platform", "commitment": "Intern"},
+                                              "workplaceType": "hybrid", "createdAt": 1791511488000, "descriptionPlain": "Learn CI/CD"}])
+        return httpx.Response(404)
+
+    greenhouse = await sources.fetch_greenhouse(_client(handler), {"greenhouse": ["okta", "ghost"]})
+    assert [(j.external_id, j.title, j.location, j.company) for j in greenhouse] == [("okta:11", "Cloud Security Engineer", "Bengaluru, India", "Okta")]
+    assert greenhouse[0].url == "https://boards.greenhouse.io/okta/jobs/11" and greenhouse[0].posted_at.year == 2026
+    lever = await sources.fetch_lever(_client(handler), {"lever": ["cred"]})
+    assert lever[0].external_id == "cred:abc" and lever[0].job_type == "intern" and lever[0].summary == "Learn CI/CD" and lever[0].tags == ["Platform"]
+    assert lever[0].posted_at.year == 2026 and lever[0].remote is False
+
+    with pytest.raises(SourceError, match="none of the company career pages"):
+        await sources.fetch_greenhouse(_client(handler), {"greenhouse": ["ghost", "ghost2"]})
+    assert await sources.fetch_lever(_client(handler), {}) == []  # nothing listed
 
 
 async def test_a_source_that_fails_says_so_plainly():
     with pytest.raises(SourceError, match="status 503"):
-        await sources.fetch_remotive(_client(lambda request: httpx.Response(503)))
+        await sources.fetch_remotive(_client(lambda request: httpx.Response(503)), {})
     with pytest.raises(SourceError, match="unreadable"):
-        await sources.fetch_remotive(_client(lambda request: httpx.Response(200, text="<html>not json</html>")))
+        await sources.fetch_remotive(_client(lambda request: httpx.Response(200, text="<html>not json</html>")), {})
 
 
 # ---------------- through the API ----------------
@@ -160,56 +250,114 @@ async def test_a_source_that_fails_says_so_plainly():
 
 @pytest.fixture
 def feed(monkeypatch):
-    """Replace the sources' real fetching with fixed jobs; returns the list to change between refreshes."""
+    """Replace every source's real fetching with fixed jobs; returns the list "remotive" serves."""
+
     class Jobs(list):
         calls = {"remotive": 0}
+        queued: list = []
 
     jobs = Jobs()
     calls = jobs.calls
+    jobs.queued = []
 
-    async def remotive(client):
+    async def remotive(client, options):
         calls["remotive"] += 1
         return list(jobs)
 
-    async def arbeitnow(client):
+    async def nothing(client, options):
         return []
 
-    monkeypatch.setitem(job_feed.FETCHERS, "remotive", remotive)
-    monkeypatch.setitem(job_feed.FETCHERS, "arbeitnow", arbeitnow)
+    for name in job_feed.FETCHERS:
+        monkeypatch.setitem(job_feed.FETCHERS, name, remotive if name == "remotive" else nothing)
+    from modules.placements import routes
+
+    monkeypatch.setattr(routes, "enqueue_job_feed_refresh", lambda organization_id: jobs.queued.append(organization_id) or True)
     return jobs
 
 
-async def test_the_feed_keeps_wanted_jobs_and_both_admins_and_students_can_open_them(client, auth_headers, db_session, organization, feed):
+async def _refresh(client, auth_headers, db_session, organization, force=False):
+    """Press Refresh now, then do what the background worker does."""
+    started = await client.post(f"{_FEED}/refresh", headers=auth_headers)
+    assert started.status_code == 200, started.text
+    return await job_feed.JobFeedService(db_session).run_refresh(organization.id, force=force)
+
+
+async def test_refresh_now_starts_a_background_run_and_a_second_press_does_not_start_another(client, auth_headers, db_session, organization, feed):
+    first = await client.post(f"{_FEED}/refresh", headers=auth_headers)
+    assert first.status_code == 200 and "Checking the job sites" in first.json()["message"] and feed.queued == [organization.id]
+    assert (await client.get(f"{_FEED}/settings", headers=auth_headers)).json()["refreshing"] is True
+    second = await client.post(f"{_FEED}/refresh", headers=auth_headers)
+    assert "already being checked" in second.json()["message"] and feed.queued == [organization.id]
+    await job_feed.JobFeedService(db_session).run_refresh(organization.id)  # the worker finishes
+    assert (await client.get(f"{_FEED}/settings", headers=auth_headers)).json()["refreshing"] is False
+    assert (await client.post(f"{_FEED}/refresh", headers=auth_headers)).status_code == 200 and len(feed.queued) == 2
+
+
+async def test_a_refresh_that_could_not_be_queued_says_so_and_is_not_left_marked_as_running(client, auth_headers, feed, monkeypatch):
+    from modules.placements import routes
+
+    monkeypatch.setattr(routes, "enqueue_job_feed_refresh", lambda organization_id: False)
+    failed = await client.post(f"{_FEED}/refresh", headers=auth_headers)
+    assert failed.status_code == 503
+    assert (await client.get(f"{_FEED}/settings", headers=auth_headers)).json()["refreshing"] is False
+
+
+async def test_the_feed_keeps_every_wanted_job_in_india_for_admins_and_students(client, auth_headers, db_session, organization, feed):
     feed.extend([
         _item("DevSecOps Intern", ext="a", url="https://remotive.com/remote-jobs/devsecops-intern"),
         _item("Senior Cloud Architect", ext="b"),
         _item("Pastry Chef Trainee", ext="c"),
-        _item("SOC Analyst Fresher", ext="d", location="Hyderabad"),
+        _item("SOC Analyst Fresher", ext="d", location="Hyderabad", remote=False),
+        _item("Cloud Engineer", ext="e", location="USA Only"),  # not open to India
+        _item("Security Guard", ext="f"),
     ])
     student, student_headers = await _create_student_with_login(client, db_session, organization)
 
     assert (await client.get(f"{_FEED}/me", headers=student_headers)).json()["total"] == 0  # nothing read yet
-    refreshed = await client.post(f"{_FEED}/refresh", headers=auth_headers)
-    assert refreshed.status_code == 200, refreshed.text
-    assert refreshed.json()["sources"]["remotive"] == {"fetched": 4, "matched": 2, "new": 2}
-    assert "2 new jobs" in refreshed.json()["message"]
+    summary = await _refresh(client, auth_headers, db_session, organization)
+    assert summary["remotive"] == {"fetched": 6, "matched": 3, "new": 3}
 
     admin_view = (await client.get(_FEED, headers=auth_headers)).json()
-    assert sorted(j["title"] for j in admin_view["items"]) == ["DevSecOps Intern", "SOC Analyst Fresher"]
+    assert sorted(j["title"] for j in admin_view["items"]) == ["DevSecOps Intern", "SOC Analyst Fresher", "Senior Cloud Architect"]
     mine = (await client.get(f"{_FEED}/me", headers=student_headers)).json()
-    assert mine["total"] == 2
+    assert mine["total"] == 3
     top = next(j for j in mine["items"] if j["title"] == "DevSecOps Intern")
     assert top["url"] == "https://remotive.com/remote-jobs/devsecops-intern" and top["source"] == "remotive" and top["fresher_friendly"] is True
-    # Search and source filters.
     assert [j["title"] for j in (await client.get(f"{_FEED}/me", params={"q": "hyderabad"}, headers=student_headers)).json()["items"]] == ["SOC Analyst Fresher"]
     assert (await client.get(f"{_FEED}/me", params={"source": "jooble"}, headers=student_headers)).json()["total"] == 0
+
+
+async def test_switching_off_the_india_filter_keeps_jobs_from_anywhere(client, auth_headers, db_session, organization, feed):
+    feed.extend([_item("Cloud Engineer", ext="u", location="USA Only"), _item("Cloud Intern", ext="i")])
+    summary = await _refresh(client, auth_headers, db_session, organization)
+    assert summary["remotive"]["matched"] == 1  # only the one open to India
+    await client.put(f"{_FEED}/settings", json={"india_only": False}, headers=auth_headers)
+    summary = await _refresh(client, auth_headers, db_session, organization, force=True)
+    assert summary["remotive"]["matched"] == 2
+
+
+async def test_jobs_are_listed_newest_posting_first_and_undated_ones_last(client, auth_headers, db_session, organization, feed):
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    feed.extend([
+        _item("Cloud Engineer Old", ext="old", posted_at=now - timedelta(days=20)),
+        _item("Cloud Engineer Undated", ext="none"),
+        _item("Cloud Engineer New", ext="new", posted_at=now - timedelta(hours=2)),
+        _item("Cloud Engineer Mid", ext="mid", posted_at=now - timedelta(days=3)),
+    ])
+    student, student_headers = await _create_student_with_login(client, db_session, organization)
+    await _refresh(client, auth_headers, db_session, organization)
+    order = ["Cloud Engineer New", "Cloud Engineer Mid", "Cloud Engineer Old", "Cloud Engineer Undated"]
+    assert [j["title"] for j in (await client.get(f"{_FEED}/me", headers=student_headers)).json()["items"]] == order
+    assert [j["title"] for j in (await client.get(_FEED, headers=auth_headers)).json()["items"]] == order
 
 
 async def test_hiding_a_job_removes_it_for_students_but_not_for_admins_and_it_stays_hidden(client, auth_headers, db_session, organization, feed):
     feed.append(_item("DevOps Intern", ext="keep"))
     feed.append(_item("Cloud Trainee", ext="hide"))
     student, student_headers = await _create_student_with_login(client, db_session, organization)
-    await client.post(f"{_FEED}/refresh", headers=auth_headers)
+    await _refresh(client, auth_headers, db_session, organization)
     jobs = {j["title"]: j for j in (await client.get(_FEED, headers=auth_headers)).json()["items"]}
 
     hidden = await client.post(f"{_FEED}/{jobs['Cloud Trainee']['id']}/hidden", json={"hidden": True}, headers=auth_headers)
@@ -219,9 +367,7 @@ async def test_hiding_a_job_removes_it_for_students_but_not_for_admins_and_it_st
     assert [j["title"] for j in (await client.get(_FEED, params={"include_hidden": "false"}, headers=auth_headers)).json()["items"]] == ["DevOps Intern"]
 
     # A later refresh finding the same job doesn't un-hide it.
-    from modules.placements.job_feed import JobFeedService
-
-    await JobFeedService(db_session).refresh(organization.id, force=True)
+    await job_feed.JobFeedService(db_session).refresh(organization.id, force=True)
     assert [j["title"] for j in (await client.get(f"{_FEED}/me", headers=student_headers)).json()["items"]] == ["DevOps Intern"]
     shown = await client.post(f"{_FEED}/{jobs['Cloud Trainee']['id']}/hidden", json={"hidden": False}, headers=auth_headers)
     assert shown.json()["hidden"] is False
@@ -229,48 +375,70 @@ async def test_hiding_a_job_removes_it_for_students_but_not_for_admins_and_it_st
 
 
 async def test_a_source_is_not_read_again_too_soon_and_jobs_that_leave_the_feed_disappear(client, auth_headers, db_session, organization, feed):
-    from modules.placements.job_feed import JobFeedService
-
     feed.extend([_item("DevOps Intern", ext="1"), _item("Cloud Trainee", ext="2")])
-    await client.post(f"{_FEED}/refresh", headers=auth_headers)
-    again = await client.post(f"{_FEED}/refresh", headers=auth_headers)
-    assert again.json()["sources"]["remotive"] == {"skipped": "read recently"} and feed.calls["remotive"] == 1
+    await _refresh(client, auth_headers, db_session, organization)
+    again = await _refresh(client, auth_headers, db_session, organization)
+    assert again["remotive"] == {"skipped": "read recently"} and feed.calls["remotive"] == 1
 
     feed.pop()  # "Cloud Trainee" left the source's feed
-    summary = await JobFeedService(db_session).refresh(organization.id, force=True)
+    summary = await job_feed.JobFeedService(db_session).refresh(organization.id, force=True)
     assert summary["remotive"]["matched"] == 1 and feed.calls["remotive"] == 2
     assert [j["title"] for j in (await client.get(_FEED, headers=auth_headers)).json()["items"]] == ["DevOps Intern"]
 
 
-async def test_a_failing_source_is_reported_and_the_others_still_load(client, auth_headers, feed, monkeypatch):
-    async def broken(client):
+async def test_a_failing_source_is_reported_and_the_others_still_load(client, auth_headers, db_session, organization, feed, monkeypatch):
+    async def broken(client, options):
         raise SourceError("the site answered with status 503")
 
+    await client.put(f"{_FEED}/settings", json={"sources": {"arbeitnow": True}}, headers=auth_headers)
     monkeypatch.setitem(job_feed.FETCHERS, "arbeitnow", broken)
     feed.append(_item("Cloud Intern", ext="z"))
-    summary = (await client.post(f"{_FEED}/refresh", headers=auth_headers)).json()["sources"]
+    summary = await _refresh(client, auth_headers, db_session, organization)
     assert summary["arbeitnow"] == {"error": "the site answered with status 503"} and summary["remotive"]["new"] == 1
     status = {s["name"]: s for s in (await client.get(f"{_FEED}/settings", headers=auth_headers)).json()["sources"]}
     assert status["arbeitnow"]["last_error"] == "the site answered with status 503" and status["remotive"]["last_error"] is None
 
 
-async def test_settings_show_which_sources_need_a_key_and_validate_changes(client, auth_headers, feed):
+async def test_the_company_career_pages_are_passed_to_their_connectors(client, auth_headers, db_session, organization, feed, monkeypatch):
+    seen = {}
+
+    async def greenhouse(client, options):
+        seen.update(options)
+        return [_item("Cloud Security Engineer", source="greenhouse", ext="okta:1", location="Bengaluru, India", remote=False)]
+
+    monkeypatch.setitem(job_feed.FETCHERS, "greenhouse", greenhouse)
+    saved = await client.put(f"{_FEED}/settings", json={"boards": {"greenhouse": ["Okta", "datadog"], "lever": ["cred"]}}, headers=auth_headers)
+    assert saved.status_code == 200 and saved.json()["boards"] == {"greenhouse": ["okta", "datadog"], "lever": ["cred"]}
+    summary = await _refresh(client, auth_headers, db_session, organization)
+    assert seen["greenhouse"] == ["okta", "datadog"] and summary["greenhouse"]["new"] == 1
+    mine = (await client.get(_FEED, params={"source": "greenhouse"}, headers=auth_headers)).json()["items"]
+    assert [j["title"] for j in mine] == ["Cloud Security Engineer"]
+    assert (await client.put(f"{_FEED}/settings", json={"boards": {"workday": ["x"]}}, headers=auth_headers)).status_code == 422
+    assert (await client.put(f"{_FEED}/settings", json={"boards": {"greenhouse": ["bad name!"]}}, headers=auth_headers)).status_code == 422
+
+
+async def test_settings_show_defaults_which_sources_need_a_key_and_validate_changes(client, auth_headers, feed):
     settings_ = (await client.get(f"{_FEED}/settings", headers=auth_headers)).json()
-    assert settings_["fresher_only"] is True and "devsecops" in settings_["keywords"]
+    assert "fresher_only" not in settings_ and settings_["india_only"] is True and settings_["refreshing"] is False
+    assert "devsecops" in settings_["keywords"] and "security" in settings_["keywords"]
+    assert "okta" in settings_["boards"]["greenhouse"] and "meesho" in settings_["boards"]["lever"]
     by_name = {s["name"]: s for s in settings_["sources"]}
-    assert by_name["remotive"]["enabled"] and by_name["remotive"]["configured"]
+    assert [n for n, s in by_name.items() if s["enabled"]] == ["greenhouse", "lever", "remotive"]
+    assert by_name["remotive"]["configured"]
     assert by_name["adzuna"]["configured"] is False and by_name["adzuna"]["enabled"] is False  # no API key on the server
 
-    ok = await client.put(f"{_FEED}/settings", json={"keywords": ["  DevSecOps ", "devsecops", "Pen Testing"], "fresher_only": False, "sources": {"remotive": False}}, headers=auth_headers)
-    assert ok.status_code == 200 and ok.json()["keywords"] == ["devsecops", "pen testing"] and ok.json()["fresher_only"] is False
+    ok = await client.put(f"{_FEED}/settings", json={"keywords": ["  DevSecOps ", "devsecops", "Pen Testing"], "sources": {"remotive": False}}, headers=auth_headers)
+    assert ok.status_code == 200 and ok.json()["keywords"] == ["devsecops", "pen testing"]
     assert {s["name"]: s["enabled"] for s in ok.json()["sources"]}["remotive"] is False
     assert (await client.put(f"{_FEED}/settings", json={"sources": {"linkedin": True}}, headers=auth_headers)).status_code == 422
     assert (await client.put(f"{_FEED}/settings", json={"keywords": ["  ", ""]}, headers=auth_headers)).status_code == 422
 
-    # With remotive switched off nothing is read from it.
+
+async def test_a_source_switched_off_is_not_read(client, auth_headers, db_session, organization, feed):
+    await client.put(f"{_FEED}/settings", json={"sources": {"remotive": False}}, headers=auth_headers)
     feed.append(_item("DevSecOps Intern"))
-    refreshed = (await client.post(f"{_FEED}/refresh", headers=auth_headers)).json()["sources"]
-    assert "remotive" not in refreshed and feed.calls["remotive"] == 0
+    summary = await _refresh(client, auth_headers, db_session, organization)
+    assert "remotive" not in summary and feed.calls["remotive"] == 0
 
 
 async def test_who_can_do_what(client, auth_headers, db_session, organization, staff_headers, feed):

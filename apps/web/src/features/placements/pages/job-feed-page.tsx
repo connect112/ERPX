@@ -45,6 +45,8 @@ export function JobFeedPage() {
   const [showHidden, setShowHidden] = useState(true);
   const [skip, setSkip] = useState(0);
   const [keywords, setKeywords] = useState("");
+  const [greenhouse, setGreenhouse] = useState("");
+  const [lever, setLever] = useState("");
 
   const jobs = useExternalJobs({
     q: search || undefined,
@@ -55,13 +57,23 @@ export function JobFeedPage() {
   });
 
   useEffect(() => {
-    if (settings.data) setKeywords(settings.data.keywords.join(", "));
+    if (settings.data) {
+      setKeywords(settings.data.keywords.join(", "));
+      setGreenhouse((settings.data.boards.greenhouse ?? []).join(", "));
+      setLever((settings.data.boards.lever ?? []).join(", "));
+    }
   }, [settings.data]);
 
   const labels = Object.fromEntries((settings.data?.sources ?? []).map((s) => [s.name, s.label]));
   const keywordList = keywords.split(",").map((k) => k.trim()).filter(Boolean);
   const keywordsChanged = settings.data !== undefined && keywordList.join("|") !== settings.data.keywords.join("|");
   const total = jobs.data?.total ?? 0;
+  const splitNames = (text: string) => text.split(/[\s,]+/).map((n) => n.trim()).filter(Boolean);
+  const boardsChanged =
+    settings.data !== undefined &&
+    (splitNames(greenhouse).join("|") !== (settings.data.boards.greenhouse ?? []).join("|") ||
+      splitNames(lever).join("|") !== (settings.data.boards.lever ?? []).join("|"));
+  const refreshing = refresh.isPending || (settings.data?.refreshing ?? false);
 
   return (
     <div className="space-y-6">
@@ -73,18 +85,14 @@ export function JobFeedPage() {
             the original job page.
           </p>
         </div>
-        <Button disabled={refresh.isPending} onClick={() => refresh.mutate()}>
-          <RefreshCw className={`h-4 w-4 ${refresh.isPending ? "animate-spin" : ""}`} />
-          {refresh.isPending ? "Checking the job sites..." : "Refresh now"}
+        <Button disabled={refreshing} onClick={() => refresh.mutate()}>
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Checking the job sites..." : "Refresh now"}
         </Button>
       </div>
-      {refresh.isSuccess && (
-        <p className="text-sm text-emerald-700 dark:text-emerald-400">
-          {refresh.data.message}{" "}
-          {Object.entries(refresh.data.sources)
-            .filter(([, r]) => r.skipped || r.error)
-            .map(([name, r]) => `${sourceLabel(name, labels)}: ${r.error ?? r.skipped}.`)
-            .join(" ")}
+      {refreshing && (
+        <p className="text-sm text-muted-foreground">
+          Reading the job sites. This takes a minute or two; new jobs appear below by themselves.
         </p>
       )}
       {refresh.isError && <p className="text-sm text-destructive">{errorMessage(refresh.error, "Could not refresh.")}</p>}
@@ -142,11 +150,11 @@ export function JobFeedPage() {
               <input
                 type="checkbox"
                 className="mt-0.5"
-                checked={settings.data?.fresher_only ?? true}
+                checked={settings.data?.india_only ?? true}
                 disabled={!settings.data || update.isPending}
-                onChange={(e) => update.mutate({ fresher_only: e.target.checked })}
+                onChange={(e) => update.mutate({ india_only: e.target.checked })}
               />
-              <span>Only freshers, graduates, juniors and internships (leave out senior roles)</span>
+              <span>Only jobs in India, or remote and open to people in India</span>
             </label>
             <div className="flex items-center gap-2">
               <Button
@@ -163,6 +171,40 @@ export function JobFeedPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Company career pages</CardTitle>
+          <CardDescription>
+            Jobs straight from companies' own career pages (Greenhouse and Lever). Add a company by the name in its
+            career page address, e.g. boards.greenhouse.io/<strong>okta</strong> or jobs.lever.co/<strong>paytm</strong>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <label htmlFor="boards-greenhouse" className="text-sm font-medium">Greenhouse companies</label>
+              <Textarea id="boards-greenhouse" rows={3} value={greenhouse} onChange={(e) => setGreenhouse(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="boards-lever" className="text-sm font-medium">Lever companies</label>
+              <Textarea id="boards-lever" rows={3} value={lever} onChange={(e) => setLever(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!boardsChanged || update.isPending}
+              onClick={() => update.mutate({ boards: { greenhouse: splitNames(greenhouse), lever: splitNames(lever) } })}
+            >
+              Save companies
+            </Button>
+            <span className="text-xs text-muted-foreground">Names that don't exist are simply skipped. Applies from the next refresh.</span>
+          </div>
+          {update.isError && <p className="text-sm text-destructive">{errorMessage(update.error, "Could not save.")}</p>}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
