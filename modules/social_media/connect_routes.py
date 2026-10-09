@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
@@ -224,7 +223,7 @@ async def receive_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Not JSON.") from None
 
     received = new = 0
-    touched: set[uuid.UUID] = set()
+    touched: set[uuid.UUID] = set()  # organisations with something new to read
     for entry_id, field, object_id, text in extract_events(payload):
         received += 1
         digest = hashlib.sha256(text.encode()).hexdigest()
@@ -235,13 +234,18 @@ async def receive_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         await db.flush()
         new += 1
         if account is not None:
-            touched.add(account.id)
+            touched.add(account.organization_id)
     await db.commit()
-    for account_id in touched:
-        _wake(account_id)
+    for organization_id in touched:
+        _wake(organization_id)
     return {"received": received, "new": new}
 
 
-def _wake(account_id: uuid.UUID) -> None:
-    """Hook for the background reader of new comments and messages (added with the inbox). Does nothing yet."""
-    logger.info("social_webhook_event", account_id=str(account_id), at=datetime.now(timezone.utc).isoformat())
+def _wake(organization_id: uuid.UUID) -> None:
+    """Something new happened: read it from Instagram in the background. The notification itself is never trusted or shown."""
+    try:
+        from modules.social_media.tasks import enqueue_sync
+
+        enqueue_sync(organization_id)
+    except Exception:  # noqa: BLE001 - the half-hourly read still picks it up
+        logger.warning("social_webhook_wake_failed", organization_id=str(organization_id), exc_info=True)

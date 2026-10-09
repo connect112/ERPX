@@ -165,9 +165,49 @@ added to the app, standard access is enough; other accounts need Meta's app revi
 (the `/me` fields, the webhook payload for comments and messages), so those are read defensively and anything unrecognised is
 ignored. The first real connection is the real test; the Settings page shows exactly which step failed.
 
+## Phase 4b: comments, direct messages and manual-only replies
+
+**The rule:** nothing is ever sent to a comment or a direct message unless a person pressed Send. The AI can only classify,
+summarise and draft; a draft is text for the reply box, never a send. Every reply needs `social_media.inbox` *and*
+`social_media.reply`, shows the exact final text before it goes, and leaves a permanent record.
+
+What is built:
+
+- **Reading** (`inbox.py`): the latest 25 posts, the comments on the 10 newest (two pages each), and the 30 most recent
+  conversations with their 20 most recent messages. Webhook notifications only wake this reader (`social.sync_account`);
+  a half-hourly beat task (`social.sync_inbox`) is the safety net. At most one read a minute; unchanged conversations aren't
+  re-read. Each stage (posts, comments, messages) reports its own result, so one failing doesn't hide the others.
+- **Labels** (`classify.py`): plain keyword rules give category (enquiry, complaint, question, thanks, spam, other), priority and
+  "handle personally" (refunds, legal, safety, security incidents, abuse). They are rules, not understanding, and the page says so.
+- **AI drafts** (`suggest.py`): the comment or message is fenced as untrusted data (the closing tag is stripped from it), the model
+  is told it is data and never an instruction, only published course names and descriptions are supplied (never prices, dates or
+  placements), and the draft is thrown away if it states money, dates, guarantees, student results or links. The AI can raise
+  "handle personally" but never lower it. Costs are recorded against the monthly budget.
+- **Replying** (`replies.py`, the only module that calls the send functions; a test scans the source to keep it so):
+  1. a record (`social_replies`, status pending) is committed before anything is sent;
+  2. the same `request_id` returns the first result and never sends twice (double click, retried request);
+  3. the same text to the same target within five minutes is refused, including after an unclear result;
+  4. complaints and other sensitive items need the person to confirm they are handling it personally;
+  5. direct messages: only within 24 hours of the person's last message, never to start a conversation, at most 1000 bytes;
+  6. the result is shown honestly: **sent**, **not sent** (Instagram refused, with its reason), or **unclear** (a timeout or
+     server error: it may have been posted). An unclear reply is never retried automatically and blocks an identical one;
+     a person can ask Instagram to check (`reconcile`, which only reads) or record what they saw on Instagram.
+- **Screens**: Comments and Messages tabs (filters, search, summaries, thread view with the window state), a reply dialog
+  (write or accept a draft, review the exact text, send once), reply history with who/what/how it ended, and briefing items on the Overview.
+
+Limits to know (Meta's own): only the 20 most recent messages of a conversation can be read, "Requests" inactive for 30 days
+aren't returned, Instagram doesn't say which messages were read (so "needs a reply" means their message is the latest), and
+comments are read for recent posts only. Comment and message access for accounts beyond your own testers needs app review.
+
+Deploying: run the RBAC seed (new permissions `social_media.connect`, `.inbox`, `.reply`), run migration 0074, rebuild and restart
+api, web, celery worker and beat (new tasks). Restarting the API briefly drops requests.
+
+**Not verified:** none of this has run against a real Instagram account. It was exercised against a local imitation of Instagram's
+API and automated tests with a scripted client. Meta's field names and error codes for comments and messages are read defensively;
+the first real use is the real test, and the Settings page only marks a feature "verified live" after a real read or reply worked.
+
 ## Phases still to build
 
-4b. Comments and direct messages (read, classify, suggest, and reply by hand only), and acting on webhook notifications.
 5. Analytics, hashtag and trend research, reports, lead attribution (trackable links and UTM parameters).
 6. Hardening, recovery procedures, cost controls, accessibility, full regression tests.
 

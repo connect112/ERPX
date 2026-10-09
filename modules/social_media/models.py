@@ -279,3 +279,137 @@ class WebhookEvent(TimestampedBase):
     field: Mapped[str] = mapped_column(String(60), nullable=False)
     object_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class IgMedia(TimestampedBase):
+    """A post on the Instagram profile, as Instagram reports it. Comments hang off these. When ERPX published it,
+    `post_id` points at the ERPX post (and its artwork is used as the thumbnail)."""
+
+    __tablename__ = "social_ig_media"
+    __table_args__ = (UniqueConstraint("organization_id", "external_id", name="uq_social_ig_media"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    post_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_posts.id", ondelete="SET NULL"), nullable=True)
+    external_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    media_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    product_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    permalink: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    thumbnail_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    comments_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class IgComment(TimestampedBase):
+    """A comment on one of the account's posts. Its text is untrusted: it is shown escaped, fenced when given to an AI, and
+    never acted on. `status` is what a person (or a reply of ours) has done with it, not what an AI thinks."""
+
+    __tablename__ = "social_comments"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "external_id", name="uq_social_comment"),
+        Index("ix_social_comments_org_status", "organization_id", "status"),
+        Index("ix_social_comments_org_posted", "organization_id", "posted_at"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    external_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    media_external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    parent_external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    text: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
+    author_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    author_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_own: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    hidden: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # new | answered | ignored
+    status: Mapped[str] = mapped_column(String(20), default="new", server_default="new", nullable=False)
+    category: Mapped[str] = mapped_column(String(30), default="other", server_default="other", nullable=False)
+    priority: Mapped[str] = mapped_column(String(10), default="low", server_default="low", nullable=False)
+    needs_care: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    care_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # What an AI suggested (never sent): a short summary and a possible reply for a person to read, edit or ignore.
+    summary: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    suggested_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggestion_note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    suggestion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class IgConversation(TimestampedBase):
+    """One person's direct-message conversation with the account (Instagram doesn't expose group chats or read state)."""
+
+    __tablename__ = "social_conversations"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "external_id", name="uq_social_conversation"),
+        Index("ix_social_conversations_org_status", "organization_id", "status"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    external_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    participant_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    participant_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    remote_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Instagram only lets the account reply for 24 hours after the person's last message.
+    last_user_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_message_from_us: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # open (their message is the latest) | answered | ignored
+    status: Mapped[str] = mapped_column(String(20), default="open", server_default="open", nullable=False)
+    category: Mapped[str] = mapped_column(String(30), default="other", server_default="other", nullable=False)
+    priority: Mapped[str] = mapped_column(String(10), default="low", server_default="low", nullable=False)
+    needs_care: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    care_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    summary: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    suggested_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggestion_note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    suggestion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    handled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class IgMessage(TimestampedBase):
+    __tablename__ = "social_messages"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "external_id", name="uq_social_message"),
+        Index("ix_social_messages_conversation", "conversation_id", "sent_at"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("social_conversations.id", ondelete="CASCADE"), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    direction: Mapped[str] = mapped_column(String(3), nullable=False)  # in | out
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)  # None for attachments, stickers and shares
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SocialReply(TimestampedBase):
+    """The audit record of one reply a person chose to send: who, exactly what text, where it came from (typed, or an AI
+    suggestion edited or not), what they acknowledged, and what Instagram answered. Nothing sends a reply without a row
+    made by an explicit action first, and the row is written before the send is attempted."""
+
+    __tablename__ = "social_replies"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "request_id", name="uq_social_reply_request"),
+        Index("ix_social_replies_org_created", "organization_id", "created_at"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Made by the browser once per dialog, so a double click or a retried request can't send twice.
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)  # comment | dm
+    comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_comments.id", ondelete="SET NULL"), nullable=True)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_conversations.id", ondelete="SET NULL"), nullable=True)
+    target_external_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    # typed | suggestion_edited | suggestion_unchanged
+    source: Mapped[str] = mapped_column(String(25), default="typed", server_default="typed", nullable=False)
+    acknowledged_sensitive: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # pending (about to be sent) | sent | failed (certainly not sent) | unknown (may or may not have gone out)
+    status: Mapped[str] = mapped_column(String(10), default="pending", server_default="pending", nullable=False)
+    external_reply_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

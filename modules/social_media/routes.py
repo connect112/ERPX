@@ -14,7 +14,7 @@ from modules.authorization.repository import AuthorizationRepository
 from app.core.config import settings as app_settings
 from modules.social_media import defaults, oauth
 from modules.social_media.connection import computed_status, days_left
-from modules.social_media.models import PostStatus, SocialPost, WebhookEvent
+from modules.social_media.models import IgComment, IgConversation, PostStatus, SocialPost, SocialReply, WebhookEvent
 from modules.social_media.schemas import (
     AccountPublic,
     BriefingItem,
@@ -33,6 +33,8 @@ from modules.social_media.service import OverviewService, PostService, SettingsS
 from modules.social_media.history import HistoryService
 from modules.social_media.art_routes import router as art_router
 from modules.social_media.connect_routes import router as connect_router
+from modules.social_media.inbox import InboxService
+from modules.social_media.inbox_routes import router as inbox_router
 from modules.social_media.publish_routes import router as publish_router
 from modules.social_media.studio_routes import router as studio_router
 from modules.social_media.usage import UsageService
@@ -43,6 +45,7 @@ router.include_router(studio_router)
 router.include_router(art_router)
 router.include_router(publish_router)
 router.include_router(connect_router)
+router.include_router(inbox_router)
 
 VIEW = "social_media.view"
 MANAGE = "social_media.manage"
@@ -69,7 +72,7 @@ def live_check(key: str, caps: dict, status_now: str) -> str:
     return "not_run"
 
 
-def verified(key: str, status_now: str, published: dict, webhook_events: int) -> bool:
+def verified(key: str, status_now: str, published: dict, webhook_events: int, proof: dict | None = None) -> bool:
     """True only when the real thing has happened with the real account (not merely that a permission check passed)."""
     if key == "connect":
         return status_now in ("connected", "expiring")
@@ -77,7 +80,9 @@ def verified(key: str, status_now: str, published: dict, webhook_events: int) ->
         return published.get({"publish_image": "image", "publish_carousel": "carousel", "publish_story": "story"}[key], 0) > 0
     if key == "webhooks":
         return webhook_events > 0
-    return False
+    proof = proof or {}
+    needed = {"comments_read": "comments", "dm_read": "conversations", "comments_reply": "comment_replies", "dm_reply": "dm_replies"}
+    return key in needed and proof.get(needed[key], 0) > 0
 
 
 SETUP_STEPS = [
@@ -128,6 +133,19 @@ async def overview(
         briefing.insert(0, BriefingItem(level="warning", message="The monthly AI budget is used up, so AI drafting is paused.", link="settings"))
     elif usage["over_alert"]:
         briefing.insert(0, BriefingItem(level="warning", message=f"AI spending has passed {usage['alert_at_percent']}% of the monthly budget (an estimate).", link="settings"))
+    status_now = computed_status(account, datetime.now(timezone.utc))
+    if status_now in ("expired", "revoked"):
+        briefing.insert(0, BriefingItem(level="warning", message="The Instagram connection needs to be reconnected. Publishing and reading comments and messages are paused until then.", link="settings"))
+    elif status_now == "expiring":
+        briefing.append(BriefingItem(level="info", message="Instagram access expires soon. It is renewed automatically; reconnect if that fails.", link="settings"))
+    if connected:
+        inbox_counts = await InboxService(db).counts(organization_id)
+        if inbox_counts["comments_unanswered"]:
+            extra = f" ({inbox_counts['comments_enquiries']} look like course enquiries)" if inbox_counts["comments_enquiries"] else ""
+            briefing.append(BriefingItem(level="action", message=f"{inbox_counts['comments_unanswered']} comment(s) are unanswered{extra}.", link="comments"))
+        if inbox_counts["messages_need_reply"]:
+            extra = f", {inbox_counts['messages_high_priority']} high priority" if inbox_counts["messages_high_priority"] else ""
+            briefing.append(BriefingItem(level="action", message=f"{inbox_counts['messages_need_reply']} conversation(s) need a reply{extra}.", link="messages"))
     upcoming = (
         await db.execute(
             select(SocialPost.scheduled_at)
@@ -211,12 +229,18 @@ async def integration(
         ).all()
     }
     events = (await db.execute(select(func.count()).select_from(WebhookEvent).where(WebhookEvent.organization_id == organization_id))).scalar_one()
+    proof = {
+        "comments": (await db.execute(select(func.count()).select_from(IgComment).where(IgComment.organization_id == organization_id))).scalar_one(),
+        "conversations": (await db.execute(select(func.count()).select_from(IgConversation).where(IgConversation.organization_id == organization_id))).scalar_one(),
+        "comment_replies": (await db.execute(select(func.count()).select_from(SocialReply).where(SocialReply.organization_id == organization_id, SocialReply.kind == "comment", SocialReply.status == "sent"))).scalar_one(),
+        "dm_replies": (await db.execute(select(func.count()).select_from(SocialReply).where(SocialReply.organization_id == organization_id, SocialReply.kind == "dm", SocialReply.status == "sent"))).scalar_one(),
+    }
     capabilities = []
     caps = (account.capabilities or {}) if account is not None else {}
     for item in defaults.CAPABILITIES:
         info = CapabilityInfo(**item)
         info.live_check = live_check(info.key, caps, status_now)
-        info.verified_live = verified(info.key, status_now, published, events)
+        info.verified_live = verified(info.key, status_now, published, events, proof)
         capabilities.append(info)
     return IntegrationOverview(
         account=shown,
