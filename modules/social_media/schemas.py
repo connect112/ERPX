@@ -1,6 +1,6 @@
 import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -791,3 +791,68 @@ class ReconcileReplyOut(BaseModel):
 
 class ResolveReplyRequest(BaseModel):
     sent: bool
+
+
+# ---------------- experiments and reports ----------------
+
+
+class VariantIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    post_ids: list[uuid.UUID] = Field(default_factory=list, max_length=30)
+
+
+class ExperimentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    hypothesis: str = Field(min_length=1, max_length=600)
+    variable: Literal["hook", "cover_style", "format", "time", "cta", "other"]
+    metric: Literal["views", "reach", "likes", "comments", "saved", "shares", "total_interactions", "interactions", "er_reach"]
+    audience: str | None = Field(default=None, max_length=300)
+    variants: list[VariantIn] = Field(min_length=2, max_length=4)
+
+
+class ExperimentUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    hypothesis: str | None = Field(default=None, min_length=1, max_length=600)
+    audience: str | None = Field(default=None, max_length=300)
+    variants: list[VariantIn] | None = Field(default=None, min_length=2, max_length=4)
+    status: Literal["running", "concluded", "dropped"] | None = None
+    conclusion: str | None = Field(default=None, max_length=2000)
+
+
+class ExperimentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    hypothesis: str
+    variable: str
+    metric: str
+    status: str
+    audience: str | None
+    started_on: date | None
+    ended_on: date | None
+    variants: list[dict]
+    conclusion: str | None
+    created_at: datetime
+
+
+class ExperimentDetail(BaseModel):
+    experiment: ExperimentOut
+    results: dict
+
+
+class ReportGenerate(BaseModel):
+    kind: Literal["weekly", "monthly"]
+    # Monday for a weekly report, the first of the month for a monthly one. Left out: the last complete period.
+    period_start: date | None = None
+
+
+class ReportOut(BaseModel):
+    id: uuid.UUID
+    kind: str
+    period_start: date
+    period_end: date
+    generated_at: datetime
+    generated_by: str | None
+    automatic: bool
+    data: dict

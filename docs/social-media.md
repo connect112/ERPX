@@ -206,9 +206,62 @@ api, web, celery worker and beat (new tasks). Restarting the API briefly drops r
 API and automated tests with a scripted client. Meta's field names and error codes for comments and messages are read defensively;
 the first real use is the real test, and the Settings page only marks a feature "verified live" after a real read or reply worked.
 
+## Phase 5a: analytics, experiments and reports
+
+Instagram's own figures, shown honestly. Nothing here posts, replies or changes anything on Instagram, and nothing here uses AI:
+the findings in a report are fixed rules applied to stored numbers.
+
+**What is read** (`analytics.py`, read-only calls in `instagram.py`): the profile counts (followers, following, posts), the profile's
+daily figures (reach, views, accounts engaged, interactions, likes, comments, saves, shares, replies, reposts, profile link taps)
+for completed days, and each recent post's lifetime figures (reach, views, likes, comments, saves, shares, interactions, plus
+follows and profile visits for feed posts and watch times for reels). At most 14 days of daily figures and 40 posts per run, at most
+one run every 15 minutes (a manual "Read now"), and once a day automatically (`social.sync_insights`, 02:30 UTC). The latest three
+days are always read again because Instagram can revise them. A metric Instagram refuses is asked for alone, remembered and not
+asked for again. Stories are not tracked (Instagram keeps their figures for 24 hours only).
+
+**The honesty rules** (`metrics.py`, enforced by tests):
+- A figure Instagram didn't give is **not available**: no row, or a null with a note. It is never stored or shown as zero, and a
+  chart marks such a day with a dashed tick instead of an empty bar.
+- Every figure shows its **source**, **period**, last read time, whether it is **observed** (Instagram's own number) or
+  **calculated** (ERPX combined observed numbers), and its limits ("About this number").
+- Reach and accounts engaged count distinct accounts, so days are never added: they are shown as a daily average.
+- Engagement rate has two named definitions and they are never merged: *by reach* (likes + comments + saves + shares, divided by
+  the accounts that post reached) and *by followers* (the same interactions divided by the follower count of the nearest
+  snapshot day, within three days). Over several posts the rate is total interactions over total reach of the same posts, not an
+  average of percentages, using only posts where both exist. Typical values use medians.
+- A change against the previous period is only shown when both periods have figures for at least 70% of their days, and it
+  compares daily averages.
+- Follower change is calculated from ERPX's own snapshots and needs two different days; there is no earlier history.
+- Groups of posts (format, topic, hook style, call to action, time of day) show how many posts are behind each figure, and
+  groups under five posts say they can't show what works. Nobody can see who saved or shared a post: Instagram doesn't say.
+
+**Experiments** (`experiments.py`): record the change being tried, the figure to watch and which posts belong to which variant.
+ERPX shows each variant's posts, the median and the range, and says "not enough yet" until every variant has three posts with a
+figure. It never names a winner or a cause; even with enough posts it says whether the posts' figures overlap and that posts differ
+in more than the tested change.
+
+**Reports** (`reports.py`): a weekly (Monday to Sunday) and a monthly report for the last complete period, made automatically
+(`social.make_reports`, 03:30 UTC, safe to run daily because a period is only made once) or on demand (regenerating replaces that
+period's report). Each has what worked, what didn't and what to test next, the profile figures with coverage and comparison, top
+and lowest posts, breakdowns, consistency and the caveats. A post is only called strong or weak when its reach is at least 1.25
+times or at most 0.6 times the typical post, and with fewer than four posts nothing is ranked. No claim is made when nothing was
+read, and no report promises growth.
+
+Limits to know: only the 25 most recent posts are read from Instagram; follower and account figures need 100 followers for some
+metrics (Instagram's rule); Instagram says figures can lag up to 48 hours and assigns days using its own cut-off; and a few
+metrics are marked "in development" by Meta.
+
+Permissions: `social_media.view` reads everything; `social_media.manage` reads from Instagram now, makes reports and edits
+experiments. No new permission, so no RBAC seed is needed. Deploying: migration 0075, rebuild and restart api, web, celery worker
+and beat (two new tasks).
+
+**Not verified:** none of this has run against a real Instagram account. The calls follow Meta's published reference (account
+insights `metric_type=total_value` per day, media insights per post); whether every metric is returned for a real account of this
+size is only learned by the first real read, and the Settings page marks insights "verified live" only after a real figure was stored.
+
 ## Phases still to build
 
-5. Analytics, hashtag and trend research, reports, lead attribution (trackable links and UTM parameters).
+5b. Lead attribution (trackable links and UTM parameters, linking enquiries to the CRM, follow-up reminders, conversion reporting) and measured-versus-suggested hashtag intelligence.
 6. Hardening, recovery procedures, cost controls, accessibility, full regression tests.
 
 ## Meta setup (needed from Phase 4)

@@ -17,6 +17,7 @@ The access token is sent in an Authorization header, never in a URL, so it can't
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 
@@ -238,6 +239,39 @@ class InstagramClient:
         return str(value)
 
     # ---------------- reading ----------------
+
+    # ---------------- insights (read only; a missing value is never turned into zero) ----------------
+
+    async def profile_counts(self) -> dict[str, int]:
+        """followers_count, follows_count and media_count as Instagram reports them right now (only the ones it returned)."""
+        result = await self._request("GET", "me", params={"fields": "followers_count,follows_count,media_count"})
+        return {k: int(result[k]) for k in ("followers_count", "follows_count", "media_count") if isinstance(result.get(k), (int, float)) and not isinstance(result.get(k), bool)}
+
+    async def account_totals(self, metrics: list[str], since: datetime, until: datetime) -> dict[str, float]:
+        """One total per metric over the range (Instagram's `total_value`). A metric Instagram leaves out is left out here."""
+        result = await self._request(
+            "GET", f"{self.ig_user_id}/insights",
+            params={"metric": ",".join(metrics), "metric_type": "total_value", "period": "day", "since": int(since.timestamp()), "until": int(until.timestamp())},
+        )
+        out: dict[str, float] = {}
+        for metric in result.get("data") or []:
+            total = metric.get("total_value") if isinstance(metric, dict) else None
+            if isinstance(total, dict) and isinstance(total.get("value"), (int, float)) and not isinstance(total.get("value"), bool) and metric.get("name"):
+                out[str(metric["name"])] = float(total["value"])
+        return out
+
+    async def media_insights(self, media_id: str, metrics: list[str]) -> dict[str, float]:
+        """Lifetime figures for one post. Metrics Instagram doesn't return are absent (unavailable), never 0."""
+        result = await self._request("GET", f"{media_id}/insights", params={"metric": ",".join(metrics)})
+        out: dict[str, float] = {}
+        for metric in result.get("data") or []:
+            if not isinstance(metric, dict) or not metric.get("name"):
+                continue
+            values = metric.get("values") or []
+            value = values[0].get("value") if values and isinstance(values[0], dict) else (metric.get("total_value") or {}).get("value")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                out[str(metric["name"])] = float(value)
+        return out
 
     async def media_permalink(self, media_id: str) -> str | None:
         result = await self._request("GET", media_id, params={"fields": "permalink"})

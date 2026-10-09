@@ -126,6 +126,15 @@ celery_app.conf.beat_schedule = {
         "task": "social.sync_inbox",
         "schedule": crontab(minute="*/30"),
     },
+    # Read Instagram's figures once a day, then write the weekly and monthly reports that are due (idempotent).
+    "social-sync-insights": {
+        "task": "social.sync_insights",
+        "schedule": crontab(hour=2, minute=30),
+    },
+    "social-make-reports": {
+        "task": "social.make_reports",
+        "schedule": crontab(hour=3, minute=30),
+    },
     "social-refresh-instagram-tokens": {
         "task": "social.refresh_tokens",
         "schedule": crontab(hour=3, minute=15),

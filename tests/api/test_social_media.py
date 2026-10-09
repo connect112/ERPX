@@ -120,8 +120,8 @@ async def test_integration_status_is_honest_about_what_is_not_connected_or_verif
     assert by_key["comments_reply"]["note"].lower().count("person") >= 1  # replies are manual only
     built = {c["key"] for c in data["capabilities"] if c["implemented"] == "yes"}
     # built: the grid preview and publishing of images, carousels and stories. Not built: connecting, Reels, comments, messages
-    assert built == {"connect", "profile_grid", "publish_image", "publish_carousel", "publish_story", "comments_read", "comments_reply", "dm_read", "dm_reply", "webhooks"}
-    assert {"publish_reel", "insights", "hashtag_trends", "save_share_identities"}.isdisjoint(built)
+    assert built == {"connect", "profile_grid", "publish_image", "publish_carousel", "publish_story", "comments_read", "comments_reply", "dm_read", "dm_reply", "webhooks", "insights"}
+    assert {"publish_reel", "hashtag_trends", "save_share_identities"}.isdisjoint(built)
     assert data["setup_steps"]
 
 

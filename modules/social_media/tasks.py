@@ -17,10 +17,12 @@ from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
 from modules.email_templates.render import render_email_sync
 from app.core.exceptions import ConflictError
+from modules.social_media.analytics import AnalyticsService
 from modules.social_media.connection import ConnectionService
 from modules.social_media.inbox import InboxService
 from modules.social_media.models import SocialAccount, SocialPost, SocialSettings
 from modules.social_media.publisher import PublisherService
+from modules.social_media.reports import ReportService
 from packages.email.service import email_service
 
 logger = get_logger(__name__)
@@ -229,3 +231,52 @@ def enqueue_sync(organization_id: uuid.UUID) -> bool:
         logger.warning("social_sync_enqueue_failed", organization_id=str(organization_id), exc_info=True)
         return False
     return True
+
+
+# ---------------- insights and reports ----------------
+
+
+async def _connected_organizations() -> list[uuid.UUID]:
+    async with get_db_context() as db:
+        return list(
+            (await db.execute(select(SocialAccount.organization_id).where(SocialAccount.token_encrypted.is_not(None), SocialAccount.status.in_(("connected", "expiring"))))).scalars()
+        )
+
+
+async def _read_insights() -> int:
+    done = 0
+    for organization_id in await _connected_organizations():
+        try:
+            async with get_db_context() as db:
+                result = await AnalyticsService(db).sync(organization_id)
+            done += 0 if result["skipped"] else 1
+        except ConflictError:
+            continue
+        except Exception:  # noqa: BLE001 - one organisation's trouble must not stop the others
+            logger.warning("social_insights_sync_failed", organization_id=str(organization_id), exc_info=True)
+    return done
+
+
+async def _make_reports() -> int:
+    made = 0
+    for organization_id in await _connected_organizations():
+        for kind in ("weekly", "monthly"):
+            try:
+                async with get_db_context() as db:
+                    if await ReportService(db).ensure_latest(organization_id, kind) is not None:
+                        made += 1
+            except Exception:  # noqa: BLE001
+                logger.warning("social_report_failed", organization_id=str(organization_id), kind=kind, exc_info=True)
+    return made
+
+
+@celery_app.task(name="social.sync_insights", ignore_result=True)
+def sync_insights_task() -> int:
+    """Once a day: read the profile's figures and each recent post's insights (at most 14 days and 40 posts per run)."""
+    return run_async(_read_insights())
+
+
+@celery_app.task(name="social.make_reports", ignore_result=True)
+def make_reports_task() -> int:
+    """Once a day, after the read: write the report for the last complete week and month if it doesn't exist yet."""
+    return run_async(_make_reports())
