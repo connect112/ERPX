@@ -22,7 +22,7 @@ const placementsKeys = {
   applications: (id: string) => [...placementsKeys.all, "postings", id, "applications"] as const,
 };
 
-export function useExternalJobs(params: { q?: string; source?: string; include_hidden?: boolean; skip?: number; limit?: number }) {
+export function useExternalJobs(params: { q?: string; source?: string; experience?: string; include_hidden?: boolean; skip?: number; limit?: number }) {
   return useQuery({
     queryKey: [...placementsKeys.all, "external", params],
     queryFn: () => placementsApi.listExternalJobs(params),

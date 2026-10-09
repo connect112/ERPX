@@ -71,6 +71,7 @@ def _settings_public(row: JobFeedSettings) -> JobFeedSettingsPublic:
 async def list_external_jobs_for_student(
     q: str | None = Query(default=None, max_length=100),
     source: str | None = Query(default=None, max_length=30),
+    experience: str | None = Query(default=None, pattern=r"^(0-3|1-5|3-7|7\+|unknown)$"),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=30, ge=1, le=100),
     student: Student = Depends(get_current_student),
@@ -84,6 +85,7 @@ async def list_external_jobs_for_student(
         source=source,
         skip=skip,
         limit=limit,
+        experience=experience,
     )
     return ExternalJobListResponse(
         items=[ExternalJobPublic.model_validate(r) for r in rows], total=total, skip=skip, limit=limit
@@ -95,6 +97,7 @@ async def list_external_jobs(
     q: str | None = Query(default=None, max_length=100),
     source: str | None = Query(default=None, max_length=30),
     include_hidden: bool = Query(default=True),
+    experience: str | None = Query(default=None, pattern=r"^(0-3|1-5|3-7|7\+|unknown)$"),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
@@ -102,7 +105,13 @@ async def list_external_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     rows, total = await JobFeedService(db).list_jobs(
-        organization_id, include_hidden=include_hidden, q=q, source=source, skip=skip, limit=limit
+        organization_id,
+        include_hidden=include_hidden,
+        q=q,
+        source=source,
+        skip=skip,
+        limit=limit,
+        experience=experience,
     )
     return ExternalJobListResponse(
         items=[ExternalJobPublic.model_validate(r) for r in rows], total=total, skip=skip, limit=limit

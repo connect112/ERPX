@@ -101,6 +101,11 @@ export interface ExternalJob {
   posted_at: string | null;
   salary_text: string | null;
   fresher_friendly: boolean;
+  /** Years of experience asked for (max null = "and more"); min null = not stated. */
+  experience_min: number | null;
+  experience_max: number | null;
+  /** Only guessed from the title (Senior, Junior...). */
+  experience_estimated: boolean;
   hidden: boolean;
 }
 
@@ -146,7 +151,7 @@ export interface JobFeedRefreshResult {
 }
 
 export const placementsApi = {
-  listExternalJobs: (params: { q?: string; source?: string; include_hidden?: boolean; skip?: number; limit?: number }) =>
+  listExternalJobs: (params: { q?: string; source?: string; experience?: string; include_hidden?: boolean; skip?: number; limit?: number }) =>
     apiClient.get<ExternalJobList>("/placements/external", { params }).then((r) => r.data),
 
   jobFeedSettings: () => apiClient.get<JobFeedSettings>("/placements/external/settings").then((r) => r.data),

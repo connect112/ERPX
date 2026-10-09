@@ -25,6 +25,7 @@ from modules.placements.connectors.sources import (
     is_configured,
     new_client,
 )
+from modules.placements.experience import BUCKETS, OPEN_ENDED, extract_experience
 from modules.placements.models import ExternalJob, JobFeedSettings
 
 logger = get_logger(__name__)
@@ -323,6 +324,10 @@ class JobFeedService:
             job.summary, job.tags, job.posted_at = item.summary, item.tags[:20], item.posted_at
             job.salary_text = _fit(item.salary_text, 120)
             job.fresher_friendly, job.is_active, job.last_seen_at = fresher, True, now
+            job.experience_min, job.experience_max, job.experience_estimated = extract_experience(
+                item.title, item.summary, item.job_type
+            )
+            job.experience_parsed = True
         # Gone from the feed (or no longer a match): stop showing it, keep the row.
         for external_id, job in existing.items():
             if external_id not in seen and job.is_active:
@@ -352,12 +357,23 @@ class JobFeedService:
         source: str | None,
         skip: int,
         limit: int,
+        experience: str | None = None,
     ) -> tuple[list[ExternalJob], int]:
         conditions = [ExternalJob.organization_id == organization_id, ExternalJob.is_active.is_(True)]
         if not include_hidden:
             conditions.append(ExternalJob.hidden.is_(False))
         if source:
             conditions.append(ExternalJob.source == source)
+        if experience == "unknown":
+            conditions.append(ExternalJob.experience_min.is_(None))
+        elif experience:
+            if experience not in BUCKETS:
+                raise ValidationError("Unknown experience range.")
+            low, high = BUCKETS[experience]
+            # The job's own range (open-ended when it says "and more") must overlap the chosen one.
+            conditions.append(ExternalJob.experience_min.is_not(None))
+            conditions.append(ExternalJob.experience_min <= high)
+            conditions.append(func.coalesce(ExternalJob.experience_max, OPEN_ENDED) >= low)
         if q and q.strip():
             like = f"%{q.strip()}%"
             conditions.append(
@@ -403,9 +419,27 @@ class JobFeedService:
     def is_refreshing(row: JobFeedSettings) -> bool:
         return bool(row.refresh_started_at and _now() - row.refresh_started_at < REFRESH_STALE_AFTER)
 
+    async def backfill_experience(self, organization_id: uuid.UUID) -> int:
+        """Read the experience of jobs saved before it was tracked (no job sites involved)."""
+        rows = (
+            await self.db.execute(
+                select(ExternalJob)
+                .where(ExternalJob.organization_id == organization_id, ExternalJob.experience_parsed.is_(False))
+                .limit(5000)
+            )
+        ).scalars().all()
+        for job in rows:
+            job.experience_min, job.experience_max, job.experience_estimated = extract_experience(
+                job.title, job.summary, job.job_type
+            )
+            job.experience_parsed = True
+        await self.db.flush()
+        return len(rows)
+
     async def run_refresh(self, organization_id: uuid.UUID, force: bool = False) -> dict[str, dict]:
         """Read the sources and tidy up, then clear the running marker (also when something goes wrong)."""
         try:
+            await self.backfill_experience(organization_id)
             summary = await self.refresh(organization_id, force=force)
             await self.clear_stale(organization_id)
             return summary
