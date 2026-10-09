@@ -68,6 +68,10 @@ x-backend-env: &backend-env
   SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL}
   SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD}
   AI_API_KEY: ${AI_API_KEY:-}
+  # Placements job feed: Adzuna (India job search) and Jooble are used only when their keys are set.
+  ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+  ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+  JOOBLE_API_KEY: ${JOOBLE_API_KEY:-}
   # Gmail SMTP relay, not SES: pentrix.in's SES domain identity is
   # unverified (DNS records never propagated) and the account's
   # production-access request was denied, so SES can't yet deliver to
