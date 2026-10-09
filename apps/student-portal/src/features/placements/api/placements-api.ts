@@ -62,7 +62,7 @@ export interface ExternalJobList {
 }
 
 export const placementsApi = {
-  externalJobs: (params: { q?: string; skip?: number; limit?: number }) =>
+  externalJobs: (params: { q?: string; fresher_only?: boolean; skip?: number; limit?: number }) =>
     apiClient.get<ExternalJobList>("/placements/external/me", { params }).then((r) => r.data),
 
   browsePostings: () => apiClient.get<JobPostingPublic[]>("/placements/postings/me").then((r) => r.data),

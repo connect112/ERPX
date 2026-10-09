@@ -2,7 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { placementsApi } from "@/features/placements/api/placements-api";
 
-export function useExternalJobs(params: { q?: string; skip?: number; limit?: number }) {
+export function useExternalJobs(params: { q?: string; fresher_only?: boolean; skip?: number; limit?: number }) {
   return useQuery({
     queryKey: ["placements", "external", params],
     queryFn: () => placementsApi.externalJobs(params),

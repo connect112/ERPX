@@ -125,7 +125,21 @@ export interface JobSourceStatus {
 export interface JobFeedSettings {
   keywords: string[];
   fresher_only: boolean;
+  /** Only jobs in India, or remote and open to India. */
+  india_only: boolean;
+  /** Company career pages read, by hiring system: { greenhouse: [...], lever: [...] }. */
+  boards: Record<string, string[]>;
+  /** A refresh is running in the background. */
+  refreshing: boolean;
   sources: JobSourceStatus[];
+}
+
+export interface JobFeedSettingsUpdate {
+  keywords?: string[];
+  fresher_only?: boolean;
+  india_only?: boolean;
+  boards?: Record<string, string[]>;
+  sources?: Record<string, boolean>;
 }
 
 export interface JobFeedRefreshResult {
@@ -139,7 +153,7 @@ export const placementsApi = {
 
   jobFeedSettings: () => apiClient.get<JobFeedSettings>("/placements/external/settings").then((r) => r.data),
 
-  updateJobFeedSettings: (payload: { keywords?: string[]; fresher_only?: boolean; sources?: Record<string, boolean> }) =>
+  updateJobFeedSettings: (payload: JobFeedSettingsUpdate) =>
     apiClient.put<JobFeedSettings>("/placements/external/settings", payload).then((r) => r.data),
 
   refreshJobFeed: () => apiClient.post<JobFeedRefreshResult>("/placements/external/refresh").then((r) => r.data),

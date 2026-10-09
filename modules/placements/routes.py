@@ -3,11 +3,13 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ServiceUnavailableError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.placements.connectors.sources import SOURCES, is_configured
 from modules.placements.job_feed import JobFeedService
+from modules.placements.tasks import enqueue_job_feed_refresh
 from modules.placements.models import JobFeedSettings, JobPostingStatus
 from modules.placements.schemas import (
     ApplicationCreateRequest,
@@ -44,6 +46,9 @@ def _settings_public(row: JobFeedSettings) -> JobFeedSettingsPublic:
     return JobFeedSettingsPublic(
         keywords=row.keywords,
         fresher_only=row.fresher_only,
+        india_only=row.india_only,
+        boards=row.boards,
+        refreshing=JobFeedService.is_refreshing(row),
         sources=[
             JobSourceStatus(
                 name=name,
@@ -67,6 +72,7 @@ def _settings_public(row: JobFeedSettings) -> JobFeedSettingsPublic:
 async def list_external_jobs_for_student(
     q: str | None = Query(default=None, max_length=100),
     source: str | None = Query(default=None, max_length=30),
+    fresher_only: bool = Query(default=False),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=30, ge=1, le=100),
     student: Student = Depends(get_current_student),
@@ -74,7 +80,13 @@ async def list_external_jobs_for_student(
 ):
     """Jobs found on outside job sites; the student opens `url` to apply on the original page."""
     rows, total = await JobFeedService(db).list_jobs(
-        student.organization_id, include_hidden=False, q=q, source=source, skip=skip, limit=limit
+        student.organization_id,
+        include_hidden=False,
+        q=q,
+        source=source,
+        skip=skip,
+        limit=limit,
+        fresher_only=fresher_only,
     )
     return ExternalJobListResponse(
         items=[ExternalJobPublic.model_validate(r) for r in rows], total=total, skip=skip, limit=limit
@@ -117,7 +129,7 @@ async def update_job_feed_settings(
     db: AsyncSession = Depends(get_db),
 ):
     row = await JobFeedService(db).update_settings(
-        organization_id, payload.keywords, payload.fresher_only, payload.sources
+        organization_id, payload.keywords, payload.fresher_only, payload.sources, payload.india_only, payload.boards
     )
     return _settings_public(row)
 
@@ -128,13 +140,18 @@ async def refresh_job_feed(
     user: User = Depends(require_permissions("placements.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Read the enabled job sources now. A source that was read recently is skipped (they limit how often they may
-    be asked); the list also refreshes by itself every few hours."""
-    summary = await JobFeedService(db).refresh(organization_id)
-    new = sum(r.get("new", 0) for r in summary.values())
-    return JobFeedRefreshResponse(
-        message=f"Checked the job sites: {new} new job{'' if new == 1 else 's'} found.", sources=summary
-    )
+    """Start reading the enabled job sources in the background (it takes a minute or two). A source that was read
+    recently is skipped (they limit how often they may be asked); the list also refreshes by itself every few hours."""
+    service = JobFeedService(db)
+    if not await service.start_refresh(organization_id):
+        return JobFeedRefreshResponse(message="The job sites are already being checked. Give it a minute.", sources={})
+    await db.commit()  # the "running" marker must be saved before the worker starts
+    if not enqueue_job_feed_refresh(organization_id):
+        row = await service.get_settings(organization_id)
+        row.refresh_started_at = None
+        await db.commit()
+        raise ServiceUnavailableError("Couldn't start the refresh just now. Please try again.")
+    return JobFeedRefreshResponse(message="Checking the job sites. New jobs appear in a minute or two.", sources={})
 
 
 @router.post("/external/{job_id}/hidden", response_model=ExternalJobPublic)

@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   type CompanyPayload,
+  type JobFeedSettingsUpdate,
   type JobPostingCreatePayload,
   type JobPostingListParams,
   type JobPostingUpdatePayload,
@@ -30,17 +31,24 @@ export function useExternalJobs(params: { q?: string; source?: string; include_h
 }
 
 export function useJobFeedSettings() {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: [...placementsKeys.all, "external-settings"],
-    queryFn: () => placementsApi.jobFeedSettings(),
+    queryFn: async () => {
+      const settings = await placementsApi.jobFeedSettings();
+      // A refresh that has just finished: the job list changed too.
+      if (!settings.refreshing) void queryClient.invalidateQueries({ queryKey: [...placementsKeys.all, "external"] });
+      return settings;
+    },
+    // While the job sites are being read in the background, look again every few seconds.
+    refetchInterval: (query) => (query.state.data?.refreshing ? 4000 : false),
   });
 }
 
 export function useUpdateJobFeedSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { keywords?: string[]; fresher_only?: boolean; sources?: Record<string, boolean> }) =>
-      placementsApi.updateJobFeedSettings(payload),
+    mutationFn: (payload: JobFeedSettingsUpdate) => placementsApi.updateJobFeedSettings(payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: placementsKeys.all }),
   });
 }

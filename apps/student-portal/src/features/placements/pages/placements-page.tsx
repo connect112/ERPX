@@ -168,20 +168,44 @@ const PAGE_SIZE = 24;
 function JobsFromJobSites() {
   const [search, setSearch] = useState("");
   const [skip, setSkip] = useState(0);
-  const { data, isLoading, isError } = useExternalJobs({ q: search.trim() || undefined, skip, limit: PAGE_SIZE });
+  const [freshersOnly, setFreshersOnly] = useState(false);
+  const { data, isLoading, isError } = useExternalJobs({
+    q: search.trim() || undefined,
+    fresher_only: freshersOnly || undefined,
+    skip,
+    limit: PAGE_SIZE,
+  });
   const total = data?.total ?? 0;
 
   return (
     <div className="space-y-6">
-      <Input
-        className="max-w-md"
-        placeholder="Search by job title, company or place"
-        value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setSkip(0);
-        }}
-      />
+      <div className="flex flex-wrap items-center gap-4">
+        <Input
+          className="max-w-md"
+          placeholder="Search by job title, company or place"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setSkip(0);
+          }}
+        />
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={freshersOnly}
+            onChange={(e) => {
+              setFreshersOnly(e.target.checked);
+              setSkip(0);
+            }}
+          />
+          Freshers, graduates and internships only
+        </label>
+        {data && (
+          <span className="text-sm text-muted-foreground">
+            {data.total} job{data.total === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
 
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

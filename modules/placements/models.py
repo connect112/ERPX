@@ -160,3 +160,9 @@ class JobFeedSettings(TimestampedBase):
     sources: Mapped[dict] = mapped_column(JSONB, nullable=False)
     # {source name: {"last_fetch_at", "fetched", "matched", "new", "error"}}
     source_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    # Keep only jobs in India (or remote and open to India): students are in India.
+    india_only: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    # {"greenhouse": [company board names], "lever": [...]}: the company career pages to read.
+    boards: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # Set while a refresh is running in the background.
+    refresh_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

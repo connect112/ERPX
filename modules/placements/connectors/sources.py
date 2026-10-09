@@ -8,8 +8,11 @@ Sources:
 - arbeitnow  jobs from Germany / Europe and remote, free feed (https://www.arbeitnow.com/api/job-board-api).
 - adzuna     India job search API, many job boards in one; needs ADZUNA_APP_ID / ADZUNA_APP_KEY.
 - jooble     job search API across many boards; needs JOOBLE_API_KEY.
+- greenhouse, lever  the public job boards companies publish through these hiring systems (one request per
+             company, listed in the settings); direct from the employer, no key.
 """
 
+import asyncio
 import html
 import re
 from dataclasses import dataclass, field
@@ -43,26 +46,53 @@ class SourceError(Exception):
     """A source could not be read; the message is shown to admins."""
 
 
-# name -> (label, needs a key from settings)
 SOURCES: dict[str, str] = {
+    "adzuna": "Adzuna (India)",
+    "greenhouse": "Company career pages (Greenhouse)",
+    "lever": "Company career pages (Lever)",
     "remotive": "Remotive (remote jobs)",
     "arbeitnow": "Arbeitnow (Europe and remote)",
-    "adzuna": "Adzuna (India)",
     "jooble": "Jooble",
 }
-# Hours between two reads of the same source (Remotive asks for at most four a day).
-MIN_INTERVAL_HOURS = {"remotive": 5.5, "arbeitnow": 1.0, "adzuna": 3.0, "jooble": 3.0}
+# Hours between two reads of the same source (Remotive asks for at most four a day; Adzuna's free plan has a request
+# allowance, so it is read twice a day).
+MIN_INTERVAL_HOURS = {"remotive": 5.5, "arbeitnow": 1.0, "adzuna": 11.5, "jooble": 3.0, "greenhouse": 3.0, "lever": 3.0}
+
+# Company career boards read by default (all verified to exist and to list jobs in India or remote). Admins can edit.
+DEFAULT_BOARDS: dict[str, list[str]] = {
+    "greenhouse": [
+        "okta", "datadog", "elastic", "mongodb", "databricks", "twilio", "gitlab", "rubrik", "zscaler", "newrelic",
+        "sumologic", "abnormalsecurity", "netskope", "guidepoint", "jfrog", "cloudflare", "stripe", "payoneer",
+        "fivetran", "toast", "roblox", "singlestore", "yugabyte", "thoughtworks", "mixpanel", "airbnb", "coinbase",
+    ],
+    "lever": ["cred", "meesho", "paytm", "nium", "zeta", "pocketfm"],
+}
+
 # Searches sent to the search-style sources (they return the newest matches for each).
 SEARCH_QUERIES = [
-    "cyber security fresher",
-    "cyber security intern",
-    "devsecops",
-    "devops fresher",
-    "devops intern",
-    "cloud engineer fresher",
+    "cyber security",
+    "information security",
+    "security analyst",
     "soc analyst",
-    "security analyst trainee",
+    "devsecops",
+    "devops engineer",
+    "cloud engineer",
+    "site reliability engineer",
+    "penetration tester",
+    "cloud security",
+    "network security engineer",
+    "linux administrator",
+    "ethical hacker",
+    "vapt",
+    "digital forensics",
+    "grc analyst",
+    "network engineer",
+    "cyber security fresher",
+    "devops intern",
 ]
+ADZUNA_PAGES = 3  # 50 results a page
+# Adzuna allows a limited number of requests a minute.
+REQUEST_GAP_SECONDS = 2.5
 
 
 def is_configured(source: str) -> bool:
@@ -115,7 +145,7 @@ async def _get_json(client: httpx.AsyncClient, url: str, **kwargs):
         raise SourceError("the site could not be reached or sent something unreadable") from exc
 
 
-async def fetch_remotive(client: httpx.AsyncClient) -> list[JobItem]:
+async def fetch_remotive(client: httpx.AsyncClient, options: dict) -> list[JobItem]:
     data = await _get_json(client, "https://remotive.com/api/remote-jobs")
     items = []
     for job in data.get("jobs", []):
@@ -141,7 +171,7 @@ async def fetch_remotive(client: httpx.AsyncClient) -> list[JobItem]:
     return items
 
 
-async def fetch_arbeitnow(client: httpx.AsyncClient) -> list[JobItem]:
+async def fetch_arbeitnow(client: httpx.AsyncClient, options: dict) -> list[JobItem]:
     items = []
     for page in (1, 2, 3):
         data = await _get_json(client, "https://www.arbeitnow.com/api/job-board-api", params={"page": page})
@@ -171,48 +201,59 @@ async def fetch_arbeitnow(client: httpx.AsyncClient) -> list[JobItem]:
     return items
 
 
-async def fetch_adzuna(client: httpx.AsyncClient) -> list[JobItem]:
+async def fetch_adzuna(client: httpx.AsyncClient, options: dict) -> list[JobItem]:
     items: dict[str, JobItem] = {}
+    calls = 0
     for query in SEARCH_QUERIES:
-        data = await _get_json(
-            client,
-            "https://api.adzuna.com/v1/api/jobs/in/search/1",
-            params={
-                "app_id": settings.ADZUNA_APP_ID,
-                "app_key": settings.ADZUNA_APP_KEY,
-                "results_per_page": 50,
-                "what": query,
-                "sort_by": "date",
-                "content-type": "application/json",
-            },
-        )
-        for job in data.get("results", []):
-            url = _clean_url(job.get("redirect_url"))
-            if not url or not job.get("title") or not job.get("id"):
-                continue
-            low, high = job.get("salary_min"), job.get("salary_max")
-            salary = f"INR {int(low):,} - {int(high):,}" if low and high else None
-            items.setdefault(
-                str(job["id"]),
-                JobItem(
-                    source="adzuna",
-                    external_id=str(job["id"]),
-                    title=plain_text(str(job["title"])) or "",
-                    company=str((job.get("company") or {}).get("display_name") or "Unknown")[:255],
-                    url=url,
-                    location=(job.get("location") or {}).get("display_name"),
-                    job_type=job.get("contract_time") or job.get("contract_type"),
-                    summary=plain_text(job.get("description")),
-                    posted_at=_when(job.get("created")),
-                    salary_text=salary,
-                ),
+        for page in range(1, ADZUNA_PAGES + 1):
+            if calls:
+                await asyncio.sleep(REQUEST_GAP_SECONDS)
+            calls += 1
+            data = await _get_json(
+                client,
+                f"https://api.adzuna.com/v1/api/jobs/in/search/{page}",
+                params={
+                    "app_id": settings.ADZUNA_APP_ID,
+                    "app_key": settings.ADZUNA_APP_KEY,
+                    "results_per_page": 50,
+                    "what": query,
+                    "sort_by": "date",
+                    "max_days_old": 30,
+                    "content-type": "application/json",
+                },
             )
+            results = data.get("results", [])
+            for job in results:
+                url = _clean_url(job.get("redirect_url"))
+                if not url or not job.get("title") or not job.get("id"):
+                    continue
+                low, high = job.get("salary_min"), job.get("salary_max")
+                salary = f"INR {int(low):,} - {int(high):,}" if low and high else None
+                items.setdefault(
+                    str(job["id"]),
+                    JobItem(
+                        source="adzuna",
+                        external_id=str(job["id"]),
+                        title=plain_text(str(job["title"])) or "",
+                        company=str((job.get("company") or {}).get("display_name") or "Unknown")[:255],
+                        url=url,
+                        location=(job.get("location") or {}).get("display_name"),
+                        job_type=job.get("contract_time") or job.get("contract_type"),
+                        summary=plain_text(job.get("description")),
+                        posted_at=_when(job.get("created")),
+                        salary_text=salary,
+                    ),
+                )
+            if len(results) < 50:
+                break  # no further pages for this search
     return list(items.values())
 
 
-async def fetch_jooble(client: httpx.AsyncClient) -> list[JobItem]:
+async def fetch_jooble(client: httpx.AsyncClient, options: dict) -> list[JobItem]:
     items: dict[str, JobItem] = {}
-    for query in SEARCH_QUERIES:
+    for number, query in enumerate(SEARCH_QUERIES):
+        if number:
+            await asyncio.sleep(REQUEST_GAP_SECONDS)
         try:
             response = await client.post(
                 f"https://jooble.org/api/{settings.JOOBLE_API_KEY}",
@@ -247,7 +288,96 @@ async def fetch_jooble(client: httpx.AsyncClient) -> list[JobItem]:
     return list(items.values())
 
 
-FETCHERS = {"remotive": fetch_remotive, "arbeitnow": fetch_arbeitnow, "adzuna": fetch_adzuna, "jooble": fetch_jooble}
+async def _read_boards(client: httpx.AsyncClient, tokens: list[str], read_one) -> list[JobItem]:
+    """Read many company boards a few at a time. A board that doesn't exist (or is down) is skipped; only when every
+    board fails is it reported as an error."""
+    gate = asyncio.Semaphore(4)
+    failures = 0
+
+    async def one(token: str) -> list[JobItem]:
+        nonlocal failures
+        async with gate:
+            try:
+                return await read_one(client, token)
+            except SourceError:
+                failures += 1
+                return []
+
+    batches = await asyncio.gather(*(one(t) for t in tokens))
+    if tokens and failures == len(tokens):
+        raise SourceError("none of the company career pages could be read")
+    return [item for batch in batches for item in batch]
+
+
+def _company_name(token: str) -> str:
+    return token.replace("-", " ").replace("_", " ").title()
+
+
+async def fetch_greenhouse(client: httpx.AsyncClient, options: dict) -> list[JobItem]:
+    async def read_one(client: httpx.AsyncClient, token: str) -> list[JobItem]:
+        data = await _get_json(client, f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs")
+        items = []
+        for job in data.get("jobs", []):
+            url = _clean_url(job.get("absolute_url"))
+            if not url or not job.get("title") or not job.get("id"):
+                continue
+            where = (job.get("location") or {}).get("name") or None
+            items.append(
+                JobItem(
+                    source="greenhouse",
+                    external_id=f"{token}:{job['id']}",
+                    title=str(job["title"])[:255],
+                    company=str(job.get("company_name") or _company_name(token))[:255],
+                    url=url,
+                    location=where,
+                    remote=bool(where and "remote" in where.lower()),
+                    posted_at=_when(job.get("first_published") or job.get("updated_at")),
+                )
+            )
+        return items
+
+    return await _read_boards(client, list(options.get("greenhouse") or []), read_one)
+
+
+async def fetch_lever(client: httpx.AsyncClient, options: dict) -> list[JobItem]:
+    async def read_one(client: httpx.AsyncClient, token: str) -> list[JobItem]:
+        data = await _get_json(client, f"https://api.lever.co/v0/postings/{token}", params={"mode": "json"})
+        items = []
+        for job in data if isinstance(data, list) else []:
+            url = _clean_url(job.get("hostedUrl"))
+            if not url or not job.get("text") or not job.get("id"):
+                continue
+            cats = job.get("categories") or {}
+            where = cats.get("location") or None
+            kind = cats.get("commitment")
+            items.append(
+                JobItem(
+                    source="lever",
+                    external_id=f"{token}:{job['id']}",
+                    title=str(job["text"])[:255],
+                    company=_company_name(token),
+                    url=url,
+                    location=where,
+                    remote=(job.get("workplaceType") == "remote") or bool(where and "remote" in where.lower()),
+                    job_type=(str(kind).lower().replace(" ", "_") if kind else None),
+                    summary=plain_text(job.get("descriptionPlain")),
+                    tags=[t for t in (cats.get("team"),) if t],
+                    posted_at=_when(job.get("createdAt") and int(job["createdAt"]) // 1000),
+                )
+            )
+        return items
+
+    return await _read_boards(client, list(options.get("lever") or []), read_one)
+
+
+FETCHERS = {
+    "adzuna": fetch_adzuna,
+    "greenhouse": fetch_greenhouse,
+    "lever": fetch_lever,
+    "remotive": fetch_remotive,
+    "arbeitnow": fetch_arbeitnow,
+    "jooble": fetch_jooble,
+}
 
 
 def new_client() -> httpx.AsyncClient:
