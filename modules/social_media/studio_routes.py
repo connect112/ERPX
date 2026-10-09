@@ -10,6 +10,7 @@ from app.core.exceptions import NotFoundError, ServiceUnavailableError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.social_media import image_provider
 from modules.social_media.checks import check_and_store
 from modules.social_media.history import HistoryService
 from modules.social_media.research import SOURCE_LABELS, ResearchService, SourceUnavailable
@@ -204,6 +205,6 @@ async def ai_usage(
     """This month's estimated AI cost against the budget."""
     settings = await SettingsService(db).get(organization_id)
     summary = await UsageService(db).summary(organization_id, settings)
-    result = UsageOverview(**summary, ai_configured=bool(app_settings.AI_API_KEY))
+    result = UsageOverview(**summary, ai_configured=bool(app_settings.AI_API_KEY), image_configured=image_provider.configured())
     await db.commit()
     return result

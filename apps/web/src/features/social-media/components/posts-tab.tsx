@@ -1,4 +1,4 @@
-import { Copy, Pencil, Plus, ShieldCheck, Trash2, Wand2 } from "lucide-react";
+import { Copy, ImageIcon, Pencil, Plus, ShieldCheck, Trash2, Wand2 } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,8 @@ import {
   useTransitionPost,
   useUpdatePost,
 } from "@/features/social-media/api/social-media-hooks";
+import { ArtworkDialog } from "@/features/social-media/components/artwork-dialog";
+import { GridPreview } from "@/features/social-media/components/grid-preview";
 import { PostEditorDialog } from "@/features/social-media/components/post-editor-dialog";
 import {
   FORMAT_LABEL,
@@ -61,6 +63,7 @@ export function PostsTab({ initialStatus = "" }: Props) {
   const check = useCheckPost();
   const rewrite = useRewrite();
   const [rewriting, setRewriting] = useState<Post | null>(null);
+  const [artworkId, setArtworkId] = useState<string | null>(null);
   const [element, setElement] = useState<RewriteElement>("caption");
   const [instruction, setInstruction] = useState("");
   const [rewriteError, setRewriteError] = useState<string | null>(null);
@@ -153,6 +156,8 @@ export function PostsTab({ initialStatus = "" }: Props) {
     );
   }
 
+  const artworkPost = posts.data?.items.find((p) => p.id === artworkId) ?? null;
+
   const busy = transition.isPending || remove.isPending || duplicate.isPending || check.isPending;
 
   return (
@@ -204,7 +209,15 @@ export function PostsTab({ initialStatus = "" }: Props) {
             <Card key={post.id}>
               <CardContent className="space-y-3 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
+                  {post.artwork?.files?.[0]?.url && (
+                    <img
+                      src={post.artwork.files[0].url ?? undefined}
+                      alt={`Artwork for ${post.title}`}
+                      className="h-20 w-16 shrink-0 rounded border object-cover"
+                      loading="lazy"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium">{post.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {FORMAT_LABEL[post.format]}
@@ -266,6 +279,9 @@ export function PostsTab({ initialStatus = "" }: Props) {
                       <>
                         <Button size="sm" variant="outline" disabled={busy} onClick={() => runCheck(post)}>
                           <ShieldCheck className="mr-1 h-3.5 w-3.5" /> {check.isPending && check.variables === post.id ? "Checking..." : "Check facts & rules"}
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => setArtworkId(post.id)}>
+                          <ImageIcon className="mr-1 h-3.5 w-3.5" /> {post.artwork?.files?.length ? "Artwork" : "Make artwork"}
                         </Button>
                         <Button
                           size="sm"
@@ -356,6 +372,8 @@ export function PostsTab({ initialStatus = "" }: Props) {
         onSave={save}
       />
 
+      <ArtworkDialog post={artworkPost} open={artworkId !== null} onOpenChange={(open) => !open && setArtworkId(null)} />
+
       <Dialog open={rewriting !== null} onOpenChange={(open) => !open && setRewriting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -430,6 +448,14 @@ export function PostsTab({ initialStatus = "" }: Props) {
                   <input type="checkbox" className="mt-1" checked={ackRisk} onChange={(e) => setAckRisk(e.target.checked)} />
                   <span>I have checked this post&apos;s high-risk or time-sensitive claims against the sources myself.</span>
                 </label>
+              )}
+              {approving.artwork?.files?.length ? (
+                <div className="space-y-1 rounded-md border p-3">
+                  <p className="font-medium">How it will look in the grid</p>
+                  <GridPreview postId={approving.id} compact />
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">This post has no artwork yet, so it isn&apos;t shown in the grid preview.</p>
               )}
               {approveError && <p className="text-destructive">{approveError}</p>}
             </div>

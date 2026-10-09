@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   socialMediaApi,
+  type Design,
   type GeneratePayload,
   type PostPayload,
   type RewriteElement,
@@ -122,4 +123,48 @@ export function useHistory() {
 
 export function useUsage() {
   return useQuery({ queryKey: ["social-media", "usage"], queryFn: socialMediaApi.usage });
+}
+
+export function useAssets(kind?: string) {
+  return useQuery({ queryKey: ["social-media", "assets", kind ?? "all"], queryFn: () => socialMediaApi.assets(kind) });
+}
+
+export function useUploadAsset() {
+  return usePostMutation((v: { file: File; kind: string; altText: string }) => socialMediaApi.uploadAsset(v.file, v.kind, v.altText));
+}
+
+export function useDeleteAsset() {
+  return usePostMutation((id: string) => socialMediaApi.deleteAsset(id));
+}
+
+export function useUseAsLogo() {
+  return usePostMutation((id: string) => socialMediaApi.useAsLogo(id));
+}
+
+export function useSaveAndDraw() {
+  // Saves the design, then draws it: one action for the person, two steps on the server.
+  return usePostMutation(async (v: { id: string; design: Design }) => {
+    await socialMediaApi.setDesign(v.id, v.design);
+    return socialMediaApi.render(v.id);
+  });
+}
+
+export function useRemoveArtwork() {
+  return usePostMutation((id: string) => socialMediaApi.removeArtwork(id));
+}
+
+export function useNewBackground() {
+  // Saves the design first (the template must be Photo on the server), then makes the new picture and redraws.
+  return usePostMutation(async (v: { id: string; design: Design; direction: string }) => {
+    await socialMediaApi.setDesign(v.id, v.design);
+    return socialMediaApi.newBackground(v.id, v.direction);
+  });
+}
+
+export function useProofread() {
+  return usePostMutation((id: string) => socialMediaApi.proofread(id));
+}
+
+export function useGrid(postId?: string, enabled = true) {
+  return useQuery({ queryKey: ["social-media", "grid", postId ?? "all"], queryFn: () => socialMediaApi.grid(postId), enabled });
 }

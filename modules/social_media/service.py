@@ -19,10 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError, ValidationError
 from modules.crm.leads.models import Lead, LeadSource
 from modules.social_media import defaults
+from packages.storage.client import get_storage_client
 from modules.social_media.models import (
     PostFormat,
     PostStatus,
     SocialAccount,
+    SocialAsset,
     SocialPost,
     SocialSettings,
     VerificationStatus,
@@ -71,6 +73,8 @@ def content_hash(post: SocialPost) -> str:
         "content": post.content,
         "sources": post.sources,
         "scheduled_at": post.scheduled_at.isoformat() if post.scheduled_at else None,
+        "design": post.design or {},
+        "artwork": [f.get("sha256") for f in (post.artwork or {}).get("files", [])],
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -103,6 +107,19 @@ class SettingsService:
 
     async def update(self, organization_id: uuid.UUID, payload: SettingsUpdate) -> SocialSettings:
         row = await self.get(organization_id)
+        if payload.brand is not None and payload.brand.logo_key:
+            # The approved logo must be a logo this organisation uploaded; a key can't point at anyone else's file.
+            known = (
+                await self.db.execute(
+                    select(SocialAsset.id).where(
+                        SocialAsset.organization_id == organization_id,
+                        SocialAsset.kind == "logo",
+                        SocialAsset.storage_key == payload.brand.logo_key,
+                    )
+                )
+            ).first()
+            if not known:
+                raise ValidationError("The logo must be one uploaded in the library as a logo.")
         for field, value in payload.model_dump(exclude_unset=True, mode="json").items():
             if value is None:
                 continue
@@ -319,6 +336,15 @@ class PostService:
     def public(post: SocialPost, approval_withdrawn: bool = False) -> PostPublic:
         out = PostPublic.model_validate(post)
         out.approval_withdrawn = approval_withdrawn
+        artwork = json.loads(json.dumps(post.artwork or {}))
+        if artwork.get("files"):
+            storage = get_storage_client()
+            for file in artwork["files"]:
+                try:
+                    file["url"] = storage.presigned_download_url(file["key"])
+                except Exception:  # noqa: BLE001 - a storage problem must not stop the post from loading
+                    file["url"] = None
+        out.artwork = artwork
         return out
 
 

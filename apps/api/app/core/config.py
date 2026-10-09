@@ -228,6 +228,13 @@ class Settings(BaseSettings):
     SOCIAL_AI_OUTPUT_USD_PER_MTOK: float = 15.0
     SOCIAL_USD_TO_INR: float = 85.0
 
+    # ---- Social Media: optional AI backgrounds (any "/v1/images/generations" compatible API) ----
+    # All three must be set to turn it on. The picture is only ever a background: text and the logo are drawn by code.
+    SOCIAL_IMAGE_API_KEY: str = ""
+    SOCIAL_IMAGE_API_BASE_URL: str = ""
+    SOCIAL_IMAGE_MODEL: str = ""
+    SOCIAL_IMAGE_COST_INR: float = 4.0  # estimated cost of one background, for the budget
+
     # ---- Job feed (Placements) ----
     # Adzuna (https://developer.adzuna.com) and Jooble (https://jooble.org/api/about) are used only when their keys
     # are set; Remotive and Arbeitnow need no key.

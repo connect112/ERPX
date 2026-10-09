@@ -354,6 +354,8 @@ class PostPublic(BaseModel):
     last_error: str | None
     duplicate_of_id: uuid.UUID | None
     generation: dict = Field(default_factory=dict)
+    design: dict = Field(default_factory=dict)
+    artwork: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     # True when an edit has just withdrawn an earlier approval.
@@ -478,3 +480,67 @@ class UsageOverview(BaseModel):
     is_estimate: bool
     note: str
     ai_configured: bool
+    image_configured: bool = False
+
+
+# ---------------- artwork, assets, grid ----------------
+
+
+class Design(BaseModel):
+    template: Literal["editorial", "statement", "photo", "screenshot"] = "editorial"
+    background_asset_id: uuid.UUID | None = None
+    # None = use the default (the pillar's name as the kicker, the post's headline, no supporting line).
+    kicker: str | None = Field(default=None, max_length=40)
+    headline: str | None = Field(default=None, max_length=120)
+    subline: str | None = Field(default=None, max_length=160)
+    credit: str | None = Field(default=None, max_length=80)
+    show_logo: bool = True
+    show_handle: bool = True
+
+
+class BackgroundRequest(BaseModel):
+    direction: str = Field(default="", max_length=200)
+
+
+class AssetPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    filename: str
+    content_type: str
+    width: int
+    height: int
+    bytes_size: int
+    alt_text: str
+    synthetic: bool
+    created_at: datetime
+    url: str | None = None
+    is_logo: bool = False
+
+
+class ProofreadIssue(BaseModel):
+    text: str
+    suggestion: str
+
+
+class ProofreadResult(BaseModel):
+    ok: bool
+    issues: list[ProofreadIssue]
+    current: bool = True
+
+
+class GridFinding(BaseModel):
+    severity: Literal["info", "warning"]
+    code: str
+    message: str
+    tiles: list[int]
+
+
+class GridOut(BaseModel):
+    tiles: list[dict]
+    findings: list[GridFinding]
+    verdict: Literal["balanced", "review", "not_enough"]
+    live_available: bool
+    missing: int
+    note: str

@@ -81,9 +81,97 @@ export interface Post {
   last_error: string | null;
   duplicate_of_id: string | null;
   generation: Generation;
+  design: Design;
+  artwork: Artwork;
   created_at: string;
   updated_at: string;
   approval_withdrawn: boolean;
+}
+
+export type Template = "editorial" | "statement" | "photo" | "screenshot";
+
+export interface Design {
+  template?: Template;
+  background_asset_id?: string | null;
+  kicker?: string | null;
+  headline?: string | null;
+  subline?: string | null;
+  credit?: string | null;
+  show_logo?: boolean;
+  show_handle?: boolean;
+}
+
+export interface ArtworkValidation {
+  ok: boolean;
+  problems: string[];
+  notes: string[];
+  min_font_px: number | null;
+  min_contrast: number | null;
+  blocks: { role: string; size_px: number; contrast: number }[];
+}
+
+export interface ArtworkFile {
+  key: string;
+  slide: number;
+  width: number;
+  height: number;
+  sha256: string;
+  url?: string | null;
+  metrics: { template: string; dominant: string; luminance: number; dhash: string; text_chars: number; headline: string; headline_px: number | null; logo: string | null };
+  validation: ArtworkValidation;
+}
+
+export interface Artwork {
+  template?: Template;
+  rendered_at?: string;
+  ok?: boolean;
+  files?: ArtworkFile[];
+  synthetic_background?: boolean;
+  background?: { asset_id: string; kind: string; synthetic: boolean } | null;
+  proofread?: { ok: boolean; issues: { text: string; suggestion: string }[]; at: string; fingerprint: string };
+}
+
+export interface Asset {
+  id: string;
+  kind: "logo" | "photo" | "screenshot" | "background";
+  filename: string;
+  content_type: string;
+  width: number;
+  height: number;
+  bytes_size: number;
+  alt_text: string;
+  synthetic: boolean;
+  created_at: string;
+  url: string | null;
+  is_logo: boolean;
+}
+
+export interface GridTile {
+  post_id: string;
+  title: string;
+  status: PostStatus;
+  format: PostFormat;
+  slides: number;
+  url: string | null;
+  metrics: ArtworkFile["metrics"];
+  synthetic_background: boolean;
+  is_focus: boolean;
+}
+
+export interface GridFinding {
+  severity: "info" | "warning";
+  code: string;
+  message: string;
+  tiles: number[];
+}
+
+export interface GridResult {
+  tiles: GridTile[];
+  findings: GridFinding[];
+  verdict: "balanced" | "review" | "not_enough";
+  live_available: boolean;
+  missing: number;
+  note: string;
 }
 
 export interface PostListResponse {
@@ -264,6 +352,7 @@ export interface UsageOverview {
   is_estimate: boolean;
   note: string;
   ai_configured: boolean;
+  image_configured: boolean;
 }
 
 export const socialMediaApi = {
@@ -294,6 +383,29 @@ export const socialMediaApi = {
   rewrite: (id: string, element: RewriteElement, instruction: string) =>
     apiClient.post<Post>(`/social-media/posts/${id}/regenerate`, { element, instruction }, { timeout: 120000 }).then((r) => r.data),
   checkPost: (id: string) => apiClient.post<Post>(`/social-media/posts/${id}/check`, null, { timeout: 60000 }).then((r) => r.data),
+  assets: (kind?: string) => apiClient.get<Asset[]>("/social-media/assets", { params: { kind } }).then((r) => r.data),
+  uploadAsset: (file: File, kind: string, altText: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("kind", kind);
+    form.append("alt_text", altText);
+    // Naming multipart lets the browser add the boundary (the client's default is JSON).
+    return apiClient
+      .post<Asset>("/social-media/assets", form, { headers: { "Content-Type": "multipart/form-data" } })
+      .then((r) => r.data);
+  },
+  deleteAsset: (id: string) => apiClient.delete(`/social-media/assets/${id}`).then(() => undefined),
+  useAsLogo: (id: string) => apiClient.post<Asset>(`/social-media/assets/${id}/use-as-logo`).then((r) => r.data),
+  setDesign: (id: string, design: Design) => apiClient.put<Post>(`/social-media/posts/${id}/design`, design).then((r) => r.data),
+  render: (id: string) => apiClient.post<Post>(`/social-media/posts/${id}/render`, null, { timeout: 60000 }).then((r) => r.data),
+  removeArtwork: (id: string) => apiClient.delete<Post>(`/social-media/posts/${id}/artwork`).then((r) => r.data),
+  newBackground: (id: string, direction: string) =>
+    apiClient.post<Post>(`/social-media/posts/${id}/background`, { direction }, { timeout: 180000 }).then((r) => r.data),
+  proofread: (id: string) =>
+    apiClient
+      .post<{ ok: boolean; issues: { text: string; suggestion: string }[]; current: boolean }>(`/social-media/posts/${id}/proofread`, null, { timeout: 120000 })
+      .then((r) => r.data),
+  grid: (postId?: string) => apiClient.get<GridResult>("/social-media/grid", { params: { post_id: postId } }).then((r) => r.data),
   history: () => apiClient.get<HistoryOverview>("/social-media/history").then((r) => r.data),
   usage: () => apiClient.get<UsageOverview>("/social-media/usage").then((r) => r.data),
 };

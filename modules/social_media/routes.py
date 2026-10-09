@@ -25,12 +25,14 @@ from modules.social_media.schemas import (
 )
 from modules.social_media.service import OverviewService, PostService, SettingsService
 from modules.social_media.history import HistoryService
+from modules.social_media.art_routes import router as art_router
 from modules.social_media.studio_routes import router as studio_router
 from modules.social_media.usage import UsageService
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
 router.include_router(studio_router)
+router.include_router(art_router)
 
 VIEW = "social_media.view"
 MANAGE = "social_media.manage"

@@ -150,8 +150,8 @@ export function StrategyTab() {
           </div>
           <p className="text-sm text-muted-foreground sm:col-span-2">
             {brand.logo_key
-              ? "An approved logo is uploaded."
-              : "No approved logo is uploaded yet. Logo upload arrives with the artwork renderer (Phase 2), so the exact approved logo is used and never redrawn."}
+              ? "An approved logo is set. Change it in the Library tab."
+              : "No approved logo yet. Upload it in the Library tab: the exact file is used and never redrawn."}
           </p>
         </CardContent>
       </Card>

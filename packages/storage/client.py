@@ -123,6 +123,39 @@ class StorageClient:
             logger.exception("storage_upload_failed", object_key=object_key)
             raise ServiceUnavailableError("Could not upload the file to storage.") from exc
 
+    async def upload_bytes(self, object_key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+        """Store small bytes the API itself made or checked (e.g. a rendered image or a validated upload)."""
+        import io
+
+        try:
+            await asyncio.to_thread(
+                self._client.put_object, self.bucket, object_key, io.BytesIO(data), len(data), content_type=content_type
+            )
+        except S3Error as exc:
+            logger.exception("storage_upload_failed", object_key=object_key)
+            raise ServiceUnavailableError("Could not upload the file to storage.") from exc
+
+    async def read_bytes(self, object_key: str, max_bytes: int = 20 * 1024 * 1024) -> bytes:
+        """Read a small stored file into memory (refuses anything bigger than max_bytes)."""
+
+        def _read() -> bytes:
+            response = self._client.get_object(self.bucket, object_key)
+            try:
+                data = response.read(max_bytes + 1)
+            finally:
+                response.close()
+                response.release_conn()
+            return data
+
+        try:
+            data = await asyncio.to_thread(_read)
+        except S3Error as exc:
+            logger.exception("storage_read_failed", object_key=object_key)
+            raise ServiceUnavailableError("Could not read the file from storage.") from exc
+        if len(data) > max_bytes:
+            raise ServiceUnavailableError("The stored file is larger than expected.")
+        return data
+
     async def download_file(self, object_key: str, dest_path: str) -> None:
         """Server-side download for callers that need the bytes on local
         disk rather than a presigned URL to hand to a browser — currently
