@@ -21,6 +21,46 @@ const placementsKeys = {
   applications: (id: string) => [...placementsKeys.all, "postings", id, "applications"] as const,
 };
 
+export function useExternalJobs(params: { q?: string; source?: string; include_hidden?: boolean; skip?: number; limit?: number }) {
+  return useQuery({
+    queryKey: [...placementsKeys.all, "external", params],
+    queryFn: () => placementsApi.listExternalJobs(params),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useJobFeedSettings() {
+  return useQuery({
+    queryKey: [...placementsKeys.all, "external-settings"],
+    queryFn: () => placementsApi.jobFeedSettings(),
+  });
+}
+
+export function useUpdateJobFeedSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { keywords?: string[]; fresher_only?: boolean; sources?: Record<string, boolean> }) =>
+      placementsApi.updateJobFeedSettings(payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: placementsKeys.all }),
+  });
+}
+
+export function useRefreshJobFeed() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => placementsApi.refreshJobFeed(),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: placementsKeys.all }),
+  });
+}
+
+export function useSetExternalJobHidden() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, hidden }: { id: string; hidden: boolean }) => placementsApi.setExternalJobHidden(id, hidden),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: placementsKeys.all }),
+  });
+}
+
 export function useCompaniesList(params: { skip?: number; limit?: number }) {
   return useQuery({
     queryKey: placementsKeys.companies(params),

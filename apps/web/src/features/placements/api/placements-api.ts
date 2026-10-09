@@ -86,7 +86,67 @@ export interface ApplicationPublic {
   created_at: string;
 }
 
+/** A job found on an outside job site. Students apply on the original page (`url`). */
+export interface ExternalJob {
+  id: string;
+  source: string;
+  title: string;
+  company_name: string;
+  location: string | null;
+  remote: boolean;
+  job_type: string | null;
+  summary: string | null;
+  url: string;
+  tags: string[];
+  posted_at: string | null;
+  salary_text: string | null;
+  fresher_friendly: boolean;
+  hidden: boolean;
+}
+
+export interface ExternalJobList {
+  items: ExternalJob[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface JobSourceStatus {
+  name: string;
+  label: string;
+  enabled: boolean;
+  /** False = the server has no API key for this source yet. */
+  configured: boolean;
+  last_fetch_at: string | null;
+  last_error: string | null;
+  matched: number | null;
+}
+
+export interface JobFeedSettings {
+  keywords: string[];
+  fresher_only: boolean;
+  sources: JobSourceStatus[];
+}
+
+export interface JobFeedRefreshResult {
+  message: string;
+  sources: Record<string, { fetched?: number; matched?: number; new?: number; skipped?: string; error?: string }>;
+}
+
 export const placementsApi = {
+  listExternalJobs: (params: { q?: string; source?: string; include_hidden?: boolean; skip?: number; limit?: number }) =>
+    apiClient.get<ExternalJobList>("/placements/external", { params }).then((r) => r.data),
+
+  jobFeedSettings: () => apiClient.get<JobFeedSettings>("/placements/external/settings").then((r) => r.data),
+
+  updateJobFeedSettings: (payload: { keywords?: string[]; fresher_only?: boolean; sources?: Record<string, boolean> }) =>
+    apiClient.put<JobFeedSettings>("/placements/external/settings", payload).then((r) => r.data),
+
+  refreshJobFeed: () => apiClient.post<JobFeedRefreshResult>("/placements/external/refresh").then((r) => r.data),
+
+  setExternalJobHidden: (id: string, hidden: boolean) =>
+    apiClient.post<ExternalJob>(`/placements/external/${id}/hidden`, { hidden }).then((r) => r.data),
+
   listCompanies: (params: { skip?: number; limit?: number }) =>
     apiClient.get<CompanyListResponse>("/placements/companies", { params }).then((r) => r.data),
 

@@ -120,3 +120,64 @@ class ApplicationPublic(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+# ---- Job feed (jobs found on outside job sites) ----
+
+
+class ExternalJobPublic(BaseModel):
+    id: uuid.UUID
+    source: str
+    title: str
+    company_name: str
+    location: str | None
+    remote: bool
+    job_type: str | None
+    summary: str | None
+    url: str
+    tags: list[str]
+    posted_at: datetime | None
+    salary_text: str | None
+    fresher_friendly: bool
+    hidden: bool
+
+    model_config = {"from_attributes": True}
+
+
+class ExternalJobListResponse(BaseModel):
+    items: list[ExternalJobPublic]
+    total: int
+    skip: int
+    limit: int
+
+
+class JobSourceStatus(BaseModel):
+    name: str
+    label: str
+    enabled: bool
+    configured: bool  # False = needs an API key on the server
+    last_fetch_at: datetime | None = None
+    last_error: str | None = None
+    matched: int | None = None
+
+
+class JobFeedSettingsPublic(BaseModel):
+    keywords: list[str]
+    fresher_only: bool
+    sources: list[JobSourceStatus]
+
+
+class JobFeedSettingsUpdate(BaseModel):
+    keywords: list[str] | None = Field(default=None, max_length=60)
+    fresher_only: bool | None = None
+    sources: dict[str, bool] | None = None
+
+
+class JobHiddenRequest(BaseModel):
+    hidden: bool
+
+
+class JobFeedRefreshResponse(BaseModel):
+    message: str
+    sources: dict[str, dict]
+

@@ -37,7 +37,34 @@ export interface ApplicationPublic {
   created_at: string;
 }
 
+/** A job found on an outside job site: Apply opens the original page. */
+export interface ExternalJob {
+  id: string;
+  source: string;
+  title: string;
+  company_name: string;
+  location: string | null;
+  remote: boolean;
+  job_type: string | null;
+  summary: string | null;
+  url: string;
+  tags: string[];
+  posted_at: string | null;
+  salary_text: string | null;
+  fresher_friendly: boolean;
+}
+
+export interface ExternalJobList {
+  items: ExternalJob[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
 export const placementsApi = {
+  externalJobs: (params: { q?: string; skip?: number; limit?: number }) =>
+    apiClient.get<ExternalJobList>("/placements/external/me", { params }).then((r) => r.data),
+
   browsePostings: () => apiClient.get<JobPostingPublic[]>("/placements/postings/me").then((r) => r.data),
 
   apply: (postingId: string, coverLetter?: string) =>

@@ -12,8 +12,9 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_model import SoftDeleteMixin, TimestampedBase
@@ -113,3 +114,49 @@ class Application(TimestampedBase):
         index=True,
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ExternalJob(TimestampedBase):
+    """A job found on an outside job site (see job_feed.py). Students apply on the original page (`url`);
+    nothing is applied for inside ERPX."""
+
+    __tablename__ = "placement_external_jobs"
+    __table_args__ = (UniqueConstraint("organization_id", "source", "external_id", name="uq_external_job_source_id"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(30), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    company_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    remote: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    job_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    salary_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    fresher_friendly: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # Hidden by an admin: kept (so it isn't re-added) but not shown to students.
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # False once the job is no longer in its source's feed (or no longer matches the filters).
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class JobFeedSettings(TimestampedBase):
+    """Which outside sources feed an organisation's Placements pages, and which jobs it wants from them."""
+
+    __tablename__ = "placement_job_feed_settings"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    keywords: Mapped[list] = mapped_column(JSONB, nullable=False)
+    fresher_only: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    # {source name: enabled}
+    sources: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # {source name: {"last_fetch_at", "fetched", "matched", "new", "error"}}
+    source_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)

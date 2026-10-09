@@ -223,6 +223,13 @@ class Settings(BaseSettings):
     AI_MAX_TOKENS: int = 2048
     AI_REQUEST_TIMEOUT_SECONDS: int = 60
 
+    # ---- Job feed (Placements) ----
+    # Adzuna (https://developer.adzuna.com) and Jooble (https://jooble.org/api/about) are used only when their keys
+    # are set; Remotive and Arbeitnow need no key.
+    ADZUNA_APP_ID: str = ""
+    ADZUNA_APP_KEY: str = ""
+    JOOBLE_API_KEY: str = ""
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
