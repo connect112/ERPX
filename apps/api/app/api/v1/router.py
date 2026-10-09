@@ -65,6 +65,7 @@ from modules.email_templates.routes import event_router as email_template_events
 from modules.email_templates.routes import router as email_templates_router
 from modules.hackathons.routes import router as hackathons_router
 from modules.placements.routes import router as placements_router
+from modules.social_media.routes import router as social_media_router
 from modules.users.routes import router as users_router
 from modules.workshops.routes import router as workshops_router
 from modules.workshop_exams.routes import public_router as workshop_exams_public_router
@@ -122,6 +123,7 @@ api_router.include_router(hackathons_router, prefix="/hackathons", tags=["Hackat
 api_router.include_router(email_templates_router, prefix="/email-templates", tags=["Email templates"])
 api_router.include_router(email_template_events_router, prefix="/hackathons", tags=["Email templates"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])
+api_router.include_router(social_media_router, prefix="/social-media", tags=["Social Media"])
 api_router.include_router(internships_router, prefix="/internships", tags=["Internships"])
 api_router.include_router(alumni_router, prefix="/alumni", tags=["Alumni"])
 api_router.include_router(media_router, prefix="/media", tags=["Media"])
