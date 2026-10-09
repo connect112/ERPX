@@ -17,6 +17,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging_config import get_logger
 from modules.placements.connectors.sources import (
     DEFAULT_BOARDS,
+    ENRICHERS,
     FETCHERS,
     MIN_INTERVAL_HOURS,
     SOURCES,
@@ -25,6 +26,7 @@ from modules.placements.connectors.sources import (
     is_configured,
     new_client,
 )
+from modules.placements import experience_ai
 from modules.placements.experience import BUCKETS, OPEN_ENDED, extract_experience
 from modules.placements.models import ExternalJob, JobFeedSettings
 
@@ -272,6 +274,12 @@ class JobFeedService:
                     summary[name] = {"error": "something went wrong reading it"}
                     state[name] = {**(state.get(name) or {}), "error": "something went wrong reading it"}
                     continue
+                if name in ENRICHERS:
+                    kept = [i for i in items if wanted(i, pattern)[0] and (not row.india_only or in_india_or_open(i))]
+                    try:
+                        await ENRICHERS[name](client, kept)
+                    except Exception:  # noqa: BLE001 - full text is a bonus; the jobs are saved without it
+                        logger.warning("job_feed_enrich_failed", source=name, exc_info=True)
                 try:
                     async with self.db.begin_nested():  # a savepoint: a database problem undoes only this source
                         result = await self._store(organization_id, name, items, pattern, row.india_only, now)
@@ -324,9 +332,11 @@ class JobFeedService:
             job.summary, job.tags, job.posted_at = item.summary, item.tags[:20], item.posted_at
             job.salary_text = _fit(item.salary_text, 120)
             job.fresher_friendly, job.is_active, job.last_seen_at = fresher, True, now
-            job.experience_min, job.experience_max, job.experience_estimated = extract_experience(
-                item.title, item.summary, item.job_type
-            )
+            read = extract_experience(item.title, item.details or item.summary, item.job_type)
+            if read[0] is not None or not job.experience_ai_done:
+                job.experience_min, job.experience_max, job.experience_estimated = read
+                job.experience_ai_done = read[0] is not None
+            # (otherwise the text still says nothing: keep the AI's estimate, or its "can't tell", from before)
             job.experience_parsed = True
         # Gone from the feed (or no longer a match): stop showing it, keep the row.
         for external_id, job in existing.items():
@@ -433,8 +443,45 @@ class JobFeedService:
                 job.title, job.summary, job.job_type
             )
             job.experience_parsed = True
+            job.experience_ai_done = job.experience_min is not None
         await self.db.flush()
         return len(rows)
+
+    async def estimate_unknown_experience(self, organization_id: uuid.UUID, limit: int = 400) -> int:
+        """Ask the AI service about jobs whose text and title gave no experience. Quietly does nothing when the AI
+        service isn't available."""
+        rows = (
+            await self.db.execute(
+                select(ExternalJob)
+                .where(
+                    ExternalJob.organization_id == organization_id,
+                    ExternalJob.is_active.is_(True),
+                    ExternalJob.experience_min.is_(None),
+                    ExternalJob.experience_ai_done.is_(False),
+                )
+                .order_by(ExternalJob.posted_at.desc().nulls_last())
+                .limit(limit)
+            )
+        ).scalars().all()
+        done = 0
+        for start in range(0, len(rows), experience_ai.BATCH_SIZE):
+            batch = rows[start : start + experience_ai.BATCH_SIZE]
+            texts = [experience_ai.JobText(n, j.title, j.company_name, j.summary) for n, j in enumerate(batch)]
+            try:
+                answers = await experience_ai.estimate(texts)
+            except Exception:  # noqa: BLE001 - no AI key, or the service is down: try again at the next refresh
+                logger.info("job_feed_experience_ai_unavailable", exc_info=True)
+                break
+            for number, job in enumerate(batch):
+                if number not in answers:
+                    continue  # not understood: asked again next time
+                job.experience_ai_done = True
+                if answers[number] is not None:
+                    job.experience_min, job.experience_max = answers[number]
+                    job.experience_estimated = True
+                done += 1
+            await self.db.flush()
+        return done
 
     async def run_refresh(self, organization_id: uuid.UUID, force: bool = False) -> dict[str, dict]:
         """Read the sources and tidy up, then clear the running marker (also when something goes wrong)."""
@@ -442,6 +489,7 @@ class JobFeedService:
             await self.backfill_experience(organization_id)
             summary = await self.refresh(organization_id, force=force)
             await self.clear_stale(organization_id)
+            await self.estimate_unknown_experience(organization_id)
             return summary
         finally:
             try:
