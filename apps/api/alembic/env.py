@@ -79,7 +79,7 @@ from modules.workshops.models import Workshop, WorkshopRegistration  # noqa: E40
 from modules.workshop_exams.models import WorkshopExam, WorkshopExamQuestion, WorkshopExamAttendee, WorkshopExamCertificateTemplate  # noqa: E402,F401
 from modules.email_templates.models import EmailTemplate  # noqa: E402,F401
 from modules.hackathons.models import Hackathon, Team, TeamMember, Submission, ProblemStatement, TeamReport, TaskSubmission  # noqa: E402,F401
-from modules.placements.models import Company, JobPosting, Application  # noqa: E402,F401
+from modules.placements.models import Company, JobPosting, Application, ExternalJob, JobFeedSettings  # noqa: E402,F401
 from modules.internships.models import InternshipPosting, InternshipApplication, Internship  # noqa: E402,F401
 from modules.alumni.models import AlumniProfile, AlumniEvent, EventRegistration, JobReferral  # noqa: E402,F401
 from modules.media.models import Album, MediaAsset  # noqa: E402,F401

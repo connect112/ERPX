@@ -104,6 +104,12 @@ celery_app.conf.beat_schedule = {
         "task": "workshop_exams.dispatch_due_certificates",
         "schedule": crontab(minute="*/5"),
     },
+    # Placements job feed: jobs from outside job sites. Every 6 hours (each source also enforces its own minimum
+    # gap, e.g. Remotive asks for at most four reads a day).
+    "placements-refresh-job-feed": {
+        "task": "placements.refresh_job_feed",
+        "schedule": crontab(minute=17, hour="*/6"),
+    },
 }
 
 # Modules register their Celery task modules here as they are built, e.g.:
@@ -119,5 +125,6 @@ celery_app.autodiscover_tasks(
         "modules.lms.announcements",
         "modules.workshop_exams",
         "modules.hackathons",
+        "modules.placements",
     ]
 )

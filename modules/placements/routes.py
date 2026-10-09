@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
-from modules.placements.models import JobPostingStatus
+from modules.placements.connectors.sources import SOURCES, is_configured
+from modules.placements.job_feed import JobFeedService
+from modules.placements.models import JobFeedSettings, JobPostingStatus
 from modules.placements.schemas import (
     ApplicationCreateRequest,
     ApplicationPublic,
@@ -15,6 +17,13 @@ from modules.placements.schemas import (
     CompanyListResponse,
     CompanyPublic,
     CompanyUpdateRequest,
+    ExternalJobListResponse,
+    ExternalJobPublic,
+    JobFeedRefreshResponse,
+    JobFeedSettingsPublic,
+    JobFeedSettingsUpdate,
+    JobHiddenRequest,
+    JobSourceStatus,
     JobPostingCreateRequest,
     JobPostingListResponse,
     JobPostingPublic,
@@ -28,6 +37,116 @@ from modules.students.models import Student
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+
+def _settings_public(row: JobFeedSettings) -> JobFeedSettingsPublic:
+    state = row.source_state or {}
+    return JobFeedSettingsPublic(
+        keywords=row.keywords,
+        fresher_only=row.fresher_only,
+        sources=[
+            JobSourceStatus(
+                name=name,
+                label=label,
+                enabled=bool(row.sources.get(name)),
+                configured=is_configured(name),
+                last_fetch_at=(state.get(name) or {}).get("last_fetch_at"),
+                last_error=(state.get(name) or {}).get("error"),
+                matched=(state.get(name) or {}).get("matched"),
+            )
+            for name, label in SOURCES.items()
+        ],
+    )
+
+
+# ---- Job feed: jobs from outside job sites ----
+# Fixed paths (/external/...) so they never collide with /postings/{id} below.
+
+
+@router.get("/external/me", response_model=ExternalJobListResponse)
+async def list_external_jobs_for_student(
+    q: str | None = Query(default=None, max_length=100),
+    source: str | None = Query(default=None, max_length=30),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=30, ge=1, le=100),
+    student: Student = Depends(get_current_student),
+    db: AsyncSession = Depends(get_db),
+):
+    """Jobs found on outside job sites; the student opens `url` to apply on the original page."""
+    rows, total = await JobFeedService(db).list_jobs(
+        student.organization_id, include_hidden=False, q=q, source=source, skip=skip, limit=limit
+    )
+    return ExternalJobListResponse(
+        items=[ExternalJobPublic.model_validate(r) for r in rows], total=total, skip=skip, limit=limit
+    )
+
+
+@router.get("/external", response_model=ExternalJobListResponse)
+async def list_external_jobs(
+    q: str | None = Query(default=None, max_length=100),
+    source: str | None = Query(default=None, max_length=30),
+    include_hidden: bool = Query(default=True),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("placements.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    rows, total = await JobFeedService(db).list_jobs(
+        organization_id, include_hidden=include_hidden, q=q, source=source, skip=skip, limit=limit
+    )
+    return ExternalJobListResponse(
+        items=[ExternalJobPublic.model_validate(r) for r in rows], total=total, skip=skip, limit=limit
+    )
+
+
+@router.get("/external/settings", response_model=JobFeedSettingsPublic)
+async def get_job_feed_settings(
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("placements.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    return _settings_public(await JobFeedService(db).get_settings(organization_id))
+
+
+@router.put("/external/settings", response_model=JobFeedSettingsPublic)
+async def update_job_feed_settings(
+    payload: JobFeedSettingsUpdate,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("placements.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await JobFeedService(db).update_settings(
+        organization_id, payload.keywords, payload.fresher_only, payload.sources
+    )
+    return _settings_public(row)
+
+
+@router.post("/external/refresh", response_model=JobFeedRefreshResponse)
+async def refresh_job_feed(
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("placements.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read the enabled job sources now. A source that was read recently is skipped (they limit how often they may
+    be asked); the list also refreshes by itself every few hours."""
+    summary = await JobFeedService(db).refresh(organization_id)
+    new = sum(r.get("new", 0) for r in summary.values())
+    return JobFeedRefreshResponse(
+        message=f"Checked the job sites: {new} new job{'' if new == 1 else 's'} found.", sources=summary
+    )
+
+
+@router.post("/external/{job_id}/hidden", response_model=ExternalJobPublic)
+async def set_external_job_hidden(
+    job_id: uuid.UUID,
+    payload: JobHiddenRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("placements.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hide a job from students (or show it again)."""
+    return ExternalJobPublic.model_validate(await JobFeedService(db).set_hidden(organization_id, job_id, payload.hidden))
 
 
 # ---- Student self-service ----

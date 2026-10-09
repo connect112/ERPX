@@ -1,6 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { placementsApi } from "@/features/placements/api/placements-api";
+
+export function useExternalJobs(params: { q?: string; skip?: number; limit?: number }) {
+  return useQuery({
+    queryKey: ["placements", "external", params],
+    queryFn: () => placementsApi.externalJobs(params),
+    placeholderData: keepPreviousData,
+  });
+}
 
 export function useBrowseJobPostings() {
   return useQuery({

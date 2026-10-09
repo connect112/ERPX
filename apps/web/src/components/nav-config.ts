@@ -1,5 +1,6 @@
 import {
   Award,
+  Radar,
   Banknote,
   BarChart3,
   BookOpen,
@@ -206,6 +207,7 @@ export const navSections: NavSection[] = [
       { label: "Hackathons", href: "/hackathons", icon: Rocket, enabled: true, permission: "hackathons.view" },
       { label: "Placement Companies", href: "/placements/companies", icon: Building2, enabled: true, permission: "placements.view" },
       { label: "Job Postings", href: "/placements/postings", icon: Handshake, enabled: true, permission: "placements.view" },
+      { label: "Job Feed", href: "/placements/job-feed", icon: Radar, enabled: true, permission: "placements.view" },
       { label: "Internship Postings", href: "/internships/postings", icon: InternGraduationCap, enabled: true, permission: "internships.view" },
       { label: "Active Internships", href: "/internships", icon: ClipboardList, enabled: true, permission: "internships.view" },
       { label: "Alumni Profiles", href: "/alumni/profiles", icon: Contact, enabled: true, permission: "alumni.view" },
