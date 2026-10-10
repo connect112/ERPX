@@ -20,6 +20,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_model import TimestampedBase
 from modules.authentication.models import User  # noqa: F401
+from modules.crm.leads.models import Lead  # noqa: F401
+from modules.courses.models import Course  # noqa: F401
 from modules.marketing.campaigns.models import Campaign  # noqa: F401
 from modules.organizations.models import Organization  # noqa: F401
 
@@ -476,3 +478,59 @@ class Report(TimestampedBase):
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
     data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+
+
+class TrackedLink(TimestampedBase):
+    """A short address staff put in a bio, caption, story or message. Opening it counts one click and sends the visitor to the
+    destination with UTM parameters added. It identifies nobody: only a daily click count is kept."""
+
+    __tablename__ = "social_links"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    token: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    destination: Mapped[str] = mapped_column(String(500), nullable=False)
+    placement: Mapped[str] = mapped_column(String(20), default="other", server_default="other", nullable=False)  # bio | post | story | dm | comment | other
+    post_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_posts.id", ondelete="SET NULL"), nullable=True)
+    course_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    marketing_campaign_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("marketing_campaigns.id", ondelete="SET NULL"), nullable=True)
+    utm_campaign: Mapped[str] = mapped_column(String(100), nullable=False)
+    utm_content: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+
+
+class LinkDay(TimestampedBase):
+    """Opens of one tracked link on one day. A count only: no address, device or visitor is recorded."""
+
+    __tablename__ = "social_link_days"
+    __table_args__ = (UniqueConstraint("link_id", "day", name="uq_social_link_day"),)
+
+    link_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("social_links.id", ondelete="CASCADE"), nullable=False, index=True)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    clicks: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+
+
+class LeadLink(TimestampedBase):
+    """Records that a person on the team made a CRM lead from a comment, a message or a tracked link. It is the only evidence of
+    attribution ERPX holds: a lead appears here because someone chose to create it, never automatically."""
+
+    __tablename__ = "social_lead_links"
+    __table_args__ = (
+        UniqueConstraint("lead_id", name="uq_social_lead_link_lead"),
+        UniqueConstraint("comment_id", name="uq_social_lead_link_comment"),
+        UniqueConstraint("conversation_id", name="uq_social_lead_link_conversation"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    lead_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crm_leads.id", ondelete="CASCADE"), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    origin: Mapped[str] = mapped_column(String(20), nullable=False)  # comment | message | link | manual
+    comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_comments.id", ondelete="SET NULL"), nullable=True)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_conversations.id", ondelete="SET NULL"), nullable=True)
+    link_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_links.id", ondelete="SET NULL"), nullable=True)
+    post_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("social_posts.id", ondelete="SET NULL"), nullable=True)
+    media_external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    course_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    handle: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    basis: Mapped[str] = mapped_column(String(400), nullable=False)

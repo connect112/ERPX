@@ -856,3 +856,70 @@ class ReportOut(BaseModel):
     generated_by: str | None
     automatic: bool
     data: dict
+
+
+# ---------------- tracked links and leads ----------------
+
+
+class LinkCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    destination: str = Field(min_length=8, max_length=500)
+    placement: Literal["bio", "post", "story", "dm", "comment", "other"]
+    post_id: uuid.UUID | None = None
+    course_label: str | None = Field(default=None, max_length=255)
+    marketing_campaign_id: uuid.UUID | None = None
+    utm_campaign: str | None = Field(default=None, max_length=100)
+    utm_content: str | None = Field(default=None, max_length=100)
+
+
+class LinkUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    is_active: bool | None = None
+    course_label: str | None = Field(default=None, max_length=255)
+
+
+class LinkOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    token: str
+    short_url: str
+    final_url: str
+    destination: str
+    placement: str
+    post_id: uuid.UUID | None
+    course_label: str | None
+    marketing_campaign_id: uuid.UUID | None
+    utm_campaign: str
+    utm_content: str | None
+    is_active: bool
+    created_at: datetime
+    clicks_total: int
+    clicks_28d: int
+    last_click_day: date | None
+
+
+class FollowUpIn(BaseModel):
+    type: Literal["call", "email", "meeting", "other"]
+    scheduled_at: datetime
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class LeadFromInbox(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    phone: str | None = Field(default=None, max_length=32)
+    email: str | None = Field(default=None, max_length=255)
+    course_id: uuid.UUID | None = None
+    course_label: str | None = Field(default=None, max_length=255)
+    note: str | None = Field(default=None, max_length=1000)
+    assigned_to_user_id: uuid.UUID | None = None
+    link_id: uuid.UUID | None = None
+    marketing_campaign_id: uuid.UUID | None = None
+    follow_up: FollowUpIn | None = None
+
+
+class LeadCreated(BaseModel):
+    lead_id: uuid.UUID
+    link_id: uuid.UUID
+    follow_up_id: uuid.UUID | None
+    warnings: list[str]
+    basis: str

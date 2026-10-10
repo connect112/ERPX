@@ -6,6 +6,8 @@ import {
   type Conversation,
   type ConversationView,
   type ExperimentPayload,
+  type LeadPayload,
+  type LinkPayload,
   type InboxComment,
   type ReplyPayload,
   type Design,
@@ -343,4 +345,47 @@ export function useReports() {
 
 export function useGenerateReport() {
   return usePostMutation((v: { kind: "weekly" | "monthly"; periodStart?: string }) => socialMediaApi.generateReport(v.kind, v.periodStart));
+}
+
+
+// ---------------- tracked links, leads and hashtags ----------------
+
+export function useLinks() {
+  return useQuery({ queryKey: ["social-media", "links"], queryFn: socialMediaApi.links });
+}
+
+export function useCreateLink() {
+  return usePostMutation((payload: LinkPayload) => socialMediaApi.createLink(payload));
+}
+
+export function useUpdateLink() {
+  return usePostMutation((v: { id: string; payload: { name?: string; is_active?: boolean; course_label?: string } }) => socialMediaApi.updateLink(v.id, v.payload));
+}
+
+export function useLeadOptions(enabled: boolean) {
+  return useQuery({ queryKey: ["social-media", "lead-options"], queryFn: socialMediaApi.leadOptions, enabled });
+}
+
+export function useLeadHint(kind: "comment" | "dm", id: string | null) {
+  return useQuery({
+    queryKey: ["social-media", "lead-hint", kind, id],
+    queryFn: () => (kind === "comment" ? socialMediaApi.commentLeadHint(id as string) : socialMediaApi.conversationLeadHint(id as string)),
+    enabled: id !== null,
+  });
+}
+
+export function useCreateLead(kind: "comment" | "dm") {
+  return usePostMutation((v: { id: string; payload: LeadPayload }) => (kind === "comment" ? socialMediaApi.leadFromComment(v.id, v.payload) : socialMediaApi.leadFromConversation(v.id, v.payload)));
+}
+
+export function useFunnel(days: number) {
+  return useQuery({ queryKey: ["social-media", "funnel", days], queryFn: () => socialMediaApi.funnel(days), placeholderData: keepPreviousData });
+}
+
+export function useSocialLeads(enabled: boolean) {
+  return useQuery({ queryKey: ["social-media", "social-leads"], queryFn: socialMediaApi.socialLeads, enabled });
+}
+
+export function useHashtags() {
+  return useQuery({ queryKey: ["social-media", "hashtags"], queryFn: socialMediaApi.hashtags });
 }

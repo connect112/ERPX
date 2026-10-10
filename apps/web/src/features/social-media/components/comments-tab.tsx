@@ -11,6 +11,8 @@ import type { CommentView, InboxComment } from "@/features/social-media/api/soci
 import { useComments, useMarkHandled } from "@/features/social-media/api/social-media-hooks";
 import { InboxStatus, ReplyHistory } from "@/features/social-media/components/inbox-status";
 import { TriageBadges } from "@/features/social-media/components/inbox-parts";
+import { CreateLeadDialog, type LeadTarget } from "@/features/social-media/components/create-lead-dialog";
+import { useCanCreateLead } from "@/features/social-media/lib/use-can-create-lead";
 import { ReplyDialog, type ReplyTarget } from "@/features/social-media/components/reply-dialog";
 import { errorMessage, formatInZone } from "@/features/social-media/lib/format";
 
@@ -42,6 +44,8 @@ export function CommentsTab() {
   const [search, setSearch] = useState("");
   const [skip, setSkip] = useState(0);
   const [target, setTarget] = useState<ReplyTarget | null>(null);
+  const [leadTarget, setLeadTarget] = useState<LeadTarget | null>(null);
+  const canLead = useCanCreateLead();
   const [error, setError] = useState<string | null>(null);
   const comments = useComments({ view, q: search.trim() || undefined, skip, limit: PAGE });
   const me = useMyRoles();
@@ -123,6 +127,11 @@ export function CommentsTab() {
                     {c.status === "answered" ? "Reply again" : "Reply"}
                   </Button>
                 )}
+                {canLead && c.status !== "ignored" && (
+                  <Button size="sm" variant="outline" onClick={() => setLeadTarget({ kind: "comment", id: c.id, handle: c.author_username ?? "unknown" })}>
+                    Create lead
+                  </Button>
+                )}
                 {c.status === "new" && (
                   <Button size="sm" variant="outline" onClick={() => handled(c.id, "ignore")} disabled={mark.isPending}>
                     Set aside
@@ -155,6 +164,7 @@ export function CommentsTab() {
 
       <ReplyHistory kind="comment" />
       <ReplyDialog key={target?.id ?? "none"} target={target} onClose={() => setTarget(null)} />
+      <CreateLeadDialog key={leadTarget?.id ?? "no-lead"} target={leadTarget} onClose={() => setLeadTarget(null)} />
     </div>
   );
 }
