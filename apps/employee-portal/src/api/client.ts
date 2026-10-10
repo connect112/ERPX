@@ -44,6 +44,15 @@ apiClient.interceptors.response.use(
     const { refreshToken, setTokens, logout } = useAuthStore.getState();
     if (!refreshToken) {
       logout();
+      // logout() only clears local state — nothing about that guarantees
+      // any component notices in time. Whatever page triggered this call
+      // (a stale/dead session from days ago, an account deleted
+      // server-side, ...) would otherwise sit there hoping some
+      // reactive check catches up, which is exactly how "Wrong portal"
+      // / stuck-screen glitches happen instead of a clean bounce to
+      // /login. This is the one place that knows for certain the
+      // session is dead, so it settles it here directly.
+      window.location.href = "/login";
       return Promise.reject(error);
     }
 
@@ -71,6 +80,7 @@ apiClient.interceptors.response.use(
       return apiClient(originalRequest);
     } catch (refreshError) {
       logout();
+      window.location.href = "/login";
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;
