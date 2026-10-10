@@ -19,7 +19,8 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 
 from app.core.config import settings
 from app.core.exceptions import ValidationError
@@ -88,7 +89,7 @@ def make_state(organization_id: str, user_id: str, nonce: str, now: datetime | N
 def read_state(state: str) -> dict:
     try:
         return jwt.decode(state, settings.JWT_SECRET_KEY, algorithms=["HS256"], audience=STATE_AUDIENCE)
-    except JWTError:
+    except PyJWTError:
         raise OAuthError("state", "This connection link has expired or isn't valid. Start the connection again.") from None
 
 

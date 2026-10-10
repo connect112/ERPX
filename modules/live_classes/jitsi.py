@@ -14,7 +14,7 @@ bridge needs real CPU headroom for relaying live audio/video.
 import time
 import uuid
 
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 
