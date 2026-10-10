@@ -13,6 +13,7 @@ import { GroupTable } from "@/features/social-media/components/group-table";
 import { HashtagPanel } from "@/features/social-media/components/hashtag-panel";
 import { errorMessage, formatInZone } from "@/features/social-media/lib/format";
 import { GROUP_LABEL, KIND_LABEL, NOT_AVAILABLE, formatChange, formatDay, formatNumber, formatRate, signed } from "@/features/social-media/lib/numbers";
+import { safeHref } from "@/features/social-media/lib/links";
 
 const PERIODS = [7, 14, 28] as const;
 const ZONE = "Asia/Kolkata";
@@ -229,7 +230,7 @@ function PostsTable({ rows }: { rows: PostInsight[] }) {
                   <p className="text-xs text-muted-foreground">
                     {r.kind} · {r.posted_at ? formatInZone(r.posted_at, ZONE) : "date unknown"}
                     {r.permalink && (
-                      <a href={r.permalink} target="_blank" rel="noreferrer" aria-label="Open the post on Instagram" className="ml-1 inline-block align-middle">
+                      <a href={safeHref(r.permalink)} target="_blank" rel="noopener noreferrer" aria-label="Open the post on Instagram" className="ml-1 inline-block align-middle">
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     )}

@@ -19,7 +19,27 @@ import { SettingsTab } from "@/features/social-media/components/settings-tab";
 import { StrategyTab } from "@/features/social-media/components/strategy-tab";
 import { StudioTab } from "@/features/social-media/components/studio-tab";
 
+const TAB = "text-foreground/75 data-[state=active]:text-foreground";
+
 const TABS = ["overview", "studio", "research", "posts", "calendar", "queue", "comments", "messages", "leads", "analytics", "reports", "library", "grid", "strategy", "settings"] as const;
+
+const TAB_LABEL: Record<string, string> = {
+  overview: "Overview",
+  studio: "Studio",
+  research: "Research",
+  posts: "Posts",
+  calendar: "Calendar",
+  queue: "Publishing queue",
+  comments: "Comments",
+  messages: "Direct messages",
+  leads: "Campaigns and leads",
+  analytics: "Analytics",
+  reports: "Reports and experiments",
+  library: "Image library",
+  grid: "Profile grid",
+  strategy: "Strategy",
+  settings: "Settings and integrations",
+};
 
 export function SocialMediaPage() {
   const [params, setParams] = useSearchParams();
@@ -45,23 +65,24 @@ export function SocialMediaPage() {
       <Tabs value={tab} onValueChange={(value) => openTab(value)} className="space-y-6">
         <div className="max-w-full overflow-x-auto">
           <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="studio">Studio</TabsTrigger>
-            <TabsTrigger value="research">Research</TabsTrigger>
-            <TabsTrigger value="posts">Posts</TabsTrigger>
-            <TabsTrigger value="calendar">Calendar</TabsTrigger>
-            <TabsTrigger value="queue">Queue</TabsTrigger>
-            <TabsTrigger value="comments">Comments</TabsTrigger>
-            <TabsTrigger value="messages">Messages</TabsTrigger>
-            <TabsTrigger value="leads">Campaigns &amp; Leads</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-            <TabsTrigger value="reports">Reports</TabsTrigger>
-            <TabsTrigger value="library">Library</TabsTrigger>
-            <TabsTrigger value="grid">Grid</TabsTrigger>
-            <TabsTrigger value="strategy">Strategy</TabsTrigger>
-            <TabsTrigger value="settings">Settings &amp; Integrations</TabsTrigger>
+            <TabsTrigger value="overview" className={TAB}>Overview</TabsTrigger>
+            <TabsTrigger value="studio" className={TAB}>Studio</TabsTrigger>
+            <TabsTrigger value="research" className={TAB}>Research</TabsTrigger>
+            <TabsTrigger value="posts" className={TAB}>Posts</TabsTrigger>
+            <TabsTrigger value="calendar" className={TAB}>Calendar</TabsTrigger>
+            <TabsTrigger value="queue" className={TAB}>Queue</TabsTrigger>
+            <TabsTrigger value="comments" className={TAB}>Comments</TabsTrigger>
+            <TabsTrigger value="messages" className={TAB}>Messages</TabsTrigger>
+            <TabsTrigger value="leads" className={TAB}>Campaigns &amp; Leads</TabsTrigger>
+            <TabsTrigger value="analytics" className={TAB}>Analytics</TabsTrigger>
+            <TabsTrigger value="reports" className={TAB}>Reports</TabsTrigger>
+            <TabsTrigger value="library" className={TAB}>Library</TabsTrigger>
+            <TabsTrigger value="grid" className={TAB}>Grid</TabsTrigger>
+            <TabsTrigger value="strategy" className={TAB}>Strategy</TabsTrigger>
+            <TabsTrigger value="settings" className={TAB}>Settings &amp; Integrations</TabsTrigger>
           </TabsList>
         </div>
+        <h2 className="sr-only">{TAB_LABEL[tab]}</h2>
         <TabsContent value="overview">
           <OverviewTab onOpenTab={openTab} />
         </TabsContent>

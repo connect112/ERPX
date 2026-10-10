@@ -24,6 +24,7 @@ import { ArtworkDialog } from "@/features/social-media/components/artwork-dialog
 import { GridPreview } from "@/features/social-media/components/grid-preview";
 import { PostEditorDialog } from "@/features/social-media/components/post-editor-dialog";
 import { ScheduleDialog } from "@/features/social-media/components/schedule-dialog";
+import { safeHref } from "@/features/social-media/lib/links";
 import {
   FORMAT_LABEL,
   STATUS_LABEL,
@@ -271,7 +272,7 @@ export function PostsTab({ initialStatus = "" }: Props) {
                 )}
                 {post.last_error && <p className="text-xs text-destructive">{post.last_error}</p>}
                 {post.external_permalink && (
-                  <a className="inline-flex items-center gap-1 text-xs text-primary underline" href={post.external_permalink} target="_blank" rel="noreferrer noopener">
+                  <a className="inline-flex items-center gap-1 text-xs text-primary underline" href={safeHref(post.external_permalink)} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="h-3 w-3" /> On Instagram
                   </a>
                 )}
@@ -443,7 +444,7 @@ export function PostsTab({ initialStatus = "" }: Props) {
                 <ul className="list-disc space-y-0.5 pl-5 text-xs">
                   {approving.sources.map((s) => (
                     <li key={s.url}>
-                      <a className="text-primary underline" href={s.url} target="_blank" rel="noreferrer noopener">
+                      <a className="text-primary underline" href={safeHref(s.url)} target="_blank" rel="noopener noreferrer">
                         {s.title || s.url}
                       </a>
                       {s.published_at ? ` (${s.published_at})` : ""}

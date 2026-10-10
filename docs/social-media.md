@@ -299,11 +299,36 @@ needed, though restarting the worker with the others is harmless).
 same host as the API (`FRONTEND_URL` + `/api/v1/...`), as in production; whether Instagram's in-app browser or link scanners open
 the short address in ways that distort the count is only learned in use.
 
-## Phases still to build
+## Phase 6: hardening, monitoring, retention and accessibility
 
-6. Hardening, recovery procedures, cost controls, accessibility, full regression tests.
+- **Audit trail and logs**: comment, message and reply text, handles and AI drafts are excluded from the audit trail
+  (`__audit_exclude_fields__` on the inbox tables); machine-written rows (messages, per-post figures, daily figures, link opens,
+  notifications, heartbeats) are skipped because they are not a person's action. A test scans that no log call carries personal text.
+- **Links from outside** (`safe_url.py`, `lib/links.ts`): post links must be plain https on instagram.com, pictures on Instagram's own
+  servers, a post link typed by a person must be an instagram.com address, and every external anchor in the web code goes through
+  `safeHref`. A test fails if the web code writes HTML or links to an unchecked address.
+- **Abuse protection**: the public tracked-link redirect is rate limited (120 a minute per address), like the webhook (600).
+- **Retention is enforced** (`retention.py`, daily `social.apply_retention`): it removes comments, conversations, messages, reply
+  texts (the record of who sent a reply stays), posts read and notifications past the period set in Settings. Reports, daily figures
+  and CRM leads are not touched. Settings shows what is past the period and offers "Remove it now". One person's data can be erased on
+  request (counted first, then confirmed), which removes their comments, conversations, messages and the text of replies to them.
+- **Monitoring** (`health.py`): every scheduled job leaves a heartbeat. Settings lists them, the Overview warns about a failed or
+  stalled job, and `social.check_health` emails the notification addresses once a day per problem.
+- **Briefing**: the Overview also names the strongest recent post when one clearly stands out, and no longer carries stale phase text.
+- **Accessibility**: axe-core (WCAG 2.0/2.1 A and AA plus best practice) over every tab and dialog, light and dark; fixed tab label
+  contrast, a skipped heading level and faint calendar days.
+- **Dependency check**: `pip-audit` and `npm audit` findings are listed in `social-media-report.md`; they concern shared platform
+  dependencies and were raised as separate upgrade tasks.
 
-## Meta setup (needed from Phase 4)
+Deploying: migration 0077 and a restart of api, web, celery worker and beat (new tasks `social.apply_retention` and
+`social.check_health`); no RBAC seed. The full report, environment variables, blocked live tests, costs and recovery procedures are
+in [social-media-report.md](social-media-report.md).
+
+## Status
+
+All six planned phases are built. Nothing has run against a real Instagram account yet; see the blocked live tests in the report.
+
+## Meta setup
 
 1. The Instagram account must be a Professional account (Business or Creator).
 2. Create a Meta developer app and add the Instagram product (<https://developers.facebook.com/docs/instagram-platform/>).

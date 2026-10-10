@@ -135,6 +135,15 @@ celery_app.conf.beat_schedule = {
         "task": "social.make_reports",
         "schedule": crontab(hour=3, minute=30),
     },
+    # Housekeeping: remove personal data past the retention period; watch the other jobs and email once a day if one stalls.
+    "social-apply-retention": {
+        "task": "social.apply_retention",
+        "schedule": crontab(hour=4, minute=30),
+    },
+    "social-check-health": {
+        "task": "social.check_health",
+        "schedule": crontab(minute="*/15"),
+    },
     "social-refresh-instagram-tokens": {
         "task": "social.refresh_tokens",
         "schedule": crontab(hour=3, minute=15),

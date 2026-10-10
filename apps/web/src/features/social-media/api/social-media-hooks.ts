@@ -389,3 +389,22 @@ export function useSocialLeads(enabled: boolean) {
 export function useHashtags() {
   return useQuery({ queryKey: ["social-media", "hashtags"], queryFn: socialMediaApi.hashtags });
 }
+
+
+// ---------------- background jobs, retention and erasure ----------------
+
+export function useJobHealth() {
+  return useQuery({ queryKey: ["social-media", "health"], queryFn: socialMediaApi.jobHealth, refetchInterval: 60000 });
+}
+
+export function useRetentionStatus(enabled: boolean) {
+  return useQuery({ queryKey: ["social-media", "retention"], queryFn: socialMediaApi.retentionStatus, enabled });
+}
+
+export function useRunRetention() {
+  return usePostMutation((confirm: boolean) => socialMediaApi.runRetention(confirm));
+}
+
+export function useErasePerson() {
+  return usePostMutation((v: { handle: string; confirm: boolean }) => socialMediaApi.erasePerson(v.handle, v.confirm));
+}

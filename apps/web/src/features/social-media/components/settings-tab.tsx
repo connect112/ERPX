@@ -11,6 +11,8 @@ import { useMyRoles } from "@/features/auth/api/authorization-hooks";
 import type { Capability } from "@/features/social-media/api/social-media-api";
 import { useIntegration, useSocialSettings, useUpdateSocialSettings, useUsage } from "@/features/social-media/api/social-media-hooks";
 import { ConnectionCard } from "@/features/social-media/components/connection-card";
+import { JobHealthPanel } from "@/features/social-media/components/job-health-panel";
+import { PrivacyPanel } from "@/features/social-media/components/privacy-panel";
 import { TIMEZONES, errorMessage } from "@/features/social-media/lib/format";
 
 const NATIVE_SELECT = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
@@ -84,6 +86,10 @@ export function SettingsTab() {
   return (
     <div className="space-y-6">
       <ConnectionCard info={info} timeZone={data.timezone} />
+
+      <JobHealthPanel />
+
+      <PrivacyPanel />
 
       <Card>
         <CardHeader>

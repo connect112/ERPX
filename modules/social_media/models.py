@@ -274,6 +274,7 @@ class WebhookEvent(TimestampedBase):
     """One notification from Meta, kept just long enough to ignore a retry of it. It holds ids only, never message text."""
 
     __tablename__ = "social_webhook_events"
+    __audit_skip__ = True  # machine-written figures: not a person's action, and far too many rows
 
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     event_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
@@ -288,6 +289,7 @@ class IgMedia(TimestampedBase):
     `post_id` points at the ERPX post (and its artwork is used as the thumbnail)."""
 
     __tablename__ = "social_ig_media"
+    __audit_skip__ = True  # machine-written figures: not a person's action, and far too many rows
     __table_args__ = (UniqueConstraint("organization_id", "external_id", name="uq_social_ig_media"),)
 
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -308,6 +310,7 @@ class IgComment(TimestampedBase):
     never acted on. `status` is what a person (or a reply of ours) has done with it, not what an AI thinks."""
 
     __tablename__ = "social_comments"
+    __audit_exclude_fields__ = {'author_id', 'summary', 'suggested_reply', 'author_username', 'text'}  # personal text never goes into the audit trail
     __table_args__ = (
         UniqueConstraint("organization_id", "external_id", name="uq_social_comment"),
         Index("ix_social_comments_org_status", "organization_id", "status"),
@@ -343,6 +346,7 @@ class IgConversation(TimestampedBase):
     """One person's direct-message conversation with the account (Instagram doesn't expose group chats or read state)."""
 
     __tablename__ = "social_conversations"
+    __audit_exclude_fields__ = {'participant_username', 'summary', 'participant_id', 'suggested_reply'}  # personal text never goes into the audit trail
     __table_args__ = (
         UniqueConstraint("organization_id", "external_id", name="uq_social_conversation"),
         Index("ix_social_conversations_org_status", "organization_id", "status"),
@@ -373,6 +377,7 @@ class IgConversation(TimestampedBase):
 
 class IgMessage(TimestampedBase):
     __tablename__ = "social_messages"
+    __audit_skip__ = True  # machine-written figures: not a person's action, and far too many rows
     __table_args__ = (
         UniqueConstraint("organization_id", "external_id", name="uq_social_message"),
         Index("ix_social_messages_conversation", "conversation_id", "sent_at"),
@@ -392,6 +397,7 @@ class SocialReply(TimestampedBase):
     made by an explicit action first, and the row is written before the send is attempted."""
 
     __tablename__ = "social_replies"
+    __audit_exclude_fields__ = {'message'}  # personal text never goes into the audit trail
     __table_args__ = (
         UniqueConstraint("organization_id", "request_id", name="uq_social_reply_request"),
         Index("ix_social_replies_org_created", "organization_id", "created_at"),
@@ -423,6 +429,7 @@ class AccountDay(TimestampedBase):
     own daily insight totals."""
 
     __tablename__ = "social_account_days"
+    __audit_skip__ = True  # machine-written figures: not a person's action, and far too many rows
     __table_args__ = (UniqueConstraint("organization_id", "day", "metric", name="uq_social_account_day_metric"),)
 
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -436,6 +443,7 @@ class MediaMetric(TimestampedBase):
     """One lifetime figure for one post. `value` is null (with a note) when Instagram says it isn't available for that post."""
 
     __tablename__ = "social_media_metrics"
+    __audit_skip__ = True  # machine-written figures: not a person's action, and far too many rows
     __table_args__ = (UniqueConstraint("organization_id", "media_external_id", "metric", name="uq_social_media_metric"),)
 
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -504,6 +512,7 @@ class LinkDay(TimestampedBase):
     """Opens of one tracked link on one day. A count only: no address, device or visitor is recorded."""
 
     __tablename__ = "social_link_days"
+    __audit_skip__ = True  # machine-written figures: not a person's action, and far too many rows
     __table_args__ = (UniqueConstraint("link_id", "day", name="uq_social_link_day"),)
 
     link_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("social_links.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -516,6 +525,7 @@ class LeadLink(TimestampedBase):
     attribution ERPX holds: a lead appears here because someone chose to create it, never automatically."""
 
     __tablename__ = "social_lead_links"
+    __audit_exclude_fields__ = {'handle', 'basis'}  # personal text never goes into the audit trail
     __table_args__ = (
         UniqueConstraint("lead_id", name="uq_social_lead_link_lead"),
         UniqueConstraint("comment_id", name="uq_social_lead_link_comment"),
@@ -534,3 +544,20 @@ class LeadLink(TimestampedBase):
     course_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
     handle: Mapped[str | None] = mapped_column(String(100), nullable=True)
     basis: Mapped[str] = mapped_column(String(400), nullable=False)
+
+
+class JobRun(TimestampedBase):
+    """The heartbeat of one scheduled job: when it last finished and whether it worked. Nothing from comments or messages."""
+
+    __tablename__ = "social_job_runs"
+    __audit_skip__ = True  # a heartbeat, written every minute by the machinery itself
+    __table_args__ = (UniqueConstraint("job", name="uq_social_job_runs_job"),)
+
+    job: Mapped[str] = mapped_column(String(40), nullable=False)
+    last_finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    last_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

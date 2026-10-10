@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from modules.social_media.models import PostFormat, PostStatus, VerificationStatus
+from modules.social_media.safe_url import instagram_page
 
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 _SLUG = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
@@ -574,8 +575,8 @@ class ResolveRequest(BaseModel):
     @field_validator("permalink")
     @classmethod
     def _permalink(cls, value: str | None) -> str | None:
-        if value and not re.match(r"^https://[^\s]+$", value):
-            raise ValueError("The link must start with https://")
+        if value and instagram_page(value) is None:
+            raise ValueError("The link must be an https://www.instagram.com/ address.")
         return value or None
 
 

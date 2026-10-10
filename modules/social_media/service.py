@@ -406,14 +406,14 @@ class OverviewService:
             items.append(
                 BriefingItem(
                     level="info",
-                    message="Instagram isn't connected yet. Comments, messages, publishing and insights need the connection (Phase 4).",
+                    message="Instagram isn't connected yet. Comments, messages, publishing and insights need the connection.",
                     link="settings",
                 )
             )
         if not settings.brand.get("colors_confirmed"):
             items.append(BriefingItem(level="info", message="The brand colours are placeholders. Confirm your approved palette under Strategy.", link="strategy"))
         if not settings.brand.get("logo_key"):
-            items.append(BriefingItem(level="info", message="No approved logo is uploaded yet. Artwork needs it (Phase 2).", link="strategy"))
+            items.append(BriefingItem(level="info", message="No approved logo is uploaded yet. Artwork needs it.", link="strategy"))
         if not settings.notifications.get("emails"):
             items.append(BriefingItem(level="info", message="No notification email is set, so failures won't be emailed.", link="settings"))
         if leads.last_30_days:

@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AuthorizationError
+from app.core.limiter import limiter
 from app.db.session import get_db
 from modules.authentication.models import User, UserStatus
 from modules.authorization.dependencies import require_permissions
@@ -52,6 +53,7 @@ def _link_out(link: TrackedLink, clicks_total: int = 0, clicks_28d: int = 0, las
 
 
 @router.get("/l/{token}", include_in_schema=False)
+@limiter.limit("120/minute")
 async def open_tracked_link(token: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Count one open (robots and previews excluded) and send the visitor on. Public: no login."""
     if len(token) > 20:
