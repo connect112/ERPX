@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as app_settings
 from app.core.exceptions import ConflictError, ValidationError
+from modules.social_media.safe_url import instagram_page
 from app.core.logging_config import get_logger
 from modules.social_media import instagram, render
 from modules.social_media.checks import check_and_store
@@ -284,7 +285,7 @@ class PublisherService:
             post.status = PostStatus.PUBLISHED.value
             post.published_at = now
             post.external_media_id = (media_id or None)
-            post.external_permalink = (permalink or None)
+            post.external_permalink = instagram_page(permalink)
             post.last_error = None
             if attempt:
                 attempt.status, attempt.finished_at, attempt.media_id = "published", now, media_id or None
@@ -563,7 +564,7 @@ class PublisherService:
         post.status = PostStatus.PUBLISHED.value
         post.published_at = now
         post.external_media_id = media_id
-        post.external_permalink = permalink
+        post.external_permalink = instagram_page(permalink)
         post.last_error = None
         post.next_attempt_at = None
         post.claimed_at = None

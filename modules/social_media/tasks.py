@@ -17,6 +17,7 @@ from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
 from modules.email_templates.render import render_email_sync
 from app.core.exceptions import ConflictError
+from modules.social_media import health, retention
 from modules.social_media.analytics import AnalyticsService
 from modules.social_media.connection import ConnectionService
 from modules.social_media.inbox import InboxService
@@ -26,6 +27,25 @@ from modules.social_media.reports import ReportService
 from packages.email.service import email_service
 
 logger = get_logger(__name__)
+
+
+async def _tracked(job: str, work):
+    """Run a scheduled job and leave a heartbeat: when it finished, whether it worked and, if not, a short reason."""
+    try:
+        result = await work
+    except Exception as exc:  # noqa: BLE001 - recorded, then raised so the worker logs it too
+        try:
+            async with get_db_context() as db:
+                await health.record(db, job, False, f"{type(exc).__name__}: {str(exc)[:200]}")
+        except Exception:  # noqa: BLE001 - never hide the original failure behind a failed heartbeat
+            logger.warning("social_heartbeat_failed", job=job, exc_info=True)
+        raise
+    try:
+        async with get_db_context() as db:
+            await health.record(db, job, True, count=result if isinstance(result, int) and not isinstance(result, bool) else None, detail=result if isinstance(result, dict) else None)
+    except Exception:  # noqa: BLE001
+        logger.warning("social_heartbeat_failed", job=job, exc_info=True)
+    return result
 
 
 async def _queue_due() -> int:
@@ -53,7 +73,7 @@ async def _recover() -> dict:
 
 @celery_app.task(name="social.publish_due", ignore_result=True)
 def publish_due_task() -> int:
-    return run_async(_queue_due())
+    return run_async(_tracked("publish_due", _queue_due()))
 
 
 @celery_app.task(name="social.publish_post", ignore_result=True)
@@ -65,7 +85,7 @@ def publish_post_task(post_id: str, user_id: str | None = None) -> str:
 
 @celery_app.task(name="social.recover_publishing", ignore_result=True)
 def recover_publishing_task() -> dict:
-    result = run_async(_recover())
+    result = run_async(_tracked("recover_publishing", _recover()))
     if any(result.values()):
         logger.info("social_recovery", **result)
     return result
@@ -137,7 +157,7 @@ async def _refresh_tokens() -> dict:
 @celery_app.task(name="social.refresh_tokens", ignore_result=True)
 def refresh_tokens_task() -> dict:
     """Daily: refresh access tokens that are within 20 days of expiring, and warn when one can't be kept alive."""
-    result = run_async(_refresh_tokens())
+    result = run_async(_tracked("refresh_tokens", _refresh_tokens()))
     if any(result.values()):
         logger.info("social_tokens_refreshed", **result)
     return result
@@ -221,7 +241,7 @@ def sync_account_task(organization_id: str) -> str:
 @celery_app.task(name="social.sync_inbox", ignore_result=True)
 def sync_inbox_task() -> int:
     """Every half hour, a safety net in case a notification was missed. Cheap: unchanged conversations aren't re-read."""
-    return run_async(_sync_all())
+    return run_async(_tracked("sync_inbox", _sync_all()))
 
 
 def enqueue_sync(organization_id: uuid.UUID) -> bool:
@@ -273,10 +293,64 @@ async def _make_reports() -> int:
 @celery_app.task(name="social.sync_insights", ignore_result=True)
 def sync_insights_task() -> int:
     """Once a day: read the profile's figures and each recent post's insights (at most 14 days and 40 posts per run)."""
-    return run_async(_read_insights())
+    return run_async(_tracked("sync_insights", _read_insights()))
 
 
 @celery_app.task(name="social.make_reports", ignore_result=True)
 def make_reports_task() -> int:
     """Once a day, after the read: write the report for the last complete week and month if it doesn't exist yet."""
-    return run_async(_make_reports())
+    return run_async(_tracked("make_reports", _make_reports()))
+
+
+# ---------------- housekeeping and monitoring ----------------
+
+
+async def _apply_retention() -> dict:
+    async with get_db_context() as db:
+        return await retention.apply_all(db)
+
+
+@celery_app.task(name="social.apply_retention", ignore_result=True)
+def apply_retention_task() -> dict:
+    """Once a day: remove comments, messages and other personal data that are past the retention period set in Settings."""
+    result = run_async(_tracked("apply_retention", _apply_retention()))
+    if any(result.values()):
+        logger.info("social_retention_applied", **result)
+    return result
+
+
+async def _problems_and_recipients() -> list[tuple[str, list[str], list[dict]]]:
+    async with get_db_context() as db:
+        problems = await health.due_alerts(db)
+        if not problems:
+            return []
+        out = []
+        for settings in (await db.execute(select(SocialSettings))).scalars():
+            notifications = settings.notifications or {}
+            emails = list(notifications.get("emails") or [])
+            if emails and notifications.get("notify_on_failure", True):
+                out.append((str(settings.organization_id), emails, problems))
+        return out
+
+
+@celery_app.task(name="social.check_health", ignore_result=True)
+def check_health_task() -> int:
+    """Every 15 minutes: email once a day about a scheduled job that has failed or stopped running."""
+    sent = 0
+    for organization_id, recipients, problems in run_async(_problems_and_recipients()):
+        for problem in problems:
+            for address in recipients:
+                subject, text, html = render_email_sync(
+                    "social_job_problem",
+                    {
+                        "job": problem["label"][:120],
+                        "state": "has failed" if problem["state"] == "failed" else "has stopped running",
+                        "detail": problem["detail"][:500],
+                        "overview_url": f"{app_settings.FRONTEND_URL.rstrip('/')}/social-media",
+                    },
+                    organization_id=organization_id,
+                    recipient_email=address,
+                )
+                if run_async(email_service.send(address, subject, text, html)):
+                    sent += 1
+    return sent

@@ -16,6 +16,7 @@ import {
   useSocialSettings,
 } from "@/features/social-media/api/social-media-hooks";
 import { errorMessage, formatInZone } from "@/features/social-media/lib/format";
+import { safeHref } from "@/features/social-media/lib/links";
 
 const NATIVE_SELECT = "h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 const SEVERITY_VARIANT: Record<string, "destructive" | "warning" | "info" | "secondary"> = {
@@ -58,9 +59,9 @@ function ItemCard({ item, timeZone, canManage, onDraftFrom }: { item: ResearchIt
         <div className="flex flex-wrap gap-2">
           <a
             className="inline-flex h-9 items-center gap-1 rounded-md border px-3 text-sm hover:bg-accent"
-            href={item.url}
+            href={safeHref(item.url)}
             target="_blank"
-            rel="noreferrer noopener"
+            rel="noopener noreferrer"
           >
             <ExternalLink className="h-3.5 w-3.5" /> Open source
           </a>

@@ -152,7 +152,7 @@ ROADMAP = [
     {"phase": 1, "title": "Data model, strategy and settings, draft and approval workflow, ERP lead link", "status": "done"},
     {"phase": 2, "title": "AI research and content studio, source verification, artwork rendering, 9-post grid preview", "status": "done"},
     {"phase": 3, "title": "Content calendar, durable scheduling and reliable publishing", "status": "done"},
-    {"phase": 4, "title": "Instagram connection, comments and DMs with manual-only replies", "status": "next"},
-    {"phase": 5, "title": "Analytics, trend intelligence, growth reports and lead attribution", "status": "planned"},
-    {"phase": 6, "title": "Security hardening, recovery, cost controls, accessibility and full regression tests", "status": "planned"},
+    {"phase": 4, "title": "Instagram connection, comments and DMs with manual-only replies", "status": "done"},
+    {"phase": 5, "title": "Analytics, growth reports, tracked links and lead attribution", "status": "done"},
+    {"phase": 6, "title": "Security hardening, recovery, cost controls, accessibility and full regression tests", "status": "done"},
 ]

@@ -23,6 +23,7 @@ from modules.social_media import instagram
 from modules.social_media.classify import classify
 from modules.social_media.connection import ConnectionService, computed_status
 from modules.social_media.instagram import InstagramError
+from modules.social_media.safe_url import instagram_image, instagram_page
 from modules.social_media.models import (
     IgComment,
     IgConversation,
@@ -149,8 +150,8 @@ class InboxService:
             media.media_type = str(item.get("media_type") or "")[:30] or None
             media.product_type = str(item.get("media_product_type") or "")[:30] or None
             media.caption = item.get("caption") if isinstance(item.get("caption"), str) else None
-            media.permalink = str(item.get("permalink") or "")[:500] or None
-            media.thumbnail_url = str(item.get("thumbnail_url") or item.get("media_url") or "")[:1000] or None
+            media.permalink = instagram_page(item.get("permalink"))
+            media.thumbnail_url = instagram_image(item.get("thumbnail_url") or item.get("media_url"))
             media.posted_at = parse_time(item.get("timestamp"))
             media.comments_count = item.get("comments_count") if isinstance(item.get("comments_count"), int) else None
             media.post_id = ours.get(ident, media.post_id)

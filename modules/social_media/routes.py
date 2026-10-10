@@ -34,7 +34,10 @@ from modules.social_media.history import HistoryService
 from modules.social_media.art_routes import router as art_router
 from modules.social_media.analytics_routes import router as analytics_router
 from modules.social_media.lead_routes import router as lead_router
+from modules.social_media.ops_routes import router as ops_router
 from modules.social_media.connect_routes import router as connect_router
+from modules.social_media import health
+from modules.social_media.analytics import AnalyticsService
 from modules.social_media.attribution import AttributionService
 from modules.social_media.inbox import InboxService
 from modules.social_media.inbox_routes import router as inbox_router
@@ -51,6 +54,7 @@ router.include_router(connect_router)
 router.include_router(inbox_router)
 router.include_router(analytics_router)
 router.include_router(lead_router)
+router.include_router(ops_router)
 
 VIEW = "social_media.view"
 MANAGE = "social_media.manage"
@@ -151,6 +155,17 @@ async def overview(
         if inbox_counts["messages_need_reply"]:
             extra = f", {inbox_counts['messages_high_priority']} high priority" if inbox_counts["messages_high_priority"] else ""
             briefing.append(BriefingItem(level="action", message=f"{inbox_counts['messages_need_reply']} conversation(s) need a reply{extra}.", link="messages"))
+    for job in (j for j in await health.report(db, organization_id) if j["state"] in ("failed", "late")):
+        what = "failed on its last run" if job["state"] == "failed" else "hasn't run when it should"
+        briefing.insert(0, BriefingItem(level="warning", message=f"Background job \"{job['label']}\" {what}. Look at the server's job log if this stays.", link=None))
+    if connected:
+        recent = [r for r in await AnalyticsService(db).posts(organization_id, limit=40) if r["kind"] != "story" and r["metrics"].get("reach") is not None]
+        if len(recent) >= 4:
+            reaches = sorted(r["metrics"]["reach"] for r in recent)
+            typical = (reaches[len(reaches) // 2] + reaches[(len(reaches) - 1) // 2]) / 2
+            best = max(recent, key=lambda r: r["metrics"]["reach"])
+            if typical and best["metrics"]["reach"] >= 1.25 * typical:
+                briefing.append(BriefingItem(level="info", message=f"Strongest recent post: \"{(best['title'] or best['caption'] or 'a post')[:60]}\" reached {best['metrics']['reach']:,.0f} accounts, against a typical {typical:,.0f}.", link="analytics"))
     attention = await AttributionService(db).attention(organization_id)
     if attention["needs_first_contact"]:
         briefing.append(BriefingItem(level="action", message=f"{attention['needs_first_contact']} lead(s) from social media haven't been contacted yet.", link="leads"))

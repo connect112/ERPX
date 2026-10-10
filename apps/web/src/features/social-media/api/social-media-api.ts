@@ -885,6 +885,49 @@ export interface HashtagReport {
   trend: { available: boolean; reason: string };
 }
 
+// ---------------- background jobs, retention and erasure ----------------
+
+export interface JobHealth {
+  key: string;
+  label: string;
+  state: "ok" | "late" | "failed" | "never" | "idle";
+  applies: boolean;
+  runs_every_minutes: number;
+  last_finished_at: string | null;
+  last_ok: boolean | null;
+  last_error: string | null;
+  consecutive_failures: number;
+  last_count: number | null;
+}
+
+export interface RetentionCounts {
+  cutoff: string;
+  messages: number;
+  conversations: number;
+  comments: number;
+  reply_texts: number;
+  posts_read: number;
+  notifications: number;
+}
+
+export interface RetentionStatus {
+  retention_days: number;
+  past_the_period: RetentionCounts;
+  last_run_at: string | null;
+  last_run_ok: boolean | null;
+  last_run_removed: Record<string, number> | null;
+  keeps: string[];
+}
+
+export interface ErasureResult {
+  comments: number;
+  conversations: number;
+  messages: number;
+  reply_texts: number;
+  crm_leads: number;
+  erased: boolean;
+}
+
 export const socialMediaApi = {
   overview: () => apiClient.get<Overview>("/social-media/overview").then((r) => r.data),
   settings: () => apiClient.get<SocialSettings>("/social-media/settings").then((r) => r.data),
@@ -1006,6 +1049,11 @@ export const socialMediaApi = {
   funnel: (days: number) => apiClient.get<Funnel>("/social-media/leads/funnel", { params: { days } }).then((r) => r.data),
   socialLeads: () => apiClient.get<{ items: SocialLead[] }>("/social-media/leads/people").then((r) => r.data),
   hashtags: () => apiClient.get<HashtagReport>("/social-media/analytics/hashtags").then((r) => r.data),
+  jobHealth: () => apiClient.get<{ jobs: JobHealth[]; note: string }>("/social-media/health").then((r) => r.data),
+  retentionStatus: () => apiClient.get<RetentionStatus>("/social-media/privacy/retention").then((r) => r.data),
+  runRetention: (confirm: boolean) =>
+    apiClient.post<{ removed: Record<string, number> | null; would_remove: RetentionCounts | null }>("/social-media/privacy/retention/run", { confirm }).then((r) => r.data),
+  erasePerson: (handle: string, confirm: boolean) => apiClient.post<ErasureResult>("/social-media/privacy/erase", { handle, confirm }).then((r) => r.data),
   generateReport: (kind: "weekly" | "monthly", periodStart?: string) =>
     apiClient.post<Report>("/social-media/reports", { kind, period_start: periodStart }, { timeout: 60000 }).then((r) => r.data),
 };

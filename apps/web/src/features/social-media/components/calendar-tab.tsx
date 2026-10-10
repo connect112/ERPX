@@ -158,14 +158,14 @@ export function CalendarTab() {
               const limit = view === "month" ? 3 : 12;
               const dim = view === "month" && !isSameMonth(d, anchor);
               return (
-                <div key={key(d)} className={`min-h-24 space-y-0.5 bg-background p-1.5 ${dim ? "opacity-50" : ""}`}>
+                <div key={key(d)} className={`min-h-24 space-y-0.5 p-1.5 ${dim ? "bg-muted/40" : "bg-background"}`}>
                   <button
                     type="button"
                     onClick={() => {
                       setCursor(d);
                       setView("day");
                     }}
-                    className={`text-xs ${key(d) === todayKey ? "rounded bg-primary px-1.5 font-semibold text-primary-foreground" : "text-muted-foreground"}`}
+                    className={`text-xs ${key(d) === todayKey ? "rounded bg-primary px-1.5 font-semibold text-primary-foreground" : "text-foreground/70"}`}
                     aria-label={`Open ${format(d, "d MMMM")}`}
                   >
                     {format(d, "d")}

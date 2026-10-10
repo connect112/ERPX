@@ -13,6 +13,7 @@ import type { Post } from "@/features/social-media/api/social-media-api";
 import { useAttempts, useQueue, useReconcile, useResolve, useRetry, useUnschedule } from "@/features/social-media/api/social-media-hooks";
 import { ScheduleDialog } from "@/features/social-media/components/schedule-dialog";
 import { FORMAT_LABEL, STATUS_LABEL, STATUS_VARIANT, errorMessage, formatInZone } from "@/features/social-media/lib/format";
+import { safeHref } from "@/features/social-media/lib/links";
 
 function History({ postId, timeZone }: { postId: string; timeZone: string }) {
   const attempts = useAttempts(postId);
@@ -165,7 +166,7 @@ export function QueueTab() {
                   {historyId === post.id ? "Hide history" : "History"}
                 </Button>
                 {post.external_permalink && (
-                  <a className="inline-flex h-9 items-center gap-1 text-sm text-primary underline" href={post.external_permalink} target="_blank" rel="noreferrer noopener">
+                  <a className="inline-flex h-9 items-center gap-1 text-sm text-primary underline" href={safeHref(post.external_permalink)} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="h-3.5 w-3.5" /> On Instagram
                   </a>
                 )}

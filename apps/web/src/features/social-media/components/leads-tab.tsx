@@ -14,6 +14,7 @@ import type { FunnelRow, FunnelStage, Placement, TrackedLink } from "@/features/
 import { useCreateLink, useFunnel, useLeadOptions, useLinks, useSocialLeads, useUpdateLink } from "@/features/social-media/api/social-media-hooks";
 import { errorMessage, formatInZone } from "@/features/social-media/lib/format";
 import { formatDay, formatNumber } from "@/features/social-media/lib/numbers";
+import { safeHref } from "@/features/social-media/lib/links";
 
 const NATIVE_SELECT = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
 const ZONE = "Asia/Kolkata";
@@ -71,7 +72,7 @@ function RowsTable({ rows, first, showOpens }: { rows: FunnelRow[]; first: strin
               <td className="max-w-[240px] truncate py-2 pr-3 font-medium">
                 {ORIGIN_LABEL[r.label] ?? r.label}
                 {r.permalink && (
-                  <a href={r.permalink} target="_blank" rel="noreferrer" aria-label="Open on Instagram" className="ml-1 inline-block align-middle">
+                  <a href={safeHref(r.permalink)} target="_blank" rel="noopener noreferrer" aria-label="Open on Instagram" className="ml-1 inline-block align-middle">
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 )}

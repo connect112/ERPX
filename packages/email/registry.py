@@ -216,6 +216,26 @@ TEMPLATES: tuple[TemplateDef, ...] = (
         ),
     ),
     TemplateDef(
+        key="social_job_problem",
+        name="Social media job problem",
+        category="Social media",
+        description="Tells the people who run the social media page that a scheduled background job failed or has stopped running.",
+        when_sent="When a background job (publishing, reading comments, insights, reports) has failed or hasn't run when it should. At most once a day per job.",
+        subject="Social media: {{job}} needs attention",
+        body=(
+            "# {{job}} needs attention\n\n"
+            "A background job behind the social media page {{state}}.\n\n"
+            "> {{detail}}\n\n"
+            "Open Social Media > Overview in ERPX: {{overview_url}}"
+        ),
+        variables=(
+            Variable("job", "Which job", "Publishing scheduled posts"),
+            Variable("state", "What is wrong", "has failed"),
+            Variable("detail", "What was recorded", "It last finished 10 Oct 08:00 UTC and should run every 1 minute(s)."),
+            Variable("overview_url", "A link to the overview", "https://erp.example.com/social-media"),
+        ),
+    ),
+    TemplateDef(
         key="workshop_certificate",
         name="Exam certificate",
         category="Workshops & exams",

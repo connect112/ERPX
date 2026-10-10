@@ -15,6 +15,7 @@ import { CreateLeadDialog, type LeadTarget } from "@/features/social-media/compo
 import { useCanCreateLead } from "@/features/social-media/lib/use-can-create-lead";
 import { ReplyDialog, type ReplyTarget } from "@/features/social-media/components/reply-dialog";
 import { errorMessage, formatInZone } from "@/features/social-media/lib/format";
+import { safeHref } from "@/features/social-media/lib/links";
 
 const VIEWS: { value: CommentView; label: string }[] = [
   { value: "unanswered", label: "Unanswered" },
@@ -102,7 +103,7 @@ export function CommentsTab() {
                 <p className="flex items-center gap-1 text-xs text-muted-foreground">
                   <span className="truncate">On: {c.media.caption ? c.media.caption.slice(0, 80) : "a post"}</span>
                   {c.media.permalink && (
-                    <a href={c.media.permalink} target="_blank" rel="noreferrer" aria-label="Open the post on Instagram" className="shrink-0">
+                    <a href={safeHref(c.media.permalink)} target="_blank" rel="noopener noreferrer" aria-label="Open the post on Instagram" className="shrink-0">
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   )}
