@@ -33,6 +33,13 @@ class FakeInbox:
         self.sent_messages: list[tuple[str, str]] = []
         self.on_send = None  # called with ("comment"|"dm", text) just before a send answers (to look at the database)
         self.counter = 0
+        # insights: what Instagram would answer. A metric that isn't listed is simply not returned (unavailable), never 0.
+        self.profile: dict[str, int] = {"followers_count": 1200, "follows_count": 80, "media_count": 40}
+        self.account_by_day: dict = {}  # date -> {metric: value}
+        self.account_default: dict[str, float] | None = None  # used for any day not listed in account_by_day
+        self.refuse_account: set[str] = set()  # asking for any of these makes Instagram refuse the whole request
+        self.insights: dict[str, dict[str, float]] = {}  # media id -> {metric: value}
+        self.refuse_media: set[str] = set()
 
     def count(self, name: str) -> int:
         return sum(1 for method, _ in self.calls if method == name)
@@ -73,6 +80,25 @@ class FakeInbox:
         if message_id not in self.messages:
             raise InstagramError("permanent", "This message has been deleted.", code=100, http_status=400)
         return self.messages[message_id]
+
+    # ---- insights ----
+    async def profile_counts(self):
+        self._go("profile_counts")
+        return self.profile
+
+    async def account_totals(self, metrics, since, until):
+        self._go("account_totals", tuple(metrics), since.date())
+        if self.refuse_account.intersection(metrics):
+            raise InstagramError("permanent", "(#100) The metric is not supported.", code=100, http_status=400)
+        values = self.account_by_day.get(since.date(), self.account_default or {})
+        return {m: float(values[m]) for m in metrics if m in values}
+
+    async def media_insights(self, media_id, metrics):
+        self._go("media_insights", media_id, tuple(metrics))
+        if self.refuse_media.intersection(metrics):
+            raise InstagramError("permanent", "(#100) The metric is not supported for this media.", code=100, http_status=400)
+        values = self.insights.get(media_id, {})
+        return {m: float(values[m]) for m in metrics if m in values}
 
     # ---- sending (only ever reached through replies.py) ----
     async def reply_to_comment(self, comment_id, message):

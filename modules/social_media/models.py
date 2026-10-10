@@ -10,11 +10,11 @@ Changes to these tables are recorded by the application-wide audit hooks (module
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -413,3 +413,66 @@ class SocialReply(TimestampedBase):
     error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AccountDay(TimestampedBase):
+    """One account figure for one day. A day with no row means Instagram gave no value; it is never stored as zero.
+    `followers_count`, `follows_count` and `media_count` are snapshots taken when ERPX read them; the rest are Instagram's
+    own daily insight totals."""
+
+    __tablename__ = "social_account_days"
+    __table_args__ = (UniqueConstraint("organization_id", "day", "metric", name="uq_social_account_day_metric"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    metric: Mapped[str] = mapped_column(String(60), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MediaMetric(TimestampedBase):
+    """One lifetime figure for one post. `value` is null (with a note) when Instagram says it isn't available for that post."""
+
+    __tablename__ = "social_media_metrics"
+    __table_args__ = (UniqueConstraint("organization_id", "media_external_id", "metric", name="uq_social_media_metric"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    media_external_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    metric: Mapped[str] = mapped_column(String(60), nullable=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Experiment(TimestampedBase):
+    """A planned comparison (two hooks, two cover styles, two times...). ERPX records it and shows what was observed; it never
+    declares a cause."""
+
+    __tablename__ = "social_experiments"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    hypothesis: Mapped[str] = mapped_column(String(600), nullable=False)
+    variable: Mapped[str] = mapped_column(String(30), nullable=False)  # hook | cover_style | format | time | cta | other
+    metric: Mapped[str] = mapped_column(String(60), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="planned", server_default="planned", nullable=False)
+    audience: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    started_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ended_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    variants: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    conclusion: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Report(TimestampedBase):
+    """A weekly or monthly report. `data` is computed from stored figures only and carries the sources and caveats."""
+
+    __tablename__ = "social_reports"
+    __table_args__ = (UniqueConstraint("organization_id", "kind", "period_start", name="uq_social_report_period"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    generated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)  # weekly | monthly
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)

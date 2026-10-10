@@ -14,7 +14,7 @@ from modules.authorization.repository import AuthorizationRepository
 from app.core.config import settings as app_settings
 from modules.social_media import defaults, oauth
 from modules.social_media.connection import computed_status, days_left
-from modules.social_media.models import IgComment, IgConversation, PostStatus, SocialPost, SocialReply, WebhookEvent
+from modules.social_media.models import AccountDay, IgComment, IgConversation, MediaMetric, PostStatus, Report, SocialPost, SocialReply, WebhookEvent
 from modules.social_media.schemas import (
     AccountPublic,
     BriefingItem,
@@ -32,6 +32,7 @@ from modules.social_media.schemas import (
 from modules.social_media.service import OverviewService, PostService, SettingsService
 from modules.social_media.history import HistoryService
 from modules.social_media.art_routes import router as art_router
+from modules.social_media.analytics_routes import router as analytics_router
 from modules.social_media.connect_routes import router as connect_router
 from modules.social_media.inbox import InboxService
 from modules.social_media.inbox_routes import router as inbox_router
@@ -46,6 +47,7 @@ router.include_router(art_router)
 router.include_router(publish_router)
 router.include_router(connect_router)
 router.include_router(inbox_router)
+router.include_router(analytics_router)
 
 VIEW = "social_media.view"
 MANAGE = "social_media.manage"
@@ -81,7 +83,7 @@ def verified(key: str, status_now: str, published: dict, webhook_events: int, pr
     if key == "webhooks":
         return webhook_events > 0
     proof = proof or {}
-    needed = {"comments_read": "comments", "dm_read": "conversations", "comments_reply": "comment_replies", "dm_reply": "dm_replies"}
+    needed = {"comments_read": "comments", "dm_read": "conversations", "comments_reply": "comment_replies", "dm_reply": "dm_replies", "insights": "insight_values"}
     return key in needed and proof.get(needed[key], 0) > 0
 
 
@@ -146,6 +148,9 @@ async def overview(
         if inbox_counts["messages_need_reply"]:
             extra = f", {inbox_counts['messages_high_priority']} high priority" if inbox_counts["messages_high_priority"] else ""
             briefing.append(BriefingItem(level="action", message=f"{inbox_counts['messages_need_reply']} conversation(s) need a reply{extra}.", link="messages"))
+    newest_report = (await db.execute(select(Report).where(Report.organization_id == organization_id, Report.kind == "weekly").order_by(Report.period_start.desc()).limit(1))).scalar_one_or_none()
+    if newest_report is not None and (datetime.now(timezone.utc).date() - newest_report.period_end).days <= 9:
+        briefing.append(BriefingItem(level="info", message=f"The weekly report for {newest_report.period_start:%d %b} to {newest_report.period_end:%d %b} is ready.", link="reports"))
     upcoming = (
         await db.execute(
             select(SocialPost.scheduled_at)
@@ -230,6 +235,9 @@ async def integration(
     }
     events = (await db.execute(select(func.count()).select_from(WebhookEvent).where(WebhookEvent.organization_id == organization_id))).scalar_one()
     proof = {
+        # a real figure from Instagram (the profile counts, a daily insight or a post's insight) has been stored
+        "insight_values": (await db.execute(select(func.count()).select_from(AccountDay).where(AccountDay.organization_id == organization_id))).scalar_one()
+        + (await db.execute(select(func.count()).select_from(MediaMetric).where(MediaMetric.organization_id == organization_id, MediaMetric.value.is_not(None)))).scalar_one(),
         "comments": (await db.execute(select(func.count()).select_from(IgComment).where(IgComment.organization_id == organization_id))).scalar_one(),
         "conversations": (await db.execute(select(func.count()).select_from(IgConversation).where(IgConversation.organization_id == organization_id))).scalar_one(),
         "comment_replies": (await db.execute(select(func.count()).select_from(SocialReply).where(SocialReply.organization_id == organization_id, SocialReply.kind == "comment", SocialReply.status == "sent"))).scalar_one(),

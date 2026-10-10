@@ -537,6 +537,219 @@ export interface ReplyPayload {
 export type CommentView = "unanswered" | "recent" | "enquiries" | "complaints" | "spam" | "all";
 export type ConversationView = "needs_reply" | "enquiries" | "complaints" | "high_priority" | "all";
 
+// ---------------- analytics, experiments and reports ----------------
+
+export interface SeriesPoint {
+  day: string;
+  value: number | null;
+}
+
+export interface MetricCard {
+  key: string;
+  label: string;
+  kind: "observed" | "calculated";
+  source: string;
+  period: string;
+  definition: string;
+  limitation: string | null;
+  value: number | null;
+  value_kind: "total" | "daily_average";
+  daily_average: number | null;
+  days_with_data: number;
+  days_in_period: number;
+  last_synced_at: string | null;
+  series: SeriesPoint[];
+  previous_daily_average: number | null;
+  change_vs_previous: number | null;
+}
+
+export interface Snapshot {
+  key: string;
+  label: string;
+  kind: "observed";
+  source: string;
+  limitation: string | null;
+  latest: number | null;
+  latest_day: string | null;
+  last_synced_at: string | null;
+  series: SeriesPoint[];
+}
+
+export interface Consistency {
+  posts: number;
+  days_in_period: number;
+  days_with_a_post: number;
+  longest_gap_days: number | null;
+  kind: string;
+  source: string;
+  limitation: string;
+}
+
+export interface AnalyticsOverview {
+  period: { start: string; end: string; days: number };
+  cards: MetricCard[];
+  snapshots: Record<string, Snapshot>;
+  follower_change: { value: number | null; kind: string; source: string; limitation: string | null; from_day: string | null; to_day: string | null; note: string | null };
+  notes: string[];
+  consistency: Consistency;
+}
+
+export interface AnalyticsStatus {
+  connected: boolean;
+  can_read: boolean;
+  insights_capability: string | null;
+  last_sync_at: string | null;
+  stages: Record<string, { ok?: boolean; error?: string | null; count?: number }>;
+  unsupported_account_metrics: string[];
+  notes: string[];
+}
+
+export interface PostInsight {
+  external_id: string;
+  kind: "image" | "carousel" | "reel" | "story";
+  permalink: string | null;
+  caption: string;
+  posted_at: string | null;
+  thumbnail_url: string | null;
+  post_id: string | null;
+  title: string | null;
+  pillar: string | null;
+  hook: string;
+  cta: string;
+  time_of_day: string;
+  insights_read: boolean;
+  last_synced_at: string | null;
+  metrics: Record<string, number | null>;
+  unavailable: Record<string, string>;
+  interactions: number | null;
+  er_reach: number | null;
+  er_followers: number | null;
+}
+
+export interface Breakdown {
+  label: string;
+  posts: number;
+  median_reach: number | null;
+  reach_posts: number;
+  median_views: number | null;
+  views_posts: number;
+  median_saves: number | null;
+  saves_posts: number;
+  er_reach_pooled: number | null;
+  er_reach_posts: number;
+  caution: string | null;
+}
+
+export interface PostsAnalytics {
+  items: PostInsight[];
+  breakdowns: Record<"kind" | "pillar" | "hook" | "cta" | "time_of_day", Breakdown[]>;
+  pooled_note: string;
+  note: string;
+}
+
+export interface MetricDefinition {
+  key: string;
+  label: string;
+  scope: "account" | "post";
+  kind: "observed" | "calculated";
+  source: string;
+  period: string;
+  definition: string;
+  limitation: string | null;
+}
+
+export type ExperimentVariable = "hook" | "cover_style" | "format" | "time" | "cta" | "other";
+export type ExperimentMetric = "views" | "reach" | "likes" | "comments" | "saved" | "shares" | "total_interactions" | "interactions" | "er_reach";
+
+export interface ExperimentVariant {
+  label: string;
+  post_ids: string[];
+}
+
+export interface Experiment {
+  id: string;
+  name: string;
+  hypothesis: string;
+  variable: ExperimentVariable;
+  metric: ExperimentMetric;
+  status: "planned" | "running" | "concluded" | "dropped";
+  audience: string | null;
+  started_on: string | null;
+  ended_on: string | null;
+  variants: ExperimentVariant[];
+  conclusion: string | null;
+  created_at: string;
+}
+
+export interface ExperimentResults {
+  metric: string;
+  reading: string;
+  caution: string;
+  variants: {
+    label: string;
+    n: number;
+    median: number | null;
+    low: number | null;
+    high: number | null;
+    posts: { post_id: string; title: string | null; published: boolean; insights_read: boolean; value: number | null }[];
+  }[];
+}
+
+export interface ExperimentPayload {
+  name: string;
+  hypothesis: string;
+  variable: ExperimentVariable;
+  metric: ExperimentMetric;
+  audience?: string;
+  variants: ExperimentVariant[];
+}
+
+export interface ReportPost {
+  external_id: string;
+  title: string;
+  kind: string;
+  permalink: string | null;
+  posted_at: string | null;
+  reach: number | null;
+  views: number | null;
+  saves: number | null;
+  shares: number | null;
+  er_reach: number | null;
+}
+
+export interface ReportData {
+  period: { kind: "weekly" | "monthly"; start: string; end: string; days: number };
+  generated_at: string;
+  account: { cards: Omit<MetricCard, "series">[]; followers: { start: number | null; end: number | null; change: number | null; kind: string; source: string; limitation: string | null } };
+  posts: {
+    on_instagram: number;
+    insights_read: number;
+    published_from_erpx: number;
+    top: ReportPost[];
+    lowest: ReportPost[];
+    er_reach_pooled: number | null;
+    er_reach_posts: number;
+    er_reach_note: string;
+    by_format: Breakdown[];
+    by_pillar: Breakdown[];
+  };
+  consistency: Consistency;
+  experiments: { id: string; name: string; status: string; variable: string }[];
+  findings: { worked: string[]; didnt: string[]; test_next: string[] };
+  caveats: string[];
+}
+
+export interface Report {
+  id: string;
+  kind: "weekly" | "monthly";
+  period_start: string;
+  period_end: string;
+  generated_at: string;
+  generated_by: string | null;
+  automatic: boolean;
+  data: ReportData;
+}
+
 export const socialMediaApi = {
   overview: () => apiClient.get<Overview>("/social-media/overview").then((r) => r.data),
   settings: () => apiClient.get<SocialSettings>("/social-media/settings").then((r) => r.data),
@@ -634,4 +847,19 @@ export const socialMediaApi = {
   reconcileReply: (id: string) =>
     apiClient.post<{ note: string; reply: ReplyRecord }>(`/social-media/replies/${id}/reconcile`, null, { timeout: 60000 }).then((r) => r.data),
   resolveReply: (id: string, sent: boolean) => apiClient.post<ReplyRecord>(`/social-media/replies/${id}/resolve`, { sent }).then((r) => r.data),
+  analyticsStatus: () => apiClient.get<AnalyticsStatus>("/social-media/analytics/status").then((r) => r.data),
+  syncAnalytics: () =>
+    apiClient.post<{ skipped: boolean; message: string | null; stages: AnalyticsStatus["stages"] }>("/social-media/analytics/sync", null, { timeout: 180000 }).then((r) => r.data),
+  analyticsOverview: (days: number) => apiClient.get<AnalyticsOverview>("/social-media/analytics/overview", { params: { days } }).then((r) => r.data),
+  analyticsPosts: () => apiClient.get<PostsAnalytics>("/social-media/analytics/posts").then((r) => r.data),
+  metricDefinitions: () => apiClient.get<{ metrics: MetricDefinition[]; pooled_note: string }>("/social-media/analytics/metrics").then((r) => r.data),
+  experiments: () => apiClient.get<Experiment[]>("/social-media/experiments").then((r) => r.data),
+  experiment: (id: string) => apiClient.get<{ experiment: Experiment; results: ExperimentResults }>(`/social-media/experiments/${id}`).then((r) => r.data),
+  createExperiment: (payload: ExperimentPayload) => apiClient.post<Experiment>("/social-media/experiments", payload).then((r) => r.data),
+  updateExperiment: (id: string, payload: Partial<Pick<ExperimentPayload, "name" | "hypothesis" | "audience" | "variants">> & { status?: "running" | "concluded" | "dropped"; conclusion?: string }) =>
+    apiClient.patch<Experiment>(`/social-media/experiments/${id}`, payload).then((r) => r.data),
+  deleteExperiment: (id: string) => apiClient.delete(`/social-media/experiments/${id}`).then(() => undefined),
+  reports: (kind?: "weekly" | "monthly") => apiClient.get<Report[]>("/social-media/reports", { params: { kind } }).then((r) => r.data),
+  generateReport: (kind: "weekly" | "monthly", periodStart?: string) =>
+    apiClient.post<Report>("/social-media/reports", { kind, period_start: periodStart }, { timeout: 60000 }).then((r) => r.data),
 };

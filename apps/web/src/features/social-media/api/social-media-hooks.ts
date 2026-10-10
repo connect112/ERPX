@@ -5,6 +5,7 @@ import {
   type CommentView,
   type Conversation,
   type ConversationView,
+  type ExperimentPayload,
   type InboxComment,
   type ReplyPayload,
   type Design,
@@ -291,4 +292,55 @@ export function useReconcileReply() {
 
 export function useResolveReply() {
   return usePostMutation((v: { id: string; sent: boolean }) => socialMediaApi.resolveReply(v.id, v.sent));
+}
+
+
+// ---------------- analytics, experiments and reports ----------------
+
+export function useAnalyticsStatus() {
+  return useQuery({ queryKey: ["social-media", "analytics", "status"], queryFn: socialMediaApi.analyticsStatus });
+}
+
+export function useSyncAnalytics() {
+  return usePostMutation(() => socialMediaApi.syncAnalytics());
+}
+
+export function useAnalyticsOverview(days: number) {
+  return useQuery({ queryKey: ["social-media", "analytics", "overview", days], queryFn: () => socialMediaApi.analyticsOverview(days), placeholderData: keepPreviousData });
+}
+
+export function useAnalyticsPosts() {
+  return useQuery({ queryKey: ["social-media", "analytics", "posts"], queryFn: socialMediaApi.analyticsPosts });
+}
+
+export function useMetricDefinitions(enabled: boolean) {
+  return useQuery({ queryKey: ["social-media", "analytics", "metrics"], queryFn: socialMediaApi.metricDefinitions, enabled, staleTime: Infinity });
+}
+
+export function useExperiments() {
+  return useQuery({ queryKey: ["social-media", "experiments"], queryFn: socialMediaApi.experiments });
+}
+
+export function useExperiment(id: string | null) {
+  return useQuery({ queryKey: ["social-media", "experiments", id], queryFn: () => socialMediaApi.experiment(id as string), enabled: id !== null });
+}
+
+export function useCreateExperiment() {
+  return usePostMutation((payload: ExperimentPayload) => socialMediaApi.createExperiment(payload));
+}
+
+export function useUpdateExperiment() {
+  return usePostMutation((v: { id: string; payload: Parameters<typeof socialMediaApi.updateExperiment>[1] }) => socialMediaApi.updateExperiment(v.id, v.payload));
+}
+
+export function useDeleteExperiment() {
+  return usePostMutation((id: string) => socialMediaApi.deleteExperiment(id));
+}
+
+export function useReports() {
+  return useQuery({ queryKey: ["social-media", "reports"], queryFn: () => socialMediaApi.reports() });
+}
+
+export function useGenerateReport() {
+  return usePostMutation((v: { kind: "weekly" | "monthly"; periodStart?: string }) => socialMediaApi.generateReport(v.kind, v.periodStart));
 }
