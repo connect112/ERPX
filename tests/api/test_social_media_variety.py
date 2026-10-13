@@ -207,6 +207,17 @@ def test_a_logo_with_its_own_black_background_is_recognised_and_sits_on_a_dark_d
     assert chipped == (255, 255, 255), "a transparent logo still gets the light chip on a dark design"
 
 
+def test_the_black_of_such_a_logo_blends_into_the_design_instead_of_showing_as_a_box():
+    from PIL import ImageChops
+
+    with_logo = pixels(draw(logo=_logo((0, 0, 0, 255)))[0][0])
+    without = pixels(draw()[0][0])
+    box = ImageChops.difference(with_logo, without).convert("L").point(lambda v: 255 if v > 24 else 0).getbbox()
+    assert box is not None, "the logo is drawn"
+    # the whole logo image is 225 x 150 here; only its bright mark (about 75 x 60) may differ from the plain design
+    assert box[2] - box[0] < 120 and box[3] - box[1] < 100, f"the logo's black background shows: {box}"
+
+
 # ---------------- through the API ----------------
 
 DRAFT = {
