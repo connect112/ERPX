@@ -411,19 +411,39 @@ def _logo_has_dark_background(logo: Image.Image) -> bool:
     return all(c[3] > 250 and luminance(c[:3]) < 0.03 for c in corners)
 
 
+def _black_to_transparent(logo: Image.Image) -> Image.Image:
+    """Turns a logo's black background into transparency, so its glow blends into a dark design instead of showing as a box.
+    Each pixel is treated as colour over black: the brightest channel is the opacity and the colour is that pixel at full strength."""
+    rgba = logo.convert("RGBA")
+    pixels = []
+    for r, g, b, a in rgba.getdata():
+        m = max(r, g, b)
+        if m < 8 or a == 0:
+            pixels.append((0, 0, 0, 0))
+        else:
+            pixels.append((min(255, r * 255 // m), min(255, g * 255 // m), min(255, b * 255 // m), m * a // 255))
+    out = Image.new("RGBA", rgba.size)
+    out.putdata(pixels)
+    return out
+
+
 def _paste_logo(ctx: _Ctx, logo: Image.Image | None, y_bottom: int, dark_backdrop: bool) -> dict | None:
     """The approved logo, scaled and nothing else, on a light chip if the backdrop is dark (unless the logo already has its own
     dark background). Returns where it went."""
     if logo is None:
         return None
-    if dark_backdrop and logo.info.get(OWN_DARK_BACKGROUND):
+    blend = bool(dark_backdrop and logo.info.get(OWN_DARK_BACKGROUND))
+    target_h, max_w = 112, 360
+    if blend:
         dark_backdrop = False
-    target_h = 112
+        target_h, max_w = 150, 400  # such a logo has fine detail (a tagline), so it needs more room to be readable
     scale = target_h / logo.height
     size = (max(1, round(logo.width * scale)), target_h)
-    if size[0] > 360:
-        size = (360, max(1, round(logo.height * 360 / logo.width)))
+    if size[0] > max_w:
+        size = (max_w, max(1, round(logo.height * max_w / logo.width)))
     scaled = logo.resize(size, Image.LANCZOS)
+    if blend:
+        scaled = _black_to_transparent(scaled)
     x, y = MARGIN, y_bottom - size[1]
     if dark_backdrop:
         pad = 14
