@@ -5,9 +5,10 @@ Two decisions are made for each new post, from the topic and from what the accou
 
 - the format: an explainer, a how-to or a career topic reads best as a carousel (people swipe and save); a one-line alert or a
   single idea fits one strong image. If the last posts all used the same format, the other one is chosen.
-- the look: of the templates that need no extra picture (light "editorial", dark "statement", the brand-dark "neon"), the one
-  not used for the longest time, and never the same as the previous post. The neon template also changes its pattern, light and
-  text position from post to post on its own.
+- the look: of the templates that need no extra picture (light "editorial", dark "statement", the brand-dark "neon", a colour
+  panel over dark "split", and the full-colour "solid"), the one not used for the longest time, and never the same as the previous
+  post. Neon, split and solid also change their pattern or colour and the text position from post to post on their own. A logo that
+  brings its own black background melts into the dark looks and sits on a black badge on the light and colour ones.
 
 It is plain rules, not AI, so it costs nothing, gives the same answer for the same history, and always says why. A person can
 override both choices.
@@ -21,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.social_media.history import HistoryService
 
-TEMPLATES = ("neon", "statement", "editorial")  # the ones that need no picture
+TEMPLATES = ("neon", "statement", "split", "solid", "editorial")  # the ones that need no picture
 FORMATS = ("carousel", "image")
 LOOKBACK = 8
 
@@ -76,9 +77,7 @@ def decide(topic: str, notes: str, recent: list[dict], logo_on_dark: bool = Fals
     last = templates[0] if templates else None
     candidates = list(TEMPLATES)
     if kind == "alert":
-        candidates = ["statement", "neon"]  # high contrast, quick to read
-    elif logo_on_dark:
-        candidates = ["neon", "statement"]  # the logo has its own dark background, so the light look would show a black box
+        candidates = ["statement", "solid", "split"]  # high contrast, quick to read
     ranked = []
     for t in candidates:
         since = templates.index(t) if t in templates else len(templates) + 5  # larger = longer ago (or never)

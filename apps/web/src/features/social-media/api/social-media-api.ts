@@ -101,7 +101,7 @@ export interface Post {
   approval_withdrawn: boolean;
 }
 
-export type Template = "editorial" | "statement" | "photo" | "screenshot" | "neon";
+export type Template = "editorial" | "statement" | "photo" | "screenshot" | "neon" | "split" | "solid";
 
 export interface Design {
   template?: Template;

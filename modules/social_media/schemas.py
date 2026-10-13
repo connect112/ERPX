@@ -510,7 +510,7 @@ class UsageOverview(BaseModel):
 
 
 class Design(BaseModel):
-    template: Literal["editorial", "statement", "photo", "screenshot", "neon"] = "editorial"
+    template: Literal["editorial", "statement", "photo", "screenshot", "neon", "split", "solid"] = "editorial"
     # Changes the pattern, light and text position of the neon look. Left empty, it follows the post's own text, so every post differs.
     variant: int | None = Field(default=None, ge=0, le=999999)
     background_asset_id: uuid.UUID | None = None

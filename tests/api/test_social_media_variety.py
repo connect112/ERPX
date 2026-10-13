@@ -54,7 +54,7 @@ def test_an_explainer_is_a_carousel_and_an_alert_is_one_strong_image_when_there_
     explainer = planner.decide("What is a SIEM?", "", [])
     alert = planner.decide("CVE-2026-1234 is being patched", "", [])
     assert (explainer.format, explainer.topic_kind) == ("carousel", "explainer") and "swipe" not in explainer.reason and "carousel" in explainer.reason
-    assert alert.format == "image" and alert.template in ("statement", "neon"), "an alert gets a high-contrast look"
+    assert alert.format == "image" and alert.template in ("statement", "solid", "split"), "an alert gets a high-contrast look"
     assert explainer.reason and alert.reason
 
 
@@ -76,7 +76,7 @@ def test_the_look_is_never_the_same_as_the_last_post_and_rotates_through_all_of_
         looks.append(plan.template)
         history.insert(0, {"format": plan.format, "template": plan.template})
     assert all(a != b for a, b in zip(looks, looks[1:])), looks
-    assert set(looks) == {"neon", "statement", "editorial"}, "every look gets used"
+    assert set(looks) == {"neon", "statement", "split", "solid", "editorial"}, "every look gets used"
     counts = Counter(looks)
     assert max(counts.values()) - min(counts.values()) <= 1, counts
 
@@ -92,12 +92,14 @@ def test_a_long_run_of_posts_never_has_three_of_the_same_format_in_a_row_when_th
     assert set(formats) == {"carousel", "image"}
 
 
-def test_a_logo_with_its_own_dark_background_keeps_the_light_look_away():
+def test_a_logo_with_its_own_dark_background_does_not_narrow_the_choice_of_looks():
     history: list[dict] = []
-    for i in range(10):
+    looks = []
+    for i in range(15):
         plan = planner.decide(f"Plain topic {i}", "", history, logo_on_dark=True)
-        assert plan.template in ("neon", "statement"), plan
+        looks.append(plan.template)
         history.insert(0, {"format": plan.format, "template": plan.template})
+    assert set(looks) == {"neon", "statement", "split", "solid", "editorial"}, looks
 
 
 def test_the_same_history_always_gives_the_same_answer():
@@ -173,6 +175,42 @@ def test_the_palette_accepts_the_second_brand_colour_and_older_settings_without_
     assert render.palette_of(BRAND["colors"]).accent2 == (6, 180, 215)
     old = {k: v for k, v in BRAND["colors"].items() if k != "accent2"}
     assert render.palette_of(old).accent2 == (6, 180, 215), "settings saved before the second colour existed still work"
+
+
+# ---------------- the looks ----------------
+
+
+@pytest.mark.parametrize("template", ["neon", "statement", "split", "solid", "editorial"])
+@pytest.mark.parametrize("variant", [0, 2, 4, 5, 9])
+def test_every_look_is_readable_with_and_without_a_black_background_logo(template, variant):
+    on_black = _logo((0, 0, 0, 255))
+    for logo in (None, on_black):
+        images, _ = draw(design={"template": template, "variant": variant}, content={"support_line": "One short sentence that gives the answer."}, logo=logo)
+        validation = images[0].validation
+        assert validation["ok"], (template, variant, validation["problems"])
+        assert all(block["contrast_ok"] for block in images[0].metrics["blocks"]) if "blocks" in images[0].metrics else True
+
+
+def test_the_looks_really_look_different_from_one_another():
+    pictures = {t: pixels(draw(design={"template": t, "variant": 3})[0][0]).resize((1, 1), Image.BOX).getpixel((0, 0)) for t in ("neon", "statement", "split", "solid", "editorial")}
+    names = list(pictures)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if {a, b} == {"neon", "statement"}:
+                continue  # both are dark; they differ by the circuit pattern and light, checked below
+            assert sum(abs(x - y) for x, y in zip(pictures[a], pictures[b])) > 20, (a, b, pictures)
+    from PIL import ImageChops
+
+    neon, statement = pixels(draw(design={"template": "neon", "variant": 3})[0][0]), pixels(draw(design={"template": "statement", "variant": 3})[0][0])
+    assert ImageChops.difference(neon, statement).convert("L").point(lambda v: 255 if v > 24 else 0).getbbox() is not None
+
+
+def test_a_black_background_logo_sits_on_a_black_badge_on_light_and_colour_looks():
+    on_black = _logo((0, 0, 0, 255))
+    for template in ("solid", "editorial"):
+        image = pixels(draw(design={"template": template, "variant": 3}, logo=on_black)[0][0])
+        # just inside the badge's top-left corner the colour is black, not the design's own colour
+        assert max(image.getpixel((96 - 6, image.height - 96 - 128 + 4))) < 30, template
 
 
 # ---------------- the logo ----------------
