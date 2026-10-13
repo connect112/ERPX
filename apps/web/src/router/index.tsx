@@ -88,6 +88,8 @@ const MarketingOverviewPage = lazy(() => import("@/features/marketing/analytics/
 const WorkshopDetailPage = lazy(() => import("@/features/workshops/pages/workshop-detail-page").then((m) => ({ default: m.WorkshopDetailPage })));
 const WorkshopExamsListPage = lazy(() => import("@/features/workshop-exams/pages/workshop-exams-list-page").then((m) => ({ default: m.WorkshopExamsListPage })));
 const WorkshopExamDetailPage = lazy(() => import("@/features/workshop-exams/pages/workshop-exam-detail-page").then((m) => ({ default: m.WorkshopExamDetailPage })));
+const PrivacyPolicyPage = lazy(() => import("@/features/legal/pages/legal-page").then((m) => ({ default: m.PrivacyPolicyPage })));
+const DataDeletionPage = lazy(() => import("@/features/legal/pages/legal-page").then((m) => ({ default: m.DataDeletionPage })));
 const PublicRegisterPage = lazy(() => import("@/features/workshop-exams/pages/public-register-page").then((m) => ({ default: m.PublicRegisterPage })));
 const PublicExamPage = lazy(() => import("@/features/workshop-exams/pages/public-exam-page").then((m) => ({ default: m.PublicExamPage })));
 const VerifyWorkshopCertificatePage = lazy(() => import("@/features/workshop-exams/pages/verify-certificate-page").then((m) => ({ default: m.VerifyWorkshopCertificatePage })));
@@ -313,6 +315,23 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <VerifyWorkshopCertificatePage />
+      </Suspense>
+    ),
+  },
+  // Public legal pages (Meta requires reachable privacy and data-deletion addresses for the Instagram integration).
+  {
+    path: "/privacy",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <PrivacyPolicyPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: "/data-deletion",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <DataDeletionPage />
       </Suspense>
     ),
   },
