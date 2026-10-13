@@ -69,11 +69,15 @@ def backoff(attempt: int, rng: random.Random | None = None) -> timedelta:
 
 
 def compose_caption(post: SocialPost) -> str:
-    """Exactly what is posted as the caption: the caption, the call to action, then the hashtags. Stories have none."""
+    """Exactly what is posted as the caption: the caption, the call to action (unless the caption already says it), then the hashtags. Stories have none."""
     if post.format == "story":
         return ""
     content = post.content or {}
-    parts = [str(content.get("caption") or "").strip(), str(content.get("cta") or "").strip()]
+    caption, cta = str(content.get("caption") or "").strip(), str(content.get("cta") or "").strip()
+    # A call to action the caption already says is not said twice.
+    if cta and " ".join(cta.lower().split()) in " ".join(caption.lower().split()):
+        cta = ""
+    parts = [caption, cta]
     tags = " ".join(f"#{t}" for t in content.get("hashtags") or [])
     if tags:
         parts.append(tags)

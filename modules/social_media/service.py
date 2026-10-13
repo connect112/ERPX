@@ -304,7 +304,8 @@ class PostService:
     @staticmethod
     def _check_can_approve(post: SocialPost, payload: PostTransition) -> None:
         content = post.content or {}
-        if not (content.get("caption") or "").strip():
+        # A Story is published without a caption, so it can't be required to have one.
+        if post.format != PostFormat.STORY.value and not (content.get("caption") or "").strip():
             raise ValidationError("Write a caption before approving this post.")
         if post.format == PostFormat.CAROUSEL.value:
             count = len(content.get("slides") or [])
