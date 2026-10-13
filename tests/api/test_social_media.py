@@ -215,6 +215,18 @@ async def test_a_post_needs_a_caption_and_no_unresolved_claims_to_be_approved(cl
         assert response.status_code == 422, status_value
 
 
+async def test_a_story_can_be_approved_without_a_caption_because_it_is_posted_without_one(client, auth_headers):
+    story = await _create(client, auth_headers, format="story", content={"headline": "Learn cybersecurity, step by step."})
+    assert (await _act(client, auth_headers, story["id"], "submit")).status_code == 200
+    approved = await _act(client, auth_headers, story["id"], "approve")
+    assert approved.status_code == 200 and approved.json()["status"] == "approved"
+    # every other format still needs its caption
+    for fmt in ("image", "carousel", "reel"):
+        post = await _create(client, auth_headers, format=fmt, content={"headline": "h", "slides": [{"heading": "a", "body": "b"}, {"heading": "c", "body": "d"}] if fmt == "carousel" else []})
+        await _act(client, auth_headers, post["id"], "submit")
+        assert (await _act(client, auth_headers, post["id"], "approve")).status_code == 422, fmt
+
+
 async def test_marking_claims_verified_needs_sources_and_the_approve_permission(client, auth_headers, manager_headers):
     post = await _create(client, manager_headers, verification_status="unverified", time_sensitive=True)
     denied = await client.patch(f"{_BASE}/posts/{post['id']}", json={"verification_status": "verified"}, headers=manager_headers)

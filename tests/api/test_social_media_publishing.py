@@ -1023,3 +1023,16 @@ def test_every_publishing_task_is_registered_and_scheduled():
     assert names <= set(celery_app.tasks)
     scheduled = {entry["task"] for entry in celery_app.conf.beat_schedule.values()}
     assert {"social.publish_due", "social.recover_publishing"} <= scheduled
+
+
+def test_a_call_to_action_the_caption_already_says_is_not_added_twice():
+    from modules.social_media.models import SocialPost
+    from modules.social_media.publisher import compose_caption
+
+    def post(caption, cta):
+        return SocialPost(format="image", content={"caption": caption, "cta": cta, "hashtags": ["soc"]})
+
+    said = compose_caption(post("A SIEM collects logs." + chr(10) * 2 + "Save this for later.", "Save this for later."))
+    assert said.count("Save this for later.") == 1 and said.endswith("#soc")
+    assert compose_caption(post("A SIEM collects logs.", "  save   THIS for later. ")).lower().count("this for later") == 1, "added once when the caption lacks it"
+    assert "Save this" in compose_caption(post("A SIEM collects logs.", "Save this for later.")) and compose_caption(post("Nothing to add.", "")).startswith("Nothing to add.")
