@@ -53,6 +53,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
   const [hashtags, setHashtags] = useState("");
   const [altText, setAltText] = useState("");
   const [thumbnailText, setThumbnailText] = useState("");
+  const [supportLine, setSupportLine] = useState("");
   const [visualDirection, setVisualDirection] = useState("");
   const [slides, setSlides] = useState("");
   const [sources, setSources] = useState("");
@@ -74,6 +75,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
     setHashtags((c?.hashtags ?? []).map((h) => `#${h}`).join(" "));
     setAltText(c?.alt_text ?? "");
     setThumbnailText(c?.thumbnail_text ?? "");
+    setSupportLine(c?.support_line ?? "");
     setVisualDirection(c?.visual_direction ?? "");
     setSlides((c?.slides ?? []).map((s) => [s.heading, s.body].filter(Boolean).join(" | ")).join("\n"));
     setSources(sourcesToText(post));
@@ -108,6 +110,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
         hashtags: hashtags.split(/[\s,]+/).filter(Boolean),
         alt_text: altText,
         thumbnail_text: thumbnailText,
+        support_line: supportLine,
         visual_direction: visualDirection,
         slides: slideRows,
       },
@@ -199,6 +202,12 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
             <Label htmlFor="sm-thumb">Text on the cover</Label>
             <Input id="sm-thumb" value={thumbnailText} maxLength={120} onChange={(e) => setThumbnailText(e.target.value)} />
           </div>
+          {format !== "carousel" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="sm-support">Answer line on the image</Label>
+              <Input id="sm-support" value={supportLine} maxLength={160} placeholder="One sentence that gives the answer, shown under the headline" onChange={(e) => setSupportLine(e.target.value)} />
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="sm-alt">Alt text</Label>
             <Input id="sm-alt" value={altText} maxLength={420} onChange={(e) => setAltText(e.target.value)} />

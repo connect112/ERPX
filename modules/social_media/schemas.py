@@ -27,6 +27,7 @@ class Colors(BaseModel):
     primary: str
     accent: str
     muted: str
+    accent2: str = "#06B4D7"  # the second brand colour (the logo's cyan)
 
     @field_validator("*")
     @classmethod
@@ -259,6 +260,8 @@ class PostContent(BaseModel):
     hashtags: list[str] = Field(default_factory=list, max_length=HASHTAG_LIMIT)
     alt_text: str = Field(default="", max_length=420)
     thumbnail_text: str = Field(default="", max_length=120)
+    # One short sentence shown under the headline of a single image: the answer or the takeaway, so it isn't only in the caption.
+    support_line: str = Field(default="", max_length=160)
     visual_direction: str = Field(default="", max_length=1000)
     asset_key: str | None = Field(default=None, max_length=300)
     slides: list[Slide] = Field(default_factory=list, max_length=CAROUSEL_MAX)
@@ -460,6 +463,13 @@ class GenerateRequest(BaseModel):
     research_item_ids: list[uuid.UUID] = Field(default_factory=list, max_length=5)
     notes: str = Field(default="", max_length=500)
     time_sensitive: bool = False
+    # Let ERPX choose the format and the look from the topic and the recent posts (and say why). Overrides `format`.
+    auto: bool = False
+
+
+class PlanRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+    notes: str = Field(default="", max_length=500)
 
 
 class RegenerateRequest(BaseModel):
@@ -500,7 +510,9 @@ class UsageOverview(BaseModel):
 
 
 class Design(BaseModel):
-    template: Literal["editorial", "statement", "photo", "screenshot"] = "editorial"
+    template: Literal["editorial", "statement", "photo", "screenshot", "neon"] = "editorial"
+    # Changes the pattern, light and text position of the neon look. Left empty, it follows the post's own text, so every post differs.
+    variant: int | None = Field(default=None, ge=0, le=999999)
     background_asset_id: uuid.UUID | None = None
     # None = use the default (the pillar's name as the kicker, the post's headline, no supporting line).
     kicker: str | None = Field(default=None, max_length=40)

@@ -154,5 +154,13 @@ class AssetService:
             raise ValidationError("Only an image uploaded as a logo can be the approved logo.")
         brand = dict(settings.brand)
         brand["logo_key"] = asset.storage_key
+        # A logo that comes with its own solid dark background looks wrong on a light design, so remember it for the planner.
+        try:
+            from modules.social_media import render
+
+            raw = await self.storage.read_bytes(asset.storage_key)
+            brand["logo_on_dark"] = render._logo_has_dark_background(render.load_image(raw, "logo").convert("RGBA"))
+        except Exception:  # noqa: BLE001 - never block choosing a logo because the check couldn't run
+            brand.pop("logo_on_dark", None)
         settings.brand = brand
         await self.db.flush()

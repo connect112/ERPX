@@ -21,6 +21,7 @@ const NATIVE_SELECT =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
 
 const TEMPLATES: { value: Template; label: string; hint: string }[] = [
+  { value: "neon", label: "Pentrix dark (circuit)", hint: "The brand-dark look with the logo's green and cyan. Its circuit pattern, light and text position change from post to post." },
   { value: "editorial", label: "Editorial (light)", hint: "Plain light background, one headline. The default." },
   { value: "statement", label: "Statement (dark)", hint: "Dark background, one bold line." },
   { value: "photo", label: "Photo", hint: "A photograph or background behind the headline, darkened so it stays readable." },

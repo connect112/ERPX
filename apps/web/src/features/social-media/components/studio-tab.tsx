@@ -32,6 +32,7 @@ export function StudioTab({ selected, onSelectedChange, onOpenPosts }: Props) {
 
   const [topic, setTopic] = useState("");
   const [format, setFormat] = useState<PostFormat>("image");
+  const [auto, setAuto] = useState(true);
   const [pillar, setPillar] = useState("");
   const [persona, setPersona] = useState("");
   const [notes, setNotes] = useState("");
@@ -54,6 +55,7 @@ export function StudioTab({ selected, onSelectedChange, onOpenPosts }: Props) {
       {
         topic: topic.trim(),
         format,
+        auto,
         pillar: pillar || null,
         persona_key: persona || null,
         research_item_ids: selected,
@@ -107,9 +109,18 @@ export function StudioTab({ selected, onSelectedChange, onOpenPosts }: Props) {
             <Label htmlFor="st-topic">Topic</Label>
             <Input id="st-topic" value={topic} maxLength={300} placeholder="e.g. What a SOC analyst does in a day" onChange={(e) => setTopic(e.target.value)} />
           </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+              <span>
+                Let ERPX choose the format and look for this post
+                <span className="block text-xs text-muted-foreground">It picks a carousel or a single image from the topic, and a visual look that hasn&apos;t been used lately, so the feed doesn&apos;t repeat itself. It tells you why, and you can change both afterwards.</span>
+              </span>
+            </label>
+          </div>
           <div className="space-y-1.5">
             <Label htmlFor="st-format">Format</Label>
-            <select id="st-format" className={NATIVE_SELECT} value={format} onChange={(e) => setFormat(e.target.value as PostFormat)}>
+            <select id="st-format" className={NATIVE_SELECT} value={format} disabled={auto} onChange={(e) => setFormat(e.target.value as PostFormat)}>
               {(Object.keys(FORMAT_LABEL) as PostFormat[]).map((key) => (
                 <option key={key} value={key}>
                   {FORMAT_LABEL[key]}
@@ -201,6 +212,11 @@ export function StudioTab({ selected, onSelectedChange, onOpenPosts }: Props) {
             <CardDescription>It is a draft. Nothing is approved or published.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
+            {made.generation?.plan && (
+              <p className="rounded-md bg-muted/40 p-3 text-xs">
+                <span className="font-medium">Why this format and look:</span> {made.generation.plan.reason}
+              </p>
+            )}
             <p className="whitespace-pre-wrap">{made.content.caption}</p>
             {made.warnings.length > 0 ? (
               <ul className="space-y-1 text-xs">

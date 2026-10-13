@@ -13,12 +13,14 @@ from modules.authorization.dependencies import require_permissions
 from modules.social_media import image_provider
 from modules.social_media.checks import check_and_store
 from modules.social_media.history import HistoryService
+from modules.social_media.planner import Planner
 from modules.social_media.research import SOURCE_LABELS, ResearchService, SourceUnavailable
 from modules.social_media.schemas import (
     CveLookup,
     GenerateRequest,
     HistoryOverview,
     PillarBalanceOut,
+    PlanRequest,
     PostPublic,
     RefreshResult,
     RegenerateRequest,
@@ -112,6 +114,18 @@ async def dismiss_research(
 # ---------------- studio ----------------
 
 
+@router.post("/studio/plan")
+async def plan_post(
+    payload: PlanRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions(VIEW)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Which format and look ERPX would choose for this topic, given the recent posts, and why. Nothing is created."""
+    settings = await SettingsService(db).get(organization_id)
+    return await Planner(db).plan(organization_id, payload.topic.strip(), payload.notes.strip(), bool((settings.brand or {}).get("logo_on_dark")))
+
+
 @router.post("/studio/generate", response_model=PostPublic, status_code=status.HTTP_201_CREATED)
 async def generate_draft(
     payload: GenerateRequest,
@@ -122,17 +136,19 @@ async def generate_draft(
     """Draft a post with AI from the brand strategy and the selected research. The result is always a DRAFT: nothing is
     approved, scheduled or published. It is checked automatically and then needs a person's review."""
     settings = await SettingsService(db).get(organization_id)
+    plan = await Planner(db).plan(organization_id, payload.topic.strip(), payload.notes.strip(), bool((settings.brand or {}).get("logo_on_dark"))) if payload.auto else None
     post = await ContentStudio(db).generate(
         organization_id,
         user.id,
         settings,
         topic=payload.topic.strip(),
-        post_format=payload.format.value,
+        post_format=plan["format"] if plan else payload.format.value,
         pillar=payload.pillar,
         persona_key=payload.persona_key,
         research_item_ids=payload.research_item_ids,
         notes=payload.notes.strip(),
         time_sensitive=payload.time_sensitive,
+        plan=plan,
     )
     result = PostService.public(post)
     await db.commit()

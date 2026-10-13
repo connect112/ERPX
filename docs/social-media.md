@@ -324,6 +324,20 @@ Deploying: migration 0077 and a restart of api, web, celery worker and beat (new
 `social.check_health`); no RBAC seed. The full report, environment variables, blocked live tests, costs and recovery procedures are
 in [social-media-report.md](social-media-report.md).
 
+## Post variety and the Pentrix look
+
+- **Auto format and look** (`POST /studio/plan`, and `auto: true` on generate; on by default in Studio): `planner.py` decides, by plain
+  rules and without AI, whether a topic is a carousel (explainers, how-tos, career) or one strong image (alerts), then picks the
+  look (neon, statement, editorial) that was used least recently and never the same as the previous post. After two posts of one
+  format in a row it switches. The reason is stored in `generation.plan` and shown in Studio; a person can change both afterwards.
+- **Neon template**: the brand-dark look from the logo (green and cyan). Its circuit pattern, glow and headline position come from a
+  per-post seed (`design.variant`, or a hash of the title and headline), so two neon posts never match.
+- **Answer line**: a single image can carry one sentence under the headline (`content.support_line`) so the answer is on the image,
+  not only in the caption. The headline keeps the 90-character cover limit; the line gets up to 80 more.
+- **Logo**: when a logo is chosen, `brand.logo_on_dark` records whether it brings its own dark background; such a logo is not put
+  on a white chip, and the planner only picks dark looks for it. Saving the Strategy settings keeps the flag for the same logo.
+- The palette defaults (taken from the logo) stay unconfirmed until a person confirms them under Strategy.
+
 ## Status
 
 All six planned phases are built. Nothing has run against a real Instagram account yet; see the blocked live tests in the report.
