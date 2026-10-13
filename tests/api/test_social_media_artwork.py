@@ -156,10 +156,20 @@ def test_the_logo_is_placed_pixel_for_pixel_with_only_its_empty_margin_trimmed()
 
 
 def test_the_logo_gets_a_light_chip_on_a_dark_design_so_it_stays_visible():
-    logo = png((300, 120), (10, 10, 10), mode="RGBA")
-    (image,), _ = draw(design={"template": "statement"}, logo=logo)
+    mark = Image.new("RGBA", (300, 120), (0, 0, 0, 0))  # a dark mark on a transparent background, like most logos
+    mark.paste((10, 10, 10, 255), (60, 20, 240, 100))
+    buffer = io.BytesIO()
+    mark.save(buffer, format="PNG")
+    (image,), _ = draw(design={"template": "statement"}, logo=buffer.getvalue())
     chip = pixels(image).getpixel((render.MARGIN - 6, 1350 - render.MARGIN - 60))
     assert chip == (255, 255, 255)
+
+
+def test_a_logo_that_brings_its_own_dark_background_is_not_put_on_a_white_chip():
+    logo = png((300, 120), (0, 0, 0), mode="RGBA")
+    (image,), _ = draw(design={"template": "neon"}, logo=logo)
+    chip = pixels(image).getpixel((render.MARGIN - 6, 1350 - render.MARGIN - 60))
+    assert chip != (255, 255, 255)
 
 
 def test_templates_that_need_a_picture_say_so():
@@ -170,7 +180,7 @@ def test_templates_that_need_a_picture_say_so():
     with pytest.raises(render.RenderError, match="couldn't be read"):
         draw(design={"template": "photo"}, picture=b"not an image")
     with pytest.raises(render.RenderError, match="Choose one"):
-        draw(design={"template": "neon"})
+        draw(design={"template": "no-such-look"})
 
 
 def test_the_fingerprint_follows_exactly_what_is_shown():
@@ -390,6 +400,30 @@ async def test_the_logo_setting_cannot_point_at_a_file_that_is_not_this_organisa
     stolen = await client.put(f"{_BASE}/settings", json={"brand": {**brand, "logo_key": their_key}}, headers=auth_headers)
     assert stolen.status_code == 422, "another organisation's logo can't be used"
     assert (await client.delete(f"{_BASE}/assets/{theirs['id']}", headers=auth_headers)).status_code == 404
+
+
+async def test_a_logo_with_its_own_dark_background_is_remembered_and_survives_saving_the_settings(client, auth_headers, storage, db_session, organization):
+    from modules.social_media.models import SocialSettings
+
+    async def flag():
+        row = (await db_session.execute(select(SocialSettings).where(SocialSettings.organization_id == organization.id))).scalar_one()
+        await db_session.refresh(row)
+        return (row.brand or {}).get("logo_on_dark")
+
+    dark = (await _upload(client, auth_headers, png((300, 300), (0, 0, 0), mode="RGBA"), kind="logo", name="dark.png")).json()
+    assert (await client.post(f"{_BASE}/assets/{dark['id']}/use-as-logo", headers=auth_headers)).status_code == 200
+    assert await flag() is True
+    brand = (await client.get(f"{_BASE}/settings", headers=auth_headers)).json()["brand"]
+    assert (await client.put(f"{_BASE}/settings", json={"brand": brand}, headers=auth_headers)).status_code == 200
+    assert await flag() is True, "saving the settings must not forget it"
+
+    clear = Image.new("RGBA", (300, 300), (0, 0, 0, 0))
+    clear.paste((20, 120, 60, 255), (100, 100, 200, 200))
+    buffer = io.BytesIO()
+    clear.save(buffer, format="PNG")
+    transparent = (await _upload(client, auth_headers, buffer.getvalue(), kind="logo", name="clear.png")).json()
+    assert (await client.post(f"{_BASE}/assets/{transparent['id']}/use-as-logo", headers=auth_headers)).status_code == 200
+    assert await flag() is False
 
 
 # ---------------- designs and rendering ----------------

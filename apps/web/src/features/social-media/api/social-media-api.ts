@@ -28,6 +28,7 @@ export interface PostContent {
   hashtags: string[];
   alt_text: string;
   thumbnail_text: string;
+  support_line?: string;
   visual_direction: string;
   asset_key: string | null;
   slides: Slide[];
@@ -46,7 +47,17 @@ export interface PostWarning {
   code?: string | null;
 }
 
+export interface PostPlan {
+  format: string;
+  template: string;
+  topic_kind: string;
+  reason: string;
+  recent_formats: string[];
+  recent_templates: string[];
+}
+
 export interface Generation {
+  plan?: PostPlan;
   model?: string;
   research_items?: string[];
   hashtag_basis?: string;
@@ -90,11 +101,12 @@ export interface Post {
   approval_withdrawn: boolean;
 }
 
-export type Template = "editorial" | "statement" | "photo" | "screenshot";
+export type Template = "editorial" | "statement" | "photo" | "screenshot" | "neon";
 
 export interface Design {
   template?: Template;
   background_asset_id?: string | null;
+  variant?: number | null;
   kicker?: string | null;
   headline?: string | null;
   subline?: string | null;
@@ -399,6 +411,7 @@ export interface GeneratePayload {
   research_item_ids: string[];
   notes?: string;
   time_sensitive?: boolean;
+  auto?: boolean;
 }
 
 export type RewriteElement = "hooks" | "headline" | "caption" | "cta" | "hashtags" | "thumbnail_text" | "visual_direction" | "alt_text";

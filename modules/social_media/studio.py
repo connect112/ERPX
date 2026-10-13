@@ -27,19 +27,20 @@ from modules.social_media.checks import check_and_store
 from modules.social_media.models import PostFormat, PostStatus, ResearchItem, SocialPost, SocialSettings, VerificationStatus
 from modules.social_media.schemas import PostContent, PostUpdate
 from modules.social_media.service import PostService
+from modules.social_media.render import SUPPORT_ALLOWANCE
 from modules.social_media.usage import UsageService
 from packages.ai.client import AICompletionResult, AIMessage, get_ai_client
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "2026-10-p2a"
+PROMPT_VERSION = "2026-10-p7"
 ELEMENTS = ("hooks", "headline", "caption", "cta", "hashtags", "thumbnail_text", "visual_direction", "alt_text")
 MAX_ITEMS = 5
 MAX_TOKENS = 2800
 CALL_TIMEOUT = 90.0
 
 FORMAT_GUIDE = {
-    PostFormat.IMAGE.value: "A single image post: one idea, one focal point.",
+    PostFormat.IMAGE.value: "A single image post: one idea, one focal point. The image shows a short headline and support_line: the headline poses or states the idea and the support_line GIVES the answer or takeaway in one sentence, so the post is worth reading before anyone opens the caption.",
     PostFormat.CAROUSEL.value: "A carousel of 3 to 8 short slides (slides[] each with a short heading and at most 2 short sentences). The first slide is the hook; the last is a takeaway.",
     PostFormat.REEL.value: "A Reel CONCEPT: put the script and shot list in visual_direction. No video exists yet, so never write as if it did.",
     PostFormat.STORY.value: "A Story: a very short, single-screen message.",
@@ -53,6 +54,7 @@ class GeneratedDraft(BaseModel):
     cta: str = Field(default="", max_length=200)
     hashtags: list[str] = Field(default_factory=list, max_length=15)
     thumbnail_text: str = Field(default="", max_length=120)
+    support_line: str = Field(default="", max_length=300)
     visual_direction: str = Field(default="", max_length=1000)
     alt_text: str = Field(default="", max_length=420)
     slides: list[dict] = Field(default_factory=list, max_length=10)
@@ -120,13 +122,14 @@ Hard rules:
 - Never promise jobs, salaries, placements, fees, batch dates, schedules, follower growth or virality. Never state course details; mention a training program only if the request asks for it, without specifics.
 - Never make a claim that something is "actively exploited", "critical" or has a CVSS score unless the sources state it.
 - Hashtags: at most 8, relevant to this exact topic, no claims about their popularity.
+- Do not repeat the call to action inside the caption: put it only in the cta field.
 - The headline must be at most {rules.get('max_headline_words', 8)} words and the cover text (thumbnail_text) at most {rules.get('max_cover_text_chars', 90)} characters. One idea per cover.
 - Hooks: give 3 to 5 different opening lines.
 Prohibited claims for this brand:
 {prohibited}
 
 Reply with ONLY one JSON object, no other text, with these keys:
-hooks (list of strings), headline, caption, cta, hashtags (list, without #), thumbnail_text, visual_direction, alt_text, slides (list of {{"heading","body"}}, only for carousels, else []), objective (one sentence: what this post is for), claims (list of every factual statement the post makes, one per entry)."""
+hooks (list of strings), headline, caption, cta, hashtags (list, without #), thumbnail_text, support_line (one sentence of at most 18 words that gives the answer or takeaway, shown under the headline on a single image; empty for a carousel), visual_direction, alt_text, slides (list of {{"heading","body"}}, only for carousels, else []), objective (one sentence: what this post is for), claims (list of every factual statement the post makes, one per entry)."""
 
 
 def _extract_json(text: str) -> dict:
@@ -212,6 +215,7 @@ class ContentStudio:
         research_item_ids: list[uuid.UUID],
         notes: str,
         time_sensitive: bool,
+        plan: dict | None = None,
     ) -> SocialPost:
         await self.usage.check_budget(organization_id, settings)
         items = await self._items(organization_id, research_item_ids)
@@ -223,9 +227,15 @@ class ContentStudio:
         draft, result = await self._json_answer(
             organization_id, user_id, None, "draft", system, message, lambda data: GeneratedDraft.model_validate(data)
         )
+        # The image carries headline + answer line together, so they share the design's text limit; if they don't fit, drop the line.
+        cover_limit = int((settings.design_rules or {}).get("max_cover_text_chars", 90))
+        support = draft.support_line.strip() if post_format == PostFormat.IMAGE.value else ""
+        if support and (len(support) > 160 or len(draft.headline) > cover_limit or len(draft.headline) + len(support) > cover_limit + SUPPORT_ALLOWANCE):
+            support = ""
         content = PostContent(
             hooks=draft.hooks,
             headline=draft.headline,
+            support_line=support,
             caption=draft.caption,
             cta=draft.cta,
             hashtags=[h for h in draft.hashtags if re.fullmatch(r"#?\w{1,100}", h.strip())][:8],
@@ -270,7 +280,9 @@ class ContentStudio:
                 "claims": draft.claims[:20],
                 "hashtag_basis": "ai_suggested",
                 "suggested_time": suggest_time(settings),
+                **({"plan": plan} if plan else {}),
             },
+            design={"template": plan["template"]} if plan else {},
         )
         self.db.add(post)
         await self.db.flush()

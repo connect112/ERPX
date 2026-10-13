@@ -22,12 +22,13 @@ DEFAULT_BRAND = {
         "job-guarantee language."
     ),
     "colors": {
-        # Placeholders: not confirmed brand colours. Replace with the approved palette.
-        "background": "#F6F7F9",
-        "ink": "#0F172A",
-        "primary": "#1D4ED8",
-        "accent": "#0EA5E9",
-        "muted": "#475569",
+        # Taken from the Pentrix logo (black, lime green and cyan). Still marked unconfirmed until a person confirms the palette.
+        "background": "#F4F8F3",
+        "ink": "#000000",
+        "primary": "#2E9E3E",
+        "accent": "#9AD62B",
+        "accent2": "#06B4D7",
+        "muted": "#4B5A55",
     },
     "colors_confirmed": False,
     "fonts": {"heading": "Inter", "body": "Inter"},

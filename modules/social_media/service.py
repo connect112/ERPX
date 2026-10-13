@@ -122,6 +122,11 @@ class SettingsService:
         for field, value in payload.model_dump(exclude_unset=True, mode="json").items():
             if value is None:
                 continue
+            if field == "brand":
+                # `logo_on_dark` is worked out when a logo is chosen, not typed in; keep it while the same logo is still in use.
+                old = row.brand or {}
+                if old.get("logo_on_dark") is not None and old.get("logo_key") == value.get("logo_key"):
+                    value = {**value, "logo_on_dark": old["logo_on_dark"]}
             setattr(row, field, value)
         await self.db.flush()
         return row

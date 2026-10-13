@@ -16,6 +16,7 @@ quietly:
 """
 
 import hashlib
+import random
 import io
 import json
 import re
@@ -23,11 +24,11 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 FONT_PATH = Path(__file__).parent / "fonts" / "Inter-Variable.ttf"
 FONT_FAMILY = "Inter"
-TEMPLATES = ("editorial", "statement", "photo", "screenshot")
+TEMPLATES = ("editorial", "statement", "photo", "screenshot", "neon")
 CANVAS = {"image": (1080, 1350), "carousel": (1080, 1350), "reel": (1080, 1920), "story": (1080, 1920)}
 MARGIN = 96
 # Reel covers and Stories have the app's own controls at the top and bottom, and a Reel cover is cropped to 3:4 on the
@@ -35,6 +36,9 @@ MARGIN = 96
 TALL_SAFE_TOP = 250
 TALL_SAFE_BOTTOM = 250
 MIN_HEADLINE_PX = 56
+# A single image may carry an answer line under its headline. The headline keeps the design rule's own limit; the answer line gets
+# this much extra room (about one sentence), so the cover stays short without forcing the answer back into the caption.
+SUPPORT_ALLOWANCE = 80
 MIN_BODY_PX = 34
 MIN_KICKER_PX = 26
 MAX_SLIDES = 10
@@ -51,6 +55,7 @@ class Palette:
     primary: tuple[int, int, int]
     accent: tuple[int, int, int]
     muted: tuple[int, int, int]
+    accent2: tuple[int, int, int] = (6, 180, 215)  # the second brand colour (the logo's cyan); the first accent is its green
 
 
 def hex_rgb(value: str) -> tuple[int, int, int]:
@@ -59,7 +64,10 @@ def hex_rgb(value: str) -> tuple[int, int, int]:
 
 
 def palette_of(colors: dict) -> Palette:
-    return Palette(**{key: hex_rgb(colors[key]) for key in ("background", "ink", "primary", "accent", "muted")})
+    values = {key: hex_rgb(colors[key]) for key in ("background", "ink", "primary", "accent", "muted")}
+    if colors.get("accent2"):
+        values["accent2"] = hex_rgb(colors["accent2"])
+    return Palette(**values)
 
 
 # ---------------- colour maths ----------------
@@ -184,6 +192,7 @@ class Spec:
     footer_right: str
     index: int | None = None  # a carousel slide: 1-based position
     total: int | None = None
+    seed: int = 0  # decides the look of the neon template (pattern, light, text position); the same for every slide of a post
 
     def texts(self) -> dict:
         return {"kicker": self.kicker, "headline": self.headline, "subline": self.subline, "credit": self.credit, "footer": self.footer_right, "index": self.index, "total": self.total}
@@ -199,23 +208,27 @@ def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_
     if design.get("show_handle", True):
         footer = clean(brand.get("handle")) or clean(brand.get("tagline"))
     credit = clean(design.get("credit"))
+    explicit = design.get("variant")
+    seed = int(explicit) if isinstance(explicit, int) and not isinstance(explicit, bool) else int(hashlib.sha1(f"{title}|{content.get('headline') or ''}".encode()).hexdigest()[:8], 16)
     if post_format == "carousel":
         slides = content.get("slides") or []
         if not (2 <= len(slides) <= MAX_SLIDES):
             raise RenderError("A carousel needs 2 to 10 slides before its artwork can be made.")
         return [
-            Spec(template, kicker if i == 0 else "", clean(slide.get("heading")), clean(slide.get("body")), credit if i == 0 else "", footer, i + 1, len(slides))
+            Spec(template, kicker if i == 0 else "", clean(slide.get("heading")), clean(slide.get("body")), credit if i == 0 else "", footer, i + 1, len(slides), seed)
             for i, slide in enumerate(slides)
         ]
     headline = clean(design.get("headline")) or clean(content.get("headline")) or clean(title)
     if not headline:
         raise RenderError("Add a headline before making artwork.")
-    return [Spec(template, kicker, headline, clean(design.get("subline")), credit, footer)]
+    # The answer line: the design's own supporting line, else the one the studio wrote for the post.
+    subline = clean(design.get("subline")) if design.get("subline") is not None else clean(content.get("support_line"))
+    return [Spec(template, kicker, headline, subline, credit, footer, None, None, seed)]
 
 
 def fingerprint(specs: list[Spec], design: dict) -> str:
     """A hash of exactly what an artwork shows. If the post's text or design changes, this no longer matches."""
-    payload = {"specs": [s.texts() | {"template": s.template} for s in specs], "bg": design.get("background_asset_id"), "logo": bool(design.get("show_logo", True))}
+    payload = {"specs": [s.texts() | {"template": s.template} for s in specs], "bg": design.get("background_asset_id"), "logo": bool(design.get("show_logo", True)), "variant": design.get("variant")}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -228,6 +241,65 @@ def current_fingerprint(post_format: str, content: dict, design: dict, title: st
 
 
 # ---------------- drawing ----------------
+
+
+# ---------------- the brand-dark "neon" look: a circuit motif and glow that differ from post to post ----------------
+
+ANCHORS = (0.14, 0.42, 0.70)  # where the headline block sits in the free space: high, middle, low
+GLOWS = ((0.86, 0.10), (0.10, 0.08), (0.92, 0.44))  # soft light, kept away from the footer so a black-background logo blends in
+
+
+def _mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))  # type: ignore[return-value]
+
+
+def _gradient_bar(ctx: "_Ctx", x: int, y: int, width: int, height: int, start: tuple[int, int, int], end: tuple[int, int, int]) -> None:
+    for i in range(width):
+        ctx.draw.line((x + i, y, x + i, y + height - 1), fill=_mix(start, end, i / max(1, width - 1)))
+
+
+def _neon_base(canvas: tuple[int, int], palette: Palette, seed: int, safe_top: int) -> Image.Image:
+    """Dark background, a faint glow and a few thin circuit traces in the top corner. The shapes come from `seed`, so every post
+    gets its own pattern while staying recognisably the same brand. Everything is drawn at low strength: text stays readable."""
+    w, h = canvas
+    rng = random.Random(seed)
+    base = Image.new("RGB", canvas, palette.ink)
+    gx, gy = GLOWS[seed % len(GLOWS)]
+    glow = Image.new("RGBA", canvas, (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    radius = int(w * 0.42)
+    cx, cy = int(w * gx), int(h * gy)
+    gd.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=(*_mix(palette.accent, palette.accent2, 0.5), 58))
+    glow = glow.filter(ImageFilter.GaussianBlur(radius // 2))
+    base.paste(glow, (0, 0), glow)
+
+    traces = Image.new("RGBA", canvas, (0, 0, 0, 0))
+    td = ImageDraw.Draw(traces)
+    x0, x1 = int(w * 0.50), w - 56
+    y0, y1 = safe_top + 56, safe_top + int(h * 0.19)
+    for n in range(rng.randint(5, 8)):
+        colour = (*(palette.accent if n % 2 == 0 else palette.accent2), 96)
+        x = x1 - rng.randint(0, 40)
+        y = rng.randint(y0, y1)
+        for _ in range(rng.randint(2, 4)):
+            step = rng.randint(50, 150)
+            nx = max(x0, x - step)
+            td.line((x, y, nx, y), fill=colour, width=4)
+            x = nx
+            turn = rng.choice((-1, 0, 1))
+            if turn and x > x0 + 30:
+                dy = turn * rng.randint(30, 70)
+                ny = min(y1, max(y0, y + dy))
+                nx2 = max(x0, x - abs(ny - y))
+                td.line((x, y, nx2, ny), fill=colour, width=4)
+                x, y = nx2, ny
+        r = rng.randint(8, 13)
+        if rng.random() < 0.7:
+            td.ellipse((x - r, y - r, x + r, y + r), outline=colour, width=4)
+        else:
+            td.rectangle((x - r, y - r, x + r, y + r), fill=colour)
+    base.paste(traces, (0, 0), traces)
+    return base
 
 
 @dataclass
@@ -332,11 +404,21 @@ def _cover(image: Image.Image, size: tuple[int, int]) -> Image.Image:
     return ImageOps.fit(image.convert("RGB"), size, method=Image.LANCZOS, centering=(0.5, 0.5))
 
 
+def _logo_has_dark_background(logo: Image.Image) -> bool:
+    """True for a logo that comes with its own solid dark background (a black rectangle): it belongs on a dark design as it is."""
+    w, h = logo.size
+    corners = [logo.getpixel(p) for p in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))]
+    return all(c[3] > 250 and luminance(c[:3]) < 0.03 for c in corners)
+
+
 def _paste_logo(ctx: _Ctx, logo: Image.Image | None, y_bottom: int, dark_backdrop: bool) -> dict | None:
-    """The approved logo, scaled and nothing else, on a light chip if the backdrop is dark. Returns where it went."""
+    """The approved logo, scaled and nothing else, on a light chip if the backdrop is dark (unless the logo already has its own
+    dark background). Returns where it went."""
     if logo is None:
         return None
-    target_h = 96
+    if dark_backdrop and logo.info.get(OWN_DARK_BACKGROUND):
+        dark_backdrop = False
+    target_h = 112
     scale = target_h / logo.height
     size = (max(1, round(logo.width * scale)), target_h)
     if size[0] > 360:
@@ -379,8 +461,10 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
     safe_top = TALL_SAFE_TOP if tall else 0
     safe_bottom = TALL_SAFE_BOTTOM if tall else 0
     template = spec.template
-    dark_template = template in ("statement", "photo")
-    if template == "statement":
+    dark_template = template in ("statement", "photo", "neon")
+    if template == "neon":
+        image = _neon_base(canvas, palette, spec.seed, safe_top)
+    elif template == "statement":
         image = Image.new("RGB", canvas, palette.ink)
     elif template == "photo":
         if background is None:
@@ -391,7 +475,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
     else:
         image = Image.new("RGB", canvas, palette.background)
     ctx = _Ctx(image, ImageDraw.Draw(image), palette, rules, safe_top, safe_bottom, min_ratio=float(rules.get("min_contrast_ratio", 4.5)))
-    text_color = palette.background if template == "statement" else (255, 255, 255) if template == "photo" else palette.ink
+    text_color = palette.background if template == "statement" else (255, 255, 255) if template in ("photo", "neon") else palette.ink
     muted = (190, 198, 210) if dark_template else palette.muted
     accent = palette.accent if dark_template else palette.primary
     inner_w = w - 2 * MARGIN
@@ -402,7 +486,10 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
 
     if spec.kicker:
         y += _tracked(ctx, spec.kicker, MARGIN, y, 28, muted if dark_template else palette.muted) + 18
-        ctx.draw.rectangle((MARGIN, y, MARGIN + 96, y + 8), fill=accent)
+        if template == "neon":
+            _gradient_bar(ctx, MARGIN, y, 120, 8, palette.accent, palette.accent2)
+        else:
+            ctx.draw.rectangle((MARGIN, y, MARGIN + 96, y + 8), fill=accent)
         y += 8 + 44
 
     heading_weight = 700
@@ -442,7 +529,12 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             head = fit(spec.headline, inner_w, room - sub_h, 124, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
             block_h = head.height + sub_h
             # optical centre of the free space, a little above the middle
-            y_head = y + max(0, int((room - block_h) * 0.42))
+            anchor = ANCHORS[(spec.seed // 4) % len(ANCHORS)] if template == "neon" else 0.42
+            if template == "neon" and spec.index:
+                # carousel slides: the heading starts at the same height on every slide, so the text doesn't jump when swiping
+                y_head = y + int(room * 0.22)
+            else:
+                y_head = y + max(0, int((room - block_h) * anchor))
         _draw_block(ctx, head, MARGIN, y_head, text_color, "headline", inner_w)
         if sub_fit:
             _draw_block(ctx, sub_fit, MARGIN, y_head + head.height + 28, muted, "subline", inner_w)
@@ -485,6 +577,10 @@ def _validate(spec: Spec, ctx: _Ctx, canvas: tuple[int, int], placed_logo: dict 
         problems.append(f"The headline has {headline_words} words; the design rules allow {rules['max_headline_words']}.")
     limit = int(rules.get("max_cover_text_chars", 90))
     allowed = limit if cover and not spec.index else limit * 3
+    if cover and not spec.index and spec.subline:
+        allowed += SUPPORT_ALLOWANCE
+        if len(spec.headline) > limit:
+            problems.append(f"The headline has {len(spec.headline)} characters; the design rules allow {limit} for the cover.")
     used = len(spec.headline) + len(spec.subline)
     if used > allowed:
         problems.append(f"There are {used} characters of text on this image; the design rules allow {allowed}.")
@@ -512,10 +608,17 @@ def _validate(spec: Spec, ctx: _Ctx, canvas: tuple[int, int], placed_logo: dict 
     }
 
 
+OWN_DARK_BACKGROUND = "own_dark_background"
+
+
 def _trimmed(logo: Image.Image) -> Image.Image:
-    """Cut away fully transparent margins around the logo. The logo's own pixels are not touched."""
+    """Cut away fully transparent margins around the logo. The logo's own pixels are not touched. Whether the logo brings its own
+    dark background is decided before the cut: afterwards a dark mark would look as if it did."""
+    own_dark = _logo_has_dark_background(logo)
     box = logo.getchannel("A").getbbox()
-    return logo.crop(box) if box else logo
+    out = logo.crop(box) if box else logo
+    out.info[OWN_DARK_BACKGROUND] = own_dark
+    return out
 
 
 def load_image(raw: bytes, what: str) -> Image.Image:
