@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 FONT_PATH = Path(__file__).parent / "fonts" / "Inter-Variable.ttf"
 FONT_FAMILY = "Inter"
-TEMPLATES = ("editorial", "statement", "photo", "screenshot", "neon")
+TEMPLATES = ("editorial", "statement", "photo", "screenshot", "neon", "split", "solid")
 CANVAS = {"image": (1080, 1350), "carousel": (1080, 1350), "reel": (1080, 1920), "story": (1080, 1920)}
 MARGIN = 96
 # Reel covers and Stories have the app's own controls at the top and bottom, and a Reel cover is cropped to 3:4 on the
@@ -253,6 +253,17 @@ def _mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[in
     return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))  # type: ignore[return-value]
 
 
+# ---------------- flat colour looks: "solid" (the whole picture one brand colour) and "split" (a colour panel over a dark base) ----------------
+
+INK_ON_COLOUR = (8, 12, 10)
+MUTED_ON_COLOUR = (24, 34, 28)
+
+
+def _flat_colour(palette: Palette, seed: int) -> tuple[int, int, int]:
+    """One of the brand colours (green, lime, cyan), chosen per post, so the same look is not the same colour twice in a row."""
+    return (palette.accent, palette.accent2, palette.primary)[(seed // 2) % 3]
+
+
 def _gradient_bar(ctx: "_Ctx", x: int, y: int, width: int, height: int, start: tuple[int, int, int], end: tuple[int, int, int]) -> None:
     for i in range(width):
         ctx.draw.line((x + i, y, x + i, y + height - 1), fill=_mix(start, end, i / max(1, width - 1)))
@@ -432,11 +443,15 @@ def _paste_logo(ctx: _Ctx, logo: Image.Image | None, y_bottom: int, dark_backdro
     dark background). Returns where it went."""
     if logo is None:
         return None
-    blend = bool(dark_backdrop and logo.info.get(OWN_DARK_BACKGROUND))
+    own_dark = bool(logo.info.get(OWN_DARK_BACKGROUND))
+    blend = bool(dark_backdrop and own_dark)  # on a dark design its black melts into the design
+    plate = bool(own_dark and not dark_backdrop)  # on a light or colour design it sits on a clean black rounded plate, like a badge
     target_h, max_w = 112, 360
     if blend:
         dark_backdrop = False
         target_h, max_w = 150, 400  # such a logo has fine detail (a tagline), so it needs more room to be readable
+    elif plate:
+        target_h, max_w = 128, 380
     scale = target_h / logo.height
     size = (max(1, round(logo.width * scale)), target_h)
     if size[0] > max_w:
@@ -445,9 +460,9 @@ def _paste_logo(ctx: _Ctx, logo: Image.Image | None, y_bottom: int, dark_backdro
     if blend:
         scaled = _black_to_transparent(scaled)
     x, y = MARGIN, y_bottom - size[1]
-    if dark_backdrop:
+    if dark_backdrop or plate:
         pad = 14
-        ctx.draw.rounded_rectangle((x - pad, y - pad, x + size[0] + pad, y + size[1] + pad), radius=18, fill=(255, 255, 255))
+        ctx.draw.rounded_rectangle((x - pad, y - pad, x + size[0] + pad, y + size[1] + pad), radius=18, fill=(0, 0, 0) if plate else (255, 255, 255))
     ctx.image.paste(scaled, (x, y), scaled)
     return {"x": x, "y": y, "w": size[0], "h": size[1], "position": "bottom_left"}
 
@@ -481,9 +496,18 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
     safe_top = TALL_SAFE_TOP if tall else 0
     safe_bottom = TALL_SAFE_BOTTOM if tall else 0
     template = spec.template
-    dark_template = template in ("statement", "photo", "neon")
+    dark_template = template in ("statement", "photo", "neon", "split")
+    footer_bottom = h - MARGIN - safe_bottom
+    footer_top = footer_bottom - 100
+    flat = _flat_colour(palette, spec.seed)
+    panel_bottom = footer_bottom - 198  # "split": the colour panel ends above the logo
     if template == "neon":
         image = _neon_base(canvas, palette, spec.seed, safe_top)
+    elif template == "solid":
+        image = Image.new("RGB", canvas, flat)
+    elif template == "split":
+        image = Image.new("RGB", canvas, palette.ink)
+        ImageDraw.Draw(image).rectangle((0, 0, w, panel_bottom), fill=flat)
     elif template == "statement":
         image = Image.new("RGB", canvas, palette.ink)
     elif template == "photo":
@@ -498,14 +522,16 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
     text_color = palette.background if template == "statement" else (255, 255, 255) if template in ("photo", "neon") else palette.ink
     muted = (190, 198, 210) if dark_template else palette.muted
     accent = palette.accent if dark_template else palette.primary
+    footer_ink = muted
+    if template in ("solid", "split"):
+        text_color, muted, accent = INK_ON_COLOUR, MUTED_ON_COLOUR, INK_ON_COLOUR
+        footer_ink = MUTED_ON_COLOUR if template == "solid" else (190, 198, 210)
     inner_w = w - 2 * MARGIN
     top = MARGIN + safe_top
-    footer_bottom = h - MARGIN - safe_bottom
-    footer_top = footer_bottom - 100
     y = top
 
     if spec.kicker:
-        y += _tracked(ctx, spec.kicker, MARGIN, y, 28, muted if dark_template else palette.muted) + 18
+        y += _tracked(ctx, spec.kicker, MARGIN, y, 28, muted) + 18
         if template == "neon":
             _gradient_bar(ctx, MARGIN, y, 120, 8, palette.accent, palette.accent2)
         else:
@@ -545,12 +571,13 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             block_h = head.height + sub_h
             y_head = footer_top - 40 - block_h
         else:
-            room = footer_top - y - 40
+            room = (panel_bottom if template == "split" else footer_top) - y - 40
             head = fit(spec.headline, inner_w, room - sub_h, 124, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
             block_h = head.height + sub_h
             # optical centre of the free space, a little above the middle
-            anchor = ANCHORS[(spec.seed // 4) % len(ANCHORS)] if template == "neon" else 0.42
-            if template == "neon" and spec.index:
+            varied = template in ("neon", "solid", "split")
+            anchor = ANCHORS[(spec.seed // 4) % len(ANCHORS)] if varied else 0.42
+            if varied and spec.index:
                 # carousel slides: the heading starts at the same height on every slide, so the text doesn't jump when swiping
                 y_head = y + int(room * 0.22)
             else:
@@ -560,7 +587,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             _draw_block(ctx, sub_fit, MARGIN, y_head + head.height + 28, muted, "subline", inner_w)
 
     logo = brand_logo if show_logo else None
-    placed = _footer(ctx, spec, logo, dark_template, footer_bottom, muted if dark_template else palette.muted)
+    placed = _footer(ctx, spec, logo, dark_template, footer_bottom, footer_ink if template in ("solid", "split") else (muted if dark_template else palette.muted))
     return image, ctx, placed
 
 

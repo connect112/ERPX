@@ -22,6 +22,8 @@ const NATIVE_SELECT =
 
 const TEMPLATES: { value: Template; label: string; hint: string }[] = [
   { value: "neon", label: "Pentrix dark (circuit)", hint: "The brand-dark look with the logo's green and cyan. Its circuit pattern, light and text position change from post to post." },
+  { value: "split", label: "Colour panel", hint: "A flat brand-colour panel over a dark base. The colour and text position change from post to post." },
+  { value: "solid", label: "Full colour", hint: "The whole picture in one brand colour (green, lime or cyan) with dark text. The colour changes from post to post." },
   { value: "editorial", label: "Editorial (light)", hint: "Plain light background, one headline. The default." },
   { value: "statement", label: "Statement (dark)", hint: "Dark background, one bold line." },
   { value: "photo", label: "Photo", hint: "A photograph or background behind the headline, darkened so it stays readable." },
