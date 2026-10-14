@@ -563,3 +563,28 @@ async def test_odd_decoration_fields_from_the_ai_never_cost_a_draft(client, auth
     post = await _generate(client, auth_headers, topic="What is a SIEM?", format="image")
     assert post["status"] == "draft" and post["content"]["icon"] == "lock"
     assert post["content"]["support_line"] == ""
+
+
+# ---------------- the cover: one big flat circle with the topic icon ----------------
+
+
+@pytest.mark.parametrize("template", ["neon", "statement", "split", "solid", "editorial"])
+def test_a_cover_has_one_big_flat_circle_bleeding_off_the_corner_and_inner_slides_do_not(template):
+    content = {**CONTENT, "icon": "mail"}
+    plain = pixels(draw("carousel", content=content, design={"template": template, "carousel_frame": True, "variant": 2})[0][0])
+    rich = draw("carousel", content=content, design={"template": template, "carousel_frame": True, "show_icon": True, "variant": 2})
+    cover, inner = pixels(rich[0][0]), pixels(rich[0][1])
+    # a point deep inside the circle, away from the icon, text and footer, is a flat colour that the plain design does not have there
+    point = (1000, 1050)
+    assert cover.getpixel(point) != plain.getpixel(point) or template == "split", template
+    assert inner.getpixel((1000, 1100)) == pixels(draw("carousel", content=content, design={"template": template, "carousel_frame": True, "variant": 2})[0][1]).getpixel((1000, 1100)), "an inner slide has no circle"
+    assert rich[0][0].validation["ok"], rich[0][0].validation["problems"]
+
+
+def test_the_headline_stays_above_the_circle_even_when_it_is_long():
+    long = {"headline": "Why one reused password endangers all accounts", "emphasis": "reused password", "icon": "key", "support_line": "One leak should never mean many accounts lost, so use a unique password for each."}
+    for template in ("neon", "solid", "editorial", "statement", "split"):
+        image = draw(content=long, design={"template": template, "show_icon": True, "variant": 1}, logo=_logo((0, 0, 0, 255)))[0][0]
+        assert image.validation["ok"], (template, image.validation["problems"])
+        for block in image.metrics.get("blocks", []) if isinstance(image.metrics, dict) else []:
+            assert block["role"] != "headline" or block["size_px"] >= render.MIN_HEADLINE_PX

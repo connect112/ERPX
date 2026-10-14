@@ -308,6 +308,23 @@ def _flat_colour(palette: Palette, seed: int) -> tuple[int, int, int]:
     return (palette.accent, palette.accent2, palette.primary)[(seed // 2) % 3]
 
 
+HERO_D = 720  # diameter of the big flat circle on a cover; it bleeds off the right and bottom edges
+
+
+def _hero_circle(image: Image.Image, cx: int, cy: int, d: int, fill: tuple[int, int, int]) -> None:
+    """A flat circle with smooth edges (drawn at double size and scaled down); parts outside the picture are simply cut off."""
+    w, h = image.size
+    big = Image.new("L", (w * 2, h * 2), 0)
+    ImageDraw.Draw(big).ellipse(((cx - d // 2) * 2, (cy - d // 2) * 2, (cx + d // 2) * 2, (cy + d // 2) * 2), fill=255)
+    image.paste(fill, (0, 0), big.resize((w, h), Image.LANCZOS))
+
+
+def _readable(ctx: "_Ctx", x: int, y: int, preferred: tuple[int, int, int]) -> tuple[int, int, int]:
+    """The preferred colour, or white or black if what is behind (x, y) would make it hard to see."""
+    behind = ctx.image.getpixel((min(max(x, 0), ctx.w - 1), min(max(y, 0), ctx.h - 1)))[:3]
+    return max((preferred, (255, 255, 255), (0, 0, 0)), key=lambda c: (contrast_ratio(c, behind) >= ctx.min_ratio, c == preferred, contrast_ratio(c, behind)))
+
+
 def _gradient_bar(ctx: "_Ctx", x: int, y: int, width: int, height: int, start: tuple[int, int, int], end: tuple[int, int, int]) -> None:
     for i in range(width):
         ctx.draw.line((x + i, y, x + i, y + height - 1), fill=_mix(start, end, i / max(1, width - 1)))
@@ -558,8 +575,9 @@ def _footer(ctx: _Ctx, spec: Spec, logo: Image.Image | None, dark: bool, y_botto
         text_x = arrow_x - 16 - cue.width()
         _draw_block(ctx, cue, text_x, y_bottom - cue.height, ink, "footer", cue.width())
         cy = y_bottom - cue.height // 2
-        ctx.draw.line((arrow_x, cy, arrow_x + 38, cy), fill=ink, width=5)
-        ctx.draw.line((arrow_x + 24, cy - 13, arrow_x + 38, cy, arrow_x + 24, cy + 13), fill=ink, width=5, joint="curve")
+        arrow = _readable(ctx, arrow_x + 18, cy, ink)
+        ctx.draw.line((arrow_x, cy, arrow_x + 38, cy), fill=arrow, width=5)
+        ctx.draw.line((arrow_x + 24, cy - 13, arrow_x + 38, cy, arrow_x + 24, cy + 13), fill=arrow, width=5, joint="curve")
         return placed
     if right:
         fitted = fit(right, ctx.w // 2 - MARGIN, 60, 30, MIN_KICKER_PX, 500, 1, 1.2, "footer text")
@@ -663,6 +681,8 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
         if has_sub:
             sub_fit = fit(spec.subline, inner_w, 300 if pro_inner else 260, 50 if pro_inner else 42, MIN_BODY_PX, 400, 6 if pro_inner else 5, 1.4, "supporting line")
             sub_h = sub_fit.height + 36
+        hero_d = 0
+        hero_cx = hero_cy = 0
         if pro and template != "photo":
             # The illustrated look keeps all text clear of the logo (and its badge) and leaves room for the illustration on a cover.
             clear = panel_bottom - 36 if template == "split" else footer_bottom - 214
@@ -678,10 +698,13 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
                 y_head = y + 6
                 avail = clear - y_head
                 biggest = 148 if (cover and spec.total) else 124
+                hero_cx, hero_cy = w - 150, h - 230 - safe_bottom
                 try:
-                    head = fit(spec.headline, inner_w, avail - sub_h - 290, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")  # leaves room for the tile
+                    # the headline stays above the big circle
+                    head = fit(spec.headline, inner_w, hero_cy - HERO_D // 2 - 36 - y_head - sub_h, biggest, MIN_HEADLINE_PX, 800, 6, 1.08, "headline")
+                    hero_d = HERO_D
                 except RenderError:
-                    head = fit(spec.headline, inner_w, avail - sub_h, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
+                    head = fit(spec.headline, inner_w, avail - sub_h - 290, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline") if avail - sub_h - 290 > 0 else fit(spec.headline, inner_w, avail - sub_h, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
             block_h = head.height + sub_h
             room = clear - y - 40
         elif template == "photo":
@@ -710,6 +733,15 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
                 y_head = free_top + int((footer_bottom - 214 - free_top) * 0.20)
                 if spec.numeral:
                     y_head += 60
+        hero_on_dark = False
+        if hero_d:
+            if template in ("neon", "statement"):
+                hero_fill, hero_on_dark = (palette.accent, palette.accent2)[(spec.seed // 2) % 2], False
+            elif template == "split":
+                hero_fill, hero_on_dark = palette.ink, True
+            else:
+                hero_fill, hero_on_dark = INK_ON_COLOUR, True
+            _hero_circle(ctx.image, hero_cx, hero_cy, hero_d, hero_fill)
         marker = None
         if spec.emphasis:
             marker = ((INK_ON_COLOUR if template in ("solid", "split") else palette.accent), spec.emphasis)
@@ -727,6 +759,11 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             g0, g1 = palette.accent, palette.accent2
             if spec.index and spec.index > 1:
                 icons.draw_tile(ctx.image, spec.icon, w - MARGIN - 132, top, 132, g0, g1)
+            elif hero_d:
+                size = 340
+                ix, iy = hero_cx - 90 - size // 2, hero_cy - 110 - size // 2
+                # on a light circle the icon is flat black, on a dark circle it carries the brand gradient
+                icons.draw_icon(ctx.image, spec.icon, ix, iy, size, *((g0, g1) if hero_on_dark else (INK_ON_COLOUR, INK_ON_COLOUR)))
             else:
                 # On the left the tile must clear the logo; on the right there is more room, down to the footer line.
                 on_left = spec.seed % 2 == 0
