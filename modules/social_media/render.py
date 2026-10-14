@@ -26,6 +26,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
+from modules.social_media import icons
+
 FONT_PATH = Path(__file__).parent / "fonts" / "Inter-Variable.ttf"
 FONT_FAMILY = "Inter"
 TEMPLATES = ("editorial", "statement", "photo", "screenshot", "neon", "split", "solid")
@@ -195,9 +197,10 @@ class Spec:
     seed: int = 0  # decides the look of the neon template (pattern, light, text position); the same for every slide of a post
     emphasis: str = ""  # words of the headline that get a highlighter marker behind them
     numeral: str = ""  # "02": a step number taken from a heading like "Step 2: ..." and drawn large above it
+    icon: str = ""  # the illustration tile (see icons.py); when set the picture also gets the pill label and the swipe cue
 
     def texts(self) -> dict:
-        return {"kicker": self.kicker, "headline": self.headline, "subline": self.subline, "credit": self.credit, "footer": self.footer_right, "index": self.index, "total": self.total, "emphasis": self.emphasis, "numeral": self.numeral}
+        return {"kicker": self.kicker, "headline": self.headline, "subline": self.subline, "credit": self.credit, "footer": self.footer_right, "index": self.index, "total": self.total, "emphasis": self.emphasis, "numeral": self.numeral, "icon": self.icon}
 
 
 COVER_FRAME_MAX = 70  # a headline longer than this stays inside the first slide instead of getting its own cover
@@ -227,37 +230,44 @@ def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_
     explicit = design.get("variant")
     seed = int(explicit) if isinstance(explicit, int) and not isinstance(explicit, bool) else int(hashlib.sha1(f"{title}|{content.get('headline') or ''}".encode()).hexdigest()[:8], 16)
     emphasis = clean(content.get("emphasis"))
+    show_icon = bool(design.get("show_icon"))
+    chosen = clean(content.get("icon"))
+    if chosen not in icons.ICONS:
+        chosen = ""
     if post_format == "carousel":
         slides = content.get("slides") or []
         if not (2 <= len(slides) <= MAX_SLIDES):
             raise RenderError("A carousel needs 2 to 10 slides before its artwork can be made.")
-        parts: list[tuple[str, str, str]] = []  # (headline, body, numeral) of every image
+        parts: list[tuple[str, str, str, str]] = []  # (headline, body, numeral, icon) of every image
+        main_icon = (chosen or icons.icon_for(clean(content.get("headline")), *[clean(sl.get("heading")) for sl in slides])) if show_icon else ""
         cover = clean(design.get("headline")) or clean(content.get("headline"))
         closing = clean(content.get("cta"))
         framed = bool(design.get("carousel_frame"))
         cover_wanted = framed and cover and len(cover) <= COVER_FRAME_MAX and _plain(cover) != _plain(slides[0].get("heading")) and len(slides) < MAX_SLIDES
         if cover_wanted:
-            parts.append((cover, clean(content.get("support_line")) or "Swipe to read", ""))
+            parts.append((cover, clean(content.get("support_line")) or ("" if show_icon else "Swipe to read"), "", main_icon))
         for slide in slides:
             numeral, heading = _step_number(clean(slide.get("heading")))
-            parts.append((heading, clean(slide.get("body")), numeral))
+            slide_icon = icons.icon_for(heading, clean(slide.get("body")), default=main_icon) if show_icon else ""
+            parts.append((heading, clean(slide.get("body")), numeral, slide_icon))
         if framed and closing and len(closing) <= 140 and len(parts) < MAX_SLIDES:
             # The closing slide: a short headline (the call to action if it is short, else "Save this for later."), the call to
             # action in full under it, and where to follow.
             short = len(closing.split()) <= 7
             handle = clean(brand.get("handle"))
             sub = ("" if short else closing) + (f" Follow {handle} for more." if handle else "")
-            parts.append((closing if short else "Save this for later.", sub.strip(), ""))
+            parts.append((closing if short else "Save this for later.", sub.strip(), "", main_icon))
         return [
-            Spec(template, kicker if i == 0 else "", h, b, credit if i == 0 else "", footer, i + 1, len(parts), seed, emphasis, n)
-            for i, (h, b, n) in enumerate(parts)
+            Spec(template, kicker if i == 0 else "", h, b, credit if i == 0 else "", footer, i + 1, len(parts), seed, emphasis, n, ic)
+            for i, (h, b, n, ic) in enumerate(parts)
         ]
     headline = clean(design.get("headline")) or clean(content.get("headline")) or clean(title)
     if not headline:
         raise RenderError("Add a headline before making artwork.")
     # The answer line: the design's own supporting line, else the one the studio wrote for the post.
     subline = clean(design.get("subline")) if design.get("subline") is not None else clean(content.get("support_line"))
-    return [Spec(template, kicker, headline, subline, credit, footer, None, None, seed, emphasis)]
+    single_icon = (chosen or icons.icon_for(headline, subline)) if show_icon else ""
+    return [Spec(template, kicker, headline, subline, credit, footer, None, None, seed, emphasis, "", single_icon)]
 
 
 def fingerprint(specs: list[Spec], design: dict) -> str:
@@ -541,6 +551,16 @@ def _footer(ctx: _Ctx, spec: Spec, logo: Image.Image | None, dark: bool, y_botto
     right = spec.footer_right
     if spec.index and spec.total:
         right = f"{spec.index} / {spec.total}"
+    if spec.icon and spec.index == 1 and spec.total and spec.total > 1:
+        # the cover tells you to swipe: the word and an arrow
+        cue = fit("Swipe", ctx.w // 2 - MARGIN, 60, 32, MIN_KICKER_PX, 600, 1, 1.2, "swipe cue")
+        arrow_x = ctx.w - MARGIN - 40
+        text_x = arrow_x - 16 - cue.width()
+        _draw_block(ctx, cue, text_x, y_bottom - cue.height, ink, "footer", cue.width())
+        cy = y_bottom - cue.height // 2
+        ctx.draw.line((arrow_x, cy, arrow_x + 38, cy), fill=ink, width=5)
+        ctx.draw.line((arrow_x + 24, cy - 13, arrow_x + 38, cy, arrow_x + 24, cy + 13), fill=ink, width=5, joint="curve")
+        return placed
     if right:
         fitted = fit(right, ctx.w // 2 - MARGIN, 60, 30, MIN_KICKER_PX, 500, 1, 1.2, "footer text")
         x = ctx.w - MARGIN - fitted.width()
@@ -599,7 +619,17 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
     top = MARGIN + safe_top
     y = top
 
-    if spec.kicker:
+    pro = bool(spec.icon)
+    cover = not spec.index or spec.index == 1
+    pro_inner = pro and bool(spec.index) and spec.index > 1
+    if spec.kicker and pro:
+        face = font(26, 600)
+        label_w = int(sum(face.getlength(c) + 26 * 0.08 for c in spec.kicker.upper()))
+        pill = (MARGIN, y, MARGIN + label_w + 52, y + 26 + 30)
+        ctx.draw.rounded_rectangle(pill, radius=(pill[3] - pill[1]) // 2, outline=accent, width=3)
+        _tracked(ctx, spec.kicker, MARGIN + 26, y + 13, 26, muted)
+        y += (pill[3] - pill[1]) + 40
+    elif spec.kicker:
         y += _tracked(ctx, spec.kicker, MARGIN, y, 28, muted) + 18
         if template == "neon":
             _gradient_bar(ctx, MARGIN, y, 120, 8, palette.accent, palette.accent2)
@@ -631,7 +661,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
         has_sub = bool(spec.subline)
         sub_h = 0
         if has_sub:
-            sub_fit = fit(spec.subline, inner_w, 260, 42, MIN_BODY_PX, 400, 5, 1.4, "supporting line")
+            sub_fit = fit(spec.subline, inner_w, 300 if pro_inner else 260, 50 if pro_inner else 42, MIN_BODY_PX, 400, 6 if pro_inner else 5, 1.4, "supporting line")
             sub_h = sub_fit.height + 36
         if template == "photo":
             # type sits low, over the scrim
@@ -641,7 +671,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             y_head = footer_top - 40 - block_h
         else:
             room = (panel_bottom if template == "split" else footer_top) - y - 40
-            head = fit(spec.headline, inner_w, room - sub_h, 124, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
+            head = fit(spec.headline, inner_w, room - sub_h, 148 if (pro and cover and spec.total) else 124, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
             block_h = head.height + sub_h
             # optical centre of the free space, a little above the middle
             varied = template in ("neon", "solid", "split")
@@ -649,8 +679,16 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             if varied and spec.index:
                 # carousel slides: the heading starts at the same height on every slide, so the text doesn't jump when swiping
                 y_head = y + int(room * 0.22)
+            elif pro and cover:
+                y_head = y + 6  # text high, the illustration below it
             else:
                 y_head = y + max(0, int((room - block_h) * anchor))
+            if pro_inner:
+                # centred between the tile row and the footer, a little above the middle; the same height on every slide
+                free_top = top + 132 + 28
+                y_head = free_top + int((footer_bottom - 214 - free_top) * 0.20)
+                if spec.numeral:
+                    y_head += 60
         marker = None
         if spec.emphasis:
             marker = ((INK_ON_COLOUR if template in ("solid", "split") else palette.accent), spec.emphasis)
@@ -660,8 +698,23 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
                 y_head = y + numeral_size + 8
             ctx.draw.text((MARGIN, y_head - numeral_size - 8), spec.numeral, font=font(numeral_size, 800), fill=(INK_ON_COLOUR if template in ("solid", "split") else (palette.accent if dark_template else palette.primary)))
         _draw_block(ctx, head, MARGIN, y_head, text_color, "headline", inner_w, marker)
+        text_bottom = y_head + head.height
         if sub_fit:
             _draw_block(ctx, sub_fit, MARGIN, y_head + head.height + 28, muted, "subline", inner_w)
+            text_bottom += 28 + sub_fit.height
+        if pro:
+            g0, g1 = palette.accent, palette.accent2
+            if spec.index and spec.index > 1:
+                icons.draw_tile(ctx.image, spec.icon, w - MARGIN - 132, top, 132, g0, g1)
+            else:
+                # On the left the tile must clear the logo; on the right there is more room, down to the footer line.
+                on_left = spec.seed % 2 == 0
+                region_bottom = (panel_bottom if template == "split" else footer_bottom - (214 if on_left else 96)) - 24
+                free = region_bottom - text_bottom - 44
+                size = min(free, 560)
+                if size >= 240:
+                    tx = MARGIN if on_left else w - MARGIN - size
+                    icons.draw_tile(ctx.image, spec.icon, tx, text_bottom + 44 + (free - size) // 2, size, g0, g1)
 
     if spec.index and spec.total and spec.total > 1:
         # carousel progress: a bar along the bottom edge that fills as you swipe, so every slide says where it is in the set

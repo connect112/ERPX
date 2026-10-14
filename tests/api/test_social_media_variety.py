@@ -325,7 +325,7 @@ async def test_auto_chooses_the_format_and_look_records_why_and_the_next_post_di
 async def test_without_auto_nothing_changes(client, auth_headers, ai):
     ai(DRAFT)
     post = await _generate(client, auth_headers, topic="What is a SIEM?", format="image")
-    assert post["format"] == "image" and "plan" not in post["generation"] and post["design"] == {}
+    assert post["format"] == "image" and "plan" not in post["generation"] and post["design"] == {"show_icon": True}
     assert post["content"]["support_line"] == DRAFT["support_line"], "a single image gets the answer line the AI wrote"
 
 
@@ -485,3 +485,74 @@ async def test_a_draft_is_kept_even_when_its_artwork_cannot_be_made(client, auth
     ai(DRAFT)
     post = await _generate(client, auth_headers, topic="What is a SIEM?", format="image")
     assert post["status"] == "draft" and not post["artwork"].get("files")
+
+
+# ---------------- the professional layer: icons, pill label, swipe cue ----------------
+
+from modules.social_media import icons  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "words, icon",
+    [
+        ("Spot phishing fast: check the sender", "mail"),
+        ("Reset a password the safe way", "key"),
+        ("What is a SIEM, really?", "logs"),
+        ("Patch Tuesday: what to do first", "bolt"),
+        ("How a port scan finds open doors", "network"),
+        ("Why encryption protects your data", "lock"),
+        ("Nothing recognisable here", "shield"),
+    ],
+)
+def test_the_icon_is_chosen_from_the_posts_own_words(words, icon):
+    assert icons.icon_for(words) == icon
+
+
+def test_every_icon_draws_a_tile_with_the_icon_inside_it():
+    for name in icons.ICONS:
+        canvas = Image.new("RGB", (300, 300), (30, 30, 30))
+        icons.draw_tile(canvas, name, 20, 20, 260, (154, 214, 43), (6, 180, 215))
+        centre = canvas.crop((100, 100, 200, 200))
+        colours = {px for px in centre.getdata() if px[1] > 120}
+        assert colours, f"the {name} icon is drawn in the brand colours"
+        assert canvas.getpixel((5, 5)) == (30, 30, 30), "nothing is drawn outside the tile"
+
+
+@pytest.mark.parametrize("template", ["neon", "statement", "split", "solid", "editorial"])
+def test_the_illustration_layer_adds_a_tile_and_keeps_every_check_green(template):
+    content = {**CONTENT, "icon": "shield"}
+    plain = draw("carousel", content=content, design={"template": template, "carousel_frame": True, "variant": 2})[0]
+    rich = draw("carousel", content=content, design={"template": template, "carousel_frame": True, "show_icon": True, "variant": 2}, logo=_logo((0, 0, 0, 255)))[0]
+    assert len(rich) == len(plain) == 5
+    for image in rich:
+        assert image.validation["ok"], (template, image.slide, image.validation["problems"])
+    from PIL import ImageChops
+
+    box = ImageChops.difference(pixels(rich[0]), pixels(plain[0])).convert("L").point(lambda v: 255 if v > 24 else 0).getbbox()
+    assert box is not None, "the cover carries the illustration"
+
+
+def test_a_single_image_with_an_icon_never_lets_the_tile_cover_the_text_or_the_logo():
+    for variant in range(0, 8):
+        for template in ("neon", "solid", "split", "editorial"):
+            image = draw(content={"headline": "Spot phishing fast: check the sender", "support_line": "The domain after the @ sign tells the truth."}, design={"template": template, "show_icon": True, "variant": variant}, logo=_logo((0, 0, 0, 255)))[0][0]
+            assert image.validation["ok"], (template, variant, image.validation["problems"])
+
+
+def test_the_pill_label_and_swipe_cue_belong_to_the_illustrated_look_only():
+    plain = pixels(draw("carousel", content=CONTENT, design={"template": "statement", "carousel_frame": True})[0][0])
+    rich = pixels(draw("carousel", content=CONTENT, design={"template": "statement", "carousel_frame": True, "show_icon": True})[0][0])
+    assert plain.tobytes() != rich.tobytes()
+    cover = render.specs_for("carousel", CONTENT, {"carousel_frame": True, "show_icon": True}, "t", "SOC", BRAND)
+    assert cover[0].icon == "logs" and cover[0].subline == "", "no 'Swipe to read' line: the swipe cue is drawn in the footer"
+    assert render.specs_for("carousel", CONTENT, {"carousel_frame": True}, "t", "SOC", BRAND)[0].icon == ""
+
+
+async def test_generated_drafts_turn_the_illustration_on_and_keep_only_a_valid_ai_icon(client, auth_headers, ai, fake_storage):
+    ai({**DRAFT, "icon": "Lock", "slides": []})
+    post = await _generate(client, auth_headers, topic="Why encryption matters", format="image")
+    assert post["design"]["show_icon"] is True and post["content"]["icon"] == "lock"
+    ai({**DRAFT, "icon": "unicorn", "slides": []})
+    other = await _generate(client, auth_headers, topic="Why encryption matters", format="image")
+    assert other["content"]["icon"] == "", "an icon that is not in the library is ignored; one is chosen from the words"
+    assert post["artwork"]["files"][0]["validation"]["ok"]

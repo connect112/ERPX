@@ -264,6 +264,8 @@ class PostContent(BaseModel):
     support_line: str = Field(default="", max_length=160)
     # Words of the headline that get a highlighter marker on the image: the keyword that carries the idea.
     emphasis: str = Field(default="", max_length=60)
+    # One of the library icons (shield, lock, key, magnifier, mail, network, logs, bug, bolt, terminal); empty = chosen from the words.
+    icon: str = Field(default="", max_length=20)
     visual_direction: str = Field(default="", max_length=1000)
     asset_key: str | None = Field(default=None, max_length=300)
     slides: list[Slide] = Field(default_factory=list, max_length=CAROUSEL_MAX)
@@ -525,6 +527,8 @@ class Design(BaseModel):
     show_handle: bool = True
     # A carousel gets its own cover (the post's headline) and a closing slide (the call to action and the handle).
     carousel_frame: bool = False
+    # An illustration tile (an icon chosen from the post's words), the pill-shaped label and the swipe cue on a carousel cover.
+    show_icon: bool = False
 
 
 class BackgroundRequest(BaseModel):

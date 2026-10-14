@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, ServiceUnavailableError, ValidationError
 from app.core.logging_config import get_logger
+from modules.social_media import icons
 from modules.social_media.checks import check_and_store
 from modules.social_media.models import PostFormat, PostStatus, ResearchItem, SocialPost, SocialSettings, VerificationStatus
 from modules.social_media.schemas import PostContent, PostUpdate
@@ -33,7 +34,7 @@ from packages.ai.client import AICompletionResult, AIMessage, get_ai_client
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "2026-10-p8"
+PROMPT_VERSION = "2026-10-p9"
 ELEMENTS = ("hooks", "headline", "caption", "cta", "hashtags", "thumbnail_text", "visual_direction", "alt_text")
 MAX_ITEMS = 5
 MAX_TOKENS = 2800
@@ -55,6 +56,7 @@ class GeneratedDraft(BaseModel):
     hashtags: list[str] = Field(default_factory=list, max_length=15)
     thumbnail_text: str = Field(default="", max_length=120)
     emphasis: str = Field(default="", max_length=60)
+    icon: str = Field(default="", max_length=20)
     support_line: str = Field(default="", max_length=300)
     visual_direction: str = Field(default="", max_length=1000)
     alt_text: str = Field(default="", max_length=420)
@@ -150,12 +152,13 @@ Hard rules:
 - The headline must be at most {rules.get('max_headline_words', 8)} words and the cover text (thumbnail_text) at most {rules.get('max_cover_text_chars', 90)} characters. One idea per cover.
 - Hooks: give 3 to 5 different opening lines.
 - Write the headline, thumbnail_text and slide headings in sentence case: only the first word, acronyms and proper nouns start with a capital letter. Never Title Case Every Word.
+- icon: the one of shield, lock, key, magnifier, mail, network, logs, bug, bolt, terminal that best fits the topic (shown as an illustration).
 - emphasis: 1 to 3 words copied exactly from the headline that carry the idea (a tool, a term or the key verb). They are highlighted on the image.
 Prohibited claims for this brand:
 {prohibited}
 
 Reply with ONLY one JSON object, no other text, with these keys:
-hooks (list of strings), headline, caption, cta, hashtags (list, without #), thumbnail_text, emphasis, support_line (one sentence of at most 18 words that gives the answer or takeaway, shown under the headline on a single image; empty for a carousel), visual_direction, alt_text, slides (list of {{"heading","body"}}, only for carousels, else []), objective (one sentence: what this post is for), claims (list of every factual statement the post makes, one per entry)."""
+hooks (list of strings), headline, caption, cta, hashtags (list, without #), thumbnail_text, emphasis, icon, support_line (one sentence of at most 18 words that gives the answer or takeaway, shown under the headline on a single image; empty for a carousel), visual_direction, alt_text, slides (list of {{"heading","body"}}, only for carousels, else []), objective (one sentence: what this post is for), claims (list of every factual statement the post makes, one per entry)."""
 
 
 def _extract_json(text: str) -> dict:
@@ -266,6 +269,7 @@ class ContentStudio:
             headline=headline,
             support_line=support,
             emphasis=emphasis,
+            icon=draft.icon.strip().lower() if draft.icon.strip().lower() in icons.ICONS else "",
             caption=draft.caption,
             cta=draft.cta,
             hashtags=[h for h in draft.hashtags if re.fullmatch(r"#?\w{1,100}", h.strip())][:8],
@@ -312,7 +316,11 @@ class ContentStudio:
                 "suggested_time": suggest_time(settings),
                 **({"plan": plan} if plan else {}),
             },
-            design={**({"template": plan["template"]} if plan else {}), **({"carousel_frame": True} if post_format == PostFormat.CAROUSEL.value else {})},
+            design={
+                **({"template": plan["template"]} if plan else {}),
+                **({"carousel_frame": True} if post_format == PostFormat.CAROUSEL.value else {}),
+                **({"show_icon": True} if post_format in (PostFormat.CAROUSEL.value, PostFormat.IMAGE.value) else {}),
+            },
         )
         self.db.add(post)
         await self.db.flush()

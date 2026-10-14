@@ -57,6 +57,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
   const [credit, setCredit] = useState("");
   const [showLogo, setShowLogo] = useState(true);
   const [frame, setFrame] = useState(false);
+  const [showIcon, setShowIcon] = useState(false);
   const [direction, setDirection] = useState("");
   const [showGrid, setShowGrid] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -74,6 +75,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
     setCredit(d.credit ?? "");
     setShowLogo(d.show_logo ?? true);
     setFrame(d.carousel_frame ?? false);
+    setShowIcon(d.show_icon ?? false);
     setDirection("");
     setShowGrid(false);
     setMessage(null);
@@ -102,6 +104,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
       show_logo: showLogo,
       show_handle: true,
       carousel_frame: post?.format === "carousel" ? frame : false,
+      show_icon: showIcon,
     };
   }
 
@@ -219,6 +222,13 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
               <label className="flex items-center gap-2 text-sm sm:col-span-2">
                 <input type="checkbox" checked={showLogo} onChange={(e) => setShowLogo(e.target.checked)} />
                 Show the approved logo
+              </label>
+              <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                <input type="checkbox" className="mt-1" checked={showIcon} onChange={(e) => setShowIcon(e.target.checked)} />
+                <span>
+                  Add an illustration
+                  <span className="block text-xs text-muted-foreground">A brand-coloured icon chosen from the post&apos;s words (change it in the post editor), a pill-shaped label, and on a carousel cover a swipe cue.</span>
+                </span>
               </label>
               {post.format === "carousel" && (
                 <label className="flex items-start gap-2 text-sm sm:col-span-2">
