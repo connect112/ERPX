@@ -33,7 +33,7 @@ from packages.ai.client import AICompletionResult, AIMessage, get_ai_client
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "2026-10-p7"
+PROMPT_VERSION = "2026-10-p8"
 ELEMENTS = ("hooks", "headline", "caption", "cta", "hashtags", "thumbnail_text", "visual_direction", "alt_text")
 MAX_ITEMS = 5
 MAX_TOKENS = 2800
@@ -41,7 +41,7 @@ CALL_TIMEOUT = 90.0
 
 FORMAT_GUIDE = {
     PostFormat.IMAGE.value: "A single image post: one idea, one focal point. The image shows a short headline and support_line: the headline poses or states the idea and the support_line GIVES the answer or takeaway in one sentence, so the post is worth reading before anyone opens the caption.",
-    PostFormat.CAROUSEL.value: "A carousel of 3 to 8 short slides (slides[] each with a short heading and at most 2 short sentences). The first slide is the hook; the last is a takeaway.",
+    PostFormat.CAROUSEL.value: "A carousel of 4 to 7 short slides (slides[] each with a short heading and at most 2 short sentences). The cover is made automatically from the headline, so the first slide goes straight into the content (a numbered step such as Step 1: is fine); the last slide is the takeaway.",
     PostFormat.REEL.value: "A Reel CONCEPT: put the script and shot list in visual_direction. No video exists yet, so never write as if it did.",
     PostFormat.STORY.value: "A Story: a very short, single-screen message.",
 }
@@ -54,12 +54,36 @@ class GeneratedDraft(BaseModel):
     cta: str = Field(default="", max_length=200)
     hashtags: list[str] = Field(default_factory=list, max_length=15)
     thumbnail_text: str = Field(default="", max_length=120)
+    emphasis: str = Field(default="", max_length=60)
     support_line: str = Field(default="", max_length=300)
     visual_direction: str = Field(default="", max_length=1000)
     alt_text: str = Field(default="", max_length=420)
     slides: list[dict] = Field(default_factory=list, max_length=10)
     objective: str = Field(default="", max_length=300)
     claims: list[str] = Field(default_factory=list, max_length=20)
+
+
+_KEEP_CAPITAL = {"pentrix", "india", "indian", "linux", "windows", "android", "google", "microsoft", "amazon", "python", "kali", "burp", "wireshark", "nmap", "metasploit", "github", "linkedin", "instagram", "whatsapp", "aws", "azure", "tryhackme", "owasp", "nist", "mitre", "cisa", "i"}
+
+
+def sentence_case(text: str) -> str:
+    """Turns "Spot Phishing Fast: Check The Sender" into "Spot phishing fast: check the sender". Only text written in Title Case is
+    changed; acronyms (SIEM, CVE), words with digits and a few well-known names keep their capitals, and a text that is already in
+    sentence case is returned as it is."""
+    words = text.split()
+    long = [w for w in words if any(c.isalpha() for c in w) and not (w.isupper() and sum(c.isalpha() for c in w) > 1)]
+    if len(long) < 3 or sum(1 for w in long if w[0].isupper()) < 0.8 * len(long):
+        return text
+    out: list[str] = []
+    start = True
+    for word in words:
+        bare = re.sub(r"[^\w]", "", word)
+        if start or (word.isupper() and len(bare) > 1) or any(c.isdigit() for c in word) or bare.lower() in _KEEP_CAPITAL:
+            out.append(word)
+        else:
+            out.append(word[0].lower() + word[1:] if word[0].isupper() else word)
+        start = word.endswith(("?", "!", ".")) and len(word) > 1
+    return " ".join(out)
 
 
 def suggest_time(settings: SocialSettings, now: datetime | None = None) -> dict:
@@ -125,11 +149,13 @@ Hard rules:
 - Do not repeat the call to action inside the caption: put it only in the cta field.
 - The headline must be at most {rules.get('max_headline_words', 8)} words and the cover text (thumbnail_text) at most {rules.get('max_cover_text_chars', 90)} characters. One idea per cover.
 - Hooks: give 3 to 5 different opening lines.
+- Write the headline, thumbnail_text and slide headings in sentence case: only the first word, acronyms and proper nouns start with a capital letter. Never Title Case Every Word.
+- emphasis: 1 to 3 words copied exactly from the headline that carry the idea (a tool, a term or the key verb). They are highlighted on the image.
 Prohibited claims for this brand:
 {prohibited}
 
 Reply with ONLY one JSON object, no other text, with these keys:
-hooks (list of strings), headline, caption, cta, hashtags (list, without #), thumbnail_text, support_line (one sentence of at most 18 words that gives the answer or takeaway, shown under the headline on a single image; empty for a carousel), visual_direction, alt_text, slides (list of {{"heading","body"}}, only for carousels, else []), objective (one sentence: what this post is for), claims (list of every factual statement the post makes, one per entry)."""
+hooks (list of strings), headline, caption, cta, hashtags (list, without #), thumbnail_text, emphasis, support_line (one sentence of at most 18 words that gives the answer or takeaway, shown under the headline on a single image; empty for a carousel), visual_direction, alt_text, slides (list of {{"heading","body"}}, only for carousels, else []), objective (one sentence: what this post is for), claims (list of every factual statement the post makes, one per entry)."""
 
 
 def _extract_json(text: str) -> dict:
@@ -232,17 +258,21 @@ class ContentStudio:
         support = draft.support_line.strip() if post_format == PostFormat.IMAGE.value else ""
         if support and (len(support) > 160 or len(draft.headline) > cover_limit or len(draft.headline) + len(support) > cover_limit + SUPPORT_ALLOWANCE):
             support = ""
+        headline = sentence_case(draft.headline)
+        words = " ".join(draft.emphasis.split())
+        emphasis = words if words and len(words) <= 40 and re.search(re.escape(words), headline, re.I) else ""
         content = PostContent(
-            hooks=draft.hooks,
-            headline=draft.headline,
+            hooks=[sentence_case(h) for h in draft.hooks],
+            headline=headline,
             support_line=support,
+            emphasis=emphasis,
             caption=draft.caption,
             cta=draft.cta,
             hashtags=[h for h in draft.hashtags if re.fullmatch(r"#?\w{1,100}", h.strip())][:8],
-            thumbnail_text=draft.thumbnail_text,
+            thumbnail_text=sentence_case(draft.thumbnail_text),
             visual_direction=draft.visual_direction,
             alt_text=draft.alt_text,
-            slides=[{"heading": str(s.get("heading", ""))[:120], "body": str(s.get("body", ""))[:400]} for s in draft.slides if isinstance(s, dict)]
+            slides=[{"heading": sentence_case(str(s.get("heading", ""))[:120]), "body": str(s.get("body", ""))[:400]} for s in draft.slides if isinstance(s, dict)]
             if post_format == PostFormat.CAROUSEL.value
             else [],
         )
@@ -282,16 +312,28 @@ class ContentStudio:
                 "suggested_time": suggest_time(settings),
                 **({"plan": plan} if plan else {}),
             },
-            design={"template": plan["template"]} if plan else {},
+            design={**({"template": plan["template"]} if plan else {}), **({"carousel_frame": True} if post_format == PostFormat.CAROUSEL.value else {})},
         )
         self.db.add(post)
         await self.db.flush()
         for item in items:
             if item.status == "new":
                 item.status = "used"
+        await self._draw_artwork(organization_id, post, settings)
         await check_and_store(self.db, organization_id, post, settings)
         await self.db.refresh(post)
         return post
+
+    async def _draw_artwork(self, organization_id: uuid.UUID, post: SocialPost, settings: SocialSettings) -> None:
+        """Make the picture right away so the draft is judged by how it looks, not only by its words. A failure here (a missing
+        picture, trouble with storage) never loses the draft: the person can draw it from the post."""
+        from modules.social_media.artwork import ArtworkService
+
+        try:
+            async with self.db.begin_nested():
+                await ArtworkService(self.db).render(organization_id, post, settings)
+        except Exception as exc:  # noqa: BLE001 - the draft is already paid for; keep it
+            logger.warning("social_draft_artwork_failed", post_id=str(post.id), error=str(exc)[:200])
 
     # ---------------- one element of a draft ----------------
 

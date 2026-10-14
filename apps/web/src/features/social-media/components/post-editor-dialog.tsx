@@ -54,6 +54,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
   const [altText, setAltText] = useState("");
   const [thumbnailText, setThumbnailText] = useState("");
   const [supportLine, setSupportLine] = useState("");
+  const [emphasis, setEmphasis] = useState("");
   const [visualDirection, setVisualDirection] = useState("");
   const [slides, setSlides] = useState("");
   const [sources, setSources] = useState("");
@@ -76,6 +77,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
     setAltText(c?.alt_text ?? "");
     setThumbnailText(c?.thumbnail_text ?? "");
     setSupportLine(c?.support_line ?? "");
+    setEmphasis(c?.emphasis ?? "");
     setVisualDirection(c?.visual_direction ?? "");
     setSlides((c?.slides ?? []).map((s) => [s.heading, s.body].filter(Boolean).join(" | ")).join("\n"));
     setSources(sourcesToText(post));
@@ -111,6 +113,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
         alt_text: altText,
         thumbnail_text: thumbnailText,
         support_line: supportLine,
+        emphasis: emphasis.trim(),
         visual_direction: visualDirection,
         slides: slideRows,
       },
@@ -201,6 +204,10 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
           <div className="space-y-1.5">
             <Label htmlFor="sm-thumb">Text on the cover</Label>
             <Input id="sm-thumb" value={thumbnailText} maxLength={120} onChange={(e) => setThumbnailText(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="sm-emphasis">Highlighted words</Label>
+            <Input id="sm-emphasis" value={emphasis} maxLength={60} placeholder="1 to 3 words from the headline, highlighted on the image" onChange={(e) => setEmphasis(e.target.value)} />
           </div>
           {format !== "carousel" && (
             <div className="space-y-1.5">

@@ -193,9 +193,25 @@ class Spec:
     index: int | None = None  # a carousel slide: 1-based position
     total: int | None = None
     seed: int = 0  # decides the look of the neon template (pattern, light, text position); the same for every slide of a post
+    emphasis: str = ""  # words of the headline that get a highlighter marker behind them
+    numeral: str = ""  # "02": a step number taken from a heading like "Step 2: ..." and drawn large above it
 
     def texts(self) -> dict:
-        return {"kicker": self.kicker, "headline": self.headline, "subline": self.subline, "credit": self.credit, "footer": self.footer_right, "index": self.index, "total": self.total}
+        return {"kicker": self.kicker, "headline": self.headline, "subline": self.subline, "credit": self.credit, "footer": self.footer_right, "index": self.index, "total": self.total, "emphasis": self.emphasis, "numeral": self.numeral}
+
+
+COVER_FRAME_MAX = 70  # a headline longer than this stays inside the first slide instead of getting its own cover
+_STEP = re.compile(r"^(?:step\s*)?(\d{1,2})\s*[:.)\u2013-]\s*(\S.*)$", re.I)
+
+
+def _plain(text: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def _step_number(heading: str) -> tuple[str, str]:
+    """"Step 2: Learn the basics" -> ("02", "Learn the basics"); anything else is left alone."""
+    match = _STEP.match(heading)
+    return (f"{int(match.group(1)):02d}", match.group(2)) if match else ("", heading)
 
 
 def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_label: str | None, brand: dict) -> list[Spec]:
@@ -210,20 +226,38 @@ def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_
     credit = clean(design.get("credit"))
     explicit = design.get("variant")
     seed = int(explicit) if isinstance(explicit, int) and not isinstance(explicit, bool) else int(hashlib.sha1(f"{title}|{content.get('headline') or ''}".encode()).hexdigest()[:8], 16)
+    emphasis = clean(content.get("emphasis"))
     if post_format == "carousel":
         slides = content.get("slides") or []
         if not (2 <= len(slides) <= MAX_SLIDES):
             raise RenderError("A carousel needs 2 to 10 slides before its artwork can be made.")
+        parts: list[tuple[str, str, str]] = []  # (headline, body, numeral) of every image
+        cover = clean(design.get("headline")) or clean(content.get("headline"))
+        closing = clean(content.get("cta"))
+        framed = bool(design.get("carousel_frame"))
+        cover_wanted = framed and cover and len(cover) <= COVER_FRAME_MAX and _plain(cover) != _plain(slides[0].get("heading")) and len(slides) < MAX_SLIDES
+        if cover_wanted:
+            parts.append((cover, clean(content.get("support_line")) or "Swipe to read", ""))
+        for slide in slides:
+            numeral, heading = _step_number(clean(slide.get("heading")))
+            parts.append((heading, clean(slide.get("body")), numeral))
+        if framed and closing and len(closing) <= 140 and len(parts) < MAX_SLIDES:
+            # The closing slide: a short headline (the call to action if it is short, else "Save this for later."), the call to
+            # action in full under it, and where to follow.
+            short = len(closing.split()) <= 7
+            handle = clean(brand.get("handle"))
+            sub = ("" if short else closing) + (f" Follow {handle} for more." if handle else "")
+            parts.append((closing if short else "Save this for later.", sub.strip(), ""))
         return [
-            Spec(template, kicker if i == 0 else "", clean(slide.get("heading")), clean(slide.get("body")), credit if i == 0 else "", footer, i + 1, len(slides), seed)
-            for i, slide in enumerate(slides)
+            Spec(template, kicker if i == 0 else "", h, b, credit if i == 0 else "", footer, i + 1, len(parts), seed, emphasis, n)
+            for i, (h, b, n) in enumerate(parts)
         ]
     headline = clean(design.get("headline")) or clean(content.get("headline")) or clean(title)
     if not headline:
         raise RenderError("Add a headline before making artwork.")
     # The answer line: the design's own supporting line, else the one the studio wrote for the post.
     subline = clean(design.get("subline")) if design.get("subline") is not None else clean(content.get("support_line"))
-    return [Spec(template, kicker, headline, subline, credit, footer, None, None, seed)]
+    return [Spec(template, kicker, headline, subline, credit, footer, None, None, seed, emphasis)]
 
 
 def fingerprint(specs: list[Spec], design: dict) -> str:
@@ -345,8 +379,22 @@ class _Ctx:
         return self.image.height
 
 
-def _draw_block(ctx: _Ctx, fitted: Fitted, x: int, y: int, preferred: tuple[int, int, int], role: str, max_width: int) -> None:
-    """Draw wrapped text at (x, y), choosing white or ink if the preferred colour lacks contrast with what is behind it."""
+def _marked_words(lines: list[str], phrase: str) -> set[tuple[int, int]]:
+    """(line, word) positions of the first place the phrase appears in the wrapped lines, ignoring case and punctuation."""
+    words = [(li, wi, re.sub(r"[^\w]", "", w).lower()) for li, line in enumerate(lines) for wi, w in enumerate(line.split())]
+    target = [re.sub(r"[^\w]", "", w).lower() for w in phrase.split()]
+    target = [t for t in target if t]
+    if not target:
+        return set()
+    for start in range(len(words) - len(target) + 1):
+        if [w[2] for w in words[start:start + len(target)]] == target:
+            return {(w[0], w[1]) for w in words[start:start + len(target)]}
+    return set()
+
+
+def _draw_block(ctx: _Ctx, fitted: Fitted, x: int, y: int, preferred: tuple[int, int, int], role: str, max_width: int, marker: tuple[tuple[int, int, int], str] | None = None) -> None:
+    """Draw wrapped text at (x, y), choosing white or ink if the preferred colour lacks contrast with what is behind it.
+    `marker` = (colour, phrase): the phrase gets a highlighter-style box in that colour with black or white text on it."""
     face = font(fitted.size, fitted.weight)
     box = (max(0, x - 8), max(0, y - 8), min(ctx.w, x + max_width + 8), min(ctx.h, y + fitted.height + 8))
     backdrops = _backdrop_extremes(ctx.image, box)
@@ -359,8 +407,29 @@ def _draw_block(ctx: _Ctx, fitted: Fitted, x: int, y: int, preferred: tuple[int,
             break
         if worst > best:
             chosen, best = candidate, worst
-    for i, line in enumerate(fitted.lines):
-        ctx.draw.text((x, y + i * fitted.line_height), line, font=face, fill=chosen)
+    marked = _marked_words(fitted.lines, marker[1]) if marker else set()
+    if marked and marker:
+        on_marker = max(((0, 0, 0), (255, 255, 255)), key=lambda c: contrast_ratio(c, marker[0]))
+        pad = max(6, fitted.size // 10)
+        for i, line in enumerate(fitted.lines):
+            words = line.split()
+            top = y + i * fitted.line_height
+            cursor = 0
+            segments: list[tuple[int, str, bool]] = []  # (x offset, text, marked)
+            for wi, word in enumerate(words):
+                offset = int(face.getlength(line[:cursor])) if cursor else 0
+                segments.append((offset, word, (i, wi) in marked))
+                cursor += len(word) + 1
+            run = [seg for seg in segments if seg[2]]
+            if run:
+                left = x + run[0][0] - pad
+                right = x + run[-1][0] + int(face.getlength(run[-1][1].rstrip(".,;:!?)\"'"))) + pad
+                ctx.draw.rounded_rectangle((left, top + int(fitted.size * 0.06), right, top + int(fitted.line_height * 0.98)), radius=max(6, fitted.size // 8), fill=marker[0])
+            for offset, word, is_marked in segments:
+                ctx.draw.text((x + offset, top), word, font=face, fill=on_marker if is_marked else chosen)
+    else:
+        for i, line in enumerate(fitted.lines):
+            ctx.draw.text((x, y + i * fitted.line_height), line, font=face, fill=chosen)
     ctx.blocks.append(
         {
             "role": role,
@@ -582,9 +651,22 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
                 y_head = y + int(room * 0.22)
             else:
                 y_head = y + max(0, int((room - block_h) * anchor))
-        _draw_block(ctx, head, MARGIN, y_head, text_color, "headline", inner_w)
+        marker = None
+        if spec.emphasis:
+            marker = ((INK_ON_COLOUR if template in ("solid", "split") else palette.accent), spec.emphasis)
+        if spec.numeral:
+            numeral_size = 104
+            if y_head - numeral_size - 8 < y:
+                y_head = y + numeral_size + 8
+            ctx.draw.text((MARGIN, y_head - numeral_size - 8), spec.numeral, font=font(numeral_size, 800), fill=(INK_ON_COLOUR if template in ("solid", "split") else (palette.accent if dark_template else palette.primary)))
+        _draw_block(ctx, head, MARGIN, y_head, text_color, "headline", inner_w, marker)
         if sub_fit:
             _draw_block(ctx, sub_fit, MARGIN, y_head + head.height + 28, muted, "subline", inner_w)
+
+    if spec.index and spec.total and spec.total > 1:
+        # carousel progress: a bar along the bottom edge that fills as you swipe, so every slide says where it is in the set
+        bar = INK_ON_COLOUR if template in ("solid",) else (palette.accent if dark_template else palette.primary)
+        ctx.draw.rectangle((0, h - 12, int(w * spec.index / spec.total), h), fill=bar)
 
     logo = brand_logo if show_logo else None
     placed = _footer(ctx, spec, logo, dark_template, footer_bottom, footer_ink if template in ("solid", "split") else (muted if dark_template else palette.muted))

@@ -56,6 +56,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
   const [subline, setSubline] = useState("");
   const [credit, setCredit] = useState("");
   const [showLogo, setShowLogo] = useState(true);
+  const [frame, setFrame] = useState(false);
   const [direction, setDirection] = useState("");
   const [showGrid, setShowGrid] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -72,6 +73,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
     setSubline(d.subline ?? "");
     setCredit(d.credit ?? "");
     setShowLogo(d.show_logo ?? true);
+    setFrame(d.carousel_frame ?? false);
     setDirection("");
     setShowGrid(false);
     setMessage(null);
@@ -99,6 +101,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
       credit: credit.trim() === "" ? null : credit.trim(),
       show_logo: showLogo,
       show_handle: true,
+      carousel_frame: post?.format === "carousel" ? frame : false,
     };
   }
 
@@ -217,6 +220,15 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
                 <input type="checkbox" checked={showLogo} onChange={(e) => setShowLogo(e.target.checked)} />
                 Show the approved logo
               </label>
+              {post.format === "carousel" && (
+                <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                  <input type="checkbox" className="mt-1" checked={frame} onChange={(e) => setFrame(e.target.checked)} />
+                  <span>
+                    Add a cover slide and a closing slide
+                    <span className="block text-xs text-muted-foreground">The cover shows the post&apos;s headline (this is what appears in the grid); the last slide carries the call to action and your handle.</span>
+                  </span>
+                </label>
+              )}
               {template === "photo" && usage.data?.image_configured && (
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label htmlFor="aw-direction">AI background: direction (optional)</Label>

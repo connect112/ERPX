@@ -262,6 +262,8 @@ class PostContent(BaseModel):
     thumbnail_text: str = Field(default="", max_length=120)
     # One short sentence shown under the headline of a single image: the answer or the takeaway, so it isn't only in the caption.
     support_line: str = Field(default="", max_length=160)
+    # Words of the headline that get a highlighter marker on the image: the keyword that carries the idea.
+    emphasis: str = Field(default="", max_length=60)
     visual_direction: str = Field(default="", max_length=1000)
     asset_key: str | None = Field(default=None, max_length=300)
     slides: list[Slide] = Field(default_factory=list, max_length=CAROUSEL_MAX)
@@ -521,6 +523,8 @@ class Design(BaseModel):
     credit: str | None = Field(default=None, max_length=80)
     show_logo: bool = True
     show_handle: bool = True
+    # A carousel gets its own cover (the post's headline) and a closing slide (the call to action and the handle).
+    carousel_frame: bool = False
 
 
 class BackgroundRequest(BaseModel):

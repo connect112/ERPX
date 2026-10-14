@@ -350,3 +350,138 @@ async def test_editing_a_post_keeps_its_answer_line_and_the_neon_template_can_be
     design = await client.put(f"{_BASE}/posts/{post['id']}/design", json={"template": "neon", "variant": 12}, headers=auth_headers)
     assert design.status_code == 200 and design.json()["design"]["template"] == "neon" and design.json()["design"]["variant"] == 12
     assert (await client.put(f"{_BASE}/posts/{post['id']}/design", json={"template": "plaid"}, headers=auth_headers)).status_code == 422
+
+
+# ---------------- the quality pass: sentence case, a real cover, highlighted words, steps, progress ----------------
+
+
+@pytest.mark.parametrize(
+    "before, after",
+    [
+        ("Spot Phishing Fast: Check The Sender", "Spot phishing fast: check the sender"),
+        ("What Is A SIEM, Really?", "What is a SIEM, really?"),
+        ("Why Pentrix Teaches CVE Basics", "Why Pentrix teaches CVE basics"),
+        ("Zero trust, explained in one line", "Zero trust, explained in one line"),
+        ("Phishing vs spear phishing", "Phishing vs spear phishing"),
+        ("SIEM", "SIEM"),
+    ],
+)
+def test_title_case_headlines_are_turned_into_sentence_case_and_good_ones_are_left_alone(before, after):
+    assert studio.sentence_case(before) == after
+
+
+CONTENT = {
+    "headline": "What is a SIEM, really?",
+    "emphasis": "SIEM",
+    "cta": "Save this if you are learning how SOCs work.",
+    "slides": [
+        {"heading": "Too many logs", "body": "No human can read them all."},
+        {"heading": "Step 2: Collect and correlate", "body": "One place for every log."},
+        {"heading": "The takeaway", "body": "A SIEM turns logs into a story."},
+    ],
+}
+
+
+def test_a_framed_carousel_gets_a_cover_with_the_headline_and_a_closing_slide_and_an_unframed_one_does_not():
+    plain = render.specs_for("carousel", CONTENT, {"template": "neon"}, "t", "SOC", BRAND)
+    framed = render.specs_for("carousel", CONTENT, {"template": "neon", "carousel_frame": True}, "t", "SOC", BRAND)
+    assert len(plain) == 3 and plain[0].headline == "Too many logs", "nothing changes unless the frame is asked for"
+    assert len(framed) == 5
+    assert framed[0].headline == "What is a SIEM, really?" and framed[0].subline == "Swipe to read" and framed[0].kicker
+    assert framed[1].headline == "Too many logs" and framed[1].kicker == ""
+    assert (framed[2].numeral, framed[2].headline) == ("02", "Collect and correlate")
+    assert framed[-1].headline == "Save this for later." and "Follow @pentrix16" in framed[-1].subline and "learning how SOCs work" in framed[-1].subline
+    assert [s.index for s in framed] == [1, 2, 3, 4, 5] and {s.total for s in framed} == {5}
+
+
+def test_no_cover_is_added_when_the_first_slide_is_already_the_headline_or_there_is_no_room():
+    same = {**CONTENT, "slides": [{"heading": "What is a SIEM, really", "body": "x"}, *CONTENT["slides"][1:]]}
+    assert len(render.specs_for("carousel", same, {"carousel_frame": True}, "t", "SOC", BRAND)) == 4  # no cover, one closing slide
+    full = {**CONTENT, "slides": [{"heading": f"Slide {i}", "body": "x"} for i in range(10)]}
+    assert len(render.specs_for("carousel", full, {"carousel_frame": True}, "t", "SOC", BRAND)) == 10
+    long = {**CONTENT, "headline": "A very long headline that would not fit as a cover on its own so it stays in the slides"}
+    assert render.specs_for("carousel", long, {"carousel_frame": True}, "t", "SOC", BRAND)[0].headline == "Too many logs"
+
+
+def test_every_image_of_a_framed_carousel_passes_the_design_checks_in_every_look():
+    for template in ("neon", "statement", "split", "solid", "editorial"):
+        images, _ = draw("carousel", content=CONTENT, design={"template": template, "carousel_frame": True, "variant": 2}, logo=_logo((0, 0, 0, 255)))
+        assert len(images) == 5
+        for image in images:
+            assert image.validation["ok"], (template, image.slide, image.validation["problems"])
+
+
+def test_highlighted_words_get_a_marker_and_the_marker_never_changes_the_text_checks():
+    with_marker = draw(content={"emphasis": "SIEM"}, design={"template": "statement"})[0][0]
+    without = draw(content={"emphasis": ""}, design={"template": "statement"})[0][0]
+    from PIL import ImageChops
+
+    box = ImageChops.difference(pixels(with_marker), pixels(without)).convert("L").point(lambda v: 255 if v > 24 else 0).getbbox()
+    assert box is not None, "the highlight is drawn"
+    assert with_marker.validation["ok"]
+    unknown = draw(content={"emphasis": "not in the headline"}, design={"template": "statement"})[0][0]
+    assert pixels(unknown).tobytes() == pixels(without).tobytes(), "words that are not in the headline highlight nothing"
+
+
+def test_the_highlight_is_part_of_what_the_artwork_shows_so_changing_it_makes_the_artwork_stale():
+    a = render.current_fingerprint("image", {"headline": "What is a SIEM?", "emphasis": ""}, {}, "t", "SOC", BRAND)
+    b = render.current_fingerprint("image", {"headline": "What is a SIEM?", "emphasis": "SIEM"}, {}, "t", "SOC", BRAND)
+    assert a != b
+
+
+@pytest.fixture
+def fake_storage(monkeypatch):
+    from packages.storage import client as storage_client
+
+    class Fake:
+        def __init__(self):
+            self.objects = {}
+
+        async def upload_bytes(self, key, data, content_type):
+            self.objects[key] = data
+
+        async def read_bytes(self, key):
+            return self.objects[key]
+
+        async def delete_object(self, key):
+            self.objects.pop(key, None)
+
+        def presigned_download_url(self, key):
+            return f"https://files.test/{key}"
+
+    fake = Fake()
+    monkeypatch.setattr(storage_client, "_client", fake)
+    return fake
+
+
+async def test_a_generated_draft_arrives_with_its_artwork_in_sentence_case_with_a_valid_highlight(client, auth_headers, ai, fake_storage):
+    ai({**DRAFT, "headline": "Spot Phishing Fast: Check The Sender", "emphasis": "check the sender", "thumbnail_text": "Spot Phishing Fast", "support_line": "The domain after the @ tells the truth."})
+    post = await _generate(client, auth_headers, topic="Phishing vs spear phishing", format="image")
+    assert post["content"]["headline"] == "Spot phishing fast: check the sender" and post["content"]["thumbnail_text"] == "Spot phishing fast"
+    assert post["content"]["emphasis"] == "check the sender"
+    files = post["artwork"]["files"]
+    assert len(files) == 1 and files[0]["url"] and post["artwork"]["ok"] is True, "the picture is made at once"
+    assert not any(w["code"] == "chk_no_artwork" for w in post["warnings"]), post["warnings"]
+
+
+async def test_an_emphasis_that_is_not_in_the_headline_is_dropped_and_a_carousel_is_generated_framed(client, auth_headers, ai, fake_storage):
+    ai({**DRAFT, "headline": "What is a SIEM, really?", "emphasis": "firewall", "slides": [*SLIDES, {"heading": "Step 4: Act", "body": "Respond."}], "support_line": ""})
+    post = await _generate(client, auth_headers, topic="What is a SIEM?", format="carousel", auto=True)
+    assert post["content"]["emphasis"] == "" and post["design"]["carousel_frame"] is True
+    assert len(post["artwork"]["files"]) == 6, "cover + 4 slides + closing slide"
+
+
+async def test_a_draft_is_kept_even_when_its_artwork_cannot_be_made(client, auth_headers, ai, monkeypatch):
+    from packages.storage import client as storage_client
+
+    class Broken:
+        async def upload_bytes(self, *a, **k):
+            raise RuntimeError("storage is down")
+
+        async def delete_object(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(storage_client, "_client", Broken())
+    ai(DRAFT)
+    post = await _generate(client, auth_headers, topic="What is a SIEM?", format="image")
+    assert post["status"] == "draft" and not post["artwork"].get("files")

@@ -217,6 +217,15 @@ export function StudioTab({ selected, onSelectedChange, onOpenPosts }: Props) {
                 <span className="font-medium">Why this format and look:</span> {made.generation.plan.reason}
               </p>
             )}
+            {(made.artwork?.files?.length ?? 0) > 0 && (
+              <div className="flex gap-2 overflow-x-auto pb-1" aria-label="How the artwork looks">
+                {made.artwork.files?.map((f) => (
+                  <span key={f.key} className="shrink-0">
+                    {f.url ? <img src={f.url} alt={`Artwork, slide ${f.slide + 1}`} className="h-56 w-auto rounded-md border" /> : null}
+                  </span>
+                ))}
+              </div>
+            )}
             <p className="whitespace-pre-wrap">{made.content.caption}</p>
             {made.warnings.length > 0 ? (
               <ul className="space-y-1 text-xs">

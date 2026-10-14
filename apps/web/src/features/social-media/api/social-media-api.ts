@@ -29,6 +29,7 @@ export interface PostContent {
   alt_text: string;
   thumbnail_text: string;
   support_line?: string;
+  emphasis?: string;
   visual_direction: string;
   asset_key: string | null;
   slides: Slide[];
@@ -113,6 +114,7 @@ export interface Design {
   credit?: string | null;
   show_logo?: boolean;
   show_handle?: boolean;
+  carousel_frame?: boolean;
 }
 
 export interface ArtworkValidation {
