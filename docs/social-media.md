@@ -84,7 +84,7 @@ adjust to your provider's rates). Migration 0070. No new permissions.
 
 Environment variables for AI backgrounds (all three must be set; otherwise the feature says it isn't set up):
 `SOCIAL_IMAGE_API_KEY`, `SOCIAL_IMAGE_API_BASE_URL`, `SOCIAL_IMAGE_MODEL` (any `/v1/images/generations` compatible API that
-returns `b64_json`), and optionally `SOCIAL_IMAGE_COST_INR` (estimated cost per image, for the budget). Migration 0071.
+returns `b64_json`), and optionally `SOCIAL_IMAGE_QUALITY` (sent as `quality`, for example `medium` on OpenAI gpt-image-1, to keep the cost down) and `SOCIAL_IMAGE_COST_INR` (estimated cost per image, for the budget). Migration 0071.
 Small shared changes: `upload_bytes` / `read_bytes` on the storage client, the `SOCIAL_IMAGE_*` settings. Font: Inter
 (SIL Open Font License, licence file alongside it in `modules/social_media/fonts`).
 Note: approval hashes now include the design and artwork, so a post approved before this release has a hash made the

@@ -46,6 +46,8 @@ async def generate_background(prompt: str) -> bytes:
     url = settings.SOCIAL_IMAGE_API_BASE_URL.rstrip("/") + "/v1/images/generations"
     headers = {"Authorization": f"Bearer {settings.SOCIAL_IMAGE_API_KEY}", "Content-Type": "application/json"}
     payload = {"model": settings.SOCIAL_IMAGE_MODEL, "prompt": prompt, "size": SIZE, "n": 1}
+    if settings.SOCIAL_IMAGE_QUALITY.strip():
+        payload["quality"] = settings.SOCIAL_IMAGE_QUALITY.strip()
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             response = await client.post(url, json=payload, headers=headers)
