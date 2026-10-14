@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
+from pydantic import BaseModel, Field, ValidationError as PydanticValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,6 +63,14 @@ class GeneratedDraft(BaseModel):
     slides: list[dict] = Field(default_factory=list, max_length=10)
     objective: str = Field(default="", max_length=300)
     claims: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("emphasis", "icon", "support_line", "thumbnail_text", mode="before")
+    @classmethod
+    def _lenient(cls, value):
+        """Decoration fields must never cost a whole draft: a list becomes its words joined, anything else odd becomes empty."""
+        if isinstance(value, list):
+            value = " ".join(str(v) for v in value if isinstance(v, (str, int, float)))
+        return value if isinstance(value, str) else ""
 
 
 _KEEP_CAPITAL = {"pentrix", "india", "indian", "linux", "windows", "android", "google", "microsoft", "amazon", "python", "kali", "burp", "wireshark", "nmap", "metasploit", "github", "linkedin", "instagram", "whatsapp", "aws", "azure", "tryhackme", "owasp", "nist", "mitre", "cisa", "i"}
