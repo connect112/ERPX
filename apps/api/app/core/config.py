@@ -233,6 +233,9 @@ class Settings(BaseSettings):
     SOCIAL_IMAGE_API_KEY: str = ""
     SOCIAL_IMAGE_API_BASE_URL: str = ""
     SOCIAL_IMAGE_MODEL: str = ""
+    # Optional: sent to the provider as "quality" (for OpenAI gpt-image-1: low, medium or high). Left empty, the provider's own default is
+    # used, which can cost several times more than SOCIAL_IMAGE_COST_INR assumes, so set it together with the cost.
+    SOCIAL_IMAGE_QUALITY: str = ""
     SOCIAL_IMAGE_COST_INR: float = 4.0  # estimated cost of one background, for the budget
 
     # ---- Social Media: Instagram publishing ----

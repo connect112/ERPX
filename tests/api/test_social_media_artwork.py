@@ -661,11 +661,19 @@ async def test_the_image_provider_only_accepts_inline_image_data(monkeypatch):
 
         async def post(self, url, json=None, headers=None):
             assert url == "https://images.test/v1/images/generations" and headers["Authorization"] == "Bearer k" and json["model"] == "m"
+            sent.append(json)
             return answers.pop(0)
 
+    sent: list[dict] = []
     monkeypatch.setattr(image_provider.httpx, "AsyncClient", Http)
     answers.append(Response({"data": [{"b64_json": base64.b64encode(b"imagebytes").decode()}]}))
     assert await image_provider.generate_background("p") == b"imagebytes"
+    assert "quality" not in sent[-1], "no quality is sent unless one is configured"
+    monkeypatch.setattr(settings, "SOCIAL_IMAGE_QUALITY", "medium")
+    answers.append(Response({"data": [{"b64_json": base64.b64encode(b"imagebytes").decode()}]}))
+    await image_provider.generate_background("p")
+    assert sent[-1]["quality"] == "medium", "a configured quality is passed to the provider to control the cost"
+    monkeypatch.setattr(settings, "SOCIAL_IMAGE_QUALITY", "")
     answers.append(Response({"data": [{"url": "http://169.254.169.254/latest/meta-data"}]}))
     with pytest.raises(ServiceUnavailableError, match="link instead"):
         await image_provider.generate_background("p")
