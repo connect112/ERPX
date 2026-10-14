@@ -665,7 +665,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             sub_h = sub_fit.height + 36
         if pro and template != "photo":
             # The illustrated look keeps all text clear of the logo (and its badge) and leaves room for the illustration on a cover.
-            clear = panel_bottom if template == "split" else footer_bottom - 214
+            clear = panel_bottom - 36 if template == "split" else footer_bottom - 214
             if pro_inner:
                 free_top = top + 132 + 28
                 y_head = free_top + int((clear - free_top) * 0.26) + (60 if spec.numeral else 0)
