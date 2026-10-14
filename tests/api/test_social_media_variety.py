@@ -556,3 +556,10 @@ async def test_generated_drafts_turn_the_illustration_on_and_keep_only_a_valid_a
     other = await _generate(client, auth_headers, topic="Why encryption matters", format="image")
     assert other["content"]["icon"] == "", "an icon that is not in the library is ignored; one is chosen from the words"
     assert post["artwork"]["files"][0]["validation"]["ok"]
+
+
+async def test_odd_decoration_fields_from_the_ai_never_cost_a_draft(client, auth_headers, ai, fake_storage):
+    ai({**DRAFT, "emphasis": ["SIEM", "really"], "icon": ["lock"], "support_line": None, "slides": []})
+    post = await _generate(client, auth_headers, topic="What is a SIEM?", format="image")
+    assert post["status"] == "draft" and post["content"]["icon"] == "lock"
+    assert post["content"]["support_line"] == ""
