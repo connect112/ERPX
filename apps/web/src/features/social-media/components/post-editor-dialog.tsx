@@ -9,6 +9,7 @@ import type { Pillar, Post, PostFormat, PostPayload, Source, VerificationStatus 
 import { FORMAT_LABEL, VERIFICATION_LABEL, toInputValue } from "@/features/social-media/lib/format";
 
 const CAPTION_LIMIT = 2200;
+const ICON_NAMES = ["shield", "lock", "key", "magnifier", "mail", "network", "logs", "bug", "bolt", "terminal"];
 const NATIVE_SELECT =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
 
@@ -54,6 +55,8 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
   const [altText, setAltText] = useState("");
   const [thumbnailText, setThumbnailText] = useState("");
   const [supportLine, setSupportLine] = useState("");
+  const [emphasis, setEmphasis] = useState("");
+  const [icon, setIcon] = useState("");
   const [visualDirection, setVisualDirection] = useState("");
   const [slides, setSlides] = useState("");
   const [sources, setSources] = useState("");
@@ -76,6 +79,8 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
     setAltText(c?.alt_text ?? "");
     setThumbnailText(c?.thumbnail_text ?? "");
     setSupportLine(c?.support_line ?? "");
+    setEmphasis(c?.emphasis ?? "");
+    setIcon(c?.icon ?? "");
     setVisualDirection(c?.visual_direction ?? "");
     setSlides((c?.slides ?? []).map((s) => [s.heading, s.body].filter(Boolean).join(" | ")).join("\n"));
     setSources(sourcesToText(post));
@@ -111,6 +116,8 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
         alt_text: altText,
         thumbnail_text: thumbnailText,
         support_line: supportLine,
+        emphasis: emphasis.trim(),
+        icon,
         visual_direction: visualDirection,
         slides: slideRows,
       },
@@ -201,6 +208,21 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
           <div className="space-y-1.5">
             <Label htmlFor="sm-thumb">Text on the cover</Label>
             <Input id="sm-thumb" value={thumbnailText} maxLength={120} onChange={(e) => setThumbnailText(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="sm-emphasis">Highlighted words</Label>
+            <Input id="sm-emphasis" value={emphasis} maxLength={60} placeholder="1 to 3 words from the headline, highlighted on the image" onChange={(e) => setEmphasis(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="sm-icon">Illustration</Label>
+            <select id="sm-icon" className={NATIVE_SELECT} value={icon} onChange={(e) => setIcon(e.target.value)}>
+              <option value="">Choose from the words</option>
+              {ICON_NAMES.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
           </div>
           {format !== "carousel" && (
             <div className="space-y-1.5">
