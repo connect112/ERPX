@@ -668,12 +668,12 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             clear = panel_bottom if template == "split" else footer_bottom - 214
             if pro_inner:
                 free_top = top + 132 + 28
-                y_head = free_top + int((clear - free_top) * 0.20) + (60 if spec.numeral else 0)
+                y_head = free_top + int((clear - free_top) * 0.26) + (60 if spec.numeral else 0)
                 avail = clear - y_head
                 if has_sub:
-                    sub_fit = fit(spec.subline, inner_w, min(300, int(avail * 0.55)), 50, MIN_BODY_PX, 400, 6, 1.4, "supporting line")
+                    sub_fit = fit(spec.subline, inner_w, min(340, int(avail * 0.55)), 54, MIN_BODY_PX, 400, 6, 1.4, "supporting line")
                     sub_h = sub_fit.height + 36
-                head = fit(spec.headline, inner_w, avail - sub_h, 124, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
+                head = fit(spec.headline, inner_w, avail - sub_h, 140, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
             else:
                 y_head = y + 6
                 avail = clear - y_head
