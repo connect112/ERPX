@@ -663,7 +663,28 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
         if has_sub:
             sub_fit = fit(spec.subline, inner_w, 300 if pro_inner else 260, 50 if pro_inner else 42, MIN_BODY_PX, 400, 6 if pro_inner else 5, 1.4, "supporting line")
             sub_h = sub_fit.height + 36
-        if template == "photo":
+        if pro and template != "photo":
+            # The illustrated look keeps all text clear of the logo (and its badge) and leaves room for the illustration on a cover.
+            clear = panel_bottom if template == "split" else footer_bottom - 214
+            if pro_inner:
+                free_top = top + 132 + 28
+                y_head = free_top + int((clear - free_top) * 0.20) + (60 if spec.numeral else 0)
+                avail = clear - y_head
+                if has_sub:
+                    sub_fit = fit(spec.subline, inner_w, min(300, int(avail * 0.55)), 50, MIN_BODY_PX, 400, 6, 1.4, "supporting line")
+                    sub_h = sub_fit.height + 36
+                head = fit(spec.headline, inner_w, avail - sub_h, 124, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
+            else:
+                y_head = y + 6
+                avail = clear - y_head
+                biggest = 148 if (cover and spec.total) else 124
+                try:
+                    head = fit(spec.headline, inner_w, avail - sub_h - 290, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")  # leaves room for the tile
+                except RenderError:
+                    head = fit(spec.headline, inner_w, avail - sub_h, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
+            block_h = head.height + sub_h
+            room = clear - y - 40
+        elif template == "photo":
             # type sits low, over the scrim
             room = footer_top - y - 60
             head = fit(spec.headline, inner_w, min(room - sub_h, int(h * 0.38)), 112, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
@@ -712,7 +733,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
                 region_bottom = (panel_bottom if template == "split" else footer_bottom - (214 if on_left else 96)) - 24
                 free = region_bottom - text_bottom - 44
                 size = min(free, 560)
-                if size >= 240:
+                if size >= 190:
                     tx = MARGIN if on_left else w - MARGIN - size
                     icons.draw_tile(ctx.image, spec.icon, tx, text_bottom + 44 + (free - size) // 2, size, g0, g1)
 
