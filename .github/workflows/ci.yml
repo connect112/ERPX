@@ -48,6 +48,16 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: alembic upgrade head
 
+      # The hackathon tests expect the default roles and permissions (for example `hackathon_participant`) to exist already; a fresh
+      # CI database has none until they are seeded. Only the roles seed is run: scripts.seed also creates the Pentrix organisation,
+      # which these tests do not need.
+      - name: Seed default roles and permissions
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c "import asyncio; from scripts.seed import seed_rbac; asyncio.run(seed_rbac())"
+
       - name: Run backend tests
         env:
           DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
