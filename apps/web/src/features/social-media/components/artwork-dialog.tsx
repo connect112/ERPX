@@ -58,6 +58,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
   const [showLogo, setShowLogo] = useState(true);
   const [frame, setFrame] = useState(false);
   const [showIcon, setShowIcon] = useState(false);
+  const [engine, setEngine] = useState<"v1" | "v2">("v1");
   const [direction, setDirection] = useState("");
   const [showGrid, setShowGrid] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -76,6 +77,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
     setShowLogo(d.show_logo ?? true);
     setFrame(d.carousel_frame ?? false);
     setShowIcon(d.show_icon ?? false);
+    setEngine(d.engine ?? "v1");
     setDirection("");
     setShowGrid(false);
     setMessage(null);
@@ -105,6 +107,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
       show_handle: true,
       carousel_frame: post?.format === "carousel" ? frame : false,
       show_icon: showIcon,
+      engine: showIcon ? engine : "v1",
     };
   }
 
@@ -230,6 +233,15 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
                   <span className="block text-xs text-muted-foreground">A brand-coloured icon chosen from the post&apos;s words (change it in the post editor), a pill-shaped label, and on a carousel cover a swipe cue.</span>
                 </span>
               </label>
+              {showIcon && (
+                <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                  <input type="checkbox" className="mt-1" checked={engine === "v2"} onChange={(e) => setEngine(e.target.checked ? "v2" : "v1")} />
+                  <span>
+                    New design engine (beta)
+                    <span className="block text-xs text-muted-foreground">Chooses a layout that suits the post: a giant number, a checklist, a comparison, a flow or a question. Switch it off to go back to the standard look.</span>
+                  </span>
+                </label>
+              )}
               {post.format === "carousel" && (
                 <label className="flex items-start gap-2 text-sm sm:col-span-2">
                   <input type="checkbox" className="mt-1" checked={frame} onChange={(e) => setFrame(e.target.checked)} />

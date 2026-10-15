@@ -236,6 +236,9 @@ class Settings(BaseSettings):
     # Optional: sent to the provider as "quality" (for OpenAI gpt-image-1: low, medium or high). Left empty, the provider's own default is
     # used, which can cost several times more than SOCIAL_IMAGE_COST_INR assumes, so set it together with the cost.
     SOCIAL_IMAGE_QUALITY: str = ""
+    # Social Media design engine v2 (art-direction brief + composition library) for NEW AI drafts. Off by default: new drafts then use engine v1,
+    # exactly as before. A single post can also be switched to v2 by hand in its artwork dialog.
+    SOCIAL_DESIGN_ENGINE_V2: bool = False
     SOCIAL_IMAGE_COST_INR: float = 4.0  # estimated cost of one background, for the budget
 
     # ---- Social Media: Instagram publishing ----

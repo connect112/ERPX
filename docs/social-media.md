@@ -338,6 +338,24 @@ in [social-media-report.md](social-media-report.md).
   on a white chip, and the planner only picks dark looks for it. Saving the Strategy settings keeps the flag for the same logo.
 - The palette defaults (taken from the logo) stay unconfirmed until a person confirms them under Strategy.
 
+## Design engine v2 (Phase 1): art direction and compositions
+
+An opt-in layer on top of the standard renderer (engine v1, which every earlier post uses and which is unchanged).
+
+- **Switch:** `design.engine` is `"v1"` (default) or `"v2"`. New AI drafts get v2 only when `SOCIAL_DESIGN_ENGINE_V2=true` is set on the server
+  (default `false`); any single post can be switched in its artwork dialog ("New design engine (beta)"). Turning the flag off, or the
+  post's switch off, is the rollback: the post is drawn by v1 again.
+- **Brief (`art_direction.py`):** each v2 post carries a creative brief inside `content.art_direction` (no migration): concept, metaphor,
+  composition, focus, items, imagery (always `none` in Phase 1). The AI proposes it; it is completed from the post's own words, so a poor
+  or missing brief never costs a draft. The concept is kept in `visual_direction`, which the old design never read.
+- **Precedence:** 1. the brand's restrictions (a forbidden theme, such as neon while "neon or glow effects" is listed, is never chosen
+  automatically; it can still be picked by hand), 2. whether the topic suits a composition, 3. the theme preference (rotation).
+- **Compositions (`compose.py`):** poster (big circle with the icon), stat (a giant number the post really states), checklist (the steps as rows),
+  compare ("A vs B" in two panels), flow (connected numbered steps), question (an oversized question mark). A layout is only used when the
+  words support it, is not repeated back to back, and gives way to the poster if its words cannot fit.
+- **Approval and publishing are unchanged.** The composition, items and focus are part of the artwork fingerprint, so changing the brief
+  makes the artwork stale (a blocking warning) until it is drawn again, and only the exact approved artwork can be published.
+
 ## Status
 
 All six planned phases are built. Nothing has run against a real Instagram account yet; see the blocked live tests in the report.

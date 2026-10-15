@@ -23,8 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, ServiceUnavailableError, ValidationError
 from app.core.logging_config import get_logger
-from modules.social_media import icons
+from app.core.config import settings as app_settings
+from modules.social_media import art_direction, icons
 from modules.social_media.checks import check_and_store
+from modules.social_media.history import HistoryService
 from modules.social_media.models import PostFormat, PostStatus, ResearchItem, SocialPost, SocialSettings, VerificationStatus
 from modules.social_media.schemas import PostContent, PostUpdate
 from modules.social_media.service import PostService
@@ -34,7 +36,7 @@ from packages.ai.client import AICompletionResult, AIMessage, get_ai_client
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = "2026-10-p10"
+PROMPT_VERSION = "2026-10-p11"
 ELEMENTS = ("hooks", "headline", "caption", "cta", "hashtags", "thumbnail_text", "visual_direction", "alt_text")
 MAX_ITEMS = 5
 MAX_TOKENS = 2800
@@ -57,12 +59,18 @@ class GeneratedDraft(BaseModel):
     thumbnail_text: str = Field(default="", max_length=120)
     emphasis: str = Field(default="", max_length=60)
     icon: str = Field(default="", max_length=20)
+    art_direction: dict | None = None
     support_line: str = Field(default="", max_length=300)
     visual_direction: str = Field(default="", max_length=1000)
     alt_text: str = Field(default="", max_length=420)
     slides: list[dict] = Field(default_factory=list, max_length=10)
     objective: str = Field(default="", max_length=300)
     claims: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("art_direction", mode="before")
+    @classmethod
+    def _brief(cls, value):
+        return value if isinstance(value, dict) else None
 
     @field_validator("emphasis", "icon", "support_line", "thumbnail_text", mode="before")
     @classmethod
@@ -170,9 +178,19 @@ def _fence(items: list[ResearchItem]) -> str:
     return re.sub(r"</?\s*untrusted_sources\s*>", "[removed]", text, flags=re.IGNORECASE)
 
 
-def build_system(settings: SocialSettings, post_format: str, pillar_label: str | None, persona: dict | None) -> str:
+ART_DIRECTION_RULE = (
+    "- art_direction: an object that briefs the designer, drawn only with flat shapes, icons and type (no photos, no people, no screens or code): "
+    '{"concept": one sentence on what the picture should show, "metaphor": a short visual idea, "composition": one of poster, stat, checklist, compare, flow, question that '
+    'suits this topic (stat needs a number, checklist and flow need steps, compare needs "A vs B" in the headline, question needs a question headline), '
+    '"focus": a number or key term taken from the post, "items": up to 5 short points of 2 to 5 words each, taken from the post}.'
+)
+
+
+def build_system(settings: SocialSettings, post_format: str, pillar_label: str | None, persona: dict | None, engine_v2: bool = False) -> str:
     brand = settings.brand or {}
     rules = settings.design_rules or {}
+    art_rule = ("\n" + ART_DIRECTION_RULE) if engine_v2 else ""
+    art_key = ", art_direction" if engine_v2 else ""
     prohibited = "\n".join(f"- {c}" for c in settings.prohibited_claims or [])
     persona_text = f'{persona["label"]}: {persona.get("description", "")}' if persona else "a general cybersecurity-curious audience in India"
     return f"""You write Instagram content for {brand.get('name', 'a cybersecurity training brand')} ("{brand.get('tagline', '')}").
@@ -194,7 +212,7 @@ Hard rules:
 - Caption: the first line is a hook of under 90 characters that makes the reader want to continue. Then short paragraphs of one or two sentences, separated by a blank line. At most 110 words in total. Never one long block of text.
 - cta: specific to this post (what to save, check or do). Never a generic "follow us for more".
 - Hashtags: 5 to 7, specific to this exact topic. Use at most ONE of the very broad tags (cybersecurity, infosec).
-- The headline promises one concrete payoff the reader gets from the post, in plain words.
+- The headline promises one concrete payoff the reader gets from the post, in plain words.{art_rule}
 - Write the headline, thumbnail_text and slide headings in sentence case: only the first word, acronyms and proper nouns start with a capital letter. Never Title Case Every Word.
 - icon: the one of shield, lock, key, magnifier, mail, network, logs, bug, bolt, terminal that best fits the topic (shown as an illustration).
 - emphasis: 1 to 3 words copied exactly from the headline that carry the idea (a tool, a term or the key verb). They are highlighted on the image.
@@ -202,7 +220,7 @@ Prohibited claims for this brand:
 {prohibited}
 
 Reply with ONLY one JSON object, no other text, with these keys:
-hooks (list of strings), headline, caption, cta, hashtags (list, without #), thumbnail_text, emphasis, icon, support_line (one sentence of at most 18 words that gives the answer or takeaway, shown under the headline on a single image; empty for a carousel), visual_direction, alt_text, slides (list of {{"heading","body"}}, only for carousels, else []), objective (one sentence: what this post is for), claims (list of every factual statement the post makes, one per entry)."""
+hooks (list of strings), headline, caption, cta, hashtags (list, without #), thumbnail_text, emphasis, icon{art_key}, support_line (one sentence of at most 18 words that gives the answer or takeaway, shown under the headline on a single image; empty for a carousel), visual_direction, alt_text, slides (list of {{"heading","body"}}, only for carousels, else []), objective (one sentence: what this post is for), claims (list of every factual statement the post makes, one per entry)."""
 
 
 def _extract_json(text: str) -> dict:
@@ -294,7 +312,8 @@ class ContentStudio:
         items = await self._items(organization_id, research_item_ids)
         if research_item_ids and len(items) != len(set(research_item_ids)):
             raise ValidationError("One of the selected research items no longer exists.")
-        system = build_system(settings, post_format, self._pillar_label(settings, pillar), self._persona(settings, persona_key))
+        engine_v2 = bool(app_settings.SOCIAL_DESIGN_ENGINE_V2) and post_format in (PostFormat.IMAGE.value, PostFormat.CAROUSEL.value)
+        system = build_system(settings, post_format, self._pillar_label(settings, pillar), self._persona(settings, persona_key), engine_v2)
         request = {"topic": topic, "notes": notes or None}
         message = f"Request (from the brand's own staff):\n{json.dumps(request, ensure_ascii=False)}\n\n<untrusted_sources>\n{_fence(items)}\n</untrusted_sources>"
         draft, result = await self._json_answer(
@@ -324,6 +343,20 @@ class ContentStudio:
             if post_format == PostFormat.CAROUSEL.value
             else [],
         )
+        design = {
+            **({"template": plan["template"]} if plan else {}),
+            **({"carousel_frame": True} if post_format == PostFormat.CAROUSEL.value else {}),
+            **({"show_icon": True} if post_format in (PostFormat.CAROUSEL.value, PostFormat.IMAGE.value) else {}),
+        }
+        if engine_v2:
+            # The creative brief: the AI's, completed from the post's own words, with a composition that suits the topic and was not
+            # used by the previous post. Its concept is kept in visual_direction, so that field now says what the picture is.
+            recent = [((p.content or {}).get("art_direction") or {}).get("composition") for p in await HistoryService(self.db).recent(organization_id, limit=8)]
+            brief = art_direction.finalise(draft.art_direction, headline, [s.model_dump() for s in content.slides], support, [r for r in recent if r], post_format, content.icon)
+            content.art_direction = brief
+            if brief.concept:
+                content.visual_direction = brief.concept[:1000]
+            design["engine"] = "v2"
         sources = [
             {
                 "url": item.url,
@@ -360,11 +393,7 @@ class ContentStudio:
                 "suggested_time": suggest_time(settings),
                 **({"plan": plan} if plan else {}),
             },
-            design={
-                **({"template": plan["template"]} if plan else {}),
-                **({"carousel_frame": True} if post_format == PostFormat.CAROUSEL.value else {}),
-                **({"show_icon": True} if post_format in (PostFormat.CAROUSEL.value, PostFormat.IMAGE.value) else {}),
-            },
+            design=design,
         )
         self.db.add(post)
         await self.db.flush()

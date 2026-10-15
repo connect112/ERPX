@@ -123,7 +123,7 @@ async def plan_post(
 ):
     """Which format and look ERPX would choose for this topic, given the recent posts, and why. Nothing is created."""
     settings = await SettingsService(db).get(organization_id)
-    return await Planner(db).plan(organization_id, payload.topic.strip(), payload.notes.strip(), bool((settings.brand or {}).get("logo_on_dark")))
+    return await Planner(db).plan(organization_id, payload.topic.strip(), payload.notes.strip(), bool((settings.brand or {}).get("logo_on_dark")), settings.design_rules)
 
 
 @router.post("/studio/generate", response_model=PostPublic, status_code=status.HTTP_201_CREATED)
@@ -136,7 +136,7 @@ async def generate_draft(
     """Draft a post with AI from the brand strategy and the selected research. The result is always a DRAFT: nothing is
     approved, scheduled or published. It is checked automatically and then needs a person's review."""
     settings = await SettingsService(db).get(organization_id)
-    plan = await Planner(db).plan(organization_id, payload.topic.strip(), payload.notes.strip(), bool((settings.brand or {}).get("logo_on_dark"))) if payload.auto else None
+    plan = await Planner(db).plan(organization_id, payload.topic.strip(), payload.notes.strip(), bool((settings.brand or {}).get("logo_on_dark")), settings.design_rules) if payload.auto else None
     post = await ContentStudio(db).generate(
         organization_id,
         user.id,

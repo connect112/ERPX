@@ -20,6 +20,7 @@ from dataclasses import dataclass, asdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.social_media import art_direction
 from modules.social_media.history import HistoryService
 
 TEMPLATES = ("neon", "statement", "split", "solid", "editorial")  # the ones that need no picture
@@ -52,8 +53,9 @@ class Plan:
     recent_templates: list[str]
 
 
-def decide(topic: str, notes: str, recent: list[dict], logo_on_dark: bool = False) -> Plan:
-    """`recent` is the newest-first list of {"format", "template"} for the account's latest feed posts."""
+def decide(topic: str, notes: str, recent: list[dict], logo_on_dark: bool = False, rules: dict | None = None) -> Plan:
+    """`recent` is the newest-first list of {"format", "template"} for the account's latest feed posts. `rules` are the brand's design
+    rules: a theme they forbid (the neon look, while "neon or glow effects" is listed) is never chosen automatically."""
     kind = classify(topic, notes)
     formats = [r["format"] for r in recent if r.get("format") in FORMATS][:LOOKBACK]
     templates = [r["template"] for r in recent if r.get("template") in TEMPLATES][:LOOKBACK]
@@ -75,9 +77,9 @@ def decide(topic: str, notes: str, recent: list[dict], logo_on_dark: bool = Fals
 
     # ---- look ----
     last = templates[0] if templates else None
-    candidates = list(TEMPLATES)
+    candidates = [t for t in TEMPLATES if art_direction.theme_allowed(t, rules)]  # the brand's restrictions come first
     if kind == "alert":
-        candidates = ["statement", "solid", "split"]  # high contrast, quick to read
+        candidates = [t for t in ("statement", "solid", "split") if t in candidates] or candidates  # high contrast, quick to read
     ranked = []
     for t in candidates:
         since = templates.index(t) if t in templates else len(templates) + 5  # larger = longer ago (or never)
@@ -104,5 +106,5 @@ class Planner:
         rows = await HistoryService(self.db).recent(organization_id, limit=LOOKBACK * 2)
         return [{"format": p.format, "template": (p.design or {}).get("template") or "editorial"} for p in rows if p.format in FORMATS]
 
-    async def plan(self, organization_id: uuid.UUID, topic: str, notes: str = "", logo_on_dark: bool = False) -> dict:
-        return asdict(decide(topic, notes, await self.recent(organization_id), logo_on_dark))
+    async def plan(self, organization_id: uuid.UUID, topic: str, notes: str = "", logo_on_dark: bool = False, rules: dict | None = None) -> dict:
+        return asdict(decide(topic, notes, await self.recent(organization_id), logo_on_dark, rules))

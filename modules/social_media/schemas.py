@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from modules.social_media.art_direction import ArtBrief
 from modules.social_media.models import PostFormat, PostStatus, VerificationStatus
 from modules.social_media.safe_url import instagram_page
 
@@ -266,6 +267,8 @@ class PostContent(BaseModel):
     emphasis: str = Field(default="", max_length=60)
     # One of the library icons (shield, lock, key, magnifier, mail, network, logs, bug, bolt, terminal); empty = chosen from the words.
     icon: str = Field(default="", max_length=20)
+    # The creative brief (engine v2): concept, metaphor, composition, focus and items. Its concept is also kept in visual_direction.
+    art_direction: ArtBrief | None = None
     visual_direction: str = Field(default="", max_length=1000)
     asset_key: str | None = Field(default=None, max_length=300)
     slides: list[Slide] = Field(default_factory=list, max_length=CAROUSEL_MAX)
@@ -529,6 +532,8 @@ class Design(BaseModel):
     carousel_frame: bool = False
     # An illustration tile (an icon chosen from the post's words), the pill-shaped label and the swipe cue on a carousel cover.
     show_icon: bool = False
+    # "v1" is the renderer every earlier post was made with; "v2" adds the art-direction brief and the composition library.
+    engine: Literal["v1", "v2"] = "v1"
 
 
 class BackgroundRequest(BaseModel):

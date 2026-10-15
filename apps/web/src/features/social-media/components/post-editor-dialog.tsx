@@ -5,10 +5,18 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { Pillar, Post, PostFormat, PostPayload, Source, VerificationStatus } from "@/features/social-media/api/social-media-api";
+import type { ArtBrief, Composition, Pillar, Post, PostFormat, PostPayload, Source, VerificationStatus } from "@/features/social-media/api/social-media-api";
 import { FORMAT_LABEL, VERIFICATION_LABEL, toInputValue } from "@/features/social-media/lib/format";
 
 const CAPTION_LIMIT = 2200;
+const COMPOSITIONS: { value: Composition; label: string }[] = [
+  { value: "poster", label: "Poster: big circle with the icon" },
+  { value: "stat", label: "Stat: a giant number" },
+  { value: "checklist", label: "Checklist: the steps as rows" },
+  { value: "compare", label: "Compare: this vs that" },
+  { value: "flow", label: "Flow: connected steps" },
+  { value: "question", label: "Question: a big question mark" },
+];
 const ICON_NAMES = ["shield", "lock", "key", "magnifier", "mail", "network", "logs", "bug", "bolt", "terminal"];
 const NATIVE_SELECT =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -57,6 +65,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
   const [supportLine, setSupportLine] = useState("");
   const [emphasis, setEmphasis] = useState("");
   const [icon, setIcon] = useState("");
+  const [brief, setBrief] = useState<ArtBrief | null>(null);
   const [visualDirection, setVisualDirection] = useState("");
   const [slides, setSlides] = useState("");
   const [sources, setSources] = useState("");
@@ -81,6 +90,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
     setSupportLine(c?.support_line ?? "");
     setEmphasis(c?.emphasis ?? "");
     setIcon(c?.icon ?? "");
+    setBrief(c?.art_direction ?? null);
     setVisualDirection(c?.visual_direction ?? "");
     setSlides((c?.slides ?? []).map((s) => [s.heading, s.body].filter(Boolean).join(" | ")).join("\n"));
     setSources(sourcesToText(post));
@@ -118,6 +128,7 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
         support_line: supportLine,
         emphasis: emphasis.trim(),
         icon,
+        art_direction: brief,
         visual_direction: visualDirection,
         slides: slideRows,
       },
@@ -213,6 +224,30 @@ export function PostEditorDialog({ open, onOpenChange, post, pillars, timeZone, 
             <Label htmlFor="sm-emphasis">Highlighted words</Label>
             <Input id="sm-emphasis" value={emphasis} maxLength={60} placeholder="1 to 3 words from the headline, highlighted on the image" onChange={(e) => setEmphasis(e.target.value)} />
           </div>
+          {post?.design?.engine === "v2" && (
+            <div className="space-y-3 rounded-md border p-3 sm:col-span-2">
+              <p className="text-sm font-medium">Art direction (new design engine)</p>
+              {brief?.concept && <p className="text-xs text-muted-foreground">{brief.concept}</p>}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="sm-composition">Layout of the cover</Label>
+                  <select id="sm-composition" className={NATIVE_SELECT} value={brief?.composition ?? ""} onChange={(e) => setBrief({ ...(brief ?? {}), composition: e.target.value as Composition | "" })}>
+                    <option value="">Chosen from the words</option>
+                    {COMPOSITIONS.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">A layout only appears if the post suits it (for example, a checklist needs three steps).</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sm-focus">Key number or term</Label>
+                  <Input id="sm-focus" value={brief?.focus ?? ""} maxLength={40} placeholder="For example 10 seconds" onChange={(e) => setBrief({ ...(brief ?? {}), focus: e.target.value })} />
+                </div>
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="sm-icon">Illustration</Label>
             <select id="sm-icon" className={NATIVE_SELECT} value={icon} onChange={(e) => setIcon(e.target.value)}>
