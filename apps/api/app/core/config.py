@@ -240,6 +240,11 @@ class Settings(BaseSettings):
     # exactly as before. A single post can also be switched to v2 by hand in its artwork dialog.
     SOCIAL_DESIGN_ENGINE_V2: bool = False
     SOCIAL_IMAGE_COST_INR: float = 4.0  # estimated cost of one background, for the budget
+    # A HARD testing limit on generated images, enforced on the server across all requests, jobs and retries (failed attempts count too):
+    # at most this many images and this many dollars in total. Raise them only deliberately.
+    SOCIAL_IMAGE_MAX_ASSETS: int = 10
+    SOCIAL_IMAGE_BUDGET_USD: float = 5.0
+    SOCIAL_IMAGE_COST_USD: float = 0.0  # estimated cost of one image; 0 = a conservative figure derived from SOCIAL_IMAGE_QUALITY
 
     # ---- Social Media: Instagram publishing ----
     # "Instagram API with Instagram Login" (graph.instagram.com). The version is configurable because Meta retires old ones.

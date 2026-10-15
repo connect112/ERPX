@@ -11,7 +11,8 @@ from modules.authorization.dependencies import require_permissions
 from modules.social_media.artwork import ArtworkService
 from modules.social_media.assets import KINDS, MAX_UPLOAD_BYTES, AssetService
 from modules.social_media.grid import GridService
-from modules.social_media.schemas import AssetPublic, BackgroundRequest, Design, GridOut, PostPublic, ProofreadResult
+from modules.social_media.illustration import IllustrationService
+from modules.social_media.schemas import AssetPublic, BackgroundRequest, Design, GridOut, IllustrationRequest, PostPublic, ProofreadResult
 from modules.social_media.service import PostService, SettingsService
 from modules.users.dependencies import get_current_user_organization_id
 
@@ -164,6 +165,42 @@ async def new_background(
     settings = await SettingsService(db).get(organization_id)
     post = await PostService(db).get(post_id, organization_id)
     withdrawn = await ArtworkService(db).new_background(organization_id, user.id, post, settings, payload.direction)
+    await db.refresh(post)
+    result = PostService.public(post, approval_withdrawn=withdrawn)
+    await db.commit()
+    return result
+
+
+@router.post("/posts/{post_id}/illustration", response_model=PostPublic)
+async def make_illustration(
+    post_id: uuid.UUID,
+    payload: IllustrationRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions(MANAGE)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Make one AI illustration for this post (or reuse the one already made for the same concept), inside the hard image limit.
+    It never approves, schedules or publishes: an earlier approval is withdrawn because the artwork changes."""
+    settings = await SettingsService(db).get(organization_id)
+    post = await PostService(db).get(post_id, organization_id)
+    withdrawn = await IllustrationService(db).make(organization_id, user.id, post, settings, payload.direction)
+    await db.refresh(post)
+    result = PostService.public(post, approval_withdrawn=withdrawn)
+    await db.commit()
+    return result
+
+
+@router.delete("/posts/{post_id}/illustration", response_model=PostPublic)
+async def remove_illustration(
+    post_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions(MANAGE)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take the illustration off this post and draw the artwork again without it. The picture stays in the library."""
+    settings = await SettingsService(db).get(organization_id)
+    post = await PostService(db).get(post_id, organization_id)
+    withdrawn = await IllustrationService(db).remove(organization_id, post, settings)
     await db.refresh(post)
     result = PostService.public(post, approval_withdrawn=withdrawn)
     await db.commit()

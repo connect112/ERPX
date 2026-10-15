@@ -356,6 +356,29 @@ An opt-in layer on top of the standard renderer (engine v1, which every earlier 
 - **Approval and publishing are unchanged.** The composition, items and focus are part of the artwork fingerprint, so changing the brief
   makes the artwork stale (a blocking warning) until it is drawn again, and only the exact approved artwork can be published.
 
+## Design engine v2 (Phase 2): one AI illustration per post, inside a hard budget
+
+- **Off until configured, and only on request.** Nothing is generated while drafting. A person clicks "Make an illustration" in the post's artwork
+  dialog (engine v2 posts only); the button is disabled with a note until `SOCIAL_IMAGE_API_KEY`, `SOCIAL_IMAGE_API_BASE_URL` and
+  `SOCIAL_IMAGE_MODEL` are set. OpenAI (`https://api.openai.com`, `gpt-image-1`) is the first provider; any API with the same
+  `/v1/images/generations` shape that returns `b64_json` works. The key is only sent as the Authorization header: it is never logged, stored,
+  returned or put in an error message.
+- **A hard testing limit, enforced on the server** (`image_budget.py`): at most `SOCIAL_IMAGE_MAX_ASSETS` (default 10) images and
+  `SOCIAL_IMAGE_BUDGET_USD` (default 5.0) dollars in total. Each attempt writes a reservation row into `social_ai_usage` (kind `image`,
+  priced at a conservative estimate: `SOCIAL_IMAGE_COST_USD`, else by `SOCIAL_IMAGE_QUALITY` low/medium/high, else the worst case $0.25) and
+  commits it BEFORE the provider is called, under a Postgres advisory lock, so concurrent requests cannot both take the last slot and a failed
+  or retried attempt still counts. A second per-post lock refuses a second request for the same post while one is running. No migration.
+- **One asset per concept.** The prompt, size and model are hashed; the same concept reuses the picture already made and costs nothing. No
+  automatic candidates.
+- **Brand first.** The prompt asks for flat shapes and no text, people, faces, screens or code, and lists the brand's own `forbidden_visuals` as
+  things to avoid. When drawn the picture is mapped to the brand's two tones (duotone), so it cannot leave the palette.
+- **Labelled and tied to approval.** The asset is stored as synthetic (with prompt, model, size and time), the artwork carries
+  `illustration.synthetic`, and the post gets the "AI-generated" note. The illustration id is part of the artwork fingerprint and the approval
+  hash: attaching or removing one withdraws an approval and makes older artwork stale. Nothing here approves, schedules or publishes.
+- **Layouts that use it:** "visual" (the picture in a rounded panel under the headline) and the poster (the picture in the circle). Engine v1
+  never draws it.
+- AI backgrounds for the Photo template now count toward the same limit (their old flat INR 4 estimate is replaced by the reservation).
+
 ## Status
 
 All six planned phases are built. Nothing has run against a real Instagram account yet; see the blocked live tests in the report.

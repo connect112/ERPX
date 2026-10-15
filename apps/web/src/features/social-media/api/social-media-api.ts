@@ -131,6 +131,7 @@ export interface Design {
   carousel_frame?: boolean;
   show_icon?: boolean;
   engine?: "v1" | "v2";
+  art_asset_id?: string | null;
 }
 
 export interface ArtworkValidation {
@@ -160,6 +161,7 @@ export interface Artwork {
   files?: ArtworkFile[];
   synthetic_background?: boolean;
   background?: { asset_id: string; kind: string; synthetic: boolean } | null;
+  illustration?: { asset_id: string; synthetic: boolean } | null;
   proofread?: { ok: boolean; issues: { text: string; suggestion: string }[]; at: string; fingerprint: string };
 }
 
@@ -453,6 +455,19 @@ export interface UsageOverview {
   note: string;
   ai_configured: boolean;
   image_configured: boolean;
+  image_budget?: ImageBudget | null;
+}
+
+/** The hard testing limit on generated images, enforced on the server. Failed attempts count too; the cost is an estimate. */
+export interface ImageBudget {
+  assets_used: number;
+  assets_max: number;
+  assets_left: number;
+  spent_usd_est: number;
+  budget_usd: number;
+  est_usd_per_image: number;
+  is_estimate: boolean;
+  note: string;
 }
 
 // ---------------- comments and direct messages ----------------
@@ -1003,6 +1018,9 @@ export const socialMediaApi = {
   setDesign: (id: string, design: Design) => apiClient.put<Post>(`/social-media/posts/${id}/design`, design).then((r) => r.data),
   render: (id: string) => apiClient.post<Post>(`/social-media/posts/${id}/render`, null, { timeout: 60000 }).then((r) => r.data),
   removeArtwork: (id: string) => apiClient.delete<Post>(`/social-media/posts/${id}/artwork`).then((r) => r.data),
+  makeIllustration: (id: string, direction: string) =>
+    apiClient.post<Post>(`/social-media/posts/${id}/illustration`, { direction }, { timeout: 180000 }).then((r) => r.data),
+  removeIllustration: (id: string) => apiClient.delete<Post>(`/social-media/posts/${id}/illustration`).then((r) => r.data),
   newBackground: (id: string, direction: string) =>
     apiClient.post<Post>(`/social-media/posts/${id}/background`, { direction }, { timeout: 180000 }).then((r) => r.data),
   proofread: (id: string) =>

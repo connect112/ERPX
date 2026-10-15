@@ -169,6 +169,18 @@ export function useNewBackground() {
   });
 }
 
+export function useMakeIllustration() {
+  // Saves the design first (the post must be on the new design engine on the server), then makes the picture and redraws.
+  return usePostMutation(async (v: { id: string; design: Design; direction: string }) => {
+    await socialMediaApi.setDesign(v.id, v.design);
+    return socialMediaApi.makeIllustration(v.id, v.direction);
+  });
+}
+
+export function useRemoveIllustration() {
+  return usePostMutation((id: string) => socialMediaApi.removeIllustration(id));
+}
+
 export function useProofread() {
   return usePostMutation((id: string) => socialMediaApi.proofread(id));
 }

@@ -226,11 +226,11 @@ def _step_number(heading: str) -> tuple[str, str]:
     return (f"{int(match.group(1)):02d}", match.group(2)) if match else ("", heading)
 
 
-def _attach_composition(spec: Spec, content: dict, slides: list[dict], post_format: str) -> None:
+def _attach_composition(spec: Spec, content: dict, slides: list[dict], post_format: str, has_art: bool = False) -> None:
     """Engine v2: which composition the cover gets, and the words it may show, from the post's art direction (or from its own words)."""
     headline = spec.headline if post_format != "carousel" else clean(content.get("headline")) or spec.headline
     brief = art_direction.lenient(content.get("art_direction"))
-    name = art_direction.resolve(headline, slides, brief, post_format)
+    name = art_direction.resolve(headline, slides, brief, post_format, has_art)
     if name == "poster":
         return
     spec.composition = name
@@ -253,6 +253,7 @@ def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_
     emphasis = clean(content.get("emphasis"))
     show_icon = bool(design.get("show_icon"))
     v2 = design.get("engine") == "v2" and show_icon  # the composition engine; engine v1 draws exactly what it always drew
+    has_art = v2 and bool(design.get("art_asset_id"))
     chosen = clean(content.get("icon"))
     if chosen not in icons.ICONS:
         chosen = ""
@@ -284,7 +285,7 @@ def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_
             for i, (h, b, n, ic) in enumerate(parts)
         ]
         if v2:
-            _attach_composition(specs[0], content, slides, "carousel")
+            _attach_composition(specs[0], content, slides, "carousel", has_art)
         return specs
     headline = clean(design.get("headline")) or clean(content.get("headline")) or clean(title)
     if not headline:
@@ -294,7 +295,7 @@ def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_
     single_icon = (chosen or icons.icon_for(headline, subline)) if show_icon else ""
     spec = Spec(template, kicker, headline, subline, credit, footer, None, None, seed, emphasis, "", single_icon)
     if v2:
-        _attach_composition(spec, content, content.get("slides") or [], post_format)
+        _attach_composition(spec, content, content.get("slides") or [], post_format, has_art)
     return [spec]
 
 
@@ -303,6 +304,8 @@ def fingerprint(specs: list[Spec], design: dict) -> str:
     payload = {"specs": [s.texts() | {"template": s.template} for s in specs], "bg": design.get("background_asset_id"), "logo": bool(design.get("show_logo", True)), "variant": design.get("variant")}
     if design.get("engine") == "v2":
         payload["engine"] = "v2"
+        if design.get("art_asset_id"):
+            payload["art"] = str(design["art_asset_id"])  # a different illustration is a different artwork
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -426,6 +429,7 @@ class _Ctx:
     checks: list[dict] = field(default_factory=list)
     blocks: list[dict] = field(default_factory=list)
     min_ratio: float = 4.5
+    art: Image.Image | None = None  # an AI-made illustration attached to the post (engine v2)
 
     @property
     def w(self) -> int:
@@ -627,7 +631,7 @@ def _scrim(image: Image.Image, strength: float = 0.88) -> Image.Image:
     return Image.composite(Image.new("RGB", (w, h), (8, 10, 16)), image.convert("RGB"), mask)
 
 
-def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Image | None, palette: Palette, rules: dict, canvas: tuple[int, int], post_format: str, show_logo: bool, dim: float = 1.0) -> tuple[Image.Image, _Ctx, dict | None]:
+def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Image | None, palette: Palette, rules: dict, canvas: tuple[int, int], post_format: str, show_logo: bool, dim: float = 1.0, art: Image.Image | None = None) -> tuple[Image.Image, _Ctx, dict | None]:
     w, h = canvas
     tall = h > w * 1.4
     safe_top = TALL_SAFE_TOP if tall else 0
@@ -655,7 +659,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
         raise RenderError("The Screenshot template needs a screenshot. Choose one from the library.")
     else:
         image = Image.new("RGB", canvas, palette.background)
-    ctx = _Ctx(image, ImageDraw.Draw(image), palette, rules, safe_top, safe_bottom, min_ratio=float(rules.get("min_contrast_ratio", 4.5)))
+    ctx = _Ctx(image, ImageDraw.Draw(image), palette, rules, safe_top, safe_bottom, min_ratio=float(rules.get("min_contrast_ratio", 4.5)), art=art)
     text_color = palette.background if template == "statement" else (255, 255, 255) if template in ("photo", "neon") else palette.ink
     muted = (190, 198, 210) if dark_template else palette.muted
     accent = palette.accent if dark_template else palette.primary
@@ -785,6 +789,11 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             else:
                 hero_fill, hero_on_dark = INK_ON_COLOUR, True
             _hero_circle(ctx.image, hero_cx, hero_cy, hero_d, hero_fill)
+            if ctx.art is not None:
+                # the attached illustration fills the circle, in the brand's two tones, instead of the icon
+                tone = compose.tone_for(sys.modules[__name__], template, palette, spec.seed)
+                if tone is not None:
+                    compose.paste_circle(ctx.image, compose.duotone(ctx.art, *compose.art_tones(tone)), hero_cx, hero_cy, hero_d, bottom=footer_top - 24)
         marker = None
         if spec.emphasis:
             marker = ((INK_ON_COLOUR if template in ("solid", "split") else palette.accent), spec.emphasis)
@@ -805,10 +814,11 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             elif composed:
                 pass  # the composition drew its own artwork
             elif hero_d:
-                size = 340
-                ix, iy = hero_cx - 90 - size // 2, hero_cy - 110 - size // 2
-                # on a light circle the icon is flat black, on a dark circle it carries the brand gradient
-                icons.draw_icon(ctx.image, spec.icon, ix, iy, size, *((g0, g1) if hero_on_dark else (INK_ON_COLOUR, INK_ON_COLOUR)))
+                if ctx.art is None:
+                    size = 340
+                    ix, iy = hero_cx - 90 - size // 2, hero_cy - 110 - size // 2
+                    # on a light circle the icon is flat black, on a dark circle it carries the brand gradient
+                    icons.draw_icon(ctx.image, spec.icon, ix, iy, size, *((g0, g1) if hero_on_dark else (INK_ON_COLOUR, INK_ON_COLOUR)))
             else:
                 # On the left the tile must clear the logo; on the right there is more room, down to the footer line.
                 on_left = spec.seed % 2 == 0
@@ -927,6 +937,7 @@ def render(
     rules: dict,
     logo_bytes: bytes | None,
     background_bytes: bytes | None,
+    art_bytes: bytes | None = None,
 ) -> tuple[list[Rendered], str]:
     """Draw the post's images. Returns them and the fingerprint of what they show."""
     specs = specs_for(post_format, content, design, title, pillar_label, brand)
@@ -934,10 +945,11 @@ def render(
     palette = palette_of(brand["colors"])
     logo = _trimmed(load_image(logo_bytes, "logo").convert("RGBA")) if logo_bytes else None
     background = load_image(background_bytes, "picture") if background_bytes else None
+    art = load_image(art_bytes, "illustration") if art_bytes and design.get("engine") == "v2" else None  # engine v1 never draws one
     show_logo = bool(design.get("show_logo", True))
     out: list[Rendered] = []
     for i, spec in enumerate(specs):
-        image, ctx, placed = _draw_image(spec, logo, background, palette, rules, canvas, post_format, show_logo)
+        image, ctx, placed = _draw_image(spec, logo, background, palette, rules, canvas, post_format, show_logo, art=art if i == 0 else None)
         if spec.template == "photo" and any(not b.get("contrast_ok", True) for b in ctx.blocks):
             # A busy picture can make type hard to read; darken it step by step until the contrast is enough.
             for factor in (0.8, 0.65, 0.5, 0.38):
