@@ -2,9 +2,9 @@ name: ERPX CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, master]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, master]
 
 jobs:
   backend:
@@ -44,12 +44,64 @@ jobs:
         working-directory: apps/api
         env:
           DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
+          # alembic/env.py imports the top-level `modules` package, which lives at the repository root, not under apps/api.
+          PYTHONPATH: ${{ github.workspace }}
         run: alembic upgrade head
+
+      # The hackathon tests expect the default roles and permissions (for example `hackathon_participant`) to exist already; a fresh
+      # CI database has none until they are seeded. Only the roles seed is run: scripts.seed also creates the Pentrix organisation,
+      # which these tests do not need.
+      - name: Seed default roles and permissions
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c "import asyncio; from scripts.seed import seed_rbac; asyncio.run(seed_rbac())"
+
+      # Object storage for the tests that store files (media, documents, expense claims, backups, certificates ...).
+      # MinIO no longer publishes container images or binaries (Docker Hub denies the image; dl.min.io answers 410 Gone), so it is built
+      # from its public source, pinned to the exact commit the project's servers run (RELEASE.2025-09-07T16-13-09Z). The compiled
+      # binary is cached, so the build only happens when the pinned commit changes. The throwaway credentials below exist only for this job.
+      - name: Set up Go (to build MinIO)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+
+      - name: Cache the MinIO binary
+        id: minio-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/minio-bin
+          key: minio-07c3a429bfed433e49018cb0f78a52145d4bedeb-go1.24-linux-amd64
+
+      - name: Build MinIO from source (pinned commit)
+        if: steps.minio-cache.outputs.cache-hit != 'true'
+        run: GOBIN="$HOME/minio-bin" go install github.com/minio/minio@07c3a429bfed433e49018cb0f78a52145d4bedeb
+
+      - name: Start MinIO
+        env:
+          MINIO_ROOT_USER: ci_minio_user
+          MINIO_ROOT_PASSWORD: ci_minio_password
+        run: |
+          "$HOME/minio-bin/minio" --version
+          mkdir -p "$RUNNER_TEMP/minio-data"
+          nohup "$HOME/minio-bin/minio" server "$RUNNER_TEMP/minio-data" --address ":9000" > "$RUNNER_TEMP/minio.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/ready > /dev/null; then echo "MinIO is ready"; exit 0; fi
+            sleep 2
+          done
+          echo "MinIO did not become ready"; cat "$RUNNER_TEMP/minio.log"; exit 1
 
       - name: Run backend tests
         env:
           DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
           REDIS_URL: redis://localhost:6379/0
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: ci_minio_user
+          MINIO_SECRET_KEY: ci_minio_password
+          MINIO_BUCKET: erpx-storage
+          MINIO_SECURE: "false"
         run: pytest -v --cov=apps/api/app --cov=modules --cov=packages
 
       # Production Hardening Audit: no dependency vulnerability scanning
