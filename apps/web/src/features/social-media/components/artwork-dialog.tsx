@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import type { Design, Post, Template } from "@/features/social-media/api/social-media-api";
 import {
   useAssets,
+  useMakeIllustration,
   useNewBackground,
+  useRemoveIllustration,
   useProofread,
   useRemoveArtwork,
   useSaveAndDraw,
@@ -47,6 +49,9 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
   const draw = useSaveAndDraw();
   const remove = useRemoveArtwork();
   const background = useNewBackground();
+  const illustrate = useMakeIllustration();
+  const unillustrate = useRemoveIllustration();
+  const [artDirection, setArtDirection] = useState("");
   const proofread = useProofread();
 
   const [template, setTemplate] = useState<Template>("editorial");
@@ -91,7 +96,7 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
   const stale = post.warnings.some((w) => w.code === "chk_artwork_stale");
   const pictures = (assets.data ?? []).filter((a) => a.kind !== "logo");
   const needsPicture = template === "photo" || template === "screenshot";
-  const busy = draw.isPending || remove.isPending || background.isPending || proofread.isPending;
+  const busy = draw.isPending || remove.isPending || background.isPending || proofread.isPending || illustrate.isPending || unillustrate.isPending;
   const locked = ["scheduled", "publishing", "published", "publish_unknown", "cancelled"].includes(post.status);
 
   function design(): Design {
@@ -144,6 +149,25 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
         onError: (e) => setMessage({ ok: false, text: errorMessage(e, "Couldn't make a background.") }),
       },
     );
+  }
+
+  function makeIllustration() {
+    const budget = usage.data?.image_budget;
+    const left = budget ? `${budget.assets_left} of ${budget.assets_max} test images are left, about $${budget.spent_usd_est.toFixed(2)} of $${budget.budget_usd.toFixed(2)} used (an estimate).` : "";
+    if (!window.confirm(`This makes one AI picture for this post and uses one of the test images. A failed try counts too. ${left}\n\nThe picture is marked as AI-made, and an earlier approval is withdrawn. Continue?`)) return;
+    setMessage(null);
+    illustrate.mutate(
+      { id: post!.id, design: design(), direction: artDirection.trim() },
+      {
+        onSuccess: (p) => done(p, "The illustration was made and the artwork redrawn."),
+        onError: (e) => setMessage({ ok: false, text: errorMessage(e, "Couldn't make the illustration.") }),
+      },
+    );
+  }
+
+  function removeIllustration() {
+    setMessage(null);
+    unillustrate.mutate(post!.id, { onSuccess: (p) => done(p, "The illustration was taken off and the artwork redrawn."), onError: (e) => setMessage({ ok: false, text: errorMessage(e, "Couldn't remove it.") }) });
   }
 
   function check() {
@@ -250,6 +274,34 @@ export function ArtworkDialog({ post, open, onOpenChange }: Props) {
                     <span className="block text-xs text-muted-foreground">The cover shows the post&apos;s headline (this is what appears in the grid); the last slide carries the call to action and your handle.</span>
                   </span>
                 </label>
+              )}
+              {showIcon && engine === "v2" && post.format !== "reel" && post.format !== "story" && (
+                <div className="space-y-1.5 rounded-md border p-3 sm:col-span-2">
+                  <p className="text-sm font-medium">AI illustration (testing)</p>
+                  {!usage.data?.image_configured ? (
+                    <p className="text-xs text-muted-foreground">Image generation is switched off on this server until an image provider key is configured.</p>
+                  ) : (
+                    <>
+                      {usage.data.image_budget && (
+                        <p className="text-xs text-muted-foreground" aria-live="polite">
+                          {usage.data.image_budget.assets_used} of {usage.data.image_budget.assets_max} test images used, about ${usage.data.image_budget.spent_usd_est.toFixed(2)} of ${usage.data.image_budget.budget_usd.toFixed(2)} (an estimate). Failed tries count too.
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <Input aria-label="Direction for the illustration (optional)" className="min-w-0 flex-1" value={artDirection} maxLength={200} placeholder="Optional direction, for example calm, simple shapes" onChange={(e) => setArtDirection(e.target.value)} />
+                        <Button type="button" variant="outline" disabled={locked || busy || (usage.data.image_budget?.assets_left ?? 1) <= 0} onClick={makeIllustration}>
+                          {illustrate.isPending ? "Making..." : post.design?.art_asset_id ? "Make another illustration" : "Make an illustration"}
+                        </Button>
+                        {post.design?.art_asset_id && (
+                          <Button type="button" variant="outline" disabled={locked || busy} onClick={removeIllustration}>
+                            Take it off
+                          </Button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">One picture per idea, made only when you ask. It is drawn in the brand&apos;s two colours, marked as AI-made and never presented as a real photograph. Nothing is approved or published.</p>
+                    </>
+                  )}
+                </div>
               )}
               {template === "photo" && usage.data?.image_configured && (
                 <div className="space-y-1.5 sm:col-span-2">

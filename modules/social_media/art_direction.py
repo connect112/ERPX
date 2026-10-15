@@ -8,7 +8,8 @@ from the post's own words, so the pipeline never depends on the AI having answer
 Precedence when a look is chosen: 1. the brand's restrictions (its forbidden visuals), 2. whether the topic suits a composition,
 3. the theme preference (rotation, the planner's choice). A person can always override by hand.
 
-Phase 1: only code-drawn compositions exist. `imagery` is "none" for all of them; generated imagery arrives in a later phase.
+`imagery` is "none" for the code-drawn compositions. A post whose brief asks for an illustration ("illustration" or "background") and that
+has one attached uses the "visual" composition (the picture in a panel under the headline) or the poster (the picture in the circle).
 """
 
 import re
@@ -16,7 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-COMPOSITIONS = ("poster", "stat", "checklist", "compare", "flow", "question")
+COMPOSITIONS = ("poster", "stat", "checklist", "compare", "flow", "question", "visual")
 IMAGERY = ("none", "illustration", "background")
 MAX_ITEMS = 5
 
@@ -165,10 +166,12 @@ def versus_of(headline: str) -> tuple[str, str]:
 # ---------------- which compositions suit this post ----------------
 
 
-def suitable(composition: str, headline: str, slides: list[dict], brief: ArtBrief | None = None, post_format: str = "image") -> bool:
+def suitable(composition: str, headline: str, slides: list[dict], brief: ArtBrief | None = None, post_format: str = "image", has_art: bool = False) -> bool:
     items = items_of(slides, brief)
     if composition == "poster":
         return True
+    if composition == "visual":
+        return has_art  # only when an illustration is attached to the post
     if composition == "stat":
         figure = figure_of(headline, slides, brief)[0]
         # a headline that already starts with the number ("5 habits that ...") would only repeat it
@@ -185,7 +188,7 @@ def suitable(composition: str, headline: str, slides: list[dict], brief: ArtBrie
 
 
 # Topic-driven preference when the AI suggests nothing usable: the most specific layout first.
-_PREFERENCE = ("compare", "stat", "flow", "checklist", "question", "poster")
+_PREFERENCE = ("visual", "compare", "stat", "flow", "checklist", "question", "poster")
 
 
 def choose(
@@ -194,10 +197,14 @@ def choose(
     brief: ArtBrief | None = None,
     recent: list[str] | None = None,
     post_format: str = "image",
+    has_art: bool = False,
 ) -> str:
     """The composition to draw. Topic suitability decides what is possible; the AI's suggestion wins among the possible ones; a
     layout is not repeated back to back, and otherwise the one used least recently wins, the more specific layout first on a tie."""
     recent = [r for r in (recent or []) if r in COMPOSITIONS]
+    if has_art:
+        # an illustration was made for this post: it is shown in the poster's circle or in the visual panel, not left unused
+        return brief.composition if brief and brief.composition == "poster" else "visual"
     possible = [c for c in COMPOSITIONS if suitable(c, headline, slides, brief, post_format)]
     last = recent[0] if recent else None
     wanted = brief.composition if brief and brief.composition in possible else ""
@@ -213,8 +220,10 @@ def choose(
     return tied[0]
 
 
-def resolve(headline: str, slides: list[dict], brief: ArtBrief | None = None, post_format: str = "image") -> str:
+def resolve(headline: str, slides: list[dict], brief: ArtBrief | None = None, post_format: str = "image", has_art: bool = False) -> str:
     """The composition to draw now: the stored brief's, if the post still suits it; otherwise the best one for the post as it is."""
+    if has_art:
+        return brief.composition if brief and brief.composition == "poster" else "visual"
     if brief and brief.composition and suitable(brief.composition, headline, slides, brief, post_format):
         return brief.composition
     return choose(headline, slides, brief, [], post_format)

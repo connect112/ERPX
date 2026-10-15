@@ -511,6 +511,8 @@ class UsageOverview(BaseModel):
     note: str
     ai_configured: bool
     image_configured: bool = False
+    # The hard image testing limit: how many images and dollars (estimated) are used. None until the provider is configured.
+    image_budget: dict | None = None
 
 
 # ---------------- artwork, assets, grid ----------------
@@ -534,6 +536,12 @@ class Design(BaseModel):
     show_icon: bool = False
     # "v1" is the renderer every earlier post was made with; "v2" adds the art-direction brief and the composition library.
     engine: Literal["v1", "v2"] = "v1"
+    # An AI-made illustration attached to the post (engine v2): a library asset, always labelled as synthetic.
+    art_asset_id: uuid.UUID | None = None
+
+
+class IllustrationRequest(BaseModel):
+    direction: str = Field(default="", max_length=200)
 
 
 class BackgroundRequest(BaseModel):

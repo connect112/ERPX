@@ -37,15 +37,21 @@ def build_prompt(brand: dict, rules: dict, direction: str) -> str:
 
 
 async def generate_background(prompt: str) -> bytes:
+    """One AI background (the Photo template's picture)."""
+    return await generate_image(prompt, SIZE)
+
+
+async def generate_image(prompt: str, size: str = SIZE) -> bytes:
     """One image's bytes from the configured provider. Only inline image data is accepted: a link the provider returns
-    is never fetched, so a provider can't point this server at an address of its choosing."""
+    is never fetched, so a provider can't point this server at an address of its choosing. The API key is only ever sent as the
+    Authorization header: it is never logged, put in an error message or returned."""
     if not configured():
         raise ServiceUnavailableError(
             "AI backgrounds aren't set up on this server. Set SOCIAL_IMAGE_API_KEY, SOCIAL_IMAGE_API_BASE_URL and SOCIAL_IMAGE_MODEL, or use your own photo."
         )
     url = settings.SOCIAL_IMAGE_API_BASE_URL.rstrip("/") + "/v1/images/generations"
     headers = {"Authorization": f"Bearer {settings.SOCIAL_IMAGE_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": settings.SOCIAL_IMAGE_MODEL, "prompt": prompt, "size": SIZE, "n": 1}
+    payload = {"model": settings.SOCIAL_IMAGE_MODEL, "prompt": prompt, "size": size, "n": 1}
     if settings.SOCIAL_IMAGE_QUALITY.strip():
         payload["quality"] = settings.SOCIAL_IMAGE_QUALITY.strip()
     try:
@@ -56,8 +62,8 @@ async def generate_background(prompt: str) -> bytes:
     except httpx.HTTPStatusError as exc:
         logger.warning("social_image_failed", status=exc.response.status_code)
         raise ServiceUnavailableError(f"The image service returned an error (status {exc.response.status_code}).") from None
-    except (httpx.HTTPError, ValueError):
-        logger.warning("social_image_failed", exc_info=True)
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("social_image_failed", error=type(exc).__name__)  # the class only: nothing from the request is logged
         raise ServiceUnavailableError("The image service didn't answer. Try again in a moment.") from None
     item = (data.get("data") or [{}])[0]
     encoded = item.get("b64_json")

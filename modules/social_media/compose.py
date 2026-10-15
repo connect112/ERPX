@@ -16,7 +16,7 @@ shapes are flat colour. Nothing here is generated or fetched: this is Phase 1, w
 from dataclasses import dataclass
 from typing import Callable
 
-from PIL import ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageOps
 
 from modules.social_media import art_direction
 
@@ -77,7 +77,7 @@ def layout(R, ctx, spec, geo: Geo, slides: list[dict] | None = None) -> Layout |
     tone = tone_for(R, geo.template, ctx.palette, geo.seed)
     if tone is None or spec.composition in ("", "poster"):
         return None
-    builder = {"stat": _stat, "checklist": _checklist, "compare": _compare, "flow": _flow, "question": _question}.get(spec.composition)
+    builder = {"stat": _stat, "checklist": _checklist, "compare": _compare, "flow": _flow, "question": _question, "visual": _visual}.get(spec.composition)
     if builder is None:
         return None
     try:
@@ -97,6 +97,66 @@ def _centered(R, ctx, fitted, cx: int, y: int, preferred, role: str = "art") -> 
 
 def _tick(ctx, cx: int, cy: int, r: int, colour) -> None:
     ctx.draw.line((cx - r * 0.45, cy + r * 0.02, cx - r * 0.1, cy + r * 0.38, cx + r * 0.5, cy - r * 0.34), fill=colour, width=max(6, r // 4), joint="curve")
+
+
+# ---------------- an attached illustration ----------------
+
+
+def duotone(art: Image.Image, dark: tuple[int, int, int], light: tuple[int, int, int]) -> Image.Image:
+    """The picture in two brand colours. A generated picture varies in style and colour from one request to the next; mapping it to the
+    brand's own two tones makes every one look like part of the same set."""
+    grey = ImageOps.autocontrast(art.convert("L"), cutoff=1)
+    return ImageOps.colorize(grey, black=dark, white=light).convert("RGB")
+
+
+def cover(art: Image.Image, size: tuple[int, int]) -> Image.Image:
+    return ImageOps.fit(art, size, method=Image.LANCZOS, centering=(0.5, 0.5))
+
+
+def paste_rounded(image: Image.Image, art: Image.Image, box: tuple[int, int, int, int], radius: int) -> None:
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    mask = Image.new("L", (w * 2, h * 2), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w * 2 - 1, h * 2 - 1), radius=radius * 2, fill=255)
+    image.paste(cover(art, (w, h)), (x0, y0), mask.resize((w, h), Image.LANCZOS))
+
+
+def paste_circle(image: Image.Image, art: Image.Image, cx: int, cy: int, d: int, bottom: int | None = None) -> None:
+    """The picture inside the poster's circle (the circle itself is cut off by the picture's edges where it bleeds). `bottom` is the
+    lowest row the picture may reach: it fades out over its last 70px and is gone by then, so the footer text keeps a clean background
+    and the picture ends softly instead of at a hard edge."""
+    mask = Image.new("L", (d * 2, d * 2), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, d * 2 - 1, d * 2 - 1), fill=255)
+    mask = mask.resize((d, d), Image.LANCZOS)
+    if bottom is not None:
+        end = bottom - (cy - d // 2)
+        fade = Image.new("L", (d, d), 255)
+        ramp = Image.linear_gradient("L").rotate(180).resize((d, 70))  # 255 at the top of the ramp, 0 at its bottom
+        fade.paste(ramp, (0, max(0, end - 70)))
+        ImageDraw.Draw(fade).rectangle((0, max(0, end), d, d), fill=0)
+        mask = ImageChops.darker(mask, fade)
+    image.paste(cover(art, (d, d)), (cx - d // 2, cy - d // 2), mask)
+
+
+def art_tones(tone: Tone) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    return INK, tone.hi
+
+
+VISUAL_H = 430
+
+
+def _visual(R, ctx, spec, g: Geo, tone: Tone) -> Layout | None:
+    art = getattr(ctx, "art", None)
+    if art is None:
+        return None
+    top = g.clear - VISUAL_H
+    dark, light = art_tones(tone)
+    tinted = duotone(art, dark, light)
+
+    def draw():
+        paste_rounded(ctx.image, tinted, (R.MARGIN, top, g.w - R.MARGIN, g.clear), 44)
+
+    return Layout(g.y + 6, top - 44, 128, draw)
 
 
 # ---------------- stat ----------------

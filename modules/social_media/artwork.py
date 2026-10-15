@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings as app_settings
 from app.core.exceptions import ConflictError, ValidationError
 from app.core.logging_config import get_logger
-from modules.social_media import image_provider, render
+from modules.social_media import image_budget, image_provider, render
 from modules.social_media.assets import AssetService
 from modules.social_media.models import PostStatus, SocialPost, SocialSettings
 from modules.social_media.schemas import Design
@@ -94,6 +94,11 @@ class ArtworkService:
                 raise ValidationError("Choose a picture for this template.")
             background_asset = await self.assets.get(organization_id, design["background_asset_id"])
             background_bytes = await self.assets.read(background_asset)
+        art_bytes = None
+        art_asset = None
+        if design.get("engine") == "v2" and design.get("art_asset_id"):
+            art_asset = await self.assets.get(organization_id, design["art_asset_id"])
+            art_bytes = await self.assets.read(art_asset)
         logo_bytes = None
         logo_key = (settings.brand or {}).get("logo_key")
         if logo_key and design.get("show_logo", True):
@@ -113,6 +118,7 @@ class ArtworkService:
                 settings.design_rules,
                 logo_bytes,
                 background_bytes,
+                art_bytes,
             )
         except render.RenderError as exc:
             raise ValidationError(str(exc)) from None
@@ -140,8 +146,9 @@ class ArtworkService:
             "ok": all(f["validation"]["ok"] for f in files),
             "files": files,
             "logo_key": logo_key if logo_bytes else None,
-            "synthetic_background": bool(background_asset and background_asset.synthetic),
+            "synthetic_background": bool((background_asset and background_asset.synthetic) or (art_asset and art_asset.synthetic)),
             "background": {"asset_id": str(background_asset.id), "kind": background_asset.kind, "synthetic": background_asset.synthetic} if background_asset else None,
+            "illustration": {"asset_id": str(art_asset.id), "synthetic": art_asset.synthetic} if art_asset else None,
         }
         withdrawn = self._withdraw_if_changed(post, before)
         keep = {f["key"] for f in files}
@@ -175,8 +182,9 @@ class ArtworkService:
         usage = UsageService(self.db)
         await usage.check_budget(organization_id, settings)
         prompt = image_provider.build_prompt(settings.brand, settings.design_rules, direction)
+        # The hard image limit applies to every generated image: the slot is taken (and committed) before the provider is called.
+        await image_budget.reserve(self.db, organization_id, user_id, post.id, app_settings.SOCIAL_IMAGE_MODEL)
         raw = await image_provider.generate_background(prompt)
-        await usage.record_fixed(organization_id, user_id, post.id, "image", app_settings.SOCIAL_IMAGE_MODEL, app_settings.SOCIAL_IMAGE_COST_INR)
         asset = await self.assets.create(
             organization_id,
             user_id,

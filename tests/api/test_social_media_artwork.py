@@ -600,7 +600,7 @@ async def test_an_ai_background_is_synthetic_costed_and_only_changes_the_picture
     asset = (await db_session.execute(select(SocialAsset).where(SocialAsset.kind == "background", SocialAsset.organization_id == organization.id))).scalar_one()
     assert asset.synthetic is True and asset.provenance["model"] == "image-model" and "AI-generated" in asset.alt_text
     usage = (await db_session.execute(select(AIUsage).where(AIUsage.organization_id == organization.id, AIUsage.kind == "image"))).scalars().all()
-    assert len(usage) == 1 and float(usage[0].est_cost_inr) == 4.0
+    assert len(usage) == 1 and float(usage[0].est_cost_inr) == 21.25  # the hard limit prices every image at the conservative worst case ($0.25 x 85) until a quality is configured
     second = (await client.post(f"{_BASE}/posts/{post['id']}/background", json={}, headers=auth_headers)).json()
     assert second["design"]["background_asset_id"] != first.json()["design"]["background_asset_id"]
 
