@@ -31,6 +31,7 @@ export interface PostContent {
   support_line?: string;
   emphasis?: string;
   icon?: string;
+  art_direction?: ArtBrief | null;
   visual_direction: string;
   asset_key: string | null;
   slides: Slide[];
@@ -105,6 +106,18 @@ export interface Post {
 
 export type Template = "editorial" | "statement" | "photo" | "screenshot" | "neon" | "split" | "solid";
 
+export type Composition = "poster" | "stat" | "checklist" | "compare" | "flow" | "question";
+
+/** The creative brief of a post (design engine v2). Only the composition and the focus are edited by hand; the rest is kept as it is. */
+export interface ArtBrief {
+  concept?: string;
+  metaphor?: string;
+  composition?: Composition | "";
+  focus?: string;
+  items?: string[];
+  imagery?: "none" | "illustration" | "background";
+}
+
 export interface Design {
   template?: Template;
   background_asset_id?: string | null;
@@ -117,6 +130,7 @@ export interface Design {
   show_handle?: boolean;
   carousel_frame?: boolean;
   show_icon?: boolean;
+  engine?: "v1" | "v2";
 }
 
 export interface ArtworkValidation {

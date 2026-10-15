@@ -26,7 +26,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
-from modules.social_media import icons
+import sys
+
+from modules.social_media import art_direction, compose, icons
 
 FONT_PATH = Path(__file__).parent / "fonts" / "Inter-Variable.ttf"
 FONT_FAMILY = "Inter"
@@ -198,9 +200,16 @@ class Spec:
     emphasis: str = ""  # words of the headline that get a highlighter marker behind them
     numeral: str = ""  # "02": a step number taken from a heading like "Step 2: ..." and drawn large above it
     icon: str = ""  # the illustration tile (see icons.py); when set the picture also gets the pill label and the swipe cue
+    composition: str = ""  # engine v2: the layout family of a cover (see compose.py); empty = the poster layout of engine v1
+    items: tuple = ()  # engine v2: the short points a composition may show
+    figure: str = ""  # engine v2: the number of the "stat" composition ...
+    figure_label: str = ""  # ... and its label
 
     def texts(self) -> dict:
-        return {"kicker": self.kicker, "headline": self.headline, "subline": self.subline, "credit": self.credit, "footer": self.footer_right, "index": self.index, "total": self.total, "emphasis": self.emphasis, "numeral": self.numeral, "icon": self.icon}
+        out = {"kicker": self.kicker, "headline": self.headline, "subline": self.subline, "credit": self.credit, "footer": self.footer_right, "index": self.index, "total": self.total, "emphasis": self.emphasis, "numeral": self.numeral, "icon": self.icon}
+        if self.composition:  # only engine v2 adds these, so every artwork made before it keeps its fingerprint
+            out.update({"composition": self.composition, "items": list(self.items), "figure": self.figure, "figure_label": self.figure_label})
+        return out
 
 
 COVER_FRAME_MAX = 70  # a headline longer than this stays inside the first slide instead of getting its own cover
@@ -217,6 +226,18 @@ def _step_number(heading: str) -> tuple[str, str]:
     return (f"{int(match.group(1)):02d}", match.group(2)) if match else ("", heading)
 
 
+def _attach_composition(spec: Spec, content: dict, slides: list[dict], post_format: str) -> None:
+    """Engine v2: which composition the cover gets, and the words it may show, from the post's art direction (or from its own words)."""
+    headline = spec.headline if post_format != "carousel" else clean(content.get("headline")) or spec.headline
+    brief = art_direction.lenient(content.get("art_direction"))
+    name = art_direction.resolve(headline, slides, brief, post_format)
+    if name == "poster":
+        return
+    spec.composition = name
+    spec.items = tuple(art_direction.items_of(slides, brief))
+    spec.figure, spec.figure_label = art_direction.figure_of(headline, slides, brief)
+
+
 def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_label: str | None, brand: dict) -> list[Spec]:
     """One Spec per image: a single cover, or one per carousel slide. Raises RenderError if there is nothing to draw."""
     template = design.get("template") or "editorial"
@@ -231,6 +252,7 @@ def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_
     seed = int(explicit) if isinstance(explicit, int) and not isinstance(explicit, bool) else int(hashlib.sha1(f"{title}|{content.get('headline') or ''}".encode()).hexdigest()[:8], 16)
     emphasis = clean(content.get("emphasis"))
     show_icon = bool(design.get("show_icon"))
+    v2 = design.get("engine") == "v2" and show_icon  # the composition engine; engine v1 draws exactly what it always drew
     chosen = clean(content.get("icon"))
     if chosen not in icons.ICONS:
         chosen = ""
@@ -257,22 +279,30 @@ def specs_for(post_format: str, content: dict, design: dict, title: str, pillar_
             handle = clean(brand.get("handle"))
             sub = ("" if short else closing) + (f" Follow {handle} for more." if handle else "")
             parts.append((closing if short else "Save this for later.", sub.strip(), "", main_icon))
-        return [
+        specs = [
             Spec(template, kicker if i == 0 else "", h, b, credit if i == 0 else "", footer, i + 1, len(parts), seed, emphasis, n, ic)
             for i, (h, b, n, ic) in enumerate(parts)
         ]
+        if v2:
+            _attach_composition(specs[0], content, slides, "carousel")
+        return specs
     headline = clean(design.get("headline")) or clean(content.get("headline")) or clean(title)
     if not headline:
         raise RenderError("Add a headline before making artwork.")
     # The answer line: the design's own supporting line, else the one the studio wrote for the post.
     subline = clean(design.get("subline")) if design.get("subline") is not None else clean(content.get("support_line"))
     single_icon = (chosen or icons.icon_for(headline, subline)) if show_icon else ""
-    return [Spec(template, kicker, headline, subline, credit, footer, None, None, seed, emphasis, "", single_icon)]
+    spec = Spec(template, kicker, headline, subline, credit, footer, None, None, seed, emphasis, "", single_icon)
+    if v2:
+        _attach_composition(spec, content, content.get("slides") or [], post_format)
+    return [spec]
 
 
 def fingerprint(specs: list[Spec], design: dict) -> str:
     """A hash of exactly what an artwork shows. If the post's text or design changes, this no longer matches."""
     payload = {"specs": [s.texts() | {"template": s.template} for s in specs], "bg": design.get("background_asset_id"), "logo": bool(design.get("show_logo", True)), "variant": design.get("variant")}
+    if design.get("engine") == "v2":
+        payload["engine"] = "v2"
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -683,6 +713,7 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             sub_h = sub_fit.height + 36
         hero_d = 0
         hero_cx = hero_cy = 0
+        composed = None
         if pro and template != "photo":
             # The illustrated look keeps all text clear of the logo (and its badge) and leaves room for the illustration on a cover.
             clear = panel_bottom - 36 if template == "split" else footer_bottom - 214
@@ -699,12 +730,22 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
                 avail = clear - y_head
                 biggest = 148 if (cover and spec.total) else 124
                 hero_cx, hero_cy = w - 150, h - 230 - safe_bottom
-                try:
-                    # the headline stays above the big circle
-                    head = fit(spec.headline, inner_w, hero_cy - HERO_D // 2 - 36 - y_head - sub_h, biggest, MIN_HEADLINE_PX, 800, 6, 1.08, "headline")
-                    hero_d = HERO_D
-                except RenderError:
-                    head = fit(spec.headline, inner_w, avail - sub_h - 290, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline") if avail - sub_h - 290 > 0 else fit(spec.headline, inner_w, avail - sub_h, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
+                if spec.composition and spec.composition != "poster" and cover:
+                    # engine v2: a composition other than the poster; if its words do not fit, the poster is drawn instead
+                    composed = compose.layout(sys.modules[__name__], ctx, spec, compose.Geo(w, h, y, clear, template, spec.seed))
+                    if composed:
+                        try:
+                            y_head = composed.y_head
+                            head = fit(spec.headline, inner_w, composed.limit - y_head - sub_h, composed.biggest, MIN_HEADLINE_PX, 800, 6, 1.08, "headline")
+                        except RenderError:
+                            composed, y_head = None, y + 6
+                if composed is None:
+                    try:
+                        # the headline stays above the big circle
+                        head = fit(spec.headline, inner_w, hero_cy - HERO_D // 2 - 36 - y_head - sub_h, biggest, MIN_HEADLINE_PX, 800, 6, 1.08, "headline")
+                        hero_d = HERO_D
+                    except RenderError:
+                        head = fit(spec.headline, inner_w, avail - sub_h - 290, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline") if avail - sub_h - 290 > 0 else fit(spec.headline, inner_w, avail - sub_h, biggest, MIN_HEADLINE_PX, heading_weight, 6, 1.1, "headline")
             block_h = head.height + sub_h
             room = clear - y - 40
         elif template == "photo":
@@ -734,6 +775,8 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
                 if spec.numeral:
                     y_head += 60
         hero_on_dark = False
+        if composed:
+            composed.draw()  # the composition's own artwork, before the words
         if hero_d:
             if template in ("neon", "statement"):
                 hero_fill, hero_on_dark = (palette.accent, palette.accent2)[(spec.seed // 2) % 2], False
@@ -759,6 +802,8 @@ def _draw_image(spec: Spec, brand_logo: Image.Image | None, background: Image.Im
             g0, g1 = palette.accent, palette.accent2
             if spec.index and spec.index > 1:
                 icons.draw_tile(ctx.image, spec.icon, w - MARGIN - 132, top, 132, g0, g1)
+            elif composed:
+                pass  # the composition drew its own artwork
             elif hero_d:
                 size = 340
                 ix, iy = hero_cx - 90 - size // 2, hero_cy - 110 - size // 2
