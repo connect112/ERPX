@@ -2,12 +2,15 @@ import { useParams } from "react-router-dom";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChapterLessons } from "@/features/courses/components/chapter-lessons";
 import {
   useMyChapters,
   useMyCourse,
   useMyCourseProgress,
 } from "@/features/courses/api/courses-hooks";
+import { AssignmentRow } from "@/features/lms/assignments/components/assignment-row";
+import { useCourseAssignments } from "@/features/lms/assignments/api/assignments-hooks";
 
 export function CourseDetailPage() {
   const { courseId } = useParams<{ courseId: string }>();
@@ -15,6 +18,7 @@ export function CourseDetailPage() {
   const { data: course, isLoading: courseLoading } = useMyCourse(courseId);
   const { data: chapters, isLoading: chaptersLoading } = useMyChapters(courseId);
   const { data: progress, isLoading: progressLoading } = useMyCourseProgress(courseId);
+  const { data: assignments, isLoading: assignmentsLoading } = useCourseAssignments(courseId);
 
   const completedLessonIds = new Set(progress?.completed_lesson_ids ?? []);
 
@@ -52,35 +56,69 @@ export function CourseDetailPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Chapters</CardTitle>
-          <CardDescription>Work through each chapter and mark lessons complete.</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          {chaptersLoading ? (
-            <div className="space-y-2 p-6">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : chapters && chapters.length > 0 ? (
-            chapters
-              .sort((a, b) => a.order_index - b.order_index)
-              .map((chapter) => (
-                <ChapterLessons
-                  key={chapter.id}
-                  courseId={courseId as string}
-                  chapter={chapter}
-                  completedLessonIds={completedLessonIds}
-                />
-              ))
-          ) : (
-            <p className="p-6 text-center text-sm text-muted-foreground">
-              This course has no chapters yet.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="chapters">
+        <TabsList>
+          <TabsTrigger value="chapters">Chapters</TabsTrigger>
+          <TabsTrigger value="assignments">Assignments</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="chapters">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Chapters</CardTitle>
+              <CardDescription>Work through each chapter and mark lessons complete.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {chaptersLoading ? (
+                <div className="space-y-2 p-6">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : chapters && chapters.length > 0 ? (
+                chapters
+                  .sort((a, b) => a.order_index - b.order_index)
+                  .map((chapter) => (
+                    <ChapterLessons
+                      key={chapter.id}
+                      courseId={courseId as string}
+                      chapter={chapter}
+                      completedLessonIds={completedLessonIds}
+                    />
+                  ))
+              ) : (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  This course has no chapters yet.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="assignments">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Assignments</CardTitle>
+              <CardDescription>Submit your work and check your grades.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {assignmentsLoading ? (
+                <div className="space-y-2 p-6">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : assignments && assignments.length > 0 ? (
+                assignments.map((assignment) => (
+                  <AssignmentRow key={assignment.id} courseId={courseId as string} assignment={assignment} />
+                ))
+              ) : (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  No assignments yet.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
