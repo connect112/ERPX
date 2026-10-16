@@ -12,7 +12,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -75,8 +76,9 @@ def decode_token(token: str, expected_type: TokenType) -> dict[str, Any]:
             token,
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
+            options={"require": ["exp", "sub"]},
         )
-    except JWTError as exc:
+    except PyJWTError as exc:
         raise TokenPayloadError(f"Invalid token: {exc}") from exc
 
     if payload.get("type") != expected_type.value:

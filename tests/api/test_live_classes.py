@@ -16,7 +16,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 import pytest
-from jose import jwt as jose_jwt
+import jwt as pyjwt
 
 from app.core.config import settings
 from modules.courses.repository import CourseRepository
@@ -359,7 +359,7 @@ async def test_trainer_join_token_grants_moderator_access_to_own_class(
     assert body["domain"] == "meet.pentrix.test"
     assert body["room"] in live_class["meeting_link"]
 
-    claims = jose_jwt.decode(body["jwt"], _JITSI_SECRET, algorithms=["HS256"], audience="erpx")
+    claims = pyjwt.decode(body["jwt"], _JITSI_SECRET, algorithms=["HS256"], audience="erpx")
     assert claims["room"] == body["room"]
     assert claims["context"]["user"]["moderator"] is True
     # The in-call display name is the literal word "Trainer", never the
@@ -407,7 +407,7 @@ async def test_student_join_token_grants_non_moderator_access_to_own_class(
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    claims = jose_jwt.decode(body["jwt"], _JITSI_SECRET, algorithms=["HS256"], audience="erpx")
+    claims = pyjwt.decode(body["jwt"], _JITSI_SECRET, algorithms=["HS256"], audience="erpx")
     assert claims["context"]["user"]["moderator"] is False
     # The in-call display name is the student's code, never their real
     # name -- students share this room with other students.

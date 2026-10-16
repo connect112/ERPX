@@ -5,7 +5,7 @@ being treated as inert data rather than executed.
 """
 
 import pytest
-from jose import jwt as pyjwt
+import jwt as pyjwt
 
 from app.core.config import settings
 
@@ -53,6 +53,31 @@ async def test_expired_access_token_is_rejected(client, superuser):
     expired_token = pyjwt.encode(expired_payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {expired_token}"})
+    assert response.status_code == 401
+
+
+async def test_unsigned_alg_none_jwt_is_rejected(client, superuser):
+    import base64
+    import json
+
+    user, _ = superuser
+
+    def _segment(data: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+
+    unsigned = f"{_segment({'alg': 'none', 'typ': 'JWT'})}.{_segment({'sub': str(user.id), 'type': 'access'})}."
+
+    response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {unsigned}"})
+    assert response.status_code == 401
+
+
+async def test_validly_signed_jwt_without_an_expiry_is_rejected(client, superuser):
+    user, _ = superuser
+    never_expires = pyjwt.encode(
+        {"sub": str(user.id), "type": "access"}, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    )
+
+    response = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {never_expires}"})
     assert response.status_code == 401
 
 
