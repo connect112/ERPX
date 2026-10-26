@@ -1,5 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Award, Check, ClipboardCheck, Copy, Download, Pencil, Plus, RotateCcw, Send, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Award,
+  Check,
+  ClipboardCheck,
+  Copy,
+  Download,
+  Mail,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Send,
+  Trash2,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -17,6 +32,7 @@ import { AttendeeEditDialog } from "@/features/workshop-exams/components/attende
 import { CertificateReviewDialog } from "@/features/workshop-exams/components/certificate-review-dialog";
 import { CodeTextarea } from "@/features/workshop-exams/components/code-textarea";
 import { HackathonCertificatesDialog } from "@/features/workshop-exams/components/hackathon-certificates-dialog";
+import { ManualAttendeeDialog } from "@/features/workshop-exams/components/manual-attendee-dialog";
 import { RichText } from "@/features/workshop-exams/components/rich-text";
 import { QuestionEditor } from "@/features/workshop-exams/components/question-editor";
 import { BLANK_QUESTION } from "@/features/workshop-exams/lib/question-draft";
@@ -28,6 +44,7 @@ import {
   type WorkshopExam,
   workshopExamsApi,
 } from "@/features/workshop-exams/api/workshop-exams-api";
+import { canOpenCertificate, isManualNoShow, scoreText } from "@/features/workshop-exams/lib/attendee-state";
 import { parseAttendees, parseQuestions } from "@/features/workshop-exams/lib/parsers";
 import { examStatusBadge } from "@/features/workshop-exams/lib/status";
 
@@ -155,6 +172,7 @@ export function WorkshopExamDetailPage() {
 
 function attendeeStatus(a: Attendee): { label: string; variant: "secondary" | "info" | "success" } {
   if (a.certificate_only) return { label: "Certificate only", variant: "secondary" };
+  if (isManualNoShow(a) && a.certificate_forced) return { label: "Certificate without exam", variant: "secondary" };
   if (a.submitted_at) return { label: "Submitted", variant: "success" };
   if (a.started_at) return { label: "Writing", variant: "info" };
   return { label: "Not started", variant: "secondary" };
@@ -163,7 +181,7 @@ function attendeeStatus(a: Attendee): { label: string; variant: "secondary" | "i
 /** Where a person's certificate stands. An ID alone doesn't mean it is on its way: it is only queued once sending started. */
 function certificateStatus(exam: WorkshopExam, a: Attendee): string {
   if (a.certificate_sent_at) return "Sent";
-  if (!a.certificate_number) return "-";
+  if (!a.certificate_number) return a.certificate_forced ? "To send" : "-";
   const sendingStarted = exam.certificates_dispatched_at !== null || (a.certificate_only && !exam.certificate_review);
   if (a.certificate_verified_at) return sendingStarted ? "Queued" : "Verified";
   if (exam.certificate_review) return "To review";
@@ -174,6 +192,8 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
   const queryClient = useQueryClient();
   const [hackathonCertificatesOpen, setHackathonCertificatesOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [reviewFor, setReviewFor] = useState<Attendee | null>(null);
   const [editing, setEditing] = useState<Attendee | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const attendeeAction = async (action: () => Promise<{ message: string }>) => {
@@ -237,7 +257,11 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
         </Button>
         <Button
           variant="outline"
-          disabled={sendNow.isPending || (data?.submitted ?? 0) + (data?.in_progress ?? 0) === 0}
+          disabled={
+            sendNow.isPending ||
+            (data?.submitted ?? 0) + (data?.in_progress ?? 0) === 0 &&
+              !data?.attendees.some((a) => a.certificate_forced && !a.certificate_sent_at)
+          }
           onClick={() => {
             if (
               window.confirm(
@@ -249,6 +273,10 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
         >
           <Send className="h-4 w-4" />
           Send certificates now
+        </Button>
+        <Button variant="outline" onClick={() => setAddOpen(true)}>
+          <UserPlus className="h-4 w-4" />
+          Add student
         </Button>
         <Button variant="outline" onClick={() => setHackathonCertificatesOpen(true)}>
           <Award className="h-4 w-4" />
@@ -291,7 +319,14 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
                 const s = attendeeStatus(a);
                 return (
                   <TableRow key={a.id}>
-                    <TableCell className="font-medium">{a.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {a.name}
+                      {a.added_manually && (
+                        <Badge variant="secondary" className="ml-2 align-middle">
+                          Manual
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{a.email}</TableCell>
                     {exam.info_fields.map((f) => (
                       <TableCell key={f.key} className="text-muted-foreground">
@@ -301,11 +336,27 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
                     <TableCell>
                       <Badge variant={s.variant}>{s.label}</Badge>
                     </TableCell>
-                    <TableCell>{a.score != null ? `${a.score} / ${a.total_marks}` : "-"}</TableCell>
+                    <TableCell className={isManualNoShow(a) ? "text-muted-foreground" : undefined}>
+                      {scoreText(a)}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {certificateStatus(exam, a)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Review and send ${a.name}'s certificate`}
+                        title={
+                          canOpenCertificate(a)
+                            ? "Review and send this person's certificate"
+                            : "A certificate is available once they have written the exam"
+                        }
+                        disabled={!canOpenCertificate(a)}
+                        onClick={() => setReviewFor(a)}
+                      >
+                        <Mail className="h-4 w-4" />
+                      </Button>
                       <Button size="sm" variant="ghost" title="Edit name or email" onClick={() => setEditing(a)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -377,6 +428,8 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
         </p>
       )}
       {reviewOpen && <CertificateReviewDialog exam={exam} onClose={() => setReviewOpen(false)} />}
+      {reviewFor && <CertificateReviewDialog exam={exam} focus={reviewFor} onClose={() => setReviewFor(null)} />}
+      {addOpen && <ManualAttendeeDialog exam={exam} onClose={() => setAddOpen(false)} />}
       {editing && <AttendeeEditDialog examId={exam.id} attendee={editing} onClose={() => setEditing(null)} />}
       {hackathonCertificatesOpen && (
         <HackathonCertificatesDialog exam={exam} onClose={() => setHackathonCertificatesOpen(false)} />
@@ -412,7 +465,7 @@ function AttendeesTab({ exam }: { exam: WorkshopExam }) {
 
   // People given a certificate only (e.g. hackathon participants) are not part of the exam: no link, no count.
   const examAttendees = (attendees ?? []).filter((a) => !a.certificate_only);
-  const notInvited = examAttendees.filter((a) => !a.invited_at && !a.submitted_at).length;
+  const notInvited = examAttendees.filter((a) => !a.invited_at && !a.submitted_at && !a.certificate_forced).length;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">

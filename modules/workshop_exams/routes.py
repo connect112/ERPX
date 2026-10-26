@@ -35,6 +35,8 @@ from modules.workshop_exams.schemas import (
     AttendeeAdmin,
     AttendeeUpdateRequest,
     AttendeesImportRequest,
+    ManualAttendeeRequest,
+    SendOneCertificateRequest,
     AttendeesImportResponse,
     CertificateIdPreview,
     CertificateIdPreviewRequest,
@@ -361,6 +363,24 @@ async def import_attendees(
     return AttendeesImportResponse(added=added, skipped_duplicates=skipped)
 
 
+@router.post("/{exam_id}/attendees/manual", response_model=AttendeeAdmin, status_code=status.HTTP_201_CREATED)
+async def add_attendee_manually(
+    exam_id: uuid.UUID,
+    payload: ManualAttendeeRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("workshops.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add one student by hand. They are marked as added manually; with `issue_certificate` they will receive a
+    certificate without sitting the exam."""
+    service = WorkshopExamService(db)
+    exam = await service.get_exam(exam_id, organization_id)
+    attendee = await service.add_attendee_manually(
+        exam, payload.name, str(payload.email), payload.info, payload.issue_certificate
+    )
+    return AttendeeAdmin.model_validate(attendee)
+
+
 @router.get("/{exam_id}/attendees", response_model=list[AttendeeAdmin])
 async def list_attendees(
     exam_id: uuid.UUID,
@@ -484,8 +504,8 @@ async def export_results(
                 *[_csv_safe((a.info or {}).get(f["key"], "")) for f in info_fields],
                 a.started_at.isoformat() if a.started_at else "",
                 a.submitted_at.isoformat() if a.submitted_at else "",
-                a.score if a.score is not None else "",
-                a.total_marks if a.total_marks is not None else "",
+                _score_cell(a),
+                "" if _manual_no_show(a) else (a.total_marks if a.total_marks is not None else ""),
                 a.certificate_number or "",
                 a.certificate_sent_at.isoformat() if a.certificate_sent_at else "",
             ]
@@ -495,6 +515,17 @@ async def export_results(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="exam-results-{exam.id}.csv"'},
     )
+
+
+def _manual_no_show(attendee) -> bool:
+    """Added by hand and never sat the exam (didn't start it, nothing submitted)."""
+    return attendee.added_manually and attendee.started_at is None and attendee.submitted_at is None
+
+
+def _score_cell(attendee) -> str | int:
+    if _manual_no_show(attendee):
+        return "Manual - Not attended exam"
+    return attendee.score if attendee.score is not None else ""
 
 
 def _csv_safe(value: str) -> str:
@@ -605,7 +636,7 @@ async def preview_attendee_certificate(
     service = WorkshopExamService(db)
     exam = await service.get_exam(exam_id, organization_id)
     attendee = await service._attendee(exam, attendee_id)
-    if not service.has_certificate(attendee):
+    if not service.can_review(attendee):
         raise ValidationError("This person hasn't taken the exam, so they have no certificate.")
     number = attendee.certificate_number or f"{(exam.certificate_id_pattern or 'WS')[:6]}-PREVIEW"
     pdf = await render_certificate(db, exam, attendee, number)
@@ -620,15 +651,17 @@ async def preview_attendee_certificate(
 async def send_attendee_certificate(
     exam_id: uuid.UUID,
     attendee_id: uuid.UUID,
+    payload: SendOneCertificateRequest | None = None,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("workshops.manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Email this one person's certificate now (again, if it went out before), to their current address. Nothing
-    is sent automatically when an address is changed; this is how a corrected address gets its certificate."""
+    is sent automatically when an address is changed; this is how a corrected address gets its certificate.
+    A manually added student who never sat the exam only gets one when `force` is set (the admin's explicit choice)."""
     service = WorkshopExamService(db)
     exam = await service.get_exam(exam_id, organization_id)
-    attendee = await service.prepare_single_send(exam, attendee_id)
+    attendee = await service.prepare_single_send(exam, attendee_id, force=bool(payload and payload.force))
     result = MessageResponse(message=f"The certificate is being sent to {attendee.email}.")
     await db.commit()
     try:

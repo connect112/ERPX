@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  type Attendee,
   type CertificateLayout,
   DEFAULT_CERTIFICATE_LAYOUT,
   type NameAdjust,
@@ -14,6 +15,7 @@ import {
   workshopExamsApi,
 } from "@/features/workshop-exams/api/workshop-exams-api";
 import "@/features/workshop-exams/components/certificate-fonts.css";
+import { needsForcedSend } from "@/features/workshop-exams/lib/attendee-state";
 import { baselineOffset, FONT_CSS, measureText, SCRIPT_FONTS } from "@/features/workshop-exams/lib/certificate-render";
 
 const NO_FIX: NameAdjust = { size: 1, dx: 0, dy: 0 };
@@ -24,6 +26,22 @@ function errorMessage(error: unknown, fallback: string): string {
     ?.response?.data?.error;
   const detail = Array.isArray(data?.details) ? data?.details[0]?.msg : undefined;
   return (detail ? detail.replace(/^Value error,\s*/, "") : data?.message) ?? fallback;
+}
+
+/** The review view of someone who is only in the attendees list (a manually added student with no certificate yet). */
+function asReviewItem(a: Attendee): ReviewItem {
+  return {
+    id: a.id,
+    name: a.name,
+    email: a.email,
+    certificate_number: a.certificate_number,
+    certificate_verified_at: a.certificate_verified_at,
+    certificate_sent_at: a.certificate_sent_at,
+    certificate_only: a.certificate_only,
+    certificate_adjust: a.certificate_adjust,
+    added_manually: a.added_manually,
+    certificate_forced: a.certificate_forced,
+  };
 }
 
 const sameFix = (a: NameAdjust, b: NameAdjust) => a.size === b.size && a.dx === b.dx && a.dy === b.dy;
@@ -154,6 +172,7 @@ function ReviewDetail({
   imageUrl,
   layout,
   fontsReady,
+  needsForce,
   onChanged,
 }: {
   exam: WorkshopExam;
@@ -161,6 +180,8 @@ function ReviewDetail({
   imageUrl: string | null;
   layout: CertificateLayout;
   fontsReady: number;
+  /** A manually added student who never sat the exam: sending is the admin's explicit choice to give them one anyway. */
+  needsForce: boolean;
   onChanged: () => void;
 }) {
   const [name, setName] = useState(item.name);
@@ -202,7 +223,7 @@ function ReviewDetail({
     onError: (error) => fail(error, "Could not save the email address."),
   });
   const send = useMutation({
-    mutationFn: () => workshopExamsApi.sendCertificate(exam.id, item.id),
+    mutationFn: () => workshopExamsApi.sendCertificate(exam.id, item.id, needsForce),
     onSuccess: (result) => {
       setNotice({ tone: "ok", text: result.message });
       onChanged();
@@ -287,20 +308,37 @@ function ReviewDetail({
         <p className="text-xs text-muted-foreground">
           Changing the address never sends anything by itself. Wrong address? Fix it, then send this one certificate.
         </p>
+      </div>
+
+      {notice && <p className={notice.tone === "ok" ? "text-sm text-emerald-700 dark:text-emerald-400" : "text-sm text-destructive"}>{notice.text}</p>}
+
+      <div className="space-y-2 border-t pt-4">
+        {needsForce && (
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            {item.name} hasn't taken the exam. Sending gives them a certificate without it.
+          </p>
+        )}
         <Button
-          variant="outline"
+          className="w-full"
           disabled={send.isPending || emailChanged || designDirty}
           title={emailChanged || designDirty ? "Save your changes first" : undefined}
           onClick={() => {
             const again = item.certificate_sent_at !== null;
-            if (window.confirm(`${again ? "Send this certificate again" : "Send this certificate"} to ${item.email}?`)) send.mutate();
+            const question = needsForce
+              ? `${item.name} hasn't taken the exam. Send a certificate to ${item.email} anyway?`
+              : `${again ? "Send this certificate again" : "Send this certificate"} to ${item.email}?`;
+            if (window.confirm(question)) send.mutate();
           }}
         >
-          {item.certificate_sent_at ? `Send again to ${item.email}` : `Send now to ${item.email}`}
+          {send.isPending
+            ? "Sending..."
+            : item.certificate_sent_at
+              ? `Send certificate again to ${item.email}`
+              : needsForce
+                ? `Send certificate without exam to ${item.email}`
+                : `Send certificate to ${item.email}`}
         </Button>
       </div>
-
-      {notice && <p className={notice.tone === "ok" ? "text-sm text-emerald-700 dark:text-emerald-400" : "text-sm text-destructive"}>{notice.text}</p>}
     </div>
   );
 }
@@ -309,9 +347,18 @@ function ReviewDetail({
  * Optional step: look through every certificate before it is emailed, fix long or badly placed names on the spot,
  * mark each verified, and fix a wrong email address. Skippable with "Verify everyone".
  */
-export function CertificateReviewDialog({ exam, onClose }: { exam: WorkshopExam; onClose: () => void }) {
+export function CertificateReviewDialog({
+  exam,
+  onClose,
+  focus,
+}: {
+  exam: WorkshopExam;
+  onClose: () => void;
+  /** Open on one person only (the mail button on their row): the same options, for just them, with Send at the bottom. */
+  focus?: Attendee;
+}) {
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(focus?.id ?? null);
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [fontsReady, setFontsReady] = useState(0);
@@ -323,6 +370,12 @@ export function CertificateReviewDialog({ exam, onClose }: { exam: WorkshopExam;
     queryFn: () => workshopExamsApi.openCertificateReview(exam.id),
   });
   const items = useMemo(() => review.data?.items ?? [], [review.data]);
+  // Someone who never sat the exam isn't in the review list, so the person on the row comes from the attendees list.
+  const attendeeList = useQuery({
+    queryKey: ["workshop-exams", exam.id, "attendees"],
+    queryFn: () => workshopExamsApi.attendees(exam.id),
+    enabled: focus !== undefined,
+  });
   const required = exam.certificate_review;
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["workshop-exams"] });
 
@@ -378,7 +431,45 @@ export function CertificateReviewDialog({ exam, onClose }: { exam: WorkshopExam;
 
   const verifiedCount = items.filter((i) => i.certificate_verified_at || i.certificate_sent_at).length;
   const visible = onlyOpen ? items.filter((i) => !i.certificate_verified_at && !i.certificate_sent_at) : items;
-  const selected = items.find((i) => i.id === selectedId) ?? null;
+  const focusRow = focus ? (attendeeList.data?.find((a) => a.id === focus.id) ?? focus) : null;
+  const selected: ReviewItem | null = focusRow
+    ? (items.find((i) => i.id === focusRow.id) ?? asReviewItem(focusRow))
+    : (items.find((i) => i.id === selectedId) ?? null);
+  const needsForce = focusRow ? needsForcedSend(focusRow) : false;
+
+  // Opened from one person's mail button: just their certificate, with every option and Send at the bottom.
+  if (focusRow && selected) {
+    return (
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Certificate for {selected.name}</DialogTitle>
+            <DialogDescription>
+              Look at this certificate before it is sent. Fix the name or its position, correct the email address, mark
+              it verified, then send it from the bottom.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <StatusBadge item={selected} />
+            {focusRow.added_manually && (
+              <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-200">Manual</span>
+            )}
+            {needsForce && <span className="text-muted-foreground">Has not taken the exam</span>}
+          </div>
+          <ReviewDetail
+            key={selected.id}
+            exam={exam}
+            item={selected}
+            imageUrl={imageUrl}
+            layout={layout}
+            fontsReady={fontsReady}
+            needsForce={needsForce}
+            onChanged={() => void refresh()}
+          />
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -466,6 +557,7 @@ export function CertificateReviewDialog({ exam, onClose }: { exam: WorkshopExam;
                   imageUrl={imageUrl}
                   layout={layout}
                   fontsReady={fontsReady}
+                  needsForce={false}
                   onChanged={() => void refresh()}
                 />
               ) : (

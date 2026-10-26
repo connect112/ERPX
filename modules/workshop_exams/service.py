@@ -301,6 +301,53 @@ class WorkshopExamService:
         await self.db.flush()
         return added, skipped
 
+    async def add_attendee_manually(
+        self,
+        exam: WorkshopExam,
+        name: str,
+        email: str,
+        info: dict[str, str] | None = None,
+        issue_certificate: bool = False,
+    ) -> WorkshopExamAttendee:
+        """Add one person by hand. They get their own exam link like anyone else and may sit the exam, or, with
+        `issue_certificate`, are marked to receive a certificate without it (the admin's explicit choice). The
+        extra info fields are optional here: the admin may not know every answer."""
+        name = " ".join(name.split())
+        if not name:
+            raise ValidationError("Please enter the student's name.")
+        email = email.strip().lower()
+        clean_info: dict[str, str] = {}
+        for field in exam.info_fields or []:
+            value = " ".join(str((info or {}).get(field["key"], "")).split())
+            if not value:
+                continue
+            if len(value) > 255:
+                raise ValidationError(f"{field['label']} is too long.")
+            if field["type"] == "select" and value not in field.get("options", []):
+                raise ValidationError(f"Please choose a valid option for: {field['label']}")
+            clean_info[field["key"]] = value
+        if await self._find_by_email(exam.id, email) is not None:
+            raise ConflictError("Someone with that email address is already on this exam.")
+        _, attendee_count = await self.counts_for(exam.id)
+        if attendee_count >= _MAX_ATTENDEES:
+            raise ValidationError("This exam has reached its attendee limit.")
+        attendee = WorkshopExamAttendee(
+            exam_id=exam.id,
+            name=name,
+            email=email,
+            info=clean_info,
+            access_token=secrets.token_urlsafe(24),
+            added_manually=True,
+            certificate_forced=issue_certificate,
+        )
+        try:
+            async with self.db.begin_nested():
+                self.db.add(attendee)
+                await self.db.flush()
+        except IntegrityError:
+            raise ConflictError("Someone with that email address is already on this exam.") from None
+        return attendee
+
     async def list_attendees(self, exam_id: uuid.UUID) -> list[WorkshopExamAttendee]:
         result = await self.db.execute(
             select(WorkshopExamAttendee)
@@ -364,7 +411,13 @@ class WorkshopExamService:
 
     @staticmethod
     def has_certificate(attendee: WorkshopExamAttendee) -> bool:
-        return attendee.submitted_at is not None or attendee.certificate_only
+        return attendee.submitted_at is not None or attendee.certificate_only or attendee.certificate_forced
+
+    @staticmethod
+    def can_review(attendee: WorkshopExamAttendee) -> bool:
+        """Whether this person's certificate can be looked at and fixed. A manually added person can be reviewed
+        before anything is sent, even if they never sat the exam."""
+        return WorkshopExamService.has_certificate(attendee) or attendee.added_manually
 
     async def review_items(self, exam: WorkshopExam) -> list[WorkshopExamAttendee]:
         """Everyone who gets a certificate (submitted the exam, or is certificate-only), each with their ID already
@@ -378,7 +431,7 @@ class WorkshopExamService:
 
     async def set_verified(self, exam: WorkshopExam, attendee_id: uuid.UUID, verified: bool) -> WorkshopExamAttendee:
         attendee = await self._attendee(exam, attendee_id)
-        if verified and not self.has_certificate(attendee):
+        if verified and not self.can_review(attendee):
             raise ValidationError("This person hasn't taken the exam, so there is no certificate to verify.")
         attendee.certificate_verified_at = _now() if verified else None
         await self.db.flush()
@@ -403,11 +456,22 @@ class WorkshopExamService:
         await self.db.flush()
         return attendee
 
-    async def prepare_single_send(self, exam: WorkshopExam, attendee_id: uuid.UUID) -> WorkshopExamAttendee:
-        """Ready one person's certificate to be (re)sent now, e.g. after correcting their email address."""
+    async def prepare_single_send(
+        self, exam: WorkshopExam, attendee_id: uuid.UUID, force: bool = False
+    ) -> WorkshopExamAttendee:
+        """Ready one person's certificate to be (re)sent now, e.g. after correcting their email address.
+
+        Someone who never sat the exam has no certificate, except a manually added person: with `force` the admin
+        explicitly gives them one anyway (and from then on they are treated like anyone else with a certificate)."""
         attendee = await self._attendee(exam, attendee_id)
         if not self.has_certificate(attendee):
-            raise ValidationError("This person hasn't taken the exam, so they have no certificate.")
+            if not attendee.added_manually:
+                raise ValidationError("This person hasn't taken the exam, so they have no certificate.")
+            if not force:
+                raise ValidationError(
+                    f"{attendee.name} hasn't taken the exam. Confirm that you want to send a certificate without it."
+                )
+            attendee.certificate_forced = True
         if attendee.certificate_number is None:
             attendee.certificate_number = await self._new_certificate_number(exam)
         attendee.certificate_verified_at = _now()
@@ -431,7 +495,7 @@ class WorkshopExamService:
         attendee.score = None
         attendee.total_marks = None
         # A certificate that was issued but not delivered yet would no longer be earned; the send task skips it.
-        if not attendee.certificate_only:
+        if not attendee.certificate_only and not attendee.certificate_forced:
             attendee.certificate_number = None
         await self.db.flush()
         return attendee
@@ -447,7 +511,7 @@ class WorkshopExamService:
         now = _now()
         ids = []
         for attendee in attendees:
-            if attendee.submitted_at is not None or attendee.certificate_only:
+            if attendee.submitted_at is not None or attendee.certificate_only or attendee.certificate_forced:
                 continue
             if attendee.invited_at is not None and not resend_all:
                 continue
@@ -826,7 +890,7 @@ class WorkshopExamService:
         for attendee in attendees:
             if attendee.submitted_at is None and attendee.started_at is not None:
                 await self._finalize(attendee, questions)
-            if attendee.submitted_at is None and not attendee.certificate_only:
+            if attendee.submitted_at is None and not attendee.certificate_only and not attendee.certificate_forced:
                 continue
             if attendee.certificate_number is None:
                 attendee.certificate_number = await self._new_certificate_number(exam)

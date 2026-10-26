@@ -157,3 +157,7 @@ class WorkshopExamAttendee(TimestampedBase):
     # ({"size", "dx", "dy"}, see certificate_template.NameAdjust).
     certificate_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     certificate_adjust: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Added by an admin one at a time ("Add student"), as opposed to registering from the shared link or the bulk list.
+    added_manually: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # An admin chose to send this (manually added) person a certificate although they did not sit the exam.
+    certificate_forced: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)

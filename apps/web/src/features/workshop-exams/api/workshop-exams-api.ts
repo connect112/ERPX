@@ -149,6 +149,20 @@ export interface Attendee {
   certificate_verified_at: string | null;
   /** Only here to receive a certificate (e.g. a hackathon participant); not part of the exam. */
   certificate_only: boolean;
+  /** Added by hand with "Add student". */
+  added_manually: boolean;
+  /** Given a certificate although they did not sit the exam (only possible for manually added students). */
+  certificate_forced: boolean;
+  certificate_adjust: NameAdjust | null;
+}
+
+export interface ManualAttendeeInput {
+  name: string;
+  email: string;
+  /** Answers to the exam's extra info fields, keyed by field key. All optional. */
+  info: Record<string, string>;
+  /** They won't sit the exam but still get a certificate. */
+  issue_certificate: boolean;
 }
 
 /** A fix for how one person's name is printed on their own certificate. */
@@ -170,6 +184,8 @@ export interface ReviewItem {
   certificate_sent_at: string | null;
   certificate_only: boolean;
   certificate_adjust: NameAdjust | null;
+  added_manually: boolean;
+  certificate_forced: boolean;
 }
 
 export interface CertificateReview {
@@ -270,6 +286,9 @@ export const workshopExamsApi = {
     apiClient
       .post<{ added: number; skipped_duplicates: number }>(`/workshop-exams/${id}/attendees`, { attendees })
       .then((r) => r.data),
+  /** Add one student by hand (marked "Manual"). */
+  addManualAttendee: (id: string, payload: ManualAttendeeInput) =>
+    apiClient.post<Attendee>(`/workshop-exams/${id}/attendees/manual`, payload).then((r) => r.data),
   /** Correct a name and/or email; the personal exam link stays the same. */
   updateAttendee: (
     id: string,
@@ -315,10 +334,13 @@ export const workshopExamsApi = {
     apiClient
       .get<Blob>(`/workshop-exams/${id}/attendees/${attendeeId}/certificate/preview`, { responseType: "blob" })
       .then((r) => r.data),
-  /** Email this one certificate now (again if it went out before), to the person's current address. */
-  sendCertificate: (id: string, attendeeId: string) =>
+  /**
+   * Email this one certificate now (again if it went out before), to the person's current address. `force` is what
+   * lets a manually added student who never sat the exam receive one.
+   */
+  sendCertificate: (id: string, attendeeId: string, force = false) =>
     apiClient
-      .post<{ message: string }>(`/workshop-exams/${id}/attendees/${attendeeId}/certificate/send`)
+      .post<{ message: string }>(`/workshop-exams/${id}/attendees/${attendeeId}/certificate/send`, { force })
       .then((r) => r.data),
   /** Without confirm: who would get this exam's certificate from a hackathon. With confirm: add them and send. */
   hackathonCertificates: (
