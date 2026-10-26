@@ -224,6 +224,27 @@ class AttendeesImportResponse(BaseModel):
     skipped_duplicates: int
 
 
+class ManualAttendeeRequest(BaseModel):
+    """Add one student by hand."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    email: EmailStr
+    # Answers to the exam's extra info fields, keyed by field key. All optional here.
+    info: dict[str, str] = Field(default_factory=dict)
+    # They won't sit the exam but still get a certificate (the admin's explicit choice).
+    issue_certificate: bool = False
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trim(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class SendOneCertificateRequest(BaseModel):
+    # Required to send a certificate to a manually added student who has not sat the exam.
+    force: bool = False
+
+
 class AttendeeAdmin(BaseModel):
     id: uuid.UUID
     name: str
@@ -239,6 +260,10 @@ class AttendeeAdmin(BaseModel):
     certificate_verified_at: datetime | None = None
     # Only here to receive a certificate (e.g. a hackathon participant); not part of the exam.
     certificate_only: bool = False
+    # Added by hand ("Add student"); and given a certificate although they did not sit the exam.
+    added_manually: bool = False
+    certificate_forced: bool = False
+    certificate_adjust: NameAdjust | None = None
 
     model_config = {"from_attributes": True}
 
@@ -252,6 +277,8 @@ class ReviewItem(BaseModel):
     certificate_sent_at: datetime | None
     certificate_only: bool
     certificate_adjust: NameAdjust | None = None
+    added_manually: bool = False
+    certificate_forced: bool = False
 
     model_config = {"from_attributes": True}
 
