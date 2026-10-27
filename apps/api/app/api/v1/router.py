@@ -54,6 +54,7 @@ from modules.messaging.routes import router as messaging_router
 from modules.monitoring.routes import router as monitoring_router
 from modules.notifications.routes import router as notifications_router
 from modules.organizations.routes import router as organizations_router
+from modules.our_internships.routes import router as our_internships_router
 from modules.payroll.routes import router as payroll_router
 from modules.pentrix.router import router as pentrix_router
 from modules.procurement.routes import router as procurement_router
@@ -126,6 +127,7 @@ api_router.include_router(hackathons_router, prefix="/hackathons", tags=["Hackat
 api_router.include_router(institutions_router, prefix="/institutions", tags=["Institutions"])
 api_router.include_router(institution_events_router, prefix="/institution-events", tags=["Institutions"])
 api_router.include_router(institution_students_router, prefix="/institution-students", tags=["Institutions"])
+api_router.include_router(our_internships_router, prefix="/our-internships", tags=["Our Internships"])
 api_router.include_router(email_templates_router, prefix="/email-templates", tags=["Email templates"])
 api_router.include_router(email_template_events_router, prefix="/hackathons", tags=["Email templates"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])

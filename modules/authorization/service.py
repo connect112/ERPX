@@ -231,6 +231,16 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
         "institutions",
         "Create and edit institutions, events and student registrations, and link exams and hackathons to events",
     ),
+    (
+        "our_internships.view",
+        "our_internships",
+        "View our internship programmes, how students performed, and the selected students",
+    ),
+    (
+        "our_internships.manage",
+        "our_internships",
+        "Create internship programmes and select or remove students on them",
+    ),
     ("placements.view", "placements", "View companies, job postings, and applications"),
     ("placements.manage", "placements", "Create, update, delete companies/postings and manage applications"),
     ("social_media.view", "social_media", "View the social media dashboard, drafts and settings"),

@@ -1,5 +1,6 @@
 import {
   Award,
+  BadgeCheck,
   Radar,
   Banknote,
   BarChart3,
@@ -214,6 +215,7 @@ export const navSections: NavSection[] = [
       { label: "Job Feed", href: "/placements/job-feed", icon: Radar, enabled: true, permission: "placements.view" },
       { label: "Internship Postings", href: "/internships/postings", icon: InternGraduationCap, enabled: true, permission: "internships.view" },
       { label: "Active Internships", href: "/internships", icon: ClipboardList, enabled: true, permission: "internships.view" },
+      { label: "Our Internships", href: "/our-internships", icon: BadgeCheck, enabled: true, permission: "our_internships.view" },
       { label: "Alumni Profiles", href: "/alumni/profiles", icon: Contact, enabled: true, permission: "alumni.view" },
       { label: "Alumni Events", href: "/alumni/events", icon: AlumniEventIcon, enabled: true, permission: "alumni.view" },
       { label: "Job Referrals", href: "/alumni/referrals", icon: Newspaper, enabled: true, permission: "alumni.view" },
