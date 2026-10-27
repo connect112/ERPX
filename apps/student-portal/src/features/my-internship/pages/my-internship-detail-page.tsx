@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMyInternshipDetail, useMyInternshipList } from "@/features/my-internship/api/my-internship-api";
 import { AssignmentsSection } from "@/features/my-internship/components/assignments-section";
+import { ProjectsSection } from "@/features/my-internship/components/projects-section";
 import { ExamsSection } from "@/features/my-internship/components/exams-section";
 
 export function MyInternshipDetailPage() {
@@ -49,10 +50,14 @@ export function MyInternshipDetailPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
+          <TabsTrigger value="projects">Projects</TabsTrigger>
           <TabsTrigger value="exams">Exams</TabsTrigger>
         </TabsList>
         <TabsContent value="assignments">
           <AssignmentsSection internshipId={internshipId} />
+        </TabsContent>
+        <TabsContent value="projects">
+          <ProjectsSection internshipId={internshipId} />
         </TabsContent>
         <TabsContent value="exams">
           <ExamsSection internshipId={internshipId} />

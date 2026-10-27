@@ -41,3 +41,15 @@ export function timeLeft(iso: string | null, now: Date = new Date()): string | n
   if (hours > 0) return `${plural(hours, "hour")} ${plural(minutes % 60, "minute")}`;
   return plural(Math.max(1, minutes), "minute");
 }
+
+/** Whether a repository link is a full http(s) web address (the server applies the same rule). */
+export function isWebAddress(value: string): boolean {
+  const v = value.trim();
+  if (!v || /\s/.test(v)) return false;
+  try {
+    const url = new URL(v);
+    return (url.protocol === "http:" || url.protocol === "https:") && !!url.hostname;
+  } catch {
+    return false;
+  }
+}

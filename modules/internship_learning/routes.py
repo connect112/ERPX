@@ -482,3 +482,10 @@ async def submit_assignment(
     uploads = [await service.files.read_upload(f) for f in files]
     await service.submit(assignment, selection, user.id, note, uploads)
     return await _my_assignment_full(service, assignment, selection)
+
+
+# Projects live beside exams and assignments, under the same prefixes.
+from modules.internship_learning import project_routes  # noqa: E402
+
+router.include_router(project_routes.router)
+my_router.include_router(project_routes.my_router)

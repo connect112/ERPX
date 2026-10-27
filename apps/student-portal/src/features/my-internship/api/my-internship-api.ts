@@ -112,3 +112,75 @@ export function useSubmitAssignment(id: string) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: myInternshipKeys.all }),
   });
 }
+
+// ---------------- projects ----------------
+
+export type SubmissionMethod = "file" | "email" | "repository";
+
+export interface MyProject {
+  id: string;
+  title: string;
+  description: string | null;
+  objectives: string | null;
+  rules: string | null;
+  submission_instructions: string | null;
+  reference_links: { id: string; title: string; url: string }[];
+  allow_file: boolean;
+  allow_email: boolean;
+  allow_repository: boolean;
+  submission_email: string | null;
+  max_files: number;
+  starts_at: string | null;
+  deadline_at: string | null;
+  allow_late: boolean;
+  status: "published" | "closed";
+  documents: StoredFile[];
+  templates: StoredFile[];
+  spots_left: number | null;
+  chosen_by_me: boolean;
+  can_choose: boolean;
+  can_submit: boolean;
+  submission: {
+    method: SubmissionMethod;
+    repository_url: string | null;
+    note: string | null;
+    submitted_at: string;
+    is_late: boolean;
+    files: StoredFile[];
+    received_at: string | null;
+  } | null;
+}
+
+export const myProjectApi = {
+  list: (id: string) => apiClient.get<MyProject[]>(`${base}/${id}/projects`).then((r) => r.data),
+  choose: (id: string, projectId: string) => apiClient.post<MyProject>(`${base}/${id}/projects/${projectId}/choose`).then((r) => r.data),
+  drop: (id: string) => apiClient.delete(`${base}/${id}/projects/choice`).then((r) => r.data),
+  submit: (id: string, projectId: string, payload: { method: SubmissionMethod; repositoryUrl: string; note: string; files: File[] }) => {
+    const form = new FormData();
+    form.append("method", payload.method);
+    if (payload.repositoryUrl.trim()) form.append("repository_url", payload.repositoryUrl.trim());
+    if (payload.note.trim()) form.append("note", payload.note.trim());
+    payload.files.forEach((f) => form.append("files", f));
+    return apiClient
+      .post<MyProject>(`${base}/${id}/projects/${projectId}/submission`, form, { headers: { "Content-Type": "multipart/form-data" } })
+      .then((r) => r.data);
+  },
+};
+
+export function useMyProjects(id: string) {
+  return useQuery({ queryKey: [...myInternshipKeys.all, "projects", id], queryFn: () => myProjectApi.list(id), enabled: !!id });
+}
+
+export function useProjectActions(id: string) {
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: myInternshipKeys.all });
+  return {
+    choose: useMutation({ mutationFn: (projectId: string) => myProjectApi.choose(id, projectId), onSuccess: refresh }),
+    drop: useMutation({ mutationFn: () => myProjectApi.drop(id), onSuccess: refresh }),
+    submit: useMutation({
+      mutationFn: (v: { projectId: string; method: SubmissionMethod; repositoryUrl: string; note: string; files: File[] }) =>
+        myProjectApi.submit(id, v.projectId, v),
+      onSuccess: refresh,
+    }),
+  };
+}

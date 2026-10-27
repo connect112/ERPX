@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_FILE_BYTES, checkFiles, timeLeft } from "@/features/my-internship/lib/format";
+import { MAX_FILE_BYTES, checkFiles, isWebAddress, timeLeft } from "@/features/my-internship/lib/format";
 
 const file = (name: string, size: number) => ({ name, size }) as File;
 
@@ -28,5 +28,17 @@ describe("timeLeft", () => {
   it("is null once the time has passed or when there is no deadline", () => {
     expect(timeLeft("2026-11-20T11:00:00Z", now)).toBeNull();
     expect(timeLeft(null, now)).toBeNull();
+  });
+});
+
+describe("isWebAddress", () => {
+  it("accepts full http and https addresses", () => {
+    expect(isWebAddress("https://github.com/asha/scanner")).toBe(true);
+    expect(isWebAddress("  http://gitlab.example.com/a/b  ")).toBe(true);
+  });
+  it("refuses everything else", () => {
+    for (const bad of ["", "github.com/a/b", "javascript:alert(1)", "ftp://x.com/a", "https://exa mple.com", "https://"]) {
+      expect(isWebAddress(bad)).toBe(false);
+    }
   });
 });
