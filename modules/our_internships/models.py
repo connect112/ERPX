@@ -8,10 +8,12 @@ stored here: it is read from the event's exams and hackathons when asked for, so
 
 import enum
 import uuid
+from datetime import date, datetime
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, deferred, mapped_column
 
 from app.db.base_model import TimestampedBase
 from modules.institutions import models as _institutions_models  # noqa: F401  (the foreign keys point at its tables)
@@ -30,6 +32,13 @@ class OurInternshipStatus(str, enum.Enum):
     SELECTING = "selecting"
     OFFERS_RELEASED = "offers_released"
     CLOSED = "closed"
+
+
+class OfferStatus(str, enum.Enum):
+    NOT_SENT = "not_sent"
+    QUEUED = "queued"
+    SENT = "sent"
+    FAILED = "failed"
 
 
 class OurInternship(TimestampedBase):
@@ -60,6 +69,17 @@ class OurInternship(TimestampedBase):
         nullable=False,
         index=True,
     )
+    # The offer letter: the uploaded PDF template, where each field is printed on it, and the email that carries it.
+    offer_template_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    offer_template_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    offer_template_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    offer_template_data: Mapped[bytes | None] = deferred(mapped_column(LargeBinary, nullable=True))
+    offer_layout: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    offer_email_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    offer_email_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The date printed on the letters; empty means the day they are released.
+    offer_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    offers_released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class InternshipSelection(TimestampedBase):
@@ -81,3 +101,14 @@ class InternshipSelection(TimestampedBase):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The offer letter sent to this student.
+    offer_reference: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    offer_status: Mapped[OfferStatus] = mapped_column(
+        SAEnum(OfferStatus, name="our_internship_offer_status", values_callable=_values),
+        default=OfferStatus.NOT_SENT,
+        server_default=OfferStatus.NOT_SENT.value,
+        nullable=False,
+    )
+    offer_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    offer_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    offer_error: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -163,6 +163,7 @@ celery_app.autodiscover_tasks(
         "modules.lms.announcements",
         "modules.workshop_exams",
         "modules.hackathons",
+        "modules.our_internships",
         "modules.placements",
         "modules.social_media",
     ]

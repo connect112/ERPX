@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { UserMinus } from "lucide-react";
+import { Eye, RefreshCw, UserMinus } from "lucide-react";
 import { useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,17 +10,40 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { errorMessage } from "@/features/institutions/lib/format";
 import {
+  type OfferStatus,
   type SelectedStudent,
+  offerKeys,
+  offersApi,
   ourInternshipsApi,
   ourInternshipsKeys,
 } from "@/features/our-internships/api/our-internships-api";
 import { formatMarks, formatScore, formatTeamScore } from "@/features/our-internships/lib/performance";
 
 /** The shortlist for this internship: review each student's results, add a note, or take someone off before offers go out. */
+const offerBadge: Record<OfferStatus, { label: string; variant: "secondary" | "info" | "success" | "destructive" }> = {
+  not_sent: { label: "Not sent", variant: "secondary" },
+  queued: { label: "Sending...", variant: "info" },
+  sent: { label: "Sent", variant: "success" },
+  failed: { label: "Failed", variant: "destructive" },
+};
+
 export function SelectedStudentsTab({ internshipId }: { internshipId: string }) {
   const queryClient = useQueryClient();
-  const selected = useQuery({ queryKey: ourInternshipsKeys.selected(internshipId), queryFn: () => ourInternshipsApi.selected(internshipId) });
+  const selected = useQuery({
+    queryKey: ourInternshipsKeys.selected(internshipId),
+    queryFn: () => ourInternshipsApi.selected(internshipId),
+    // while letters are going out, watch them arrive
+    refetchInterval: (query) => (query.state.data?.items.some((i) => i.offer_status === "queued") ? 4000 : false),
+  });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ourInternshipsKeys.all });
+  const preview = useMutation({ mutationFn: (studentId: string) => offersApi.previewStudent(internshipId, studentId) });
+  const resend = useMutation({
+    mutationFn: (studentId: string) => offersApi.release(internshipId, { student_ids: [studentId], resend: true }),
+    onSuccess: () => {
+      void refresh();
+      void queryClient.invalidateQueries({ queryKey: offerKeys.settings(internshipId) });
+    },
+  });
   const remove = useMutation({ mutationFn: (studentId: string) => ourInternshipsApi.unselect(internshipId, studentId), onSuccess: refresh });
   const saveNote = useMutation({
     mutationFn: (v: { studentId: string; note: string | null }) => ourInternshipsApi.setNote(internshipId, v.studentId, v.note),
@@ -47,6 +71,7 @@ export function SelectedStudentsTab({ internshipId }: { internshipId: string }) 
                 <TableHead>Institution</TableHead>
                 <TableHead>Results</TableHead>
                 <TableHead>Note</TableHead>
+                <TableHead>Offer letter</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
@@ -74,6 +99,32 @@ export function SelectedStudentsTab({ internshipId }: { internshipId: string }) 
                   <TableCell>
                     <NoteBox student={s} onSave={(note) => saveNote.mutate({ studentId: s.student_id, note })} />
                   </TableCell>
+                  <TableCell className="text-xs">
+                    <Badge variant={offerBadge[s.offer_status].variant}>{offerBadge[s.offer_status].label}</Badge>
+                    {s.offer_reference && <span className="mt-1 block text-muted-foreground">{s.offer_reference}</span>}
+                    {s.offer_status === "sent" && s.offer_sent_at && <span className="block text-muted-foreground">{new Date(s.offer_sent_at).toLocaleString()}</span>}
+                    {s.offer_error && s.offer_status !== "sent" && <span className="block text-destructive">{s.offer_error}</span>}
+                    <div className="mt-1 flex gap-1">
+                      <Button variant="outline" size="sm" className="h-7 px-2" disabled={preview.isPending} onClick={() => preview.mutate(s.student_id)}>
+                        <Eye className="mr-1 h-3.5 w-3.5" />
+                        Preview
+                      </Button>
+                      {(s.offer_status === "sent" || s.offer_status === "failed") && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2"
+                          disabled={resend.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Send ${s.name} their offer letter again?`)) resend.mutate(s.student_id);
+                          }}
+                        >
+                          <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                          {s.offer_status === "failed" ? "Retry" : "Resend"}
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"
@@ -93,7 +144,10 @@ export function SelectedStudentsTab({ internshipId }: { internshipId: string }) 
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">{items.length} selected</p>
-      {(remove.isError || saveNote.isError) && <p className="text-sm text-destructive">{errorMessage(remove.error ?? saveNote.error, "Could not save that change.")}</p>}
+      {(remove.isError || saveNote.isError || preview.isError || resend.isError) && (
+        <p className="text-sm text-destructive">{errorMessage(remove.error ?? saveNote.error ?? preview.error ?? resend.error, "Could not do that.")}</p>
+      )}
+      {resend.isSuccess && <p className="text-sm text-emerald-700 dark:text-emerald-400">{resend.data.message}</p>}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { institutionsApi, institutionsKeys } from "@/features/institutions/api/i
 import { errorMessage } from "@/features/institutions/lib/format";
 import { useDebounced } from "@/features/institutions/lib/use-debounced";
 import { type InternshipStatus, ourInternshipsApi, ourInternshipsKeys } from "@/features/our-internships/api/our-internships-api";
+import { OffersTab } from "@/features/our-internships/components/offers-tab";
 import { SelectedStudentsTab } from "@/features/our-internships/components/selected-students-tab";
 import { StudentWiseView } from "@/features/our-internships/components/student-wise-view";
 import { TeamWiseView } from "@/features/our-internships/components/team-wise-view";
@@ -170,6 +171,7 @@ export function OurInternshipDetailPage() {
           <TabsTrigger value="students">Students{board ? ` (${board.students.length})` : ""}</TabsTrigger>
           <TabsTrigger value="teams">Teams{board ? ` (${board.teams.filter((t) => t.team_id).length})` : ""}</TabsTrigger>
           <TabsTrigger value="selected">Selected ({i.selected_count})</TabsTrigger>
+          <TabsTrigger value="offers">Offers</TabsTrigger>
         </TabsList>
         <TabsContent value="students">
           {performance.isLoading ? (
@@ -193,6 +195,9 @@ export function OurInternshipDetailPage() {
         </TabsContent>
         <TabsContent value="selected">
           <SelectedStudentsTab internshipId={internshipId} />
+        </TabsContent>
+        <TabsContent value="offers">
+          <OffersTab internshipId={internshipId} />
         </TabsContent>
       </Tabs>
     </div>
