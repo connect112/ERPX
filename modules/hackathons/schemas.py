@@ -16,6 +16,8 @@ class HackathonCreateRequest(BaseModel):
     theme: str | None = None
     description: str | None = None
     branch_id: uuid.UUID | None = None
+    # Create it already part of an institution event (from the event page).
+    event_id: uuid.UUID | None = None
     registration_deadline: date
     start_date: date
     end_date: date
@@ -78,6 +80,7 @@ class HackathonPublic(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     branch_id: uuid.UUID | None
+    event_id: uuid.UUID | None = None
     code: str
     title: str
     theme: str | None

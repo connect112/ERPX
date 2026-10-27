@@ -24,6 +24,8 @@ interface HackathonFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   hackathon?: HackathonPublic;
+  /** Create the hackathon already linked to this institution event. */
+  eventId?: string;
 }
 
 const emptyValues: HackathonFormValues = {
@@ -38,7 +40,7 @@ const emptyValues: HackathonFormValues = {
   prizePool: undefined,
 };
 
-export function HackathonFormDialog({ open, onOpenChange, hackathon }: HackathonFormDialogProps) {
+export function HackathonFormDialog({ open, onOpenChange, hackathon, eventId }: HackathonFormDialogProps) {
   const isEditing = !!hackathon;
   const createHackathon = useCreateHackathon();
   const updateHackathon = useUpdateHackathon(hackathon?.id ?? "");
@@ -89,7 +91,7 @@ export function HackathonFormDialog({ open, onOpenChange, hackathon }: Hackathon
     if (isEditing) {
       updateHackathon.mutate(shared, { onSuccess: () => onOpenChange(false) });
     } else {
-      createHackathon.mutate({ code: values.code, ...shared }, { onSuccess: () => onOpenChange(false) });
+      createHackathon.mutate({ code: values.code, event_id: eventId, ...shared }, { onSuccess: () => onOpenChange(false) });
     }
   };
 

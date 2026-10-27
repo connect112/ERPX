@@ -5,6 +5,7 @@ export interface HackathonPublic {
   id: string;
   organization_id: string;
   branch_id: string | null;
+  event_id?: string | null;
   code: string;
   title: string;
   theme: string | null;
@@ -45,6 +46,8 @@ export interface HackathonListParams {
 }
 
 export interface HackathonCreatePayload {
+  /** Create it already part of an institution event. */
+  event_id?: string;
   code: string;
   title: string;
   theme?: string;

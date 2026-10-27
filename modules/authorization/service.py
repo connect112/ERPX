@@ -221,6 +221,16 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
         "hackathons",
         "Take part in a hackathon from the restricted participant portal (problem statements, report, results)",
     ),
+    (
+        "institutions.view",
+        "institutions",
+        "View partner institutions, their events, registered students and linked exams and hackathons",
+    ),
+    (
+        "institutions.manage",
+        "institutions",
+        "Create and edit institutions, events and student registrations, and link exams and hackathons to events",
+    ),
     ("placements.view", "placements", "View companies, job postings, and applications"),
     ("placements.manage", "placements", "Create, update, delete companies/postings and manage applications"),
     ("social_media.view", "social_media", "View the social media dashboard, drafts and settings"),

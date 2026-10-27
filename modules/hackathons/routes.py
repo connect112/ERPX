@@ -357,6 +357,9 @@ async def create_hackathon(
     user: User = Depends(require_permissions("hackathons.manage")),
     db: AsyncSession = Depends(get_db),
 ):
+    from modules.institutions.service import InstitutionService
+
+    await InstitutionService(db).assert_event_in_org(payload.event_id, organization_id)
     service = HackathonService(db)
     hackathon = await service.create_hackathon(organization_id, **payload.model_dump())
     return HackathonPublic.model_validate(hackathon)
