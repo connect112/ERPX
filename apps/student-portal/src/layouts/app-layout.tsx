@@ -3,6 +3,7 @@ import {
   Bookmark,
   Briefcase,
   CalendarClock,
+  ClipboardList,
   FlaskConical,
   GraduationCap,
   LayoutDashboard,
@@ -22,6 +23,7 @@ import { useTheme } from "@/components/theme-provider";
 import { PageLoader } from "@/components/ui/page-loader";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api/auth-hooks";
+import { useMyInternshipList } from "@/features/my-internship/api/my-internship-api";
 import { useMessagingUnreadCount } from "@/features/messaging/api/messaging-hooks";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { useAuthStore } from "@/store/auth-store";
@@ -69,6 +71,8 @@ const navItems: NavItem[] = [
   { to: "/transcript", label: "My Transcript", icon: Award, end: false },
 ];
 
+const internshipNavItem: NavItem = { to: "/my-internship", label: "My Internship", icon: ClipboardList, end: false };
+
 // What a hackathon participant sees, and nothing else (the router sends them
 // back here from any other page).
 const participantNavItems: NavItem[] = [
@@ -89,9 +93,15 @@ function initials(name: string): string {
 function AppSidebar() {
   const permissions = useAuthStore((s) => s.permissions);
   const isParticipantOnly = useIsParticipantOnly();
-  const visibleItems = isParticipantOnly
+  const { data: internships } = useMyInternshipList();
+  const baseItems = isParticipantOnly
     ? participantNavItems
     : navItems.filter((item) => !item.permission || permissions.includes(item.permission));
+  // "My Internship" appears only for a student who has been given access to an internship.
+  const visibleItems =
+    !isParticipantOnly && internships && internships.length > 0
+      ? baseItems.flatMap((item) => (item.to === "/courses" ? [item, internshipNavItem] : [item]))
+      : baseItems;
   const { data: unreadCount } = useMessagingUnreadCount();
 
   return (
