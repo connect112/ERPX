@@ -175,7 +175,7 @@ class PerformanceBuilder:
         for a in attendees:
             exam = by_id[a.exam_id]
             attended = a.submitted_at is not None and a.score is not None and not a.certificate_only
-            sat[(exam.event_id, a.email, exam.id)] = ExamMark(
+            sat[(exam.event_id, (a.email or "").strip().lower(), exam.id)] = ExamMark(
                 exam_id=exam.id,
                 title=exam.title,
                 attended=attended,

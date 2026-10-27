@@ -20,7 +20,7 @@ import { AwardsTab } from "@/features/our-internships/components/awards-tab";
 import { OffersTab } from "@/features/our-internships/components/offers-tab";
 import { OnboardingTab } from "@/features/our-internships/components/onboarding-tab";
 import { SelectedStudentsTab } from "@/features/our-internships/components/selected-students-tab";
-import { StudentWiseView } from "@/features/our-internships/components/student-wise-view";
+import { StudentsManager } from "@/features/our-internships/components/students-manager";
 import { TeamWiseView } from "@/features/our-internships/components/team-wise-view";
 import { statusBadge } from "@/features/our-internships/lib/performance";
 
@@ -190,12 +190,15 @@ export function OurInternshipDetailPage() {
             <Skeleton className="h-40 w-full" />
           ) : performance.isError || !board ? (
             <p className="text-sm text-destructive">Could not load the students.</p>
-          ) : board.total_students === 0 ? (
-            <p className="rounded-md border p-8 text-center text-sm text-muted-foreground">
-              No students are registered here yet. Import the registration list on the event page under Institutions.
-            </p>
           ) : (
-            <StudentWiseView rows={board.students} showInstitution={allScope} pending={select.isPending} onSelect={(ids) => select.mutate(ids)} />
+            <StudentsManager
+              internshipId={internshipId}
+              rows={board.students}
+              showInstitution={allScope}
+              pending={select.isPending}
+              canManage
+              onSelect={(ids) => select.mutate(ids)}
+            />
           )}
         </TabsContent>
         <TabsContent value="teams">

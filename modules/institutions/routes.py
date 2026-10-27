@@ -32,6 +32,7 @@ from modules.institutions.schemas import (
     InstitutionUpdateRequest,
     LinkedExam,
     LinkedHackathon,
+    SyncResultOut,
     MessageResponse,
     RegisterStudentsRequest,
     RegistrationUpdateRequest,
@@ -41,6 +42,7 @@ from modules.institutions.schemas import (
     StudentOut,
     StudentUpdateRequest,
 )
+from modules.institutions.linked_people import LinkedPeople, SyncResult
 from modules.institutions.service import InstitutionService
 from modules.institutions.student_import import StudentListError, parse_students
 from modules.users.dependencies import get_current_user_organization_id
@@ -461,6 +463,10 @@ async def unregister_student(
 # ---------------------------------------------------------------- the event's exams and hackathons
 
 
+def _sync_out(result: SyncResult) -> SyncResultOut:
+    return SyncResultOut(**{k: getattr(result, k) for k in result.__dataclass_fields__}, message=result.summary())
+
+
 def _exam_out(exam, attendees: int, questions: int) -> LinkedExam:
     return LinkedExam(
         id=exam.id,
@@ -518,8 +524,25 @@ async def link_exam(
     db: AsyncSession = Depends(get_db),
 ):
     service = InstitutionService(db)
-    await service.link_exam(await service.get_event(event_id, organization_id), exam_id)
-    return MessageResponse(message="Exam linked to the event.")
+    event = await service.get_event(event_id, organization_id)
+    await service.link_exam(event, exam_id)
+    # the exam's own attendees become the event's students, so their marks show against them
+    fetched = await LinkedPeople(db).sync(event)
+    return MessageResponse(message=f"Exam linked to the event. {fetched.summary()}")
+
+
+@events_router.post("/{event_id}/sync-students", response_model=SyncResultOut)
+async def sync_linked_students(
+    event_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("institutions.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch the people of this event's linked exams and hackathons into its student list (again, for people who
+    registered for them after they were linked). Existing students are reused by email, never duplicated or renamed."""
+    service = InstitutionService(db)
+    result = await LinkedPeople(db).sync(await service.get_event(event_id, organization_id))
+    return _sync_out(result)
 
 
 @events_router.delete("/{event_id}/exams/{exam_id}", response_model=MessageResponse)
@@ -570,8 +593,11 @@ async def link_hackathon(
     db: AsyncSession = Depends(get_db),
 ):
     service = InstitutionService(db)
-    await service.link_hackathon(await service.get_event(event_id, organization_id), hackathon_id)
-    return MessageResponse(message="Hackathon linked to the event.")
+    event = await service.get_event(event_id, organization_id)
+    await service.link_hackathon(event, hackathon_id)
+    # the hackathon's participants and team members become the event's students, so their scores show against them
+    fetched = await LinkedPeople(db).sync(event)
+    return MessageResponse(message=f"Hackathon linked to the event. {fetched.summary()}")
 
 
 @events_router.delete("/{event_id}/hackathons/{hackathon_id}", response_model=MessageResponse)

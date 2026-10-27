@@ -272,3 +272,16 @@ class LinkedHackathon(BaseModel):
     start_date: date
     end_date: date
     event_id: uuid.UUID | None = None
+
+
+class SyncResultOut(BaseModel):
+    """What fetching the people of an event's linked exams and hackathons did."""
+
+    exams: int
+    hackathons: int
+    people: int
+    new_students: int
+    newly_registered: int
+    already_registered: int
+    without_email: int
+    message: str

@@ -116,6 +116,17 @@ export interface ImportResult {
   problems: ImportProblem[];
 }
 
+export interface SyncResult {
+  exams: number;
+  hackathons: number;
+  people: number;
+  new_students: number;
+  newly_registered: number;
+  already_registered: number;
+  without_email: number;
+  message: string;
+}
+
 export interface LinkedExam {
   id: string;
   title: string;
@@ -237,7 +248,9 @@ export const institutionsApi = {
   eventExams: (id: string) => apiClient.get<LinkedExam[]>(`/institution-events/${id}/exams`).then((r) => r.data),
   examCandidates: (id: string) =>
     apiClient.get<LinkedExam[]>(`/institution-events/${id}/exam-candidates`).then((r) => r.data),
-  linkExam: (id: string, examId: string) => apiClient.put(`/institution-events/${id}/exams/${examId}`).then((r) => r.data),
+  /** Links the exam and fetches its attendees into the event's students; the message says what was fetched. */
+  linkExam: (id: string, examId: string) =>
+    apiClient.put<{ message: string }>(`/institution-events/${id}/exams/${examId}`).then((r) => r.data),
   unlinkExam: (id: string, examId: string) =>
     apiClient.delete(`/institution-events/${id}/exams/${examId}`).then((r) => r.data),
 
@@ -246,7 +259,9 @@ export const institutionsApi = {
   hackathonCandidates: (id: string) =>
     apiClient.get<LinkedHackathon[]>(`/institution-events/${id}/hackathon-candidates`).then((r) => r.data),
   linkHackathon: (id: string, hackathonId: string) =>
-    apiClient.put(`/institution-events/${id}/hackathons/${hackathonId}`).then((r) => r.data),
+    apiClient.put<{ message: string }>(`/institution-events/${id}/hackathons/${hackathonId}`).then((r) => r.data),
+  /** Fetch the people of the event's linked exams and hackathons into its students (again, for people who joined later). */
+  syncEventStudents: (id: string) => apiClient.post<SyncResult>(`/institution-events/${id}/sync-students`).then((r) => r.data),
   unlinkHackathon: (id: string, hackathonId: string) =>
     apiClient.delete(`/institution-events/${id}/hackathons/${hackathonId}`).then((r) => r.data),
 
