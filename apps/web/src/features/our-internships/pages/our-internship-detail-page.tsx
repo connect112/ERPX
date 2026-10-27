@@ -14,6 +14,7 @@ import { useDebounced } from "@/features/institutions/lib/use-debounced";
 import { type InternshipStatus, ourInternshipsApi, ourInternshipsKeys } from "@/features/our-internships/api/our-internships-api";
 import { AssignmentsTab } from "@/features/our-internships/components/assignments-tab";
 import { ExamsTab } from "@/features/our-internships/components/exams-tab";
+import { ProjectsTab } from "@/features/our-internships/components/projects-tab";
 import { OffersTab } from "@/features/our-internships/components/offers-tab";
 import { OnboardingTab } from "@/features/our-internships/components/onboarding-tab";
 import { SelectedStudentsTab } from "@/features/our-internships/components/selected-students-tab";
@@ -178,6 +179,7 @@ export function OurInternshipDetailPage() {
           <TabsTrigger value="onboarding">Onboarding</TabsTrigger>
           <TabsTrigger value="exams">Exams</TabsTrigger>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
+          <TabsTrigger value="projects">Projects</TabsTrigger>
         </TabsList>
         <TabsContent value="students">
           {performance.isLoading ? (
@@ -213,6 +215,9 @@ export function OurInternshipDetailPage() {
         </TabsContent>
         <TabsContent value="assignments">
           <AssignmentsTab internshipId={internshipId} canManage />
+        </TabsContent>
+        <TabsContent value="projects">
+          <ProjectsTab internshipId={internshipId} canManage />
         </TabsContent>
       </Tabs>
     </div>

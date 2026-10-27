@@ -80,6 +80,7 @@ from modules.workshop_exams.models import WorkshopExam, WorkshopExamQuestion, Wo
 from modules.institutions.models import Institution, InstitutionEvent, InstitutionStudent, EventRegistration  # noqa: E402,F401
 from modules.our_internships.models import OurInternship, InternshipSelection  # noqa: E402,F401
 from modules.internship_learning.models import InternshipFile, InternshipAssignment, AssignmentSubmission  # noqa: E402,F401
+from modules.internship_learning.project_models import InternshipProject, ProjectChoice, ProjectSubmission  # noqa: E402,F401
 from modules.email_templates.models import EmailTemplate  # noqa: E402,F401
 from modules.hackathons.models import Hackathon, Team, TeamMember, Submission, ProblemStatement, TeamReport, TaskSubmission  # noqa: E402,F401
 from modules.placements.models import Company, JobPosting, Application, ExternalJob, JobFeedSettings  # noqa: E402,F401
