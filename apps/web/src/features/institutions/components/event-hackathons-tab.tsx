@@ -19,6 +19,7 @@ import { errorMessage, formatDateRange } from "@/features/institutions/lib/forma
 export function EventHackathonsTab({ event }: { event: InstitutionEvent }) {
   const queryClient = useQueryClient();
   const [linking, setLinking] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const list = useQuery({ queryKey: institutionsKeys.eventHackathons(event.id), queryFn: () => institutionsApi.eventHackathons(event.id) });
   const refresh = () => {
@@ -42,6 +43,7 @@ export function EventHackathonsTab({ event }: { event: InstitutionEvent }) {
           </Button>
         </div>
       </div>
+      {notice && <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">{notice}</p>}
       <Card>
         <CardContent className="p-0">
           {list.isLoading ? (
@@ -82,7 +84,16 @@ export function EventHackathonsTab({ event }: { event: InstitutionEvent }) {
         </CardContent>
       </Card>
       {unlink.isError && <p className="text-sm text-destructive">{errorMessage(unlink.error, "Could not remove the hackathon.")}</p>}
-      {linking && <LinkHackathonDialog event={event} onClose={() => setLinking(false)} onDone={refresh} />}
+      {linking && (
+        <LinkHackathonDialog
+          event={event}
+          onClose={() => setLinking(false)}
+          onDone={(message) => {
+            setNotice(message);
+            refresh();
+          }}
+        />
+      )}
       <HackathonFormDialog
         open={creating}
         onOpenChange={(open) => {
@@ -95,12 +106,12 @@ export function EventHackathonsTab({ event }: { event: InstitutionEvent }) {
   );
 }
 
-function LinkHackathonDialog({ event, onClose, onDone }: { event: InstitutionEvent; onClose: () => void; onDone: () => void }) {
+function LinkHackathonDialog({ event, onClose, onDone }: { event: InstitutionEvent; onClose: () => void; onDone: (message: string) => void }) {
   const candidates = useQuery({ queryKey: ["institutions", "hackathon-candidates", event.id], queryFn: () => institutionsApi.hackathonCandidates(event.id) });
   const link = useMutation({
     mutationFn: (id: string) => institutionsApi.linkHackathon(event.id, id),
-    onSuccess: () => {
-      onDone();
+    onSuccess: (result) => {
+      onDone(result.message);
       onClose();
     },
   });
@@ -109,7 +120,7 @@ function LinkHackathonDialog({ event, onClose, onDone }: { event: InstitutionEve
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Link an existing hackathon</DialogTitle>
-          <DialogDescription>Hackathons that are not part of any event yet. Linking does not copy the hackathon; it is the same one in both places.</DialogDescription>
+          <DialogDescription>Hackathons that are not part of any event yet. Linking does not copy the hackathon; it is the same one in both places. Its participants are added to this event's students, so their team scores show against them.</DialogDescription>
         </DialogHeader>
         {candidates.isLoading ? (
           <Skeleton className="h-10 w-full" />

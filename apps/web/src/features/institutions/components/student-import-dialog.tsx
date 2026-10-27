@@ -19,11 +19,17 @@ export function StudentImportDialog({
   institutionId,
   eventId,
   eventName,
+  importer,
+  onDone,
   onClose,
 }: {
   institutionId: string;
   eventId?: string;
   eventName?: string;
+  /** Imports somewhere other than the institution or event endpoints (an internship's own import). */
+  importer?: (source: ImportSource, dryRun: boolean) => Promise<ImportResult>;
+  /** Called once the list has been saved, to refresh whatever shows the students. */
+  onDone?: () => void;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -37,6 +43,7 @@ export function StudentImportDialog({
   const run = (dryRun: boolean) => {
     const s = source();
     if (!s) throw new Error("Nothing to import.");
+    if (importer) return importer(s, dryRun);
     return eventId ? institutionsApi.importEventStudents(eventId, s, dryRun) : institutionsApi.importStudents(institutionId, s, dryRun);
   };
 
@@ -45,6 +52,7 @@ export function StudentImportDialog({
     mutationFn: () => run(false),
     onSuccess: (r) => {
       void queryClient.invalidateQueries({ queryKey: institutionsKeys.all });
+      onDone?.();
       setDone(r);
     },
   });

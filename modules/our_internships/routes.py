@@ -494,3 +494,8 @@ async def revoke_lms_access(
     selection, _ = await onboarding.selection(internship, student_id)
     await onboarding.revoke(internship, selection)
     return await _one(service, internship, student_id)
+
+
+from modules.our_internships import student_routes  # noqa: E402
+
+router.include_router(student_routes.router)

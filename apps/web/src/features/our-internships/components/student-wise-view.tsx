@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, Check } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, Pencil, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -40,11 +40,16 @@ export function StudentWiseView({
   showInstitution,
   pending,
   onSelect,
+  onEdit,
+  onRemove,
 }: {
   rows: StudentPerformance[];
   showInstitution: boolean;
   pending: boolean;
   onSelect: (studentIds: string[]) => void;
+  /** When given, each row can be edited / taken off its event. */
+  onEdit?: (row: StudentPerformance) => void;
+  onRemove?: (row: StudentPerformance) => void;
 }) {
   const [sort, setSort] = useState<SortKey>("name");
   const [direction, setDirection] = useState<SortDirection>("asc");
@@ -123,6 +128,7 @@ export function StudentWiseView({
                   <TableHead>
                     <SortHeader label="Exam marks" column="exam" sort={sort} direction={direction} onSort={toggleSort} />
                   </TableHead>
+                  {(onEdit || onRemove) && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -167,6 +173,22 @@ export function StudentWiseView({
                       )}
                       {r.exams.length === 1 && !r.exams[0].attended && <span className="block text-xs text-muted-foreground">did not sit</span>}
                     </TableCell>
+                    {(onEdit || onRemove) && (
+                      <TableCell>
+                        <div className="flex justify-end gap-1">
+                          {onEdit && (
+                            <Button size="icon" variant="ghost" aria-label={`Edit ${r.name}`} onClick={() => onEdit(r)}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {onRemove && (
+                            <Button size="icon" variant="ghost" aria-label={`Remove ${r.name} from ${r.event_name}`} onClick={() => onRemove(r)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

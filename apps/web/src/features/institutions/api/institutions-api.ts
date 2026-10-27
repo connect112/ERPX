@@ -116,6 +116,48 @@ export interface ImportResult {
   problems: ImportProblem[];
 }
 
+export interface CandidateSource {
+  kind: "exam" | "hackathon";
+  title: string;
+}
+
+/** One person found in the linked exams and hackathons, already combined by email, waiting to be verified. */
+export interface StudentCandidate {
+  email: string;
+  name: string;
+  phone: string | null;
+  /** Other ways the name was written, when the same email appeared with different names. */
+  name_variants: string[];
+  sources: CandidateSource[];
+  /** How many separate entries were combined into this one. */
+  entries: number;
+  status: "new" | "at_institution" | "registered";
+  existing_name: string | null;
+  issues: ("invalid_email" | "name_variants" | "name_differs")[];
+  addable: boolean;
+}
+
+export interface CandidatesResult {
+  exams: number;
+  hackathons: number;
+  candidates: StudentCandidate[];
+  without_email: { name: string; source: CandidateSource }[];
+  message: string;
+}
+
+export interface CandidateItem {
+  email: string;
+  name?: string | null;
+  phone?: string | null;
+}
+
+export interface CandidatesAddResult {
+  new_students: number;
+  registered: number;
+  skipped: number;
+  message: string;
+}
+
 export interface LinkedExam {
   id: string;
   title: string;
@@ -237,7 +279,9 @@ export const institutionsApi = {
   eventExams: (id: string) => apiClient.get<LinkedExam[]>(`/institution-events/${id}/exams`).then((r) => r.data),
   examCandidates: (id: string) =>
     apiClient.get<LinkedExam[]>(`/institution-events/${id}/exam-candidates`).then((r) => r.data),
-  linkExam: (id: string, examId: string) => apiClient.put(`/institution-events/${id}/exams/${examId}`).then((r) => r.data),
+  /** Links the exam; the message says how many people it holds, who wait in Validate students. */
+  linkExam: (id: string, examId: string) =>
+    apiClient.put<{ message: string }>(`/institution-events/${id}/exams/${examId}`).then((r) => r.data),
   unlinkExam: (id: string, examId: string) =>
     apiClient.delete(`/institution-events/${id}/exams/${examId}`).then((r) => r.data),
 
@@ -246,7 +290,12 @@ export const institutionsApi = {
   hackathonCandidates: (id: string) =>
     apiClient.get<LinkedHackathon[]>(`/institution-events/${id}/hackathon-candidates`).then((r) => r.data),
   linkHackathon: (id: string, hackathonId: string) =>
-    apiClient.put(`/institution-events/${id}/hackathons/${hackathonId}`).then((r) => r.data),
+    apiClient.put<{ message: string }>(`/institution-events/${id}/hackathons/${hackathonId}`).then((r) => r.data),
+  /** The people of the event's linked exams and hackathons, combined by email, to be reviewed. Adds nobody. */
+  studentCandidates: (id: string) => apiClient.get<CandidatesResult>(`/institution-events/${id}/student-candidates`).then((r) => r.data),
+  /** Add the people who were verified to the institution and register them for the event. */
+  addStudentCandidates: (id: string, items: CandidateItem[]) =>
+    apiClient.post<CandidatesAddResult>(`/institution-events/${id}/student-candidates/add`, { items }).then((r) => r.data),
   unlinkHackathon: (id: string, hackathonId: string) =>
     apiClient.delete(`/institution-events/${id}/hackathons/${hackathonId}`).then((r) => r.data),
 

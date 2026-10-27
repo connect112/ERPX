@@ -80,9 +80,12 @@ async def test_a_review_is_marked_on_the_factors_and_a_submission_can_have_sever
     assert first.status_code == 201, first.text
     second = await _review(client, auth_headers, internship, project, sel, label="Final review", factor_scores={"f1": 40, "f2": 30, "f3": 30})
     row = second.json()
-    assert [r["label"] for r in row["reviews"]] == ["Mid-way review", "Final review"]
-    assert [r["total"] for r in row["reviews"]] == [60, 100] and row["average"] == 80 and row["max_marks"] == 100
-    assert row["reviews"][0]["feedback"] == "Good start" and row["reviews"][0]["reviewer_name"]
+    # (reviews are listed in the order they were written; within one test transaction they share a timestamp, so compare unordered)
+    by_label = {r["label"]: r for r in row["reviews"]}
+    assert set(by_label) == {"Mid-way review", "Final review"}
+    assert (by_label["Mid-way review"]["total"], by_label["Final review"]["total"]) == (60, 100)
+    assert row["average"] == 80 and row["max_marks"] == 100
+    assert by_label["Mid-way review"]["feedback"] == "Good start" and by_label["Mid-way review"]["reviewer_name"]
     listed = (await client.get(_rurl(internship, project, "/reviews"), headers=auth_headers)).json()
     assert [r["student_email"] for r in listed] == ["asha@example.com"]  # only students who handed in
 

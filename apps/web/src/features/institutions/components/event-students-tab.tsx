@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Upload, UserMinus, UserPlus, Users } from "lucide-react";
+import { Pencil, ShieldCheck, Upload, UserMinus, UserPlus, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 } from "@/features/institutions/api/institutions-api";
 import { StudentFormDialog } from "@/features/institutions/components/student-form-dialog";
 import { StudentImportDialog } from "@/features/institutions/components/student-import-dialog";
+import { ValidateStudentsDialog } from "@/features/institutions/components/validate-students-dialog";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { useDebounced } from "@/features/institutions/lib/use-debounced";
 
@@ -30,6 +31,7 @@ export function EventStudentsTab({ event }: { event: InstitutionEvent }) {
   const [adding, setAdding] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [editing, setEditing] = useState<EventStudent | null>(null);
+  const [validating, setValidating] = useState(false);
   const q = useDebounced(search.trim());
 
   const students = useQuery({ queryKey: institutionsKeys.eventStudents(event.id, q), queryFn: () => institutionsApi.eventStudents(event.id, q) });
@@ -49,6 +51,10 @@ export function EventStudentsTab({ event }: { event: InstitutionEvent }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Input aria-label="Search students" placeholder="Search name, email or phone" className="w-72" value={search} onChange={(e) => setSearch(e.target.value)} />
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setValidating(true)}>
+            <ShieldCheck className="h-4 w-4" />
+            Validate students
+          </Button>
           <Button variant="outline" onClick={() => setRegistering(true)}>
             <Users className="h-4 w-4" />
             Register existing
@@ -144,6 +150,16 @@ export function EventStudentsTab({ event }: { event: InstitutionEvent }) {
         <p className="text-sm text-destructive">{errorMessage(save.error ?? unregister.error, "Could not save that change.")}</p>
       )}
 
+      {validating && (
+        <ValidateStudentsDialog
+          eventName={event.name}
+          queryKey={["institutions", "student-candidates", event.id]}
+          load={() => institutionsApi.studentCandidates(event.id)}
+          add={(items) => institutionsApi.addStudentCandidates(event.id, items)}
+          onAdded={() => void refresh()}
+          onClose={() => setValidating(false)}
+        />
+      )}
       {importing && <StudentImportDialog institutionId={event.institution_id} eventId={event.id} eventName={event.name} onClose={() => setImporting(false)} />}
       {adding && <StudentFormDialog institutionId={event.institution_id} eventId={event.id} onClose={() => setAdding(false)} />}
       {editing && (

@@ -22,6 +22,7 @@ export function EventExamsTab({ event }: { event: InstitutionEvent }) {
   const queryClient = useQueryClient();
   const [linking, setLinking] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const exams = useQuery({ queryKey: institutionsKeys.eventExams(event.id), queryFn: () => institutionsApi.eventExams(event.id) });
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: institutionsKeys.all });
@@ -44,6 +45,7 @@ export function EventExamsTab({ event }: { event: InstitutionEvent }) {
           </Button>
         </div>
       </div>
+      {notice && <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">{notice}</p>}
       <Card>
         <CardContent className="p-0">
           {exams.isLoading ? (
@@ -84,18 +86,27 @@ export function EventExamsTab({ event }: { event: InstitutionEvent }) {
         </CardContent>
       </Card>
       {unlink.isError && <p className="text-sm text-destructive">{errorMessage(unlink.error, "Could not remove the exam.")}</p>}
-      {linking && <LinkExamDialog event={event} onClose={() => setLinking(false)} onDone={refresh} />}
+      {linking && (
+        <LinkExamDialog
+          event={event}
+          onClose={() => setLinking(false)}
+          onDone={(message) => {
+            setNotice(message);
+            refresh();
+          }}
+        />
+      )}
       {creating && <NewExamDialog event={event} onClose={() => setCreating(false)} onDone={refresh} />}
     </div>
   );
 }
 
-function LinkExamDialog({ event, onClose, onDone }: { event: InstitutionEvent; onClose: () => void; onDone: () => void }) {
+function LinkExamDialog({ event, onClose, onDone }: { event: InstitutionEvent; onClose: () => void; onDone: (message: string) => void }) {
   const candidates = useQuery({ queryKey: ["institutions", "exam-candidates", event.id], queryFn: () => institutionsApi.examCandidates(event.id) });
   const link = useMutation({
     mutationFn: (examId: string) => institutionsApi.linkExam(event.id, examId),
-    onSuccess: () => {
-      onDone();
+    onSuccess: (result) => {
+      onDone(result.message);
       onClose();
     },
   });
@@ -104,7 +115,7 @@ function LinkExamDialog({ event, onClose, onDone }: { event: InstitutionEvent; o
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Link an existing exam</DialogTitle>
-          <DialogDescription>Exams that are not part of any event yet. Linking does not copy the exam; it is the same exam in both places.</DialogDescription>
+          <DialogDescription>Exams that are not part of any event yet. Linking does not copy the exam; it is the same exam in both places. Its attendees are added to this event's students, so their marks show against them.</DialogDescription>
         </DialogHeader>
         {candidates.isLoading ? (
           <Skeleton className="h-10 w-full" />

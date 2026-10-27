@@ -272,3 +272,53 @@ class LinkedHackathon(BaseModel):
     start_date: date
     end_date: date
     event_id: uuid.UUID | None = None
+
+
+class CandidateSource(BaseModel):
+    kind: str  # exam | hackathon
+    title: str
+
+
+class StudentCandidate(BaseModel):
+    """One person found in the linked exams and hackathons, combined by email, waiting to be verified."""
+
+    email: str
+    name: str
+    phone: str | None = None
+    name_variants: list[str] = []
+    sources: list[CandidateSource] = []
+    entries: int
+    status: str  # new | at_institution | registered
+    existing_name: str | None = None
+    issues: list[str] = []  # invalid_email | name_variants | name_differs
+    addable: bool
+
+
+class NoEmailEntry(BaseModel):
+    name: str
+    source: CandidateSource
+
+
+class CandidatesOut(BaseModel):
+    exams: int
+    hackathons: int
+    candidates: list[StudentCandidate]
+    without_email: list[NoEmailEntry]
+    message: str
+
+
+class CandidateItem(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    name: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=50)
+
+
+class CandidatesAddRequest(BaseModel):
+    items: list[CandidateItem] = Field(min_length=1, max_length=2000)
+
+
+class CandidatesAddOut(BaseModel):
+    new_students: int
+    registered: int
+    skipped: int
+    message: str
