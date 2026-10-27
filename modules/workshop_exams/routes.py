@@ -102,6 +102,11 @@ async def create_exam(
     from modules.institutions.service import InstitutionService
 
     await InstitutionService(db).assert_event_in_org(payload.event_id, organization_id)
+    if payload.internship_id is not None:
+        # likewise an exam created from an internship must be created for one of this organization's internships
+        from modules.our_internships.service import OurInternshipService
+
+        await OurInternshipService(db).get(payload.internship_id, organization_id)
     exam = await WorkshopExamService(db).create_exam(organization_id, **payload.model_dump())
     return _exam_out(exam, 0, 0)
 

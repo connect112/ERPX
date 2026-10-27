@@ -71,6 +71,8 @@ class ExamCreateRequest(BaseModel):
     workshop_id: uuid.UUID | None = None
     # Create it already part of an institution event (from the event page).
     event_id: uuid.UUID | None = None
+    # Create it already part of an internship (from the internship's Exams tab).
+    internship_id: uuid.UUID | None = None
     duration_minutes: int = Field(default=30, ge=1, le=480)
     show_result: bool = False
     certificate_heading: str = Field(default="Certificate of Participation", max_length=255)
@@ -142,6 +144,7 @@ class ExamPublicAdmin(BaseModel):
     id: uuid.UUID
     workshop_id: uuid.UUID | None
     event_id: uuid.UUID | None = None
+    internship_id: uuid.UUID | None = None
     title: str
     description: str | None
     duration_minutes: int

@@ -12,6 +12,8 @@ import { institutionsApi, institutionsKeys } from "@/features/institutions/api/i
 import { errorMessage } from "@/features/institutions/lib/format";
 import { useDebounced } from "@/features/institutions/lib/use-debounced";
 import { type InternshipStatus, ourInternshipsApi, ourInternshipsKeys } from "@/features/our-internships/api/our-internships-api";
+import { AssignmentsTab } from "@/features/our-internships/components/assignments-tab";
+import { ExamsTab } from "@/features/our-internships/components/exams-tab";
 import { OffersTab } from "@/features/our-internships/components/offers-tab";
 import { OnboardingTab } from "@/features/our-internships/components/onboarding-tab";
 import { SelectedStudentsTab } from "@/features/our-internships/components/selected-students-tab";
@@ -174,6 +176,8 @@ export function OurInternshipDetailPage() {
           <TabsTrigger value="selected">Selected ({i.selected_count})</TabsTrigger>
           <TabsTrigger value="offers">Offers</TabsTrigger>
           <TabsTrigger value="onboarding">Onboarding</TabsTrigger>
+          <TabsTrigger value="exams">Exams</TabsTrigger>
+          <TabsTrigger value="assignments">Assignments</TabsTrigger>
         </TabsList>
         <TabsContent value="students">
           {performance.isLoading ? (
@@ -203,6 +207,12 @@ export function OurInternshipDetailPage() {
         </TabsContent>
         <TabsContent value="onboarding">
           <OnboardingTab internship={i} />
+        </TabsContent>
+        <TabsContent value="exams">
+          <ExamsTab internshipId={internshipId} canManage />
+        </TabsContent>
+        <TabsContent value="assignments">
+          <AssignmentsTab internshipId={internshipId} canManage />
         </TabsContent>
       </Tabs>
     </div>

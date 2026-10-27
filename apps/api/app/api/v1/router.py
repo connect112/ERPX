@@ -43,6 +43,8 @@ from modules.internships.routes import router as internships_router
 from modules.institutions.routes import events_router as institution_events_router
 from modules.institutions.routes import router as institutions_router
 from modules.institutions.routes import students_router as institution_students_router
+from modules.internship_learning.routes import my_router as my_internships_router
+from modules.internship_learning.routes import router as internship_learning_router
 from modules.integrations.routes import router as integrations_router
 from modules.inventory.routes import router as inventory_router
 from modules.leave.routes import router as leave_router
@@ -128,6 +130,8 @@ api_router.include_router(institutions_router, prefix="/institutions", tags=["In
 api_router.include_router(institution_events_router, prefix="/institution-events", tags=["Institutions"])
 api_router.include_router(institution_students_router, prefix="/institution-students", tags=["Institutions"])
 api_router.include_router(our_internships_router, prefix="/our-internships", tags=["Our Internships"])
+api_router.include_router(internship_learning_router, prefix="/our-internships", tags=["Our Internships"])
+api_router.include_router(my_internships_router, prefix="/my-internships", tags=["My Internships"])
 api_router.include_router(email_templates_router, prefix="/email-templates", tags=["Email templates"])
 api_router.include_router(email_template_events_router, prefix="/hackathons", tags=["Email templates"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])

@@ -21,6 +21,8 @@ const HackathonLeaderboardPage = lazy(() => import("@/features/hackathons/pages/
 const HackathonAchievementsPage = lazy(() => import("@/features/hackathons/pages/hackathon-achievements-page").then((m) => ({ default: m.HackathonAchievementsPage })));
 const PublicLeaderboardPage = lazy(() => import("@/features/hackathons/pages/public-leaderboard-page").then((m) => ({ default: m.PublicLeaderboardPage })));
 const HackathonDetailPage = lazy(() => import("@/features/hackathons/pages/hackathon-detail-page").then((m) => ({ default: m.HackathonDetailPage })));
+const MyInternshipsPage = lazy(() => import("@/features/my-internship/pages/my-internships-page").then((m) => ({ default: m.MyInternshipsPage })));
+const MyInternshipDetailPage = lazy(() => import("@/features/my-internship/pages/my-internship-detail-page").then((m) => ({ default: m.MyInternshipDetailPage })));
 // Workshops/Internships routes remain intentionally removed — see the
 // comment in layouts/app-layout.tsx. Hackathons are enabled for events that
 // onboard their participants as students.
@@ -51,6 +53,8 @@ export const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: "courses", element: <MyCoursesPage /> },
       { path: "courses/:courseId", element: <CourseDetailPage /> },
+      { path: "my-internship", element: <MyInternshipsPage /> },
+      { path: "my-internship/:internshipId", element: <MyInternshipDetailPage /> },
       { path: "bookmarks", element: <MyBookmarksPage /> },
       { path: "transcript", element: <MyTranscriptPage /> },
       { path: "schedule", element: <MySchedulePage /> },
