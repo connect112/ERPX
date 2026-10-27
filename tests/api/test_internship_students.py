@@ -97,60 +97,127 @@ async def _count(db_session, institution_id):
     return (await db_session.execute(select(func.count()).select_from(InstitutionStudent).where(InstitutionStudent.institution_id == uuid.UUID(institution_id)))).scalar_one()
 
 
-# ------------------------------------------------------------ linking an existing exam
+# ------------------------------------------------------------ linking an existing exam or hackathon
 
 
-async def test_linking_an_existing_exam_fetches_its_attendees_and_their_marks(client, auth_headers, db_session, org_id):
+def _cands(response):
+    assert response.status_code == 200, response.text
+    return {c["email"]: c for c in response.json()["candidates"]}
+
+
+async def _candidates(client, headers, event):
+    return await client.get(f"{_EVENTS}/{event['id']}/student-candidates", headers=headers)
+
+
+async def _add(client, headers, event, *items):
+    return await client.post(f"{_EVENTS}/{event['id']}/student-candidates/add", json={"items": [dict(i) for i in items]}, headers=headers)
+
+
+async def test_linking_an_exam_adds_nobody_until_they_are_verified(client, auth_headers, db_session, org_id):
     inst = await _institution(client, auth_headers)
     event = await _event(client, auth_headers, inst)
     exam = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (8, 10), "meera@example.com": (4, 10), "kiran@example.com": None})
-    assert await _count(db_session, inst["id"]) == 0
     linked = await client.put(f"{_EVENTS}/{event['id']}/exams/{exam['id']}", headers=auth_headers)
     assert linked.status_code == 200, linked.text
-    assert "3 people found" in linked.json()["message"] and "3 added to the event (3 new to the institution)" in linked.json()["message"]
-    internship = await _internship(client, auth_headers)
-    rows = _by_email(await _performance(client, auth_headers, internship))
-    assert set(rows) == {"asha@example.com", "meera@example.com", "kiran@example.com"}
-    assert (rows["asha@example.com"]["exam_score"], rows["asha@example.com"]["exam_total"]) == (8, 10)
-    assert rows["meera@example.com"]["exam_percent"] == 40.0
-    assert rows["kiran@example.com"]["exam_score"] is None and rows["kiran@example.com"]["exams"][0]["attended"] is False
+    assert "3 people found (3 new)" in linked.json()["message"] and "Validate students" in linked.json()["message"]
+    assert await _count(db_session, inst["id"]) == 0  # found, not added
+    assert _by_email(await _performance(client, auth_headers, await _internship(client, auth_headers))) == {}
+    found = _cands(await _candidates(client, auth_headers, event))
+    assert set(found) == {"asha@example.com", "meera@example.com", "kiran@example.com"} and all(c["status"] == "new" and c["addable"] for c in found.values())
+    assert found["asha@example.com"]["sources"] == [{"kind": "exam", "title": "Existing exam"}]
+    assert await _count(db_session, inst["id"]) == 0  # looking does not add either
 
 
-async def test_an_existing_student_is_reused_by_email_and_keeps_their_name(client, auth_headers, db_session, org_id):
+async def test_verified_people_are_added_and_their_marks_then_show(client, auth_headers, db_session, org_id):
     inst = await _institution(client, auth_headers)
     event = await _event(client, auth_headers, inst)
-    other = await _event(client, auth_headers, inst, name="Earlier workshop")
+    exam = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (8, 10), "meera@example.com": (4, 10), "kiran@example.com": None})
+    await client.put(f"{_EVENTS}/{event['id']}/exams/{exam['id']}", headers=auth_headers)
+    added = await _add(client, auth_headers, event, {"email": "asha@example.com"}, {"email": "meera@example.com"})
+    assert added.status_code == 200 and (added.json()["registered"], added.json()["new_students"], added.json()["skipped"]) == (2, 2, 0)
+    rows = _by_email(await _performance(client, auth_headers, await _internship(client, auth_headers)))
+    assert set(rows) == {"asha@example.com", "meera@example.com"}  # Kiran was not verified, so he is not added
+    assert (rows["asha@example.com"]["exam_score"], rows["asha@example.com"]["exam_total"]) == (8, 10) and rows["meera@example.com"]["exam_percent"] == 40.0
+    left = _cands(await _candidates(client, auth_headers, event))
+    assert left["asha@example.com"]["status"] == "registered" and left["asha@example.com"]["addable"] is False and left["kiran@example.com"]["status"] == "new"
+
+
+async def test_the_same_person_in_several_places_is_combined_by_email_and_everyone_else_is_left_alone(client, auth_headers, db_session, org_id):
+    inst = await _institution(client, auth_headers)
+    event = await _event(client, auth_headers, inst)
+    one = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (8, 10), "meera@example.com": (4, 10)}, title="First exam")
+    two = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (9, 10), "kiran@example.com": None}, title="Second exam")
+    for row in (await db_session.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.email == "asha@example.com"))).scalars():
+        row.name = "Asha Rao" if row.exam_id == uuid.UUID(one["id"]) else "Asha R"
+    await db_session.flush()
+    hackathon = await _loose_hackathon(client, auth_headers, db_session, org_id, {"Alpha": ([("Asha Rao", "ASHA@example.com "), ("Ravi Kumar", "ravi@example.com")], 80)})
+    for exam in (one, two):
+        await client.put(f"{_EVENTS}/{event['id']}/exams/{exam['id']}", headers=auth_headers)
+    linked = await client.put(f"{_EVENTS}/{event['id']}/hackathons/{hackathon['id']}", headers=auth_headers)
+    assert "4 people found" in linked.json()["message"]  # asha x3 -> one, meera, kiran, ravi
+    found = _cands(await _candidates(client, auth_headers, event))
+    assert set(found) == {"asha@example.com", "meera@example.com", "kiran@example.com", "ravi@example.com"}
+    asha = found["asha@example.com"]
+    assert asha["entries"] == 3 and asha["name"] == "Asha Rao" and asha["name_variants"] == ["Asha R"] and "name_variants" in asha["issues"]
+    assert {(s["kind"], s["title"]) for s in asha["sources"]} == {("exam", "First exam"), ("exam", "Second exam"), ("hackathon", "Existing Hackathon")}
+    assert found["meera@example.com"]["entries"] == 1 and found["meera@example.com"]["name_variants"] == []  # the rest are left as they are
+    added = await _add(client, auth_headers, event, *({"email": e} for e in found))
+    assert added.json()["registered"] == 4 and await _count(db_session, inst["id"]) == 4  # Asha is one student, not three
+    asha_row = _by_email(await _performance(client, auth_headers, await _internship(client, auth_headers)))["asha@example.com"]
+    assert asha_row["team"]["score"] == 80 and asha_row["exam_score"] is not None
+
+
+async def test_a_corrected_name_is_used_for_new_people_and_existing_students_keep_theirs(client, auth_headers, db_session, org_id):
+    inst = await _institution(client, auth_headers)
+    event, other = await _event(client, auth_headers, inst), await _event(client, auth_headers, inst, "Earlier workshop")
     await _import(client, auth_headers, other, "Name,Email\nAsha Rao,asha@example.com\n")
     exam = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (9, 10), "new@example.com": (5, 10)})
-    linked = await client.put(f"{_EVENTS}/{event['id']}/exams/{exam['id']}", headers=auth_headers)
-    assert "1 new to the institution" in linked.json()["message"]
-    assert await _count(db_session, inst["id"]) == 2  # Asha reused, not duplicated
-    asha = (await db_session.execute(select(InstitutionStudent).where(InstitutionStudent.email == "asha@example.com"))).scalar_one()
-    assert asha.name == "Asha Rao"  # the exam's "Asha" never overwrote the registered name
-    rows = _by_email(await _performance(client, auth_headers, await _internship(client, auth_headers), event_id=event["id"]))
-    assert rows["asha@example.com"]["exam_score"] == 9
+    await client.put(f"{_EVENTS}/{event['id']}/exams/{exam['id']}", headers=auth_headers)
+    found = _cands(await _candidates(client, auth_headers, event))
+    assert found["asha@example.com"]["status"] == "at_institution" and found["asha@example.com"]["existing_name"] == "Asha Rao"
+    assert "name_differs" in found["asha@example.com"]["issues"] and found["new@example.com"]["status"] == "new"
+    await _add(client, auth_headers, event, {"email": "asha@example.com", "name": "Someone Else"}, {"email": "new@example.com", "name": "  Nina   Patel ", "phone": "99"})
+    people = {s.email: s for s in (await db_session.execute(select(InstitutionStudent))).scalars()}
+    assert people["asha@example.com"].name == "Asha Rao"  # an existing student is never renamed
+    assert (people["new@example.com"].name, people["new@example.com"].phone) == ("Nina Patel", "99")
+    assert await _count(db_session, inst["id"]) == 2
 
 
-async def test_attendee_emails_in_any_case_still_match_and_certificate_only_people_are_left_out(client, auth_headers, db_session, org_id):
+async def test_only_people_on_the_review_list_can_be_added_and_each_only_once(client, auth_headers, db_session, org_id):
     inst = await _institution(client, auth_headers)
     event = await _event(client, auth_headers, inst)
-    exam = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (7, 10), "gift@example.com": None})
-    attendees = (await db_session.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.exam_id == uuid.UUID(exam["id"])))).scalars().all()
-    for a in attendees:
-        if a.email == "asha@example.com":
-            a.email = "Asha@Example.COM "  # as a person might have typed it on the public form
-        else:
-            a.certificate_only = True
-    await db_session.flush()
+    exam = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (8, 10)})
     await client.put(f"{_EVENTS}/{event['id']}/exams/{exam['id']}", headers=auth_headers)
-    rows = _by_email(await _performance(client, auth_headers, await _internship(client, auth_headers)))
-    assert set(rows) == {"asha@example.com"} and rows["asha@example.com"]["exam_score"] == 7
+    added = await _add(client, auth_headers, event, {"email": "asha@example.com"}, {"email": "ASHA@example.com"}, {"email": "stranger@example.com"}, {"email": "x@y"})
+    assert (added.json()["registered"], added.json()["skipped"]) == (1, 2)  # the duplicate is one person; strangers are refused
+    assert await _count(db_session, inst["id"]) == 1
+    again = await _add(client, auth_headers, event, {"email": "asha@example.com"})
+    assert again.json()["registered"] == 0 and again.json()["skipped"] == 1 and "Nobody was added" in again.json()["message"]
+    assert await _count(db_session, inst["id"]) == 1
+    assert (await client.post(f"{_EVENTS}/{event['id']}/student-candidates/add", json={"items": []}, headers=auth_headers)).status_code in (400, 422)
 
 
-# ------------------------------------------------------------ linking an existing hackathon
+async def test_a_bad_email_is_flagged_and_cannot_be_added_and_people_without_an_email_are_listed_apart(client, auth_headers, db_session, org_id):
+    inst = await _institution(client, auth_headers)
+    event = await _event(client, auth_headers, inst)
+    exam = await _loose_exam(client, auth_headers, db_session, {"good@example.com": (8, 10), "bad@example.com": (4, 10)})
+    for a in (await db_session.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.email == "bad@example.com"))).scalars():
+        a.email = "broken@example"  # the attendee import refuses this, but old or hand-edited data can hold it
+    await db_session.flush()
+    hackathon = await _loose_hackathon(client, auth_headers, db_session, org_id, {"Solo": ([("No Mail", None), ("Has Mail", "has@example.com")], 50)})
+    await client.put(f"{_EVENTS}/{event['id']}/exams/{exam['id']}", headers=auth_headers)
+    await client.put(f"{_EVENTS}/{event['id']}/hackathons/{hackathon['id']}", headers=auth_headers)
+    body = (await _candidates(client, auth_headers, event)).json()
+    found = {c["email"]: c for c in body["candidates"]}
+    assert "invalid_email" in found["broken@example"]["issues"] and found["broken@example"]["addable"] is False
+    assert found["good@example.com"]["addable"] is True and found["has@example.com"]["addable"] is True
+    assert [(n["name"], n["source"]["kind"]) for n in body["without_email"]] == [("No Mail", "hackathon")]
+    assert "1 without an email" in body["message"]
+    added = await _add(client, auth_headers, event, {"email": "broken@example"}, {"email": "good@example.com"})
+    assert (added.json()["registered"], added.json()["skipped"]) == (1, 1)
 
 
-async def test_linking_an_existing_hackathon_fetches_participants_and_shows_team_scores(client, auth_headers, db_session, org_id):
+async def test_a_hackathon_is_reviewed_and_added_then_its_team_scores_show(client, auth_headers, db_session, org_id):
     inst = await _institution(client, auth_headers)
     event = await _event(client, auth_headers, inst)
     hackathon = await _loose_hackathon(
@@ -159,48 +226,40 @@ async def test_linking_an_existing_hackathon_fetches_participants_and_shows_team
     )
     linked = await client.put(f"{_EVENTS}/{event['id']}/hackathons/{hackathon['id']}", headers=auth_headers)
     assert linked.status_code == 200 and "3 people found" in linked.json()["message"]
+    found = _cands(await _candidates(client, auth_headers, event))
+    assert all(c["sources"] == [{"kind": "hackathon", "title": "Existing Hackathon"}] for c in found.values())
+    await _add(client, auth_headers, event, *({"email": e} for e in found))
     internship = await _internship(client, auth_headers)
     board = await _performance(client, auth_headers, internship)
     rows = _by_email(board)
-    assert set(rows) == {"asha@example.com", "meera@example.com", "ravi@example.com"}
-    assert rows["asha@example.com"]["team"]["team_name"] == "Alpha" and rows["asha@example.com"]["team"]["score"] == 80
-    assert rows["ravi@example.com"]["team"]["rank"] == 1
+    assert rows["asha@example.com"]["team"]["team_name"] == "Alpha" and rows["asha@example.com"]["team"]["score"] == 80 and rows["ravi@example.com"]["team"]["rank"] == 1
     teams = {t["team_name"]: t for t in board["teams"] if t["team_id"]}
-    assert all(m["student_id"] for m in teams["Alpha"]["members"])  # every member can now be selected from the team view
+    assert all(m["student_id"] for m in teams["Alpha"]["members"])
 
 
-async def test_a_hackathon_person_without_an_email_is_skipped_and_counted(client, auth_headers, db_session, org_id):
+async def test_attendee_emails_in_any_case_match_and_certificate_only_people_are_left_out(client, auth_headers, db_session, org_id):
     inst = await _institution(client, auth_headers)
     event = await _event(client, auth_headers, inst)
-    hackathon = await _loose_hackathon(client, auth_headers, db_session, org_id, {"Solo": ([("No Mail", None), ("Has Mail", "has@example.com")], 50)})
-    linked = await client.put(f"{_EVENTS}/{event['id']}/hackathons/{hackathon['id']}", headers=auth_headers)
-    assert "1 skipped for having no email" in linked.json()["message"]
-    assert set(_by_email(await _performance(client, auth_headers, await _internship(client, auth_headers)))) == {"has@example.com"}
-
-
-# ------------------------------------------------------------ syncing again
-
-
-async def test_syncing_again_picks_up_people_who_joined_later_and_never_duplicates(client, auth_headers, db_session, org_id):
-    inst = await _institution(client, auth_headers)
-    event = await _event(client, auth_headers, inst)
-    exam = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (8, 10)})
+    exam = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (7, 10), "gift@example.com": None})
+    for a in (await db_session.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.exam_id == uuid.UUID(exam["id"])))).scalars():
+        if a.email == "asha@example.com":
+            a.email = "Asha@Example.COM "  # as a person might have typed it on the public form
+        else:
+            a.certificate_only = True
+    await db_session.flush()
     await client.put(f"{_EVENTS}/{event['id']}/exams/{exam['id']}", headers=auth_headers)
-    first = await client.post(f"{_EVENTS}/{event['id']}/sync-students", headers=auth_headers)
-    assert first.status_code == 200 and (first.json()["newly_registered"], first.json()["already_registered"]) == (0, 1)
-    await client.post(f"/api/v1/workshop-exams/{exam['id']}/attendees", json={"attendees": [{"name": "Late One", "email": "late@example.com"}]}, headers=auth_headers)
-    second = await client.post(f"{_EVENTS}/{event['id']}/sync-students", headers=auth_headers)
-    assert (second.json()["newly_registered"], second.json()["new_students"], second.json()["already_registered"]) == (1, 1, 1)
-    assert await _count(db_session, inst["id"]) == 2
-    third = await client.post(f"{_EVENTS}/{event['id']}/sync-students", headers=auth_headers)
-    assert third.json()["newly_registered"] == 0 and third.json()["new_students"] == 0
+    found = _cands(await _candidates(client, auth_headers, event))
+    assert set(found) == {"asha@example.com"}
+    await _add(client, auth_headers, event, {"email": "asha@example.com"})
+    rows = _by_email(await _performance(client, auth_headers, await _internship(client, auth_headers)))
+    assert set(rows) == {"asha@example.com"} and rows["asha@example.com"]["exam_score"] == 7
 
 
-async def test_syncing_an_event_with_nothing_linked_says_so(client, auth_headers, db_session, org_id):
+async def test_an_event_with_nothing_linked_has_nothing_to_validate(client, auth_headers, db_session, org_id):
     inst = await _institution(client, auth_headers)
     event = await _event(client, auth_headers, inst)
-    r = await client.post(f"{_EVENTS}/{event['id']}/sync-students", headers=auth_headers)
-    assert r.status_code == 200 and r.json()["people"] == 0 and "no exams or hackathons linked" in r.json()["message"]
+    body = (await _candidates(client, auth_headers, event)).json()
+    assert body["candidates"] == [] and "no exams or hackathons linked" in body["message"]
 
 
 # ------------------------------------------------------------ managing students from the internship
@@ -304,28 +363,31 @@ async def test_a_student_can_be_taken_off_the_event_unless_selected(client, auth
     assert await _count(db_session, inst["id"]) == 2  # still at the institution
 
 
-async def test_syncing_from_the_internship_covers_every_event_in_scope_only(client, auth_headers, db_session, org_id):
+async def test_the_internship_validates_only_events_in_its_scope(client, auth_headers, db_session, org_id):
     one = await _institution(client, auth_headers, name="College One")
     two = await _institution(client, auth_headers, name="College Two", location="Chennai")
     e1, e2 = await _event(client, auth_headers, one, "Event A"), await _event(client, auth_headers, two, "Event B")
     x1 = await _loose_exam(client, auth_headers, db_session, {"asha@example.com": (8, 10)}, title="Exam one")
     x2 = await _loose_exam(client, auth_headers, db_session, {"ravi@example.com": (6, 10)}, title="Exam two")
-    from modules.workshop_exams.models import WorkshopExam
-
-    for exam_id, event in ((x1["id"], e1), (x2["id"], e2)):  # linked straight in the database, so nothing was fetched yet
-        row = (await db_session.execute(select(WorkshopExam).where(WorkshopExam.id == uuid.UUID(exam_id)))).scalar_one()
-        row.event_id = uuid.UUID(event["id"])
-    await db_session.flush()
+    await client.put(f"{_EVENTS}/{e1['id']}/exams/{x1['id']}", headers=auth_headers)
+    await client.put(f"{_EVENTS}/{e2['id']}/exams/{x2['id']}", headers=auth_headers)
     narrow = await _internship(client, auth_headers, scope="institution", institution_id=one["id"])
-    result = await client.post(f"{_INTERN}/{narrow['id']}/students/sync", headers=auth_headers)
-    assert result.status_code == 200 and result.json()["newly_registered"] == 1
-    assert await _count(db_session, one["id"]) == 1 and await _count(db_session, two["id"]) == 0
+    listed = (await client.get(f"{_INTERN}/{narrow['id']}/students/validation-events", headers=auth_headers)).json()
+    assert [(e["event_name"], e["institution_name"]) for e in listed] == [("Event A", "College One")]
+    found = await client.get(f"{_INTERN}/{narrow['id']}/students/candidates", params={"event_id": e1["id"]}, headers=auth_headers)
+    assert [c["email"] for c in found.json()["candidates"]] == ["asha@example.com"]
+    outside = await client.get(f"{_INTERN}/{narrow['id']}/students/candidates", params={"event_id": e2["id"]}, headers=auth_headers)
+    assert outside.status_code in (400, 422)
+    refused = await client.post(f"{_INTERN}/{narrow['id']}/students/candidates/add", params={"event_id": e2["id"]}, json={"items": [{"email": "ravi@example.com"}]}, headers=auth_headers)
+    assert refused.status_code in (400, 422) and await _count(db_session, two["id"]) == 0
+    added = await client.post(f"{_INTERN}/{narrow['id']}/students/candidates/add", params={"event_id": e1["id"]}, json={"items": [{"email": "asha@example.com"}]}, headers=auth_headers)
+    assert added.status_code == 200 and added.json()["registered"] == 1
     everything = await _internship(client, auth_headers)
-    broad = await client.post(f"{_INTERN}/{everything['id']}/students/sync", headers=auth_headers)
-    assert broad.json()["newly_registered"] == 1 and broad.json()["already_registered"] == 1  # College Two's Ravi is new, Asha was done
+    all_events = (await client.get(f"{_INTERN}/{everything['id']}/students/validation-events", headers=auth_headers)).json()
+    assert {e["event_name"] for e in all_events} == {"Event A", "Event B"}
+    done = await client.post(f"{_INTERN}/{everything['id']}/students/candidates/add", params={"event_id": e2["id"]}, json={"items": [{"email": "ravi@example.com"}]}, headers=auth_headers)
+    assert done.json()["registered"] == 1
     assert set(_by_email(await _performance(client, auth_headers, everything))) == {"asha@example.com", "ravi@example.com"}
-    one_event = await client.post(f"{_INTERN}/{everything['id']}/students/sync", params={"event_id": e2["id"]}, headers=auth_headers)
-    assert one_event.status_code == 200 and one_event.json()["newly_registered"] == 0
 
 
 async def test_without_the_permission_students_cannot_be_managed(client, auth_headers, staff_headers, db_session, org_id):
@@ -335,8 +397,10 @@ async def test_without_the_permission_students_cannot_be_managed(client, auth_he
     base = f"{_INTERN}/{internship['id']}/students"
     assert (await client.get(f"{base}/destinations", headers=staff_headers)).status_code == 403
     assert (await client.post(base, json={"event_id": event["id"], "name": "A", "email": "a@example.com"}, headers=staff_headers)).status_code == 403
-    assert (await client.post(f"{base}/sync", headers=staff_headers)).status_code == 403
-    assert (await client.post(f"{_EVENTS}/{event['id']}/sync-students", headers=staff_headers)).status_code == 403
+    assert (await client.get(f"{base}/candidates", params={"event_id": event["id"]}, headers=staff_headers)).status_code == 403
+    assert (await client.post(f"{base}/candidates/add", params={"event_id": event["id"]}, json={"items": [{"email": "a@example.com"}]}, headers=staff_headers)).status_code == 403
+    assert (await client.get(f"{_EVENTS}/{event['id']}/student-candidates", headers=staff_headers)).status_code == 403
+    assert (await client.post(f"{_EVENTS}/{event['id']}/student-candidates/add", json={"items": [{"email": "a@example.com"}]}, headers=staff_headers)).status_code == 403
 
 
 async def test_one_organization_cannot_manage_anothers_internship_students(client, auth_headers, db_session, org_id):
@@ -353,4 +417,5 @@ async def test_one_organization_cannot_manage_anothers_internship_students(clien
     base = f"{_INTERN}/{internship['id']}/students"
     assert (await client.get(f"{base}/destinations", headers=outsider)).status_code == 404
     assert (await client.post(base, json={"event_id": event["id"], "name": "A", "email": "a@example.com"}, headers=outsider)).status_code == 404
-    assert (await client.post(f"{_EVENTS}/{event['id']}/sync-students", headers=outsider)).status_code == 404
+    assert (await client.get(f"{_EVENTS}/{event['id']}/student-candidates", headers=outsider)).status_code == 404
+    assert (await client.post(f"{_EVENTS}/{event['id']}/student-candidates/add", json={"items": [{"email": "a@example.com"}]}, headers=outsider)).status_code == 404

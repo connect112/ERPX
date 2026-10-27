@@ -31,8 +31,13 @@ from modules.institutions.schemas import (
     InstitutionOut,
     InstitutionUpdateRequest,
     LinkedExam,
+    CandidateSource,
     LinkedHackathon,
-    SyncResultOut,
+    NoEmailEntry,
+    StudentCandidate,
+    CandidatesAddOut,
+    CandidatesAddRequest,
+    CandidatesOut,
     MessageResponse,
     RegisterStudentsRequest,
     RegistrationUpdateRequest,
@@ -42,7 +47,7 @@ from modules.institutions.schemas import (
     StudentOut,
     StudentUpdateRequest,
 )
-from modules.institutions.linked_people import LinkedPeople, SyncResult
+from modules.institutions.linked_people import Candidates, LinkedPeople
 from modules.institutions.service import InstitutionService
 from modules.institutions.student_import import StudentListError, parse_students
 from modules.users.dependencies import get_current_user_organization_id
@@ -463,8 +468,28 @@ async def unregister_student(
 # ---------------------------------------------------------------- the event's exams and hackathons
 
 
-def _sync_out(result: SyncResult) -> SyncResultOut:
-    return SyncResultOut(**{k: getattr(result, k) for k in result.__dataclass_fields__}, message=result.summary())
+def candidates_out(found: Candidates) -> CandidatesOut:
+    return CandidatesOut(
+        exams=found.exams,
+        hackathons=found.hackathons,
+        candidates=[
+            StudentCandidate(
+                email=c.email,
+                name=c.name,
+                phone=c.phone,
+                name_variants=c.name_variants,
+                sources=[CandidateSource(kind=x.kind, title=x.title) for x in c.sources],
+                entries=c.entries,
+                status=c.status,
+                existing_name=c.existing_name,
+                issues=c.issues,
+                addable=c.addable,
+            )
+            for c in found.candidates
+        ],
+        without_email=[NoEmailEntry(name=n.name, source=CandidateSource(kind=n.source.kind, title=n.source.title)) for n in found.without_email],
+        message=found.summary(),
+    )
 
 
 def _exam_out(exam, attendees: int, questions: int) -> LinkedExam:
@@ -526,23 +551,38 @@ async def link_exam(
     service = InstitutionService(db)
     event = await service.get_event(event_id, organization_id)
     await service.link_exam(event, exam_id)
-    # the exam's own attendees become the event's students, so their marks show against them
-    fetched = await LinkedPeople(db).sync(event)
-    return MessageResponse(message=f"Exam linked to the event. {fetched.summary()}")
+    # the exam's people are not added blindly: they wait in Validate students to be reviewed and confirmed
+    found = await LinkedPeople(db).candidates(event)
+    return MessageResponse(message=f"Exam linked to the event. {found.summary()}")
 
 
-@events_router.post("/{event_id}/sync-students", response_model=SyncResultOut)
-async def sync_linked_students(
+@events_router.get("/{event_id}/student-candidates", response_model=CandidatesOut)
+async def student_candidates(
     event_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("institutions.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The people of this event's linked exams and hackathons, combined by email into one entry each, for review.
+    Nothing is added by looking at this list."""
+    service = InstitutionService(db)
+    return candidates_out(await LinkedPeople(db).candidates(await service.get_event(event_id, organization_id)))
+
+
+@events_router.post("/{event_id}/student-candidates/add", response_model=CandidatesAddOut)
+async def add_student_candidates(
+    event_id: uuid.UUID,
+    payload: CandidatesAddRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("institutions.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch the people of this event's linked exams and hackathons into its student list (again, for people who
-    registered for them after they were linked). Existing students are reused by email, never duplicated or renamed."""
+    """Add the people someone has verified to the institution and register them for this event. A corrected name or
+    phone is used for people who are new; people already at the institution keep their details."""
     service = InstitutionService(db)
-    result = await LinkedPeople(db).sync(await service.get_event(event_id, organization_id))
-    return _sync_out(result)
+    event = await service.get_event(event_id, organization_id)
+    result = await LinkedPeople(db).add(event, [i.model_dump() for i in payload.items])
+    return CandidatesAddOut(new_students=result.new_students, registered=result.registered, skipped=result.skipped, message=result.message())
 
 
 @events_router.delete("/{event_id}/exams/{exam_id}", response_model=MessageResponse)
@@ -595,9 +635,9 @@ async def link_hackathon(
     service = InstitutionService(db)
     event = await service.get_event(event_id, organization_id)
     await service.link_hackathon(event, hackathon_id)
-    # the hackathon's participants and team members become the event's students, so their scores show against them
-    fetched = await LinkedPeople(db).sync(event)
-    return MessageResponse(message=f"Hackathon linked to the event. {fetched.summary()}")
+    # the hackathon's people are not added blindly: they wait in Validate students to be reviewed and confirmed
+    found = await LinkedPeople(db).candidates(event)
+    return MessageResponse(message=f"Hackathon linked to the event. {found.summary()}")
 
 
 @events_router.delete("/{event_id}/hackathons/{hackathon_id}", response_model=MessageResponse)

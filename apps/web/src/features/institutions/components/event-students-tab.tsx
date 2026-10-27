@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Pencil, Upload, UserMinus, UserPlus, Users } from "lucide-react";
+import { Pencil, ShieldCheck, Upload, UserMinus, UserPlus, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 } from "@/features/institutions/api/institutions-api";
 import { StudentFormDialog } from "@/features/institutions/components/student-form-dialog";
 import { StudentImportDialog } from "@/features/institutions/components/student-import-dialog";
+import { ValidateStudentsDialog } from "@/features/institutions/components/validate-students-dialog";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { useDebounced } from "@/features/institutions/lib/use-debounced";
 
@@ -30,7 +31,7 @@ export function EventStudentsTab({ event }: { event: InstitutionEvent }) {
   const [adding, setAdding] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [editing, setEditing] = useState<EventStudent | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
   const q = useDebounced(search.trim());
 
   const students = useQuery({ queryKey: institutionsKeys.eventStudents(event.id, q), queryFn: () => institutionsApi.eventStudents(event.id, q) });
@@ -43,14 +44,6 @@ export function EventStudentsTab({ event }: { event: InstitutionEvent }) {
     onSuccess: refresh,
   });
 
-  const fetchLinked = useMutation({
-    mutationFn: () => institutionsApi.syncEventStudents(event.id),
-    onSuccess: (result) => {
-      setNotice(result.message);
-      void refresh();
-    },
-  });
-
   const full = event.max_capacity !== null && event.student_count >= event.max_capacity;
 
   return (
@@ -58,9 +51,9 @@ export function EventStudentsTab({ event }: { event: InstitutionEvent }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Input aria-label="Search students" placeholder="Search name, email or phone" className="w-72" value={search} onChange={(e) => setSearch(e.target.value)} />
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" disabled={fetchLinked.isPending} onClick={() => fetchLinked.mutate()}>
-            <Download className="h-4 w-4" />
-            {fetchLinked.isPending ? "Fetching..." : "Fetch from exams & hackathons"}
+          <Button variant="outline" onClick={() => setValidating(true)}>
+            <ShieldCheck className="h-4 w-4" />
+            Validate students
           </Button>
           <Button variant="outline" onClick={() => setRegistering(true)}>
             <Users className="h-4 w-4" />
@@ -76,8 +69,6 @@ export function EventStudentsTab({ event }: { event: InstitutionEvent }) {
           </Button>
         </div>
       </div>
-      {notice && <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">{notice}</p>}
-      {fetchLinked.isError && <p className="text-sm text-destructive">{errorMessage(fetchLinked.error, "Could not fetch the students.")}</p>}
       {full && <p className="text-sm text-muted-foreground">This event is full ({event.max_capacity} students). Raise its capacity to register more.</p>}
 
       <Card>
@@ -159,6 +150,16 @@ export function EventStudentsTab({ event }: { event: InstitutionEvent }) {
         <p className="text-sm text-destructive">{errorMessage(save.error ?? unregister.error, "Could not save that change.")}</p>
       )}
 
+      {validating && (
+        <ValidateStudentsDialog
+          eventName={event.name}
+          queryKey={["institutions", "student-candidates", event.id]}
+          load={() => institutionsApi.studentCandidates(event.id)}
+          add={(items) => institutionsApi.addStudentCandidates(event.id, items)}
+          onAdded={() => void refresh()}
+          onClose={() => setValidating(false)}
+        />
+      )}
       {importing && <StudentImportDialog institutionId={event.institution_id} eventId={event.id} eventName={event.name} onClose={() => setImporting(false)} />}
       {adding && <StudentFormDialog institutionId={event.institution_id} eventId={event.id} onClose={() => setAdding(false)} />}
       {editing && (

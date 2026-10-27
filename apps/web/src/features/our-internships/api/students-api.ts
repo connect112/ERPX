@@ -1,12 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiClient } from "@/api/client";
-import type { ImportResult, ImportSource, SyncResult } from "@/features/institutions/api/institutions-api";
+import type { CandidateItem, CandidatesAddResult, CandidatesResult, ImportResult, ImportSource } from "@/features/institutions/api/institutions-api";
 
 export interface Destination {
   institution_id: string;
   institution_name: string;
   events: { id: string; name: string }[];
+}
+
+export interface ValidationEvent {
+  event_id: string;
+  event_name: string;
+  institution_name: string;
 }
 
 export interface StudentAddResult {
@@ -48,9 +54,16 @@ export const studentsApi = {
     apiClient.patch<{ message: string }>(`${base(id)}/${studentId}`, payload).then((r) => r.data),
   remove: (id: string, studentId: string, eventId: string) =>
     apiClient.delete<{ message: string }>(`${base(id)}/${studentId}`, { params: { event_id: eventId } }).then((r) => r.data),
-  /** Fetch the people of the linked exams and hackathons into the student list. */
-  sync: (id: string) => apiClient.post<SyncResult>(`${base(id)}/sync`).then((r) => r.data),
+  /** The events in scope that have exams or hackathons linked, whose people can be validated. */
+  validationEvents: (id: string) => apiClient.get<ValidationEvent[]>(`${base(id)}/validation-events`).then((r) => r.data),
+  candidates: (id: string, eventId: string) => apiClient.get<CandidatesResult>(`${base(id)}/candidates`, { params: { event_id: eventId } }).then((r) => r.data),
+  addCandidates: (id: string, eventId: string, items: CandidateItem[]) =>
+    apiClient.post<CandidatesAddResult>(`${base(id)}/candidates/add`, { items }, { params: { event_id: eventId } }).then((r) => r.data),
 };
+
+export function useValidationEvents(internshipId: string) {
+  return useQuery({ queryKey: ["our-internships", "students", internshipId, "validation-events"] as const, queryFn: () => studentsApi.validationEvents(internshipId) });
+}
 
 export function useDestinations(internshipId: string) {
   return useQuery({ queryKey: studentKeys.destinations(internshipId), queryFn: () => studentsApi.destinations(internshipId) });

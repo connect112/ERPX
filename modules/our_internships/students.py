@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
-from modules.institutions.linked_people import LinkedPeople, SyncResult
+from modules.institutions.linked_people import AddResult, Candidates, LinkedPeople
 from modules.institutions.models import EventRegistration, Institution, InstitutionEvent, InstitutionStudent
 from modules.institutions.service import InstitutionService
 from modules.our_internships.models import OurInternship
@@ -94,18 +94,28 @@ class InternshipStudents:
             raise ConflictError("This student is on the selected list. Remove them from it first.")
         await self.institutions.unregister(event, student_id)
 
-    async def sync(self, event_id: uuid.UUID | None) -> SyncResult:
-        """Fetch the people of the linked exams and hackathons of one event, or of every event in scope."""
-        total = SyncResult()
-        if event_id is not None:
-            total.add(await LinkedPeople(self.db).sync(await self.event_in_scope(event_id)))
-            return total
+    async def events_with_linked_data(self) -> list[InstitutionEvent]:
+        """The events in scope that have an exam or hackathon linked, for the validation list."""
+        from sqlalchemy import exists
+
+        from modules.hackathons.models import Hackathon
+        from modules.workshop_exams.models import WorkshopExam
+
         institution_id, scoped_event = self._scope()
-        query = select(InstitutionEvent).where(InstitutionEvent.organization_id == self.internship.organization_id)
+        query = select(InstitutionEvent).where(
+            InstitutionEvent.organization_id == self.internship.organization_id,
+            exists().where(WorkshopExam.event_id == InstitutionEvent.id, WorkshopExam.hackathon_id.is_(None), WorkshopExam.award.is_(None))
+            | exists().where(Hackathon.event_id == InstitutionEvent.id),
+        )
         if institution_id is not None:
             query = query.where(InstitutionEvent.institution_id == institution_id)
         if scoped_event is not None:
             query = query.where(InstitutionEvent.id == scoped_event)
-        for event in (await self.db.execute(query)).scalars().all():
-            total.add(await LinkedPeople(self.db).sync(event))
-        return total
+        return list((await self.db.execute(query.order_by(InstitutionEvent.start_date.desc()))).scalars().all())
+
+    async def candidates(self, event_id: uuid.UUID) -> Candidates:
+        """The people of one event's linked exams and hackathons, combined by email, for review."""
+        return await LinkedPeople(self.db).candidates(await self.event_in_scope(event_id))
+
+    async def add_candidates(self, event_id: uuid.UUID, items: list[dict]) -> AddResult:
+        return await LinkedPeople(self.db).add(await self.event_in_scope(event_id), items)

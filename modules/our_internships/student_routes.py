@@ -11,7 +11,8 @@ from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.institutions.routes import _read_list
-from modules.institutions.schemas import ImportResult, SyncResultOut
+from modules.institutions.routes import candidates_out
+from modules.institutions.schemas import CandidatesAddOut, CandidatesAddRequest, CandidatesOut, ImportResult
 from modules.our_internships.schemas import MessageResponse
 from modules.our_internships.service import OurInternshipService
 from modules.our_internships.students import InternshipStudents
@@ -111,17 +112,50 @@ async def import_students(
     return ImportResult(**await students.institutions.import_students(institution, event, parsed, dry_run))
 
 
-@router.post("/{internship_id}/students/sync", response_model=SyncResultOut)
-async def sync_students(
+class ValidationEvent(BaseModel):
+    event_id: uuid.UUID
+    event_name: str
+    institution_name: str
+
+
+@router.get("/{internship_id}/students/validation-events", response_model=list[ValidationEvent])
+async def validation_events(
     internship_id: uuid.UUID,
-    event_id: uuid.UUID | None = Query(default=None),
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The events in this internship's scope that have exams or hackathons linked, whose people can be validated."""
+    students = await _students(db, internship_id, organization_id)
+    events = await students.events_with_linked_data()
+    names = {d["institution_id"]: d["institution_name"] for d in await students.destinations()}
+    return [ValidationEvent(event_id=e.id, event_name=e.name, institution_name=names.get(e.institution_id, "")) for e in events]
+
+
+@router.get("/{internship_id}/students/candidates", response_model=CandidatesOut)
+async def student_candidates(
+    internship_id: uuid.UUID,
+    event_id: uuid.UUID = Query(...),
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The people of one event's linked exams and hackathons, combined by email into one entry each, to validate."""
+    return candidates_out(await (await _students(db, internship_id, organization_id)).candidates(event_id))
+
+
+@router.post("/{internship_id}/students/candidates/add", response_model=CandidatesAddOut)
+async def add_student_candidates(
+    internship_id: uuid.UUID,
+    payload: CandidatesAddRequest,
+    event_id: uuid.UUID = Query(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
     user: User = Depends(require_permissions("our_internships.manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch the people of the linked exams and hackathons into the student list, so their scores show."""
-    result = await (await _students(db, internship_id, organization_id)).sync(event_id)
-    return SyncResultOut(**{k: getattr(result, k) for k in result.__dataclass_fields__}, message=result.summary())
+    """Add the verified people to the institution and register them for the event."""
+    result = await (await _students(db, internship_id, organization_id)).add_candidates(event_id, [i.model_dump() for i in payload.items])
+    return CandidatesAddOut(new_students=result.new_students, registered=result.registered, skipped=result.skipped, message=result.message())
 
 
 @router.patch("/{internship_id}/students/{student_id}", response_model=MessageResponse)
