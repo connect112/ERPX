@@ -1,4 +1,5 @@
 import {
+  BriefcaseBusiness,
   CalendarCheck,
   LayoutDashboard,
   LogOut,
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/batches", label: "My Batches", icon: Users, end: false },
+  { to: "/internships", label: "My Internships", icon: BriefcaseBusiness, end: false },
   { to: "/live-classes", label: "Live Classes", icon: Video, end: false },
   { to: "/attendance", label: "Attendance", icon: CalendarCheck, end: false },
   { to: "/announcements", label: "Announcements", icon: Megaphone, end: false },

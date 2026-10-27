@@ -13,6 +13,7 @@ import { errorMessage } from "@/features/institutions/lib/format";
 import type { Project } from "@/features/our-internships/api/projects-api";
 import { type Review, type ReviewRow, reviewKeys, reviewsApi } from "@/features/our-internships/api/reviews-api";
 import { formatDateTime, sumScores } from "@/features/our-internships/lib/learning";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 /** Reviews of a project: who handed in, the reviews written for each, and publishing the final marks. */
 export function ReviewsDialog({ internshipId, project, canManage, onClose }: { internshipId: string; project: Project; canManage: boolean; onClose: () => void }) {
@@ -89,6 +90,7 @@ function StudentReviews({ internshipId, project, row, canManage, onBack }: { int
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["our-internships", "projects", internshipId] });
   const [editing, setEditing] = useState<Review | "new" | null>(null);
   const published = !!row.final_published_at;
+  const canDelete = useCanDelete();
   const [finalMarks, setFinalMarks] = useState(row.final_marks !== null ? String(row.final_marks) : "");
   const [finalFeedback, setFinalFeedback] = useState(row.final_feedback ?? "");
 
@@ -135,6 +137,7 @@ function StudentReviews({ internshipId, project, row, canManage, onBack }: { int
                   <Button size="icon" variant="ghost" aria-label={`Edit ${review.label}`} onClick={() => setEditing(review)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
+                  {canDelete && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -146,6 +149,7 @@ function StudentReviews({ internshipId, project, row, canManage, onBack }: { int
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
+                  )}
                 </div>
               )}
             </div>

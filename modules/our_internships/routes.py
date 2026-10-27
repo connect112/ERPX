@@ -13,7 +13,7 @@ from app.core.exceptions import ConflictError, NotFoundError, ServiceUnavailable
 from app.core.logging_config import get_logger
 from app.db.session import get_db
 from modules.authentication.models import User
-from modules.authorization.dependencies import require_permissions
+from modules.our_internships.access import InstructorService, internship_access
 from modules.our_internships.models import OurInternship
 from modules.our_internships.schemas import (
     BulkOnboardingRequest,
@@ -69,18 +69,22 @@ async def _out(service: OurInternshipService, internships: list[OurInternship]) 
 @router.get("", response_model=list[InternshipOut])
 async def list_internships(
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
-    return await _out(service, await service.list_all(organization_id))
+    internships = await service.list_all(organization_id)
+    allowed = await InstructorService(db).restricted_ids(user)  # None: may see all; else only the ones they instruct now
+    if allowed is not None:
+        internships = [i for i in internships if i.id in allowed]
+    return await _out(service, internships)
 
 
 @router.post("", response_model=InternshipOut, status_code=status.HTTP_201_CREATED)
 async def create_internship(
     payload: InternshipCreateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
@@ -92,7 +96,7 @@ async def create_internship(
 async def get_internship(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
@@ -104,7 +108,7 @@ async def update_internship(
     internship_id: uuid.UUID,
     payload: InternshipUpdateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
@@ -116,7 +120,7 @@ async def update_internship(
 async def delete_internship(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
@@ -131,7 +135,7 @@ async def performance(
     event_id: uuid.UUID | None = Query(default=None, description="Narrow to one event."),
     q: str | None = Query(default=None, max_length=100),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """The students (and, grouped by hackathon team, the teams) this internship can select from, with their workshop exam
@@ -145,7 +149,7 @@ async def performance(
 async def selected_students(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
@@ -158,7 +162,7 @@ async def select_students(
     internship_id: uuid.UUID,
     payload: SelectRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
@@ -173,7 +177,7 @@ async def update_selection_note(
     student_id: uuid.UUID,
     payload: SelectionNoteRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
@@ -186,7 +190,7 @@ async def unselect_student(
     internship_id: uuid.UUID,
     student_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
@@ -208,7 +212,7 @@ def _pdf(content: bytes, filename: str, disposition: str = "inline") -> Response
 async def get_offer_settings(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """The offer letter template, where details go on it, the email and what is left to do before releasing."""
@@ -221,7 +225,7 @@ async def upload_offer_template(
     internship_id: uuid.UUID,
     file: UploadFile = File(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OfferService(db)
@@ -234,7 +238,7 @@ async def upload_offer_template(
 async def remove_offer_template(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OfferService(db)
@@ -247,7 +251,7 @@ async def remove_offer_template(
 async def download_offer_template(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """The uploaded PDF itself, for showing the page while placing the fields."""
@@ -262,7 +266,7 @@ async def save_offer_layout(
     internship_id: uuid.UUID,
     payload: OfferLayout,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = OfferService(db)
@@ -276,7 +280,7 @@ async def save_offer_email(
     internship_id: uuid.UUID,
     payload: OfferEmailRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """The email that carries each letter. Empty subject and body mean the standard wording."""
@@ -291,7 +295,7 @@ async def preview_offer_letter(
     internship_id: uuid.UUID,
     payload: OfferPreviewRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """A sample letter. Pass ``layout`` to preview field positions that are not saved yet."""
@@ -305,7 +309,7 @@ async def student_offer_letter(
     internship_id: uuid.UUID,
     student_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """One student's letter exactly as it will be (or was) sent, for checking before release."""
@@ -319,7 +323,7 @@ async def send_test_offer_email(
     internship_id: uuid.UUID,
     payload: OfferTestEmailRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Send the real email with a sample letter to one address (yours), so the wording and the letter can be checked."""
@@ -333,7 +337,7 @@ async def release_offers(
     internship_id: uuid.UUID,
     payload: OfferReleaseRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate each selected student's letter from the template and email it to their registered address. The sends run
@@ -374,7 +378,7 @@ async def selected_student(
     internship_id: uuid.UUID,
     student_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """One selected student's profile: results, offer, verification, payment and LMS access."""
@@ -386,7 +390,7 @@ async def selected_student(
 async def lms_courses(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """The courses a student can be enrolled in when given LMS access."""
@@ -400,7 +404,7 @@ async def update_onboarding(
     student_id: uuid.UUID,
     payload: OnboardingUpdateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Record the student's answer to the offer, the result of verification, or that payment was received."""
@@ -415,7 +419,7 @@ async def update_onboarding_bulk(
     internship_id: uuid.UUID,
     payload: BulkOnboardingRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Mark several students at once (all verified, all paid...). A student who cannot take the change is reported by name."""
@@ -432,7 +436,7 @@ async def grant_lms_access(
     internship_id: uuid.UUID,
     student_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Give the student access to the LMS: an account (or their existing one) enrolled in the internship's course, and an
@@ -454,7 +458,7 @@ async def grant_lms_access_bulk(
     internship_id: uuid.UUID,
     payload: GrantLmsRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Give LMS access to several students (up to 25 at a time, each account takes a moment to create). One that cannot be
@@ -484,7 +488,7 @@ async def revoke_lms_access(
     internship_id: uuid.UUID,
     student_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Withdraw access to the course (the account itself stays). It can be granted again."""
@@ -499,3 +503,8 @@ async def revoke_lms_access(
 from modules.our_internships import student_routes  # noqa: E402
 
 router.include_router(student_routes.router)
+
+
+from modules.our_internships import instructor_routes  # noqa: E402
+
+router.include_router(instructor_routes.router)

@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { institutionsApi, institutionsKeys } from "@/features/institutions/api/institutions-api";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { useDebounced } from "@/features/institutions/lib/use-debounced";
 import { type InternshipStatus, ourInternshipsApi, ourInternshipsKeys } from "@/features/our-internships/api/our-internships-api";
+import { useMyAccess } from "@/features/our-internships/api/instructors-api";
+import { useDestinations } from "@/features/our-internships/api/students-api";
 import { AssignmentsTab } from "@/features/our-internships/components/assignments-tab";
+import { InstructorsTab } from "@/features/our-internships/components/instructors-tab";
 import { ExamsTab } from "@/features/our-internships/components/exams-tab";
 import { ProjectsTab } from "@/features/our-internships/components/projects-tab";
 import { CertificatesTab } from "@/features/our-internships/components/certificates-tab";
@@ -22,6 +24,7 @@ import { OnboardingTab } from "@/features/our-internships/components/onboarding-
 import { SelectedStudentsTab } from "@/features/our-internships/components/selected-students-tab";
 import { StudentsManager } from "@/features/our-internships/components/students-manager";
 import { TeamWiseView } from "@/features/our-internships/components/team-wise-view";
+import { InternshipAccessContext, accessEndsText } from "@/features/our-internships/lib/internship-access";
 import { statusBadge } from "@/features/our-internships/lib/performance";
 
 const selectClass = "rounded-md border bg-background px-3 py-2 text-sm";
@@ -41,12 +44,12 @@ export function OurInternshipDetailPage() {
   const allScope = i?.scope === "all";
 
   // an all-students internship can be narrowed to one institution and one of its events; the others are fixed by its scope
-  const institutions = useQuery({ queryKey: institutionsKeys.list(""), queryFn: () => institutionsApi.list(""), enabled: allScope });
-  const events = useQuery({
-    queryKey: institutionsKeys.events(institutionId),
-    queryFn: () => institutionsApi.events(institutionId),
-    enabled: allScope && !!institutionId,
-  });
+  const destinations = useDestinations(internshipId);
+  const institutionOptions = (destinations.data ?? []).map((d) => ({ id: d.institution_id, name: d.institution_name }));
+  const eventOptions = destinations.data?.find((d) => d.institution_id === institutionId)?.events ?? [];
+  const access = useMyAccess(internshipId);
+  const canDelete = access.data?.can_delete ?? false;
+  const isAdmin = access.data?.role === "admin" && canDelete;
   const performance = useQuery({
     queryKey: ourInternshipsKeys.performance(internshipId, institutionId, eventId, q),
     queryFn: () => ourInternshipsApi.performance(internshipId, { institutionId, eventId, q }),
@@ -89,8 +92,18 @@ export function OurInternshipDetailPage() {
   const board = performance.data;
   const status = statusBadge[i.status];
 
+  const accessValue = { role: access.data?.role ?? "admin", canDelete: access.data ? access.data.can_delete : true, accessUntil: access.data?.access_until ?? null } as const;
+  const endsText = access.data?.role === "instructor" ? accessEndsText(access.data.access_until) : null;
+
   return (
+    <InternshipAccessContext.Provider value={accessValue}>
     <div className="space-y-6 p-6">
+      {access.data?.role === "instructor" && (
+        <p className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-200">
+          You are an instructor on this internship. You can add, edit, view, mark and validate everything here, but not delete.
+          {endsText ? ` ${endsText}.` : ""}
+        </p>
+      )}
       <div>
         <Link to="/our-internships" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />
@@ -120,16 +133,18 @@ export function OurInternshipDetailPage() {
                 </option>
               ))}
             </select>
-            <Button
-              variant="outline"
-              disabled={remove.isPending}
-              onClick={() => {
-                if (window.confirm(`Delete "${i.title}" and its selected list? This cannot be undone.`)) remove.mutate();
-              }}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </Button>
+            {canDelete && (
+              <Button
+                variant="outline"
+                disabled={remove.isPending}
+                onClick={() => {
+                  if (window.confirm(`Delete "${i.title}" and its selected list? This cannot be undone.`)) remove.mutate();
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+            )}
           </div>
         </div>
         {(setStatus.isError || remove.isError) && <p className="mt-2 text-sm text-destructive">{errorMessage(setStatus.error ?? remove.error, "Could not save that change.")}</p>}
@@ -149,7 +164,7 @@ export function OurInternshipDetailPage() {
               }}
             >
               <option value="">All institutions</option>
-              {institutions.data?.items.map((inst) => (
+              {institutionOptions.map((inst) => (
                 <option key={inst.id} value={inst.id}>
                   {inst.name}
                 </option>
@@ -158,7 +173,7 @@ export function OurInternshipDetailPage() {
             {institutionId && (
               <select aria-label="Filter by event" className={selectClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
                 <option value="">All events</option>
-                {events.data?.map((ev) => (
+                {eventOptions.map((ev) => (
                   <option key={ev.id} value={ev.id}>
                     {ev.name}
                   </option>
@@ -184,6 +199,7 @@ export function OurInternshipDetailPage() {
           <TabsTrigger value="projects">Projects</TabsTrigger>
           <TabsTrigger value="awards">Awards</TabsTrigger>
           <TabsTrigger value="certificates">Certificates</TabsTrigger>
+          {isAdmin && <TabsTrigger value="instructors">Instructors</TabsTrigger>}
         </TabsList>
         <TabsContent value="students">
           {performance.isLoading ? (
@@ -232,7 +248,13 @@ export function OurInternshipDetailPage() {
         <TabsContent value="certificates">
           <CertificatesTab internshipId={internshipId} canManage />
         </TabsContent>
+        {isAdmin && (
+          <TabsContent value="instructors">
+            <InstructorsTab internshipId={internshipId} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
+    </InternshipAccessContext.Provider>
   );
 }

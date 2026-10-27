@@ -11,6 +11,7 @@ import { errorMessage, formatBytes } from "@/features/institutions/lib/format";
 import { type Project, type ProjectPayload, type ReferenceLink, type ReviewFactor, projectsApi } from "@/features/our-internships/api/projects-api";
 import { fromLocalInput, newRowId, toLocalInput } from "@/features/our-internships/lib/learning";
 import { submissionProblem } from "@/features/our-internships/lib/projects";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 function FileList({
   title,
@@ -30,6 +31,7 @@ function FileList({
   onRemove: (id: string) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const canDelete = useCanDelete();
   return (
     <div className="space-y-2 rounded-md border p-3">
       <div className="flex items-center justify-between">
@@ -58,9 +60,11 @@ function FileList({
             <span className="truncate">{f.filename}</span>
             <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(f.size_bytes)}</span>
           </a>
-          <Button type="button" size="icon" variant="ghost" aria-label={`Remove ${f.filename}`} onClick={() => onRemove(f.id)}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {canDelete && (
+            <Button type="button" size="icon" variant="ghost" aria-label={`Remove ${f.filename}`} onClick={() => onRemove(f.id)}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       ))}
     </div>

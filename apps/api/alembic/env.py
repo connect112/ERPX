@@ -79,6 +79,7 @@ from modules.workshops.models import Workshop, WorkshopRegistration  # noqa: E40
 from modules.workshop_exams.models import WorkshopExam, WorkshopExamQuestion, WorkshopExamAttendee, WorkshopExamCertificateTemplate  # noqa: E402,F401
 from modules.institutions.models import Institution, InstitutionEvent, InstitutionStudent, EventRegistration  # noqa: E402,F401
 from modules.our_internships.models import OurInternship, InternshipSelection  # noqa: E402,F401
+from modules.our_internships.instructor_models import InternshipInstructor  # noqa: E402,F401
 from modules.internship_learning.models import InternshipFile, InternshipAssignment, AssignmentSubmission  # noqa: E402,F401
 from modules.internship_learning.project_models import InternshipProject, ProjectChoice, ProjectReview, ProjectSubmission  # noqa: E402,F401
 from modules.internship_learning.award_models import InternshipAward, AwardGrant  # noqa: E402,F401

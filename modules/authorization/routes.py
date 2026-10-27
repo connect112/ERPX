@@ -44,10 +44,18 @@ async def get_my_roles(
     single source of truth for what the UI ever shows — never hardcoded."""
     service = AuthorizationService(db)
     result = await service.get_user_roles_and_permissions(user.id)
+    permissions = list(result["effective_permissions"])
+    if "our_internships.view" not in permissions and not user.is_superuser:
+        # An instructor of an internship is shown the Our Internships menu item. This is only what the menu reads: the real
+        # check is per internship, on every request (modules/our_internships/access.py).
+        from modules.our_internships.access import InstructorService
+
+        if await InstructorService(db).is_instructor(user):
+            permissions.append("our_internships.view")
     return UserRolesResponse(
         user_id=user.id,
         roles=[RolePublic.model_validate(r) for r in result["roles"]],
-        effective_permissions=result["effective_permissions"],
+        effective_permissions=permissions,
         is_superuser=user.is_superuser,
     )
 

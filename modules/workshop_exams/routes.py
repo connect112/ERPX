@@ -19,7 +19,9 @@ from app.core.limiter import limiter
 from app.core.logging_config import get_logger
 from app.db.session import get_db
 from modules.authentication.models import User
+from modules.authentication.dependencies import get_current_active_user
 from modules.authorization.dependencies import require_permissions
+from modules.our_internships.access import assert_can_create_exam, exam_access
 from modules.users.dependencies import get_current_user_organization_id
 from modules.workshop_exams import certificate_ids
 from modules.workshop_exams.certificate_render import certificate_email, render_certificate
@@ -95,9 +97,11 @@ def _exam_out(exam, question_count: int, attendee_count: int) -> ExamPublicAdmin
 async def create_exam(
     payload: ExamCreateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # the workshops permission, or an instructor of the internship the exam is created for
+    await assert_can_create_exam(user, db, payload.internship_id)
     # an exam created from an event page must be created for one of this organization's events
     from modules.institutions.service import InstitutionService
 
@@ -114,7 +118,7 @@ async def create_exam(
 @router.get("", response_model=list[ExamPublicAdmin])
 async def list_exams(
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     rows = await WorkshopExamService(db).list_exams(organization_id)
@@ -125,7 +129,7 @@ async def list_exams(
 async def get_exam(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -139,7 +143,7 @@ async def update_exam(
     exam_id: uuid.UUID,
     payload: ExamUpdateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -159,7 +163,7 @@ async def upload_certificate_template(
     exam_id: uuid.UUID,
     file: UploadFile = File(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -178,7 +182,7 @@ async def upload_certificate_template(
 async def remove_certificate_template(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -191,7 +195,7 @@ async def remove_certificate_template(
 async def get_certificate_template(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -223,7 +227,7 @@ async def preview_certificate_ids(
     exam_id: uuid.UUID,
     payload: CertificateIdPreviewRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """What IDs in the given format would look like (nothing is saved or used up)."""
@@ -239,7 +243,7 @@ async def preview_certificate(
     exam_id: uuid.UUID,
     payload: CertificatePreviewRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -257,7 +261,7 @@ async def email_test_certificate(
     exam_id: uuid.UUID,
     payload: CertificateTestEmailRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Mail a sample certificate (placeholder name) so the admin can see the
@@ -282,7 +286,7 @@ async def email_test_certificate(
 async def delete_exam(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -295,7 +299,7 @@ async def set_exam_status(
     exam_id: uuid.UUID,
     payload: ExamStatusRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -309,7 +313,7 @@ async def add_questions(
     exam_id: uuid.UUID,
     payload: QuestionsAddRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -322,7 +326,7 @@ async def add_questions(
 async def list_questions(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -336,7 +340,7 @@ async def update_question(
     question_id: uuid.UUID,
     payload: QuestionInput,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -350,7 +354,7 @@ async def delete_question(
     exam_id: uuid.UUID,
     question_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -363,7 +367,7 @@ async def import_attendees(
     exam_id: uuid.UUID,
     payload: AttendeesImportRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -377,7 +381,7 @@ async def add_attendee_manually(
     exam_id: uuid.UUID,
     payload: ManualAttendeeRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Add one student by hand. They are marked as added manually; with `issue_certificate` they will receive a
@@ -394,7 +398,7 @@ async def add_attendee_manually(
 async def list_attendees(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -408,7 +412,7 @@ async def update_attendee(
     attendee_id: uuid.UUID,
     payload: AttendeeUpdateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Correct an attendee's name or email. Their personal exam link stays the same."""
@@ -429,7 +433,7 @@ async def reset_attendee_submission(
     exam_id: uuid.UUID,
     attendee_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete one person's submission (answers, score and timer) so they can sit the exam again."""
@@ -444,7 +448,7 @@ async def delete_attendee(
     exam_id: uuid.UUID,
     attendee_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Remove an attendee, their submission and any certificate issued to them."""
@@ -459,7 +463,7 @@ async def send_invites(
     exam_id: uuid.UUID,
     payload: InvitesRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -476,7 +480,7 @@ async def send_invites(
 async def dashboard(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -490,7 +494,7 @@ async def dashboard(
 async def export_results(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -548,7 +552,7 @@ async def send_certificates_now(
     exam_id: uuid.UUID,
     payload: SendCertificatesRequest | None = None,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -576,7 +580,7 @@ async def send_certificates_now(
 async def open_certificate_review(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Everyone who gets a certificate, with their ID, verified state and any name fix. Gives anyone without an ID
@@ -595,7 +599,7 @@ async def adjust_attendee_certificate(
     attendee_id: uuid.UUID,
     payload: NameAdjust | None = None,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Change the size / position of one person's name on their certificate (send nothing, or null, to reset)."""
@@ -611,7 +615,7 @@ async def verify_attendee_certificate(
     attendee_id: uuid.UUID,
     payload: VerifyRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = WorkshopExamService(db)
@@ -623,7 +627,7 @@ async def verify_attendee_certificate(
 async def verify_all_certificates(
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Skip the check: mark every certificate that hasn't gone out as verified."""
@@ -638,7 +642,7 @@ async def preview_attendee_certificate(
     exam_id: uuid.UUID,
     attendee_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.view")),
+    user: User = Depends(exam_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """This person's certificate exactly as it will be emailed (their name, ID and any fix)."""
@@ -662,7 +666,7 @@ async def send_attendee_certificate(
     attendee_id: uuid.UUID,
     payload: SendOneCertificateRequest | None = None,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("workshops.manage")),
+    user: User = Depends(exam_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Email this one person's certificate now (again, if it went out before), to their current address. Nothing

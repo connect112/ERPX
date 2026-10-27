@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from modules.authentication.models import User
-from modules.authorization.dependencies import require_permissions
+from modules.our_internships.access import internship_access
 from modules.internship_learning.project_service import ProjectService
 from modules.internship_learning.review_schemas import (
     AwardOut,
@@ -45,7 +45,7 @@ async def list_reviews(
     internship_id: uuid.UUID,
     project_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _project(db, internship_id, project_id, organization_id)
@@ -63,7 +63,7 @@ async def add_review(
     selection_id: uuid.UUID,
     payload: ReviewRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _project(db, internship_id, project_id, organization_id)
@@ -79,7 +79,7 @@ async def update_review(
     review_id: uuid.UUID,
     payload: ReviewRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _project(db, internship_id, project_id, organization_id)
@@ -95,7 +95,7 @@ async def delete_review(
     project_id: uuid.UUID,
     review_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _project(db, internship_id, project_id, organization_id)
@@ -111,7 +111,7 @@ async def publish_final(
     selection_id: uuid.UUID,
     payload: FinalRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Set the final marks (the average of the reviews unless given) and publish the result to the student."""
@@ -127,7 +127,7 @@ async def unpublish_final(
     project_id: uuid.UUID,
     selection_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _project(db, internship_id, project_id, organization_id)
@@ -143,7 +143,7 @@ async def unpublish_final(
 async def list_awards(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     await OurInternshipService(db).get(internship_id, organization_id)
@@ -155,7 +155,7 @@ async def create_award(
     internship_id: uuid.UUID,
     payload: AwardRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     await OurInternshipService(db).get(internship_id, organization_id)
@@ -170,7 +170,7 @@ async def update_award(
     award_id: uuid.UUID,
     payload: AwardUpdateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AwardService(db)
@@ -184,7 +184,7 @@ async def delete_award(
     internship_id: uuid.UUID,
     award_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AwardService(db)
@@ -198,7 +198,7 @@ async def grant_award(
     award_id: uuid.UUID,
     payload: GrantRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AwardService(db)
@@ -213,7 +213,7 @@ async def revoke_award(
     award_id: uuid.UUID,
     selection_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = AwardService(db)

@@ -12,7 +12,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.db.session import get_db
 from modules.authentication.dependencies import get_current_active_user
 from modules.authentication.models import User
-from modules.authorization.dependencies import require_permissions
+from modules.our_internships.access import internship_access
 from modules.internship_learning.project_models import InternshipProject, ProjectStatus, SubmissionMethod
 from modules.internship_learning.project_schemas import (
     MyProject,
@@ -65,7 +65,7 @@ async def _out(service: ProjectService, projects: list[InternshipProject]) -> li
 async def list_projects(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     await OurInternshipService(db).get(internship_id, organization_id)
@@ -78,7 +78,7 @@ async def create_project(
     internship_id: uuid.UUID,
     payload: ProjectCreateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     internship = await OurInternshipService(db).get(internship_id, organization_id)
@@ -93,7 +93,7 @@ async def project_selections(
     internship_id: uuid.UUID,
     project_id: uuid.UUID | None = Query(default=None),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """Which project each enrolled student chose, and what they handed in."""
@@ -106,7 +106,7 @@ async def get_project(
     internship_id: uuid.UUID,
     project_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = ProjectService(db)
@@ -119,7 +119,7 @@ async def update_project(
     project_id: uuid.UUID,
     payload: ProjectUpdateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = ProjectService(db)
@@ -137,7 +137,7 @@ async def delete_project(
     internship_id: uuid.UUID,
     project_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = ProjectService(db)
@@ -153,7 +153,7 @@ async def add_project_file(
     kind: str = Query(default="document"),
     file: UploadFile = File(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """A project document, or a template students start from (``kind`` = document | template)."""
@@ -184,7 +184,7 @@ async def delete_project_file(
     project_id: uuid.UUID,
     file_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = ProjectService(db)
@@ -206,7 +206,7 @@ async def mark_received(
     selection_id: uuid.UUID,
     payload: ReceivedRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Confirm (or take back) that a student's emailed work arrived."""
