@@ -20,6 +20,8 @@ def verify_url(certificate_number: str) -> str:
 
 
 PLACE_LABELS = {"first": "1st place", "second": "2nd place", "third": "3rd place"}
+# An internship's certificate exams carry the kind of certificate in `award`.
+INTERNSHIP_CERTIFICATES = ("participation", "completion")
 
 
 async def certificate_email(
@@ -29,6 +31,16 @@ async def certificate_email(
     hackathon award its winner / participation email (with that hackathon's own wording when it has written one)."""
     from modules.email_templates.render import render_email
 
+    if exam.internship_id is not None and exam.award in INTERNSHIP_CERTIFICATES:
+        from modules.our_internships.models import OurInternship
+
+        internship = (await db.execute(select(OurInternship).where(OurInternship.id == exam.internship_id))).scalar_one()
+        return await render_email(
+            db,
+            f"internship_{exam.award}_certificate",
+            {"full_name": full_name, "internship_title": internship.title},
+            organization_id=exam.organization_id,
+        )
     if exam.hackathon_id is None:
         return await render_email(
             db, "workshop_certificate", {"full_name": full_name, "exam_title": exam.title}, organization_id=exam.organization_id

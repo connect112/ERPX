@@ -494,3 +494,7 @@ from modules.internship_learning import review_routes  # noqa: E402
 
 router.include_router(review_routes.router)
 my_router.include_router(review_routes.my_router)
+
+from modules.internship_learning import certificate_routes  # noqa: E402
+
+router.include_router(certificate_routes.router)

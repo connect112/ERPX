@@ -15,6 +15,7 @@ import { type InternshipStatus, ourInternshipsApi, ourInternshipsKeys } from "@/
 import { AssignmentsTab } from "@/features/our-internships/components/assignments-tab";
 import { ExamsTab } from "@/features/our-internships/components/exams-tab";
 import { ProjectsTab } from "@/features/our-internships/components/projects-tab";
+import { CertificatesTab } from "@/features/our-internships/components/certificates-tab";
 import { AwardsTab } from "@/features/our-internships/components/awards-tab";
 import { OffersTab } from "@/features/our-internships/components/offers-tab";
 import { OnboardingTab } from "@/features/our-internships/components/onboarding-tab";
@@ -182,6 +183,7 @@ export function OurInternshipDetailPage() {
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
           <TabsTrigger value="projects">Projects</TabsTrigger>
           <TabsTrigger value="awards">Awards</TabsTrigger>
+          <TabsTrigger value="certificates">Certificates</TabsTrigger>
         </TabsList>
         <TabsContent value="students">
           {performance.isLoading ? (
@@ -223,6 +225,9 @@ export function OurInternshipDetailPage() {
         </TabsContent>
         <TabsContent value="awards">
           <AwardsTab internshipId={internshipId} canManage />
+        </TabsContent>
+        <TabsContent value="certificates">
+          <CertificatesTab internshipId={internshipId} canManage />
         </TabsContent>
       </Tabs>
     </div>

@@ -76,8 +76,12 @@ class WorkshopExamService:
     async def list_exams(self, organization_id: uuid.UUID) -> list[tuple[WorkshopExam, int, int]]:
         result = await self.db.execute(
             select(WorkshopExam)
-            # A hackathon's award certificates are managed from the hackathon, not listed here.
-            .where(WorkshopExam.organization_id == organization_id, WorkshopExam.hackathon_id.is_(None))
+            # Award certificates (a hackathon's, an internship's) are managed from their own page, not listed here.
+            .where(
+                WorkshopExam.organization_id == organization_id,
+                WorkshopExam.hackathon_id.is_(None),
+                WorkshopExam.award.is_(None),
+            )
             .order_by(WorkshopExam.created_at.desc())
         )
         exams = list(result.scalars().all())
