@@ -15,6 +15,8 @@ export interface OurInternship {
   status: InternshipStatus;
   selected_count: number;
   offers_released_at: string | null;
+  lms_course_id: string | null;
+  lms_course_title: string | null;
   created_at: string;
 }
 
@@ -111,6 +113,22 @@ export interface SelectedStudent {
   offer_status: OfferStatus;
   offer_sent_at: string | null;
   offer_error: string | null;
+  offer_response: OfferResponse;
+  offer_response_at: string | null;
+  verification_status: VerificationStatus;
+  verification_note: string | null;
+  verified_at: string | null;
+  payment_status: PaymentStatus;
+  payment_amount: number | null;
+  payment_reference: string | null;
+  payment_received_on: string | null;
+  payment_confirmed_at: string | null;
+  lms_status: LmsStatus;
+  lms_granted_at: string | null;
+  /** Where the student is overall, and what (if anything) stops LMS access being granted right now. */
+  stage: string;
+  stage_label: string;
+  grant_blockers: string[];
   standings: StudentPerformance[];
 }
 
@@ -227,4 +245,51 @@ export const offersApi = {
     apiClient
       .post<{ queued: number; already_sent: number; message: string }>(`/our-internships/${id}/offers/release`, payload)
       .then((r) => r.data),
+};
+
+// ------------------------------------------------------- onboarding: verification, payment, LMS access
+
+export type OfferResponse = "awaiting" | "accepted" | "declined";
+export type VerificationStatus = "pending" | "verified" | "rejected";
+export type PaymentStatus = "pending" | "paid";
+export type LmsStatus = "not_granted" | "granted" | "revoked";
+
+export interface OnboardingUpdate {
+  offer_response?: OfferResponse;
+  verification_status?: VerificationStatus;
+  verification_note?: string | null;
+  payment_status?: PaymentStatus;
+  payment_amount?: number | null;
+  payment_reference?: string | null;
+  payment_received_on?: string | null;
+}
+
+export interface CourseOption {
+  id: string;
+  title: string;
+  is_published: boolean;
+}
+
+export interface GrantResult {
+  student_id: string;
+  name: string;
+  ok: boolean;
+  message: string;
+}
+
+export const onboardingApi = {
+  courses: (id: string) => apiClient.get<CourseOption[]>(`/our-internships/${id}/lms/courses`).then((r) => r.data),
+  setCourse: (id: string, courseId: string | null) =>
+    apiClient.patch<OurInternship>(`/our-internships/${id}`, { lms_course_id: courseId }).then((r) => r.data),
+  student: (id: string, studentId: string) => apiClient.get<SelectedStudent>(`/our-internships/${id}/selected/${studentId}`).then((r) => r.data),
+  update: (id: string, studentId: string, payload: OnboardingUpdate) =>
+    apiClient.patch<SelectedStudent>(`/our-internships/${id}/selected/${studentId}/onboarding`, payload).then((r) => r.data),
+  updateMany: (id: string, studentIds: string[], payload: { offer_response?: OfferResponse; verification_status?: VerificationStatus; payment_status?: PaymentStatus }) =>
+    apiClient.post<{ changed: number; problems: string[] }>(`/our-internships/${id}/onboarding/bulk`, { student_ids: studentIds, ...payload }).then((r) => r.data),
+  grant: (id: string, studentId: string) =>
+    apiClient.post<SelectedStudent>(`/our-internships/${id}/selected/${studentId}/lms/grant`).then((r) => r.data),
+  grantMany: (id: string, studentIds: string[]) =>
+    apiClient.post<{ granted: number; results: GrantResult[] }>(`/our-internships/${id}/lms/grant`, { student_ids: studentIds }).then((r) => r.data),
+  revoke: (id: string, studentId: string) =>
+    apiClient.post<SelectedStudent>(`/our-internships/${id}/selected/${studentId}/lms/revoke`).then((r) => r.data),
 };

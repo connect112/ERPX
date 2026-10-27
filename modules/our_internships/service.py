@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError, ValidationError
 from modules.institutions.models import EventRegistration, Institution, InstitutionEvent, InstitutionStudent
 from modules.our_internships.models import InternshipScope, InternshipSelection, OurInternship
+from modules.courses.models import Course
+from modules.our_internships.onboarding import STAGE_LABELS, OnboardingService, grant_blockers, stage_of
 from modules.our_internships.performance import PerformanceBuilder
 from modules.our_internships.schemas import SelectedStudent
 
@@ -58,6 +60,8 @@ class OurInternshipService:
         for key in ("title", "status"):
             if key in fields and fields[key] is None:
                 raise ValidationError(f"{key.capitalize()} cannot be empty.")
+        if "lms_course_id" in fields:
+            await OnboardingService(self.db).set_course(internship, fields.pop("lms_course_id"))
         for key, value in fields.items():
             setattr(internship, key, value)
         await self.db.flush()
@@ -80,8 +84,8 @@ class OurInternshipService:
             .all()
         )
 
-    async def names(self, internships: list[OurInternship]) -> tuple[dict, dict, dict]:
-        """institution names, event names and selected counts for a batch of internships."""
+    async def names(self, internships: list[OurInternship]) -> tuple[dict, dict, dict, dict]:
+        """institution names, event names, selected counts and LMS course titles for a batch of internships."""
         institution_ids = {i.institution_id for i in internships if i.institution_id}
         event_ids = {i.event_id for i in internships if i.event_id}
         institutions = {}
@@ -102,7 +106,11 @@ class OurInternshipService:
                     )
                 ).all()
             )
-        return institutions, events, counts
+        course_ids = {i.lms_course_id for i in internships if i.lms_course_id}
+        courses = {}
+        if course_ids:
+            courses = dict((await self.db.execute(select(Course.id, Course.title).where(Course.id.in_(course_ids)))).all())
+        return institutions, events, counts, courses
 
     # ------------------------------------------------------------------ what it may select from
 
@@ -203,16 +211,17 @@ class OurInternshipService:
         selection.note = note
         await self.db.flush()
 
-    async def selected(self, internship: OurInternship) -> list[SelectedStudent]:
-        rows = (
-            await self.db.execute(
-                select(InternshipSelection, InstitutionStudent, Institution)
-                .join(InstitutionStudent, InstitutionStudent.id == InternshipSelection.student_id)
-                .join(Institution, Institution.id == InstitutionStudent.institution_id)
-                .where(InternshipSelection.internship_id == internship.id)
-                .order_by(InternshipSelection.created_at)
-            )
-        ).all()
+    async def selected(self, internship: OurInternship, only_student_id: uuid.UUID | None = None) -> list[SelectedStudent]:
+        query = (
+            select(InternshipSelection, InstitutionStudent, Institution)
+            .join(InstitutionStudent, InstitutionStudent.id == InternshipSelection.student_id)
+            .join(Institution, Institution.id == InstitutionStudent.institution_id)
+            .where(InternshipSelection.internship_id == internship.id)
+            .order_by(InternshipSelection.created_at)
+        )
+        if only_student_id is not None:
+            query = query.where(InternshipSelection.student_id == only_student_id)
+        rows = (await self.db.execute(query)).all()
         if not rows:
             return []
         ids = {student.id for _, student, _ in rows}
@@ -242,6 +251,21 @@ class OurInternshipService:
                 offer_status=selection.offer_status,
                 offer_sent_at=selection.offer_sent_at,
                 offer_error=selection.offer_error,
+                offer_response=selection.offer_response,
+                offer_response_at=selection.offer_response_at,
+                verification_status=selection.verification_status,
+                verification_note=selection.verification_note,
+                verified_at=selection.verified_at,
+                payment_status=selection.payment_status,
+                payment_amount=float(selection.payment_amount) if selection.payment_amount is not None else None,
+                payment_reference=selection.payment_reference,
+                payment_received_on=selection.payment_received_on,
+                payment_confirmed_at=selection.payment_confirmed_at,
+                lms_status=selection.lms_status,
+                lms_granted_at=selection.lms_granted_at,
+                stage=stage_of(selection),
+                stage_label=STAGE_LABELS[stage_of(selection)],
+                grant_blockers=grant_blockers(internship, selection),
                 standings=standings.get(student.id, []),
             )
             for selection, student, institution in rows
