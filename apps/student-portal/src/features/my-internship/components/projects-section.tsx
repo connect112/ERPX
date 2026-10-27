@@ -18,6 +18,7 @@ function allowedMethods(p: MyProject): SubmissionMethod[] {
 }
 
 function statusOf(p: MyProject): { label: string; variant: "success" | "warning" | "info" | "secondary" } {
+  if (p.submission?.result) return { label: "Result published", variant: "success" };
   if (p.submission) return { label: p.submission.is_late ? "Handed in late" : "Handed in", variant: p.submission.is_late ? "warning" : "success" };
   if (p.chosen_by_me) return { label: "Your project", variant: "info" };
   if (p.status === "closed") return { label: "Closed", variant: "secondary" };
@@ -193,6 +194,36 @@ function ProjectDialog({ internshipId, project: p, onClose }: { internshipId: st
               {s.method === "email" && (
                 <p className="text-xs text-muted-foreground">{s.received_at ? `Your email was received on ${formatDateTime(s.received_at)}.` : "Waiting for us to confirm that your email arrived."}</p>
               )}
+            </div>
+          )}
+
+          {s?.result && (
+            <div className="space-y-3 rounded-md border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-500/40 dark:bg-emerald-500/10">
+              <h3 className="text-sm font-medium">
+                Your result: {s.result.final_marks} / {s.result.max_marks}
+              </h3>
+              {s.result.feedback && <p className="whitespace-pre-wrap text-sm">{s.result.feedback}</p>}
+              {s.result.reviews.map((review) => (
+                <div key={review.label + review.reviewed_at} className="space-y-1 border-t pt-2 text-sm">
+                  <div className="flex justify-between gap-3 font-medium">
+                    <span>{review.label}</span>
+                    <span>
+                      {review.total} / {review.max_total}
+                    </span>
+                  </div>
+                  {review.factor_scores &&
+                    p.review_factors.map((f) => (
+                      <div key={f.id} className="flex justify-between gap-3 text-muted-foreground">
+                        <span>{f.name}</span>
+                        <span>
+                          {review.factor_scores?.[f.id] ?? 0} / {f.max_marks}
+                        </span>
+                      </div>
+                    ))}
+                  {review.feedback && <p className="whitespace-pre-wrap text-muted-foreground">{review.feedback}</p>}
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">Your result has been published, so this submission can no longer be changed.</p>
             </div>
           )}
 

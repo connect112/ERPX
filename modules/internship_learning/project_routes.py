@@ -29,6 +29,7 @@ from modules.internship_learning.project_service import (
     PROJECT_TEMPLATES,
     ProjectService,
 )
+from modules.internship_learning.review_service import ReviewService
 from modules.internship_learning.schemas import FileOut, MessageResponse
 from modules.our_internships.service import OurInternshipService
 from modules.students.dependencies import get_current_student
@@ -238,7 +239,7 @@ async def _my_project(service: ProjectService, project: InternshipProject, selec
         and not other_locked
         and (item.spots_left is None or item.spots_left > 0)
     )
-    item.can_submit = mine and service.window_open(project)
+    item.can_submit = mine and service.window_open(project) and not (submission and submission.final_published_at)
     if submission:
         files = (await service.files.for_owners(PROJECT_SUBMISSION_FILES, [submission.id])).get(submission.id, [])
         item.submission = MyProjectSubmission(
@@ -249,6 +250,7 @@ async def _my_project(service: ProjectService, project: InternshipProject, selec
             is_late=submission.is_late,
             files=[FileOut(**service.learning.file_out(f)) for f in files],
             received_at=submission.received_at,
+            result=await ReviewService(service.db).result_for_student(project, submission),
         )
     return item
 

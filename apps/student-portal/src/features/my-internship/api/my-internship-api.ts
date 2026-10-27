@@ -133,6 +133,8 @@ export interface MyProject {
   starts_at: string | null;
   deadline_at: string | null;
   allow_late: boolean;
+  review_factors: { id: string; name: string; max_marks: number }[];
+  max_marks: number;
   status: "published" | "closed";
   documents: StoredFile[];
   templates: StoredFile[];
@@ -148,6 +150,20 @@ export interface MyProject {
     is_late: boolean;
     files: StoredFile[];
     received_at: string | null;
+    result: {
+      final_marks: number | null;
+      max_marks: number;
+      feedback: string | null;
+      published_at: string;
+      reviews: {
+        label: string;
+        total: number;
+        max_total: number;
+        factor_scores: Record<string, number> | null;
+        feedback: string | null;
+        reviewed_at: string;
+      }[];
+    } | null;
   } | null;
 }
 
@@ -183,4 +199,23 @@ export function useProjectActions(id: string) {
       onSuccess: refresh,
     }),
   };
+}
+
+// ---------------- awards ----------------
+
+export interface MyAward {
+  id: string;
+  internship_id: string;
+  internship_title: string;
+  name: string;
+  description: string | null;
+  note: string | null;
+  granted_at: string;
+}
+
+export function useMyAwards() {
+  return useQuery({
+    queryKey: [...myInternshipKeys.all, "awards"],
+    queryFn: () => apiClient.get<MyAward[]>("/my-internship-awards").then((r) => r.data),
+  });
 }

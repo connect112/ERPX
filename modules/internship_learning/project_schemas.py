@@ -30,6 +30,12 @@ class ReferenceLink(BaseModel):
         return clean_url(value)
 
 
+class ReviewFactor(BaseModel):
+    id: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    max_marks: int = Field(ge=1, le=1000)
+
+
 class ProjectFields(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=8000)
@@ -46,6 +52,8 @@ class ProjectFields(BaseModel):
     starts_at: datetime | None = None
     deadline_at: datetime | None = None
     allow_late: bool = False
+    review_factors: list[ReviewFactor] = Field(default_factory=list, max_length=20)
+    max_marks: int = Field(default=100, ge=1, le=1000)
 
     @field_validator("title")
     @classmethod
@@ -86,6 +94,8 @@ class ProjectUpdateRequest(BaseModel):
     starts_at: datetime | None = None
     deadline_at: datetime | None = None
     allow_late: bool | None = None
+    review_factors: list[ReviewFactor] | None = Field(default=None, max_length=20)
+    max_marks: int | None = Field(default=None, ge=1, le=1000)
     status: ProjectStatus | None = None
 
     @field_validator("submission_email")
@@ -119,6 +129,8 @@ class ProjectOut(BaseModel):
     starts_at: datetime | None
     deadline_at: datetime | None
     allow_late: bool
+    review_factors: list[dict]
+    max_marks: int
     status: ProjectStatus
     created_at: datetime
     documents: list[FileOut] = []
@@ -154,6 +166,25 @@ class ReceivedRequest(BaseModel):
 # ---------------- student side ----------------
 
 
+class MyReview(BaseModel):
+    label: str
+    total: float
+    max_total: int
+    factor_scores: dict | None = None
+    feedback: str | None = None
+    reviewed_at: datetime
+
+
+class MyProjectResult(BaseModel):
+    """What a student sees once staff publish the final result."""
+
+    final_marks: float | None
+    max_marks: int
+    feedback: str | None
+    published_at: datetime
+    reviews: list[MyReview]
+
+
 class MyProjectSubmission(BaseModel):
     method: SubmissionMethod
     repository_url: str | None
@@ -162,6 +193,7 @@ class MyProjectSubmission(BaseModel):
     is_late: bool
     files: list[FileOut]
     received_at: datetime | None = None
+    result: MyProjectResult | None = None
 
 
 class MyProject(BaseModel):
@@ -180,6 +212,8 @@ class MyProject(BaseModel):
     starts_at: datetime | None
     deadline_at: datetime | None
     allow_late: bool
+    review_factors: list[dict] = []
+    max_marks: int = 100
     status: ProjectStatus
     documents: list[FileOut] = []
     templates: list[FileOut] = []
