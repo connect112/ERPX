@@ -64,6 +64,8 @@ export const DEFAULT_CERTIFICATE_LAYOUT: CertificateLayout = {
 export interface WorkshopExam {
   id: string;
   workshop_id: string | null;
+  /** The institution event this exam belongs to, if any. */
+  event_id?: string | null;
   title: string;
   description: string | null;
   duration_minutes: number;
@@ -89,6 +91,8 @@ export interface WorkshopExam {
 
 export interface ExamCreatePayload {
   title: string;
+  /** Create it already part of an institution event. */
+  event_id?: string;
   description?: string | null;
   duration_minutes: number;
   info_fields?: InfoField[];

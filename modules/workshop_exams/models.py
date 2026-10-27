@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_model import TimestampedBase
+from modules.institutions import models as _institutions_models  # noqa: F401  (event_id points at its table)
 
 
 class WorkshopExamStatus(str, enum.Enum):
@@ -40,6 +41,10 @@ class WorkshopExam(TimestampedBase):
     )
     workshop_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("workshops.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # The institution event this exam belongs to, if any (set from the event page or when linking it there).
+    event_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("institution_events.id", ondelete="SET NULL"), nullable=True, index=True
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -98,6 +98,10 @@ async def create_exam(
     user: User = Depends(require_permissions("workshops.manage")),
     db: AsyncSession = Depends(get_db),
 ):
+    # an exam created from an event page must be created for one of this organization's events
+    from modules.institutions.service import InstitutionService
+
+    await InstitutionService(db).assert_event_in_org(payload.event_id, organization_id)
     exam = await WorkshopExamService(db).create_exam(organization_id, **payload.model_dump())
     return _exam_out(exam, 0, 0)
 

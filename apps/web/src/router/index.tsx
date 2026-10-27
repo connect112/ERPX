@@ -96,6 +96,9 @@ const VerifyWorkshopCertificatePage = lazy(() => import("@/features/workshop-exa
 const WorkshopsListPage = lazy(() => import("@/features/workshops/pages/workshops-list-page").then((m) => ({ default: m.WorkshopsListPage })));
 const HackathonDetailPage = lazy(() => import("@/features/hackathons/pages/hackathon-detail-page").then((m) => ({ default: m.HackathonDetailPage })));
 const HackathonsListPage = lazy(() => import("@/features/hackathons/pages/hackathons-list-page").then((m) => ({ default: m.HackathonsListPage })));
+const InstitutionsListPage = lazy(() => import("@/features/institutions/pages/institutions-list-page").then((m) => ({ default: m.InstitutionsListPage })));
+const InstitutionDetailPage = lazy(() => import("@/features/institutions/pages/institution-detail-page").then((m) => ({ default: m.InstitutionDetailPage })));
+const InstitutionEventDetailPage = lazy(() => import("@/features/institutions/pages/event-detail-page").then((m) => ({ default: m.EventDetailPage })));
 const CompaniesListPage = lazy(() => import("@/features/placements/pages/companies-list-page").then((m) => ({ default: m.CompaniesListPage })));
 const PostingDetailPage = lazy(() => import("@/features/placements/pages/posting-detail-page").then((m) => ({ default: m.PostingDetailPage })));
 const SocialMediaPage = lazy(() => import("@/features/social-media/pages/social-media-page").then((m) => ({ default: m.SocialMediaPage })));
@@ -257,6 +260,9 @@ export const router = createBrowserRouter([
       { path: "workshops/:workshopId", element: <WorkshopDetailPage /> },
       { path: "hackathons", element: <HackathonsListPage /> },
       { path: "hackathons/:hackathonId", element: <HackathonDetailPage /> },
+      { path: "institutions", element: <InstitutionsListPage /> },
+      { path: "institutions/:institutionId", element: <InstitutionDetailPage /> },
+      { path: "institutions/:institutionId/events/:eventId", element: <InstitutionEventDetailPage /> },
       { path: "placements/companies", element: <CompaniesListPage /> },
       { path: "placements/postings", element: <PostingsListPage /> },
       { path: "placements/job-feed", element: <JobFeedPage /> },

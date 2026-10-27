@@ -40,6 +40,9 @@ from modules.examinations.router import router as examinations_router
 from modules.expense_claims.routes import router as expense_claims_router
 from modules.hr.routes import router as hr_router
 from modules.internships.routes import router as internships_router
+from modules.institutions.routes import events_router as institution_events_router
+from modules.institutions.routes import router as institutions_router
+from modules.institutions.routes import students_router as institution_students_router
 from modules.integrations.routes import router as integrations_router
 from modules.inventory.routes import router as inventory_router
 from modules.leave.routes import router as leave_router
@@ -120,6 +123,9 @@ api_router.include_router(workshops_router, prefix="/workshops", tags=["Workshop
 api_router.include_router(workshop_exams_router, prefix="/workshop-exams", tags=["Workshop Exams"])
 api_router.include_router(workshop_exams_public_router, prefix="/public", tags=["Workshop Exams (public)"])
 api_router.include_router(hackathons_router, prefix="/hackathons", tags=["Hackathons"])
+api_router.include_router(institutions_router, prefix="/institutions", tags=["Institutions"])
+api_router.include_router(institution_events_router, prefix="/institution-events", tags=["Institutions"])
+api_router.include_router(institution_students_router, prefix="/institution-students", tags=["Institutions"])
 api_router.include_router(email_templates_router, prefix="/email-templates", tags=["Email templates"])
 api_router.include_router(email_template_events_router, prefix="/hackathons", tags=["Email templates"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])
