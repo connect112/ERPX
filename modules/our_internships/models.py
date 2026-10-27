@@ -10,7 +10,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, deferred, mapped_column
@@ -39,6 +39,29 @@ class OfferStatus(str, enum.Enum):
     QUEUED = "queued"
     SENT = "sent"
     FAILED = "failed"
+
+
+class OfferResponse(str, enum.Enum):
+    AWAITING = "awaiting"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class VerificationStatus(str, enum.Enum):
+    PENDING = "pending"
+    VERIFIED = "verified"
+    REJECTED = "rejected"
+
+
+class PaymentStatus(str, enum.Enum):
+    PENDING = "pending"
+    PAID = "paid"
+
+
+class LmsStatus(str, enum.Enum):
+    NOT_GRANTED = "not_granted"
+    GRANTED = "granted"
+    REVOKED = "revoked"
 
 
 class OurInternship(TimestampedBase):
@@ -80,6 +103,10 @@ class OurInternship(TimestampedBase):
     # The date printed on the letters; empty means the day they are released.
     offer_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     offers_released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The LMS course selected students are enrolled in when they are given LMS access.
+    lms_course_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("courses.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
 
 class InternshipSelection(TimestampedBase):
@@ -112,3 +139,52 @@ class InternshipSelection(TimestampedBase):
     offer_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     offer_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     offer_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # What the student answered to the offer (recorded by staff).
+    offer_response: Mapped[OfferResponse] = mapped_column(
+        SAEnum(OfferResponse, name="our_internship_offer_response", values_callable=_values),
+        default=OfferResponse.AWAITING,
+        server_default=OfferResponse.AWAITING.value,
+        nullable=False,
+    )
+    offer_response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Verification of the student's documents and details.
+    verification_status: Mapped[VerificationStatus] = mapped_column(
+        SAEnum(VerificationStatus, name="our_internship_verification_status", values_callable=_values),
+        default=VerificationStatus.PENDING,
+        server_default=VerificationStatus.PENDING.value,
+        nullable=False,
+    )
+    verification_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Payment is confirmed by hand, after checking that the money has been received.
+    payment_status: Mapped[PaymentStatus] = mapped_column(
+        SAEnum(PaymentStatus, name="our_internship_payment_status", values_callable=_values),
+        default=PaymentStatus.PENDING,
+        server_default=PaymentStatus.PENDING.value,
+        nullable=False,
+    )
+    payment_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    payment_reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    payment_received_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    payment_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payment_confirmed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Access to the LMS (lms.pentrix.in): the account and course enrolment created for this student.
+    lms_status: Mapped[LmsStatus] = mapped_column(
+        SAEnum(LmsStatus, name="our_internship_lms_status", values_callable=_values),
+        default=LmsStatus.NOT_GRANTED,
+        server_default=LmsStatus.NOT_GRANTED.value,
+        nullable=False,
+    )
+    lms_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    lms_student_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("students.id", ondelete="SET NULL"), nullable=True
+    )
+    lms_granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lms_granted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

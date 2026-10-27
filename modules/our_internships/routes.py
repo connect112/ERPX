@@ -9,13 +9,19 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError, ServiceUnavailableError
+from app.core.exceptions import ConflictError, NotFoundError, ServiceUnavailableError, ValidationError
 from app.core.logging_config import get_logger
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.our_internships.models import OurInternship
 from modules.our_internships.schemas import (
+    BulkOnboardingRequest,
+    BulkOnboardingResponse,
+    CourseOption,
+    GrantLmsRequest,
+    GrantLmsResponse,
+    GrantResult,
     InternshipCreateRequest,
     InternshipOut,
     InternshipUpdateRequest,
@@ -26,13 +32,16 @@ from modules.our_internships.schemas import (
     OfferReleaseResponse,
     OfferSettings,
     OfferTestEmailRequest,
+    OnboardingUpdateRequest,
     PerformanceResponse,
     SelectedListResponse,
+    SelectedStudent,
     SelectionNoteRequest,
     SelectRequest,
 )
 from modules.our_internships.offer_letter import OfferLayout
 from modules.our_internships.offers import OfferService
+from modules.our_internships.onboarding import MAX_BULK_GRANT, OnboardingService, notify_access
 from modules.our_internships.service import OurInternshipService
 from modules.our_internships.tasks import enqueue_offers
 from modules.users.dependencies import get_current_user_organization_id
@@ -45,13 +54,14 @@ _PDF_HEADERS = {"X-Content-Type-Options": "nosniff"}
 
 
 async def _out(service: OurInternshipService, internships: list[OurInternship]) -> list[InternshipOut]:
-    institutions, events, counts = await service.names(internships)
+    institutions, events, counts, courses = await service.names(internships)
     out = []
     for i in internships:
         item = InternshipOut.model_validate(i)
         item.institution_name = institutions.get(i.institution_id)
         item.event_name = events.get(i.event_id)
         item.selected_count = counts.get(i.id, 0)
+        item.lms_course_title = courses.get(i.lms_course_id)
         out.append(item)
     return out
 
@@ -348,3 +358,139 @@ async def release_offers(
             f" {already_sent} were already sent." if already_sent else ""
         )
     return OfferReleaseResponse(queued=len(ids), already_sent=already_sent, message=message)
+
+# ================================================================ onboarding: verification, payment, LMS access
+
+
+async def _one(service: OurInternshipService, internship: OurInternship, student_id: uuid.UUID) -> SelectedStudent:
+    items = await service.selected(internship, only_student_id=student_id)
+    if not items:
+        raise NotFoundError("Selected student", student_id)
+    return items[0]
+
+
+@router.get("/{internship_id}/selected/{student_id}", response_model=SelectedStudent)
+async def selected_student(
+    internship_id: uuid.UUID,
+    student_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """One selected student's profile: results, offer, verification, payment and LMS access."""
+    service = OurInternshipService(db)
+    return await _one(service, await service.get(internship_id, organization_id), student_id)
+
+
+@router.get("/{internship_id}/lms/courses", response_model=list[CourseOption])
+async def lms_courses(
+    internship_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The courses a student can be enrolled in when given LMS access."""
+    await OurInternshipService(db).get(internship_id, organization_id)
+    return [CourseOption(id=c.id, title=c.title, is_published=c.is_published) for c in await OnboardingService(db).courses(organization_id)]
+
+
+@router.patch("/{internship_id}/selected/{student_id}/onboarding", response_model=SelectedStudent)
+async def update_onboarding(
+    internship_id: uuid.UUID,
+    student_id: uuid.UUID,
+    payload: OnboardingUpdateRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record the student's answer to the offer, the result of verification, or that payment was received."""
+    service = OurInternshipService(db)
+    internship = await service.get(internship_id, organization_id)
+    await OnboardingService(db).update_one(internship, student_id, user.id, payload.model_dump(exclude_unset=True))
+    return await _one(service, internship, student_id)
+
+
+@router.post("/{internship_id}/onboarding/bulk", response_model=BulkOnboardingResponse)
+async def update_onboarding_bulk(
+    internship_id: uuid.UUID,
+    payload: BulkOnboardingRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark several students at once (all verified, all paid...). A student who cannot take the change is reported by name."""
+    service = OurInternshipService(db)
+    internship = await service.get(internship_id, organization_id)
+    fields = payload.model_dump(exclude_unset=True, exclude={"student_ids"})
+    fields = {k: v for k, v in fields.items() if v is not None}
+    changed, problems = await OnboardingService(db).update_many(internship, payload.student_ids, user.id, fields)
+    return BulkOnboardingResponse(changed=changed, problems=problems)
+
+
+@router.post("/{internship_id}/selected/{student_id}/lms/grant", response_model=SelectedStudent)
+async def grant_lms_access(
+    internship_id: uuid.UUID,
+    student_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Give the student access to the LMS: an account (or their existing one) enrolled in the internship's course, and an
+    email telling them how to sign in. Only once verification and payment are both confirmed."""
+    service = OurInternshipService(db)
+    internship = await service.get(internship_id, organization_id)
+    onboarding = OnboardingService(db)
+    selection, student = await onboarding.selection(internship, student_id)
+    outcome = await onboarding.grant(internship, selection, student, user.id)
+    result = await _one(service, internship, student_id)
+    # tell the student only once the access is saved
+    await db.commit()
+    await notify_access(outcome)
+    return result
+
+
+@router.post("/{internship_id}/lms/grant", response_model=GrantLmsResponse)
+async def grant_lms_access_bulk(
+    internship_id: uuid.UUID,
+    payload: GrantLmsRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Give LMS access to several students (up to 25 at a time, each account takes a moment to create). One that cannot be
+    granted (not verified yet, an account that is not a student's) is reported and does not stop the others."""
+    if len(payload.student_ids) > MAX_BULK_GRANT:
+        raise ValidationError(f"Grant access to at most {MAX_BULK_GRANT} students at a time.")
+    service = OurInternshipService(db)
+    internship = await service.get(internship_id, organization_id)
+    onboarding = OnboardingService(db)
+    results, outcomes = [], []
+    for selection, student in await onboarding.selections(internship, payload.student_ids):
+        try:
+            async with db.begin_nested():
+                outcome = await onboarding.grant(internship, selection, student, user.id)
+            outcomes.append(outcome)
+            results.append(GrantResult(student_id=student.id, name=student.name, ok=True, message="LMS access granted."))
+        except (ValidationError, ConflictError) as exc:
+            results.append(GrantResult(student_id=student.id, name=student.name, ok=False, message=str(exc.message)))
+    await db.commit()
+    for outcome in outcomes:
+        await notify_access(outcome)
+    return GrantLmsResponse(granted=len(outcomes), results=results)
+
+
+@router.post("/{internship_id}/selected/{student_id}/lms/revoke", response_model=SelectedStudent)
+async def revoke_lms_access(
+    internship_id: uuid.UUID,
+    student_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Withdraw access to the course (the account itself stays). It can be granted again."""
+    service = OurInternshipService(db)
+    internship = await service.get(internship_id, organization_id)
+    onboarding = OnboardingService(db)
+    selection, _ = await onboarding.selection(internship, student_id)
+    await onboarding.revoke(internship, selection)
+    return await _one(service, internship, student_id)

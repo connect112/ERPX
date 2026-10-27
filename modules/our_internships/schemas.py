@@ -1,9 +1,18 @@
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
-from modules.our_internships.models import InternshipScope, OfferStatus, OurInternshipStatus
+from modules.our_internships.models import (
+    InternshipScope,
+    LmsStatus,
+    OfferResponse,
+    OfferStatus,
+    OurInternshipStatus,
+    PaymentStatus,
+    VerificationStatus,
+)
 from modules.our_internships.offer_letter import OfferLayout
 
 
@@ -49,6 +58,8 @@ class InternshipUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=2, max_length=255)
     description: str | None = Field(default=None, max_length=20000)
     status: OurInternshipStatus | None = None
+    # The LMS course students are enrolled in when given LMS access. Sent as null to clear it.
+    lms_course_id: uuid.UUID | None = None
 
     _trim_title = field_validator("title", mode="before")(_trim)
     _blank = field_validator("description", mode="before")(_blank_to_none)
@@ -66,6 +77,8 @@ class InternshipOut(BaseModel):
     status: OurInternshipStatus
     selected_count: int = 0
     offers_released_at: datetime | None = None
+    lms_course_id: uuid.UUID | None = None
+    lms_course_title: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -193,6 +206,22 @@ class SelectedStudent(BaseModel):
     offer_status: OfferStatus = OfferStatus.NOT_SENT
     offer_sent_at: datetime | None = None
     offer_error: str | None = None
+    offer_response: OfferResponse = OfferResponse.AWAITING
+    offer_response_at: datetime | None = None
+    verification_status: VerificationStatus = VerificationStatus.PENDING
+    verification_note: str | None = None
+    verified_at: datetime | None = None
+    payment_status: PaymentStatus = PaymentStatus.PENDING
+    payment_amount: float | None = None
+    payment_reference: str | None = None
+    payment_received_on: date | None = None
+    payment_confirmed_at: datetime | None = None
+    lms_status: LmsStatus = LmsStatus.NOT_GRANTED
+    lms_granted_at: datetime | None = None
+    # Where the student is overall, and what (if anything) stops LMS access being granted right now.
+    stage: str = "selected"
+    stage_label: str = "Selected"
+    grant_blockers: list[str] = Field(default_factory=list)
     # Their standing in each event of the internship's scope they are registered for.
     standings: list[StudentPerformance]
 
@@ -258,3 +287,73 @@ class OfferReleaseResponse(BaseModel):
 
 class OfferTestEmailRequest(BaseModel):
     to_email: EmailStr
+
+
+# ---- onboarding: verification, payment, LMS access ----
+
+
+class OnboardingUpdateRequest(BaseModel):
+    """What staff report about one student. Only the fields sent change."""
+
+    offer_response: OfferResponse | None = None
+    verification_status: VerificationStatus | None = None
+    verification_note: str | None = Field(default=None, max_length=2000)
+    payment_status: PaymentStatus | None = None
+    payment_amount: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    payment_reference: str | None = Field(default=None, max_length=120)
+    payment_received_on: date | None = None
+
+    @field_validator("verification_note", "payment_reference", mode="before")
+    @classmethod
+    def _blank_to_none(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+    @model_validator(mode="after")
+    def _required_ones_not_null(self):
+        for name in ("offer_response", "verification_status", "payment_status"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name.replace('_', ' ').capitalize()} cannot be empty.")
+        return self
+
+
+class BulkOnboardingRequest(BaseModel):
+    student_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=500)
+    offer_response: OfferResponse | None = None
+    verification_status: VerificationStatus | None = None
+    payment_status: PaymentStatus | None = None
+
+    @model_validator(mode="after")
+    def _something_to_change(self):
+        if self.offer_response is None and self.verification_status is None and self.payment_status is None:
+            raise ValueError("Choose what to change.")
+        return self
+
+
+class BulkOnboardingResponse(BaseModel):
+    changed: int
+    problems: list[str]
+
+
+class CourseOption(BaseModel):
+    id: uuid.UUID
+    title: str
+    is_published: bool = True
+
+
+class GrantLmsRequest(BaseModel):
+    student_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=25)
+
+
+class GrantResult(BaseModel):
+    student_id: uuid.UUID
+    name: str
+    ok: bool
+    message: str
+
+
+class GrantLmsResponse(BaseModel):
+    granted: int
+    results: list[GrantResult]
