@@ -4,10 +4,13 @@ students of its institution or event performed, and keep the shortlist of select
 """
 
 import uuid
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import NotFoundError, ServiceUnavailableError
+from app.core.logging_config import get_logger
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
@@ -17,15 +20,28 @@ from modules.our_internships.schemas import (
     InternshipOut,
     InternshipUpdateRequest,
     MessageResponse,
+    OfferEmailRequest,
+    OfferPreviewRequest,
+    OfferReleaseRequest,
+    OfferReleaseResponse,
+    OfferSettings,
+    OfferTestEmailRequest,
     PerformanceResponse,
     SelectedListResponse,
     SelectionNoteRequest,
     SelectRequest,
 )
+from modules.our_internships.offer_letter import OfferLayout
+from modules.our_internships.offers import OfferService
 from modules.our_internships.service import OurInternshipService
+from modules.our_internships.tasks import enqueue_offers
 from modules.users.dependencies import get_current_user_organization_id
 
+logger = get_logger(__name__)
+
 router = APIRouter()
+
+_PDF_HEADERS = {"X-Content-Type-Options": "nosniff"}
 
 
 async def _out(service: OurInternshipService, internships: list[OurInternship]) -> list[InternshipOut]:
@@ -166,3 +182,169 @@ async def unselect_student(
     service = OurInternshipService(db)
     await service.unselect(await service.get(internship_id, organization_id), student_id)
     return MessageResponse(message="Removed from the selected list.")
+
+# ================================================================ offer letters
+
+
+def _pdf(content: bytes, filename: str, disposition: str = "inline") -> Response:
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={**_PDF_HEADERS, "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@router.get("/{internship_id}/offer", response_model=OfferSettings)
+async def get_offer_settings(
+    internship_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The offer letter template, where details go on it, the email and what is left to do before releasing."""
+    service = OfferService(db)
+    return await service.settings(await service.get(internship_id, organization_id))
+
+
+@router.put("/{internship_id}/offer/template", response_model=OfferSettings)
+async def upload_offer_template(
+    internship_id: uuid.UUID,
+    file: UploadFile = File(...),
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = OfferService(db)
+    internship = await service.get(internship_id, organization_id)
+    await service.set_template(internship, file.filename or "offer-letter.pdf", await file.read())
+    return await service.settings(internship)
+
+
+@router.delete("/{internship_id}/offer/template", response_model=OfferSettings)
+async def remove_offer_template(
+    internship_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = OfferService(db)
+    internship = await service.get(internship_id, organization_id)
+    await service.remove_template(internship)
+    return await service.settings(internship)
+
+
+@router.get("/{internship_id}/offer/template")
+async def download_offer_template(
+    internship_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The uploaded PDF itself, for showing the page while placing the fields."""
+    internship = await OfferService(db).get(internship_id, organization_id)
+    if not internship.offer_template_data:
+        raise NotFoundError("Offer letter template")
+    return _pdf(internship.offer_template_data, internship.offer_template_filename or "offer-letter.pdf")
+
+
+@router.put("/{internship_id}/offer/layout", response_model=OfferSettings)
+async def save_offer_layout(
+    internship_id: uuid.UUID,
+    payload: OfferLayout,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    service = OfferService(db)
+    internship = await service.get(internship_id, organization_id)
+    await service.set_layout(internship, payload)
+    return await service.settings(internship)
+
+
+@router.put("/{internship_id}/offer/email", response_model=OfferSettings)
+async def save_offer_email(
+    internship_id: uuid.UUID,
+    payload: OfferEmailRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The email that carries each letter. Empty subject and body mean the standard wording."""
+    service = OfferService(db)
+    internship = await service.get(internship_id, organization_id)
+    await service.set_email(internship, payload.subject, payload.body, payload.offer_date)
+    return await service.settings(internship)
+
+
+@router.post("/{internship_id}/offer/preview")
+async def preview_offer_letter(
+    internship_id: uuid.UUID,
+    payload: OfferPreviewRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """A sample letter. Pass ``layout`` to preview field positions that are not saved yet."""
+    service = OfferService(db)
+    internship = await service.get(internship_id, organization_id)
+    return _pdf(service.sample_letter(internship, payload.layout), "offer-letter-preview.pdf")
+
+
+@router.get("/{internship_id}/selected/{student_id}/offer.pdf")
+async def student_offer_letter(
+    internship_id: uuid.UUID,
+    student_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """One student's letter exactly as it will be (or was) sent, for checking before release."""
+    service = OfferService(db)
+    pdf, filename = await service.student_letter(await service.get(internship_id, organization_id), student_id)
+    return _pdf(pdf, filename)
+
+
+@router.post("/{internship_id}/offer/test-email", response_model=MessageResponse)
+async def send_test_offer_email(
+    internship_id: uuid.UUID,
+    payload: OfferTestEmailRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send the real email with a sample letter to one address (yours), so the wording and the letter can be checked."""
+    service = OfferService(db)
+    await service.send_test(await service.get(internship_id, organization_id), str(payload.to_email))
+    return MessageResponse(message=f"A test email with a sample letter was sent to {payload.to_email}.")
+
+
+@router.post("/{internship_id}/offers/release", response_model=OfferReleaseResponse)
+async def release_offers(
+    internship_id: uuid.UUID,
+    payload: OfferReleaseRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate each selected student's letter from the template and email it to their registered address. The sends run
+    in the background; each student's status (queued, sent, failed with the reason) shows on the selected list."""
+    service = OfferService(db)
+    internship = await service.get(internship_id, organization_id)
+    ids, already_sent = await service.release(internship, payload.student_ids, payload.resend)
+    # queue only after the rows the workers read are committed
+    await db.commit()
+    if ids:
+        try:
+            enqueue_offers(ids)
+        except Exception as exc:  # noqa: BLE001 - e.g. the message broker is down
+            logger.warning("internship_offers_enqueue_failed", internship_id=str(internship_id), exc_info=True)
+            await service.revert_queue(ids)
+            await db.commit()
+            raise ServiceUnavailableError("The offers could not be queued right now. Nothing was sent; please try again.") from exc
+    if not ids:
+        message = "Nobody needs an offer right now." + (f" {already_sent} already sent." if already_sent else "")
+    else:
+        message = f"Sending {len(ids)} offer letter{'s' if len(ids) != 1 else ''}." + (
+            f" {already_sent} were already sent." if already_sent else ""
+        )
+    return OfferReleaseResponse(queued=len(ids), already_sent=already_sent, message=message)

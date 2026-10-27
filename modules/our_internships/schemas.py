@@ -1,9 +1,10 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
-from modules.our_internships.models import InternshipScope, OurInternshipStatus
+from modules.our_internships.models import InternshipScope, OfferStatus, OurInternshipStatus
+from modules.our_internships.offer_letter import OfferLayout
 
 
 def _trim(value):
@@ -64,6 +65,7 @@ class InternshipOut(BaseModel):
     event_name: str | None = None
     status: OurInternshipStatus
     selected_count: int = 0
+    offers_released_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -187,6 +189,10 @@ class SelectedStudent(BaseModel):
     institution_name: str
     note: str | None
     selected_at: datetime
+    offer_reference: str | None = None
+    offer_status: OfferStatus = OfferStatus.NOT_SENT
+    offer_sent_at: datetime | None = None
+    offer_error: str | None = None
     # Their standing in each event of the internship's scope they are registered for.
     standings: list[StudentPerformance]
 
@@ -194,3 +200,61 @@ class SelectedStudent(BaseModel):
 class SelectedListResponse(BaseModel):
     items: list[SelectedStudent]
     total: int
+
+
+# ---- offer letters ----
+
+
+class OfferSettings(BaseModel):
+    """Everything that makes up the offer: the template, where details go on it, and the email."""
+
+    has_template: bool
+    template_filename: str | None
+    template_pages: int | None
+    template_size: int | None
+    layout: OfferLayout | None
+    email_subject: str
+    email_body: str
+    email_is_default: bool
+    offer_date: date | None
+    placeholders: dict[str, str]
+    field_labels: dict[str, str]
+    released_at: datetime | None
+    # What still has to be done before offers can be released (empty when ready).
+    missing: list[str]
+    counts: dict[str, int]
+
+
+class OfferEmailRequest(BaseModel):
+    subject: str | None = Field(default=None, max_length=255)
+    body: str | None = Field(default=None, max_length=20000)
+    # The date printed on the letters; empty means the day they are released.
+    offer_date: date | None = None
+
+    @field_validator("subject", "body", mode="before")
+    @classmethod
+    def _blank_resets(cls, value):
+        # an empty subject/body means "use the standard wording again"
+        return value.strip() or None if isinstance(value, str) else value
+
+
+class OfferPreviewRequest(BaseModel):
+    layout: OfferLayout | None = None
+
+
+class OfferReleaseRequest(BaseModel):
+    # Release only these students (they must be on the selected list). Omitted: everyone not yet sent, and anyone whose
+    # earlier send failed.
+    student_ids: list[uuid.UUID] | None = Field(default=None, max_length=2000)
+    # Also send again to students whose offer was already sent (an explicit choice, e.g. a corrected letter).
+    resend: bool = False
+
+
+class OfferReleaseResponse(BaseModel):
+    queued: int
+    already_sent: int
+    message: str
+
+
+class OfferTestEmailRequest(BaseModel):
+    to_email: EmailStr

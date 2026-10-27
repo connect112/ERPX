@@ -238,6 +238,10 @@ class OurInternshipService:
                 institution_name=institution.name,
                 note=selection.note,
                 selected_at=selection.created_at,
+                offer_reference=selection.offer_reference,
+                offer_status=selection.offer_status,
+                offer_sent_at=selection.offer_sent_at,
+                offer_error=selection.offer_error,
                 standings=standings.get(student.id, []),
             )
             for selection, student, institution in rows
