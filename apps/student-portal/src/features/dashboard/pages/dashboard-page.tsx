@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { EnrollmentListItem } from "@/features/dashboard/components/enrollment-list-item";
 import { useMyStudentProfile } from "@/features/dashboard/api/student-hooks";
+import { AwardsOnProfile } from "@/features/my-internship/components/awards-section";
 import { useMyEnrollments } from "@/features/courses/api/courses-hooks";
 
 export function DashboardPage() {
@@ -23,6 +24,8 @@ export function DashboardPage() {
           Here's an overview of your enrollment and progress.
         </p>
       </div>
+
+      <AwardsOnProfile />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>

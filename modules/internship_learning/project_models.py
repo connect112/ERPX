@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -64,6 +64,10 @@ class InternshipProject(TimestampedBase):
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     allow_late: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # How reviews are marked: [{"id", "name", "max_marks"}]. With factors, max_marks is their sum; without, reviewers give
+    # one score out of max_marks.
+    review_factors: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    max_marks: Mapped[int] = mapped_column(Integer, default=100, server_default="100", nullable=False)
     status: Mapped[ProjectStatus] = mapped_column(
         SAEnum(ProjectStatus, name="internship_project_status", values_callable=_values),
         default=ProjectStatus.DRAFT,
@@ -122,3 +126,32 @@ class ProjectSubmission(TimestampedBase):
     received_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # The final result, set by staff once the reviews are in. Students see it only after it is published.
+    final_marks: Mapped[float | None] = mapped_column(Numeric(7, 2), nullable=True)
+    final_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    final_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ProjectReview(TimestampedBase):
+    """One review of a student's project submission. A submission can have several (a mid-way review, a final review, a
+    second reviewer), each marked on the project's factors."""
+
+    __tablename__ = "internship_project_reviews"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    submission_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("internship_project_submissions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    reviewer_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    # {factor id: marks}; total is their sum, or the single score when the project has no factors.
+    factor_scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    total: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False)
+    # What the total was out of when the review was written, so a later change to the project never rewrites it.
+    max_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)

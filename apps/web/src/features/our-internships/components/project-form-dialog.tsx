@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage, formatBytes } from "@/features/institutions/lib/format";
-import { type Project, type ProjectPayload, type ReferenceLink, projectsApi } from "@/features/our-internships/api/projects-api";
+import { type Project, type ProjectPayload, type ReferenceLink, type ReviewFactor, projectsApi } from "@/features/our-internships/api/projects-api";
 import { fromLocalInput, newRowId, toLocalInput } from "@/features/our-internships/lib/learning";
 import { submissionProblem } from "@/features/our-internships/lib/projects";
 
@@ -100,6 +100,8 @@ export function ProjectFormDialog({
   const [deadlineAt, setDeadlineAt] = useState(toLocalInput(project?.deadline_at ?? null));
   const [allowLate, setAllowLate] = useState(project?.allow_late ?? false);
   const [publish, setPublish] = useState(project ? project.status !== "draft" : false);
+  const [factors, setFactors] = useState<ReviewFactor[]>(project?.review_factors ?? []);
+  const [maxMarks, setMaxMarks] = useState(String(project?.max_marks ?? 100));
 
   const problem = submissionProblem({ allowFile, allowEmail, allowRepo, email, startsAt, deadlineAt });
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["our-internships", "projects", internshipId] });
@@ -120,6 +122,8 @@ export function ProjectFormDialog({
     starts_at: fromLocalInput(startsAt),
     deadline_at: fromLocalInput(deadlineAt),
     allow_late: allowLate,
+    review_factors: factors.filter((f) => f.name.trim()).map((f) => ({ ...f, name: f.name.trim() })),
+    max_marks: Math.max(1, Math.round(Number(maxMarks) || 100)),
   });
 
   const save = useMutation({
@@ -241,6 +245,45 @@ export function ProjectFormDialog({
                 </Button>
               </div>
             ))}
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium leading-none">Review factors</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => setFactors([...factors, { id: newRowId("f", factors.map((f) => f.id)), name: "", max_marks: 10 }])}>
+                <Plus className="h-3.5 w-3.5" />
+                Add factor
+              </Button>
+            </div>
+            {factors.length > 0 ? (
+              <>
+                {factors.map((factor, index) => (
+                  <div key={factor.id} className="flex gap-2">
+                    <Input aria-label={`Factor ${index + 1} name`} placeholder="Correctness, code quality, report..." value={factor.name} onChange={(e) => setFactors(factors.map((f) => (f.id === factor.id ? { ...f, name: e.target.value } : f)))} />
+                    <Input
+                      aria-label={`Factor ${index + 1} marks`}
+                      className="w-24"
+                      type="number"
+                      min={1}
+                      value={factor.max_marks}
+                      onChange={(e) => setFactors(factors.map((f) => (f.id === factor.id ? { ...f, max_marks: Math.max(1, Math.round(Number(e.target.value) || 1)) } : f)))}
+                    />
+                    <Button type="button" size="icon" variant="ghost" aria-label={`Remove factor ${index + 1}`} onClick={() => setFactors(factors.filter((f) => f.id !== factor.id))}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground">Total marks: {factors.reduce((sum, f) => sum + (f.max_marks || 0), 0)} (the sum of the factors).</p>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="pr-max" className="text-sm font-normal">
+                  No factors: reviewers give one score out of
+                </Label>
+                <Input id="pr-max" className="w-24" type="number" min={1} max={1000} value={maxMarks} onChange={(e) => setMaxMarks(e.target.value)} />
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">These cannot be changed once a review has been written.</p>
           </div>
 
           <FileList

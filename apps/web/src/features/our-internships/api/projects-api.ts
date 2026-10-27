@@ -10,6 +10,12 @@ export interface ReferenceLink {
   url: string;
 }
 
+export interface ReviewFactor {
+  id: string;
+  name: string;
+  max_marks: number;
+}
+
 export interface Project {
   id: string;
   internship_id: string;
@@ -28,6 +34,8 @@ export interface Project {
   starts_at: string | null;
   deadline_at: string | null;
   allow_late: boolean;
+  review_factors: ReviewFactor[];
+  max_marks: number;
   status: ProjectStatus;
   created_at: string;
   documents: StoredFile[];
@@ -52,6 +60,8 @@ export interface ProjectPayload {
   starts_at: string | null;
   deadline_at: string | null;
   allow_late: boolean;
+  review_factors: ReviewFactor[];
+  max_marks: number;
   status?: ProjectStatus;
 }
 

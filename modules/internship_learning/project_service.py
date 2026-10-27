@@ -8,7 +8,7 @@ work may be handed in (files, an email, a repository link) is decided per projec
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
@@ -16,6 +16,7 @@ from modules.internship_learning.files import FileService
 from modules.internship_learning.project_models import (
     InternshipProject,
     ProjectChoice,
+    ProjectReview,
     ProjectStatus,
     ProjectSubmission,
     SubmissionMethod,
@@ -72,6 +73,14 @@ class ProjectService:
             if len({link["id"] for link in links}) != len(links):
                 raise ValidationError("Two reference links share the same id.")
             fields["reference_links"] = links
+        if "review_factors" in fields and fields["review_factors"] is not None:
+            factors = [dict(f) for f in fields["review_factors"]]
+            if len({f["id"] for f in factors}) != len(factors):
+                raise ValidationError("Two review factors share the same id.")
+            fields["review_factors"] = factors
+            if factors:
+                # With factors the marks come from them, so the total is always what they add up to.
+                fields["max_marks"] = sum(f["max_marks"] for f in factors)
         starts, deadline = fields.get("starts_at"), fields.get("deadline_at")
         if starts and deadline and deadline <= starts:
             raise ValidationError("The deadline must be after the start time.")
@@ -104,6 +113,19 @@ class ProjectService:
             deadline = fields.get("deadline_at", project.deadline_at)
             if starts and deadline and deadline <= starts:
                 raise ValidationError("The deadline must be after the start time.")
+        if ("review_factors" in fields and fields["review_factors"] != project.review_factors) or (
+            "max_marks" in fields and fields["max_marks"] != project.max_marks
+        ):
+            reviewed = (
+                await self.db.execute(
+                    select(func.count())
+                    .select_from(ProjectReview)
+                    .join(ProjectSubmission, ProjectSubmission.id == ProjectReview.submission_id)
+                    .where(ProjectSubmission.project_id == project.id)
+                )
+            ).scalar_one()
+            if reviewed:
+                raise ConflictError("The review factors and total marks cannot be changed once reviews have been written.")
         if fields.get("capacity") is not None:
             chosen = await self._chosen_count(project.id)
             if fields["capacity"] < chosen:
@@ -123,6 +145,7 @@ class ProjectService:
         )
         for submission_id in submissions:
             await self.files.delete_all(PROJECT_SUBMISSION_FILES, submission_id)
+        await self.db.execute(delete(ProjectReview).where(ProjectReview.submission_id.in_(list(submissions) or [uuid.uuid4()])))
         await self.files.delete_all(PROJECT_FILES, project.id)
         await self.files.delete_all(PROJECT_TEMPLATES, project.id)
         await self.db.delete(project)
@@ -313,6 +336,8 @@ class ProjectService:
         if not allowed[method]:
             raise ValidationError("This project does not accept that way of submitting.")
         existing = await self._submission(project.id, selection.id)
+        if existing and existing.final_published_at:
+            raise ValidationError("Your result has been published, so this submission can no longer be changed.")
         kept = (
             (await self.files.for_owners(PROJECT_SUBMISSION_FILES, [existing.id])).get(existing.id, []) if existing else []
         )

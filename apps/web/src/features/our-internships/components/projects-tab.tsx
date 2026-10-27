@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { errorMessage, formatBytes } from "@/features/institutions/lib/format";
 import { type Project, type ProjectSelectionRow, projectKeys, projectsApi } from "@/features/our-internships/api/projects-api";
 import { ProjectFormDialog } from "@/features/our-internships/components/project-form-dialog";
+import { ReviewsDialog } from "@/features/our-internships/components/reviews-dialog";
 import { formatDateTime } from "@/features/our-internships/lib/learning";
 import { METHOD_LABELS, PROJECT_STATUS, allowedMethods } from "@/features/our-internships/lib/projects";
 
@@ -16,6 +17,7 @@ import { METHOD_LABELS, PROJECT_STATUS, allowedMethods } from "@/features/our-in
 export function ProjectsTab({ internshipId, canManage }: { internshipId: string; canManage: boolean }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Project | "new" | null>(null);
+  const [reviewing, setReviewing] = useState<Project | null>(null);
   const projects = useQuery({ queryKey: projectKeys.list(internshipId), queryFn: () => projectsApi.list(internshipId) });
   const selections = useQuery({ queryKey: projectKeys.selections(internshipId), queryFn: () => projectsApi.selections(internshipId) });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["our-internships", "projects", internshipId] });
@@ -89,6 +91,9 @@ export function ProjectsTab({ internshipId, canManage }: { internshipId: string;
                       <TableCell className="text-right">{p.submitted_count}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setReviewing(p)}>
+                            Reviews
+                          </Button>
                           {canManage && (
                             <>
                               <Button size="sm" variant="ghost" aria-label={`Edit ${p.title}`} onClick={() => setEditing(p)}>
@@ -194,6 +199,7 @@ export function ProjectsTab({ internshipId, canManage }: { internshipId: string;
         {received.isError && <p className="text-sm text-destructive">{errorMessage(received.error, "Could not update that.")}</p>}
       </section>
 
+      {reviewing && <ReviewsDialog internshipId={internshipId} project={reviewing} canManage={canManage} onClose={() => setReviewing(null)} />}
       {editing && <ProjectFormDialog internshipId={internshipId} project={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={() => void refresh()} />}
     </div>
   );
