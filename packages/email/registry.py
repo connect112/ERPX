@@ -153,6 +153,37 @@ TEMPLATES: tuple[TemplateDef, ...] = (
         has_attachment=True,
     ),
     TemplateDef(
+        key="internship_completion_certificate",
+        name="Internship completion certificate",
+        category="Internships",
+        description="Delivers a student's certificate of completion (attached as a PDF).",
+        when_sent="When the completion certificates of an internship are sent.",
+        subject="Your internship completion certificate: {{internship_title}}",
+        body=(
+            "# Congratulations, {{full_name}}!\n\n"
+            "You have completed **{{internship_title}}**. "
+            "Your certificate of completion is attached to this email as a PDF.\n\n"
+            "> Well done, and thank you for all your work."
+        ),
+        variables=(_NAME, Variable("internship_title", "The internship's title", "Pentrix Cyber Internship")),
+        has_attachment=True,
+    ),
+    TemplateDef(
+        key="internship_participation_certificate",
+        name="Internship participation certificate",
+        category="Internships",
+        description="Delivers a student's certificate of participation (attached as a PDF).",
+        when_sent="When the participation certificates of an internship are sent.",
+        subject="Your internship participation certificate: {{internship_title}}",
+        body=(
+            "# Thank you for taking part\n\n"
+            "Hi {{full_name}}, thank you for taking part in **{{internship_title}}**. "
+            "Your certificate of participation is attached to this email as a PDF."
+        ),
+        variables=(_NAME, Variable("internship_title", "The internship's title", "Pentrix Cyber Internship")),
+        has_attachment=True,
+    ),
+    TemplateDef(
         key="workshop_exam_invite",
         name="Exam invite",
         category="Workshops & exams",

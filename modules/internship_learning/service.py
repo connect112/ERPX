@@ -379,7 +379,11 @@ class InternshipLearningService:
     async def exams_of(self, internship_id: uuid.UUID, organization_id: uuid.UUID) -> list[WorkshopExam]:
         result = await self.db.execute(
             select(WorkshopExam)
-            .where(WorkshopExam.internship_id == internship_id, WorkshopExam.organization_id == organization_id)
+            .where(
+                WorkshopExam.internship_id == internship_id,
+                WorkshopExam.organization_id == organization_id,
+                WorkshopExam.award.is_(None),
+            )
             .order_by(WorkshopExam.created_at.desc())
         )
         return list(result.scalars().all())
@@ -431,6 +435,7 @@ class InternshipLearningService:
                 WorkshopExam.event_id.is_(None),
                 WorkshopExam.hackathon_id.is_(None),
                 WorkshopExam.workshop_id.is_(None),
+                WorkshopExam.award.is_(None),
             )
             .order_by(WorkshopExam.created_at.desc())
         )
@@ -549,6 +554,7 @@ class InternshipLearningService:
                 WorkshopExam.internship_id == internship_id,
                 WorkshopExam.organization_id == organization_id,
                 WorkshopExam.status != WorkshopExamStatus.DRAFT,
+                WorkshopExam.award.is_(None),
                 WorkshopExamAttendee.email == email,
                 WorkshopExamAttendee.certificate_only.is_(False),
             )
