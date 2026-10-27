@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, RefreshCw, UserMinus } from "lucide-react";
+import { Eye, UserMinus } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +12,11 @@ import { errorMessage } from "@/features/institutions/lib/format";
 import {
   type OfferStatus,
   type SelectedStudent,
-  offerKeys,
-  offersApi,
   ourInternshipsApi,
   ourInternshipsKeys,
 } from "@/features/our-internships/api/our-internships-api";
+import { lettersApi } from "@/features/our-internships/api/letters-api";
+import { openBlob } from "@/features/our-internships/lib/letters";
 import { formatMarks, formatScore, formatTeamScore } from "@/features/our-internships/lib/performance";
 import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
@@ -38,13 +38,9 @@ export function SelectedStudentsTab({ internshipId }: { internshipId: string }) 
     refetchInterval: (query) => (query.state.data?.items.some((i) => i.offer_status === "queued") ? 4000 : false),
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ourInternshipsKeys.all });
-  const preview = useMutation({ mutationFn: (studentId: string) => offersApi.previewStudent(internshipId, studentId) });
-  const resend = useMutation({
-    mutationFn: (studentId: string) => offersApi.release(internshipId, { student_ids: [studentId], resend: true }),
-    onSuccess: () => {
-      void refresh();
-      void queryClient.invalidateQueries({ queryKey: offerKeys.settings(internshipId) });
-    },
+  // the letter as it would be made from the saved settings; making, approving and emailing the real ones is on the Offer letters tab
+  const preview = useMutation({
+    mutationFn: async (studentId: string) => openBlob((await lettersApi.preview(internshipId, studentId, null)).blob),
   });
   const remove = useMutation({ mutationFn: (studentId: string) => ourInternshipsApi.unselect(internshipId, studentId), onSuccess: refresh });
   const saveNote = useMutation({
@@ -111,20 +107,6 @@ export function SelectedStudentsTab({ internshipId }: { internshipId: string }) 
                         <Eye className="mr-1 h-3.5 w-3.5" />
                         Preview
                       </Button>
-                      {(s.offer_status === "sent" || s.offer_status === "failed") && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2"
-                          disabled={resend.isPending}
-                          onClick={() => {
-                            if (window.confirm(`Send ${s.name} their offer letter again?`)) resend.mutate(s.student_id);
-                          }}
-                        >
-                          <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                          {s.offer_status === "failed" ? "Retry" : "Resend"}
-                        </Button>
-                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -148,10 +130,9 @@ export function SelectedStudentsTab({ internshipId }: { internshipId: string }) 
         </CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">{items.length} selected</p>
-      {(remove.isError || saveNote.isError || preview.isError || resend.isError) && (
-        <p className="text-sm text-destructive">{errorMessage(remove.error ?? saveNote.error ?? preview.error ?? resend.error, "Could not do that.")}</p>
+      {(remove.isError || saveNote.isError || preview.isError) && (
+        <p className="text-sm text-destructive">{errorMessage(remove.error ?? saveNote.error ?? preview.error, "Could not do that.")}</p>
       )}
-      {resend.isSuccess && <p className="text-sm text-emerald-700 dark:text-emerald-400">{resend.data.message}</p>}
     </div>
   );
 }
