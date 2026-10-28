@@ -478,6 +478,19 @@ class StudioService:
         await self.db.flush()
         return await self.out(template)
 
+    async def delete(self, template: EmailStudioTemplate) -> None:
+        """Delete a studio template and all its versions. The built-in ERPX emails are not studio templates, so they can never be
+        deleted here, and a template an ERPX email is using cannot be deleted until it is taken off that email (otherwise the
+        email would silently go back to its older wording). Emails already sent keep their history rows."""
+        used = list(
+            (await self.db.execute(select(EmailTemplateAssignment.key).where(EmailTemplateAssignment.template_id == template.id))).scalars().all()
+        )
+        if used:
+            names = ", ".join(get_def(k).name if get_def(k) else k for k in sorted(set(used)))
+            raise ConflictError(f"This template is used for: {names}. Take it off under 'Use for' first, then delete it.")
+        await self.db.delete(template)
+        await self.db.flush()
+
     # ------------------------------------------------------------------ which template an ERPX email uses
 
     async def assign(self, key: str, template_id: uuid.UUID, hackathon_id: uuid.UUID | None, user_id: uuid.UUID) -> None:

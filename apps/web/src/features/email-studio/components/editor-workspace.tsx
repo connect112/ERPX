@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Eye, Redo2, Save, Send, Undo2, Upload, Trash2, Plus } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ type Panel = "email" | "placeholders" | "versions" | "use";
  */
 export function EditorWorkspace({ template, onTemplate }: { template: TemplateOut; onTemplate: (t: TemplateOut, remount: boolean) => void }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const perms = useStudioPermissions();
   const brands = useBrands();
   const signatures = useSignatures();
@@ -131,6 +132,14 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
     },
   });
   const discard = useMutation({ mutationFn: () => studioApi.discardDraft(template.id), onSuccess: (t) => done(t, true) });
+  const remove = useMutation({
+    mutationFn: () => studioApi.remove(template.id),
+    onSuccess: () => {
+      setDirty(false);
+      void queryClient.invalidateQueries({ queryKey: studioKeys.library });
+      navigate("/administration/email-templates");
+    },
+  });
   const restore = useMutation({ mutationFn: (versionId: string) => studioApi.restore(template.id, versionId), onSuccess: (t) => done(t, true) });
   const versions = useQuery({ queryKey: studioKeys.versions(template.id), queryFn: () => studioApi.versions(template.id), enabled: panel === "versions" });
 
@@ -162,8 +171,8 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
   const setAttachments = (next: Attachment[]) => edit(setConfig)({ ...config, attachments: next });
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="space-y-4 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:space-y-0 xl:gap-3">
+      <div className="flex flex-wrap items-center gap-3 xl:shrink-0">
         <Link to="/administration/email-templates" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Library
         </Link>
@@ -188,6 +197,18 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
           <Button variant="outline" onClick={() => { setPreviewKey((n) => n + 1); setPreviewOpen(true); }}>
             <Eye className="h-4 w-4" /> Preview
           </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Delete this template"
+            title="Delete this template"
+            disabled={!perms.canManage || remove.isPending}
+            onClick={() => {
+              if (window.confirm(`Delete "${template.name}" for good? All its versions are deleted too. Emails already sent are not affected.`)) remove.mutate();
+            }}
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
           <Button variant="outline" disabled={!perms.canManage} onClick={() => setTestOpen(true)}>
             <Send className="h-4 w-4" /> Send test
           </Button>
@@ -206,18 +227,18 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
         </div>
       </div>
       {archived && <p className="rounded-md border p-3 text-sm text-muted-foreground">This template is archived. Restore it from the library to edit it.</p>}
-      {(save.isError || publish.isError || discard.isError || restore.isError) && (
-        <p role="alert" className="text-sm text-destructive">
-          {errorMessage(save.error ?? publish.error ?? discard.error ?? restore.error, "Could not do that.")}
+      {(save.isError || publish.isError || discard.isError || restore.isError || remove.isError) && (
+        <p role="alert" className="text-sm text-destructive xl:shrink-0">
+          {errorMessage(save.error ?? publish.error ?? discard.error ?? restore.error ?? remove.error, "Could not do that.")}
         </p>
       )}
       {notice && !dirty && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="min-w-0">
+      <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_22rem] xl:grid-rows-[minmax(0,1fr)]">
+        <div className="min-w-0 xl:min-h-0 xl:overflow-y-auto">
           {template.source_type === "visual" && (
             <Suspense fallback={<Skeleton className="h-[60vh] w-full" />}>
-              <div onFocusCapture={() => { inserter.current = (text) => visual.current?.insertText(text); }}>
+              <div className="xl:h-full" onFocusCapture={() => { inserter.current = (text) => visual.current?.insertText(text); }}>
                 <VisualEditor ref={visual} content={cur.editor_json} theme={brandTheme(brand)} onChange={() => !readOnly && setDirty(true)} />
               </div>
             </Suspense>
@@ -237,7 +258,7 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
           {template.source_type === "code" && !code && <p className="text-sm text-destructive">This approved template is no longer available.</p>}
         </div>
 
-        <aside className="min-w-0 space-y-3 rounded-md border p-3" aria-label="Email settings">
+        <aside className="min-w-0 space-y-3 rounded-md border p-3 xl:min-h-0 xl:overflow-y-auto" aria-label="Email settings">
           <div className="flex flex-wrap gap-1" role="tablist">
             {([["email", "Email"], ["placeholders", "Placeholders"], ["versions", "Versions"], ["use", "Use for"]] as [Panel, string][]).map(([id, label]) => (
               <Button key={id} role="tab" aria-selected={panel === id} size="sm" variant={panel === id ? "default" : "ghost"} onClick={() => setPanel(id)}>

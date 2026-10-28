@@ -123,6 +123,14 @@ async def publish_template(template_id: uuid.UUID, organization_id: uuid.UUID = 
     return await service.publish(await service.template(template_id), user.id)
 
 
+@router.delete("/templates/{template_id}", response_model=MessageOut)
+async def delete_template(template_id: uuid.UUID, organization_id: uuid.UUID = Org, user: User = Manage, db: AsyncSession = Db):
+    """Delete a template you made (never a built-in ERPX email). Refused while an ERPX email uses it."""
+    service = StudioService(db, organization_id)
+    await service.delete(await service.template(template_id))
+    return MessageOut(message="Deleted.")
+
+
 @router.post("/templates/{template_id}/duplicate", response_model=TemplateOut, status_code=201)
 async def duplicate_template(template_id: uuid.UUID, organization_id: uuid.UUID = Org, user: User = Manage, db: AsyncSession = Db):
     service = StudioService(db, organization_id)

@@ -268,6 +268,7 @@ export const studioApi = {
   saveDraft: (id: string, payload: DraftPayload) => apiClient.put<TemplateOut>(`${base}/templates/${id}/draft`, payload).then((r) => r.data),
   discardDraft: (id: string) => apiClient.delete<TemplateOut>(`${base}/templates/${id}/draft`).then((r) => r.data),
   publish: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/publish`).then((r) => r.data),
+  remove: (id: string) => apiClient.delete<{ message: string }>(`${base}/templates/${id}`).then((r) => r.data),
   duplicate: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/duplicate`).then((r) => r.data),
   archive: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/archive`).then((r) => r.data),
   unarchive: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/unarchive`).then((r) => r.data),

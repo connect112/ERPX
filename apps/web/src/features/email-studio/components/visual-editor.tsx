@@ -63,7 +63,7 @@ export const VisualEditor = forwardRef<VisualEditorHandle, Props>(function Visua
   );
 
   return (
-    <div className="flex h-[calc(100vh-15rem)] min-h-[520px] overflow-hidden rounded-md border bg-white text-gray-900">
+    <div className="flex h-[70vh] min-h-[420px] overflow-hidden rounded-md border bg-white text-gray-900 xl:h-full">
       <EmailEditor
         ref={editor}
         content={(content ?? EMPTY_DOC) as never}

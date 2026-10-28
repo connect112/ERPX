@@ -19,7 +19,7 @@ export function EditorPage() {
     return <p className="p-8 text-sm text-destructive">{errorMessage(template.error, "Could not open this template.")}</p>;
   }
   return (
-    <div className="p-6">
+    <div className="p-6 xl:flex xl:h-[calc(100vh-4rem)] xl:flex-col xl:overflow-hidden">
       <EditorWorkspace
         key={`${templateId}-${remount}`}
         template={template.data}
