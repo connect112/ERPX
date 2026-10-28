@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ValidationError
 from app.db.session import get_db
 from modules.authentication.models import User
-from modules.authorization.dependencies import require_permissions
+from modules.our_internships.access import internship_access
 from modules.institutions.routes import _read_list
 from modules.institutions.routes import candidates_out
 from modules.institutions.schemas import CandidatesAddOut, CandidatesAddRequest, CandidatesOut, ImportResult
@@ -67,7 +67,7 @@ async def _students(db: AsyncSession, internship_id: uuid.UUID, organization_id:
 async def destinations(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """The institutions and events students can be added to for this internship."""
@@ -79,7 +79,7 @@ async def add_student(
     internship_id: uuid.UUID,
     payload: StudentAddRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Add one student to an event of this internship. Someone already at the institution is reused, not duplicated."""
@@ -101,7 +101,7 @@ async def import_students(
     text: str | None = Form(default=None),
     dry_run: bool = Form(default=False),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Import a list (name, email, phone) into an event of this internship. With dry_run nothing is written."""
@@ -122,7 +122,7 @@ class ValidationEvent(BaseModel):
 async def validation_events(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """The events in this internship's scope that have exams or hackathons linked, whose people can be validated."""
@@ -137,7 +137,7 @@ async def student_candidates(
     internship_id: uuid.UUID,
     event_id: uuid.UUID = Query(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     """The people of one event's linked exams and hackathons, combined by email into one entry each, to validate."""
@@ -150,7 +150,7 @@ async def add_student_candidates(
     payload: CandidatesAddRequest,
     event_id: uuid.UUID = Query(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Add the verified people to the institution and register them for the event."""
@@ -164,7 +164,7 @@ async def update_student(
     student_id: uuid.UUID,
     payload: StudentUpdateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Edit a student's details, and their individual score and remarks for the given event."""
@@ -181,7 +181,7 @@ async def remove_student(
     student_id: uuid.UUID,
     event_id: uuid.UUID = Query(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Take a student off the event. They stay at the institution and in their other events."""

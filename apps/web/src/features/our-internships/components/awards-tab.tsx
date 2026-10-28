@@ -13,11 +13,13 @@ import { errorMessage } from "@/features/institutions/lib/format";
 import { projectKeys, projectsApi } from "@/features/our-internships/api/projects-api";
 import { type Award, awardsApi, reviewKeys } from "@/features/our-internships/api/reviews-api";
 import { formatDateTime } from "@/features/our-internships/lib/learning";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 const selectClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";
 
 /** Awards for the internship (Best Project, Top Performer...) and who holds them. Students see theirs on their profile. */
 export function AwardsTab({ internshipId, canManage }: { internshipId: string; canManage: boolean }) {
+  const canDelete = useCanDelete();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Award | "new" | null>(null);
   const [granting, setGranting] = useState<Award | null>(null);
@@ -60,6 +62,7 @@ export function AwardsTab({ internshipId, canManage }: { internshipId: string; c
                       <Button size="icon" variant="ghost" aria-label={`Edit ${award.name}`} onClick={() => setEditing(award)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
+                      {canDelete && (
                       <Button
                         size="icon"
                         variant="ghost"
@@ -71,6 +74,7 @@ export function AwardsTab({ internshipId, canManage }: { internshipId: string; c
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -88,7 +92,7 @@ export function AwardsTab({ internshipId, canManage }: { internshipId: string; c
                           <span className="ml-2 text-xs text-muted-foreground">{formatDateTime(g.granted_at)}</span>
                           {g.note && <div className="text-xs text-muted-foreground">{g.note}</div>}
                         </div>
-                        {canManage && (
+                        {canManage && canDelete && (
                           <Button size="icon" variant="ghost" aria-label={`Take ${award.name} from ${g.student_name}`} disabled={revoke.isPending} onClick={() => revoke.mutate({ awardId: award.id, selectionId: g.selection_id })}>
                             <X className="h-3.5 w-3.5" />
                           </Button>

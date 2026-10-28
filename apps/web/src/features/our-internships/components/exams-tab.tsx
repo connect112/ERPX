@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { errorMessage } from "@/features/institutions/lib/format";
 import { type ExamSummary, examsApi, learningKeys } from "@/features/our-internships/api/learning-api";
 import { EXAM_STATE_LABELS, formatDateTime } from "@/features/our-internships/lib/learning";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 const selectClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";
 const examVariant = { draft: "secondary", open: "success", closed: "warning" } as const;
@@ -22,6 +23,7 @@ const examVariant = { draft: "secondary", open: "success", closed: "warning" } a
  * internship. Assigning puts every student who has LMS access on the exam, each with their own personal link.
  */
 export function ExamsTab({ internshipId, canManage }: { internshipId: string; canManage: boolean }) {
+  const canDelete = useCanDelete();
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [linking, setLinking] = useState(false);
@@ -127,6 +129,7 @@ export function ExamsTab({ internshipId, canManage }: { internshipId: string; ca
                             <Send className="h-3.5 w-3.5" />
                             Assign &amp; invite
                           </Button>
+                          {canDelete && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -138,6 +141,7 @@ export function ExamsTab({ internshipId, canManage }: { internshipId: string; ca
                           >
                             <Unlink className="h-3.5 w-3.5" />
                           </Button>
+                          )}
                         </>
                       )}
                     </div>

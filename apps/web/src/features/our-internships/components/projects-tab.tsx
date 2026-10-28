@@ -12,9 +12,11 @@ import { ProjectFormDialog } from "@/features/our-internships/components/project
 import { ReviewsDialog } from "@/features/our-internships/components/reviews-dialog";
 import { formatDateTime } from "@/features/our-internships/lib/learning";
 import { METHOD_LABELS, PROJECT_STATUS, allowedMethods } from "@/features/our-internships/lib/projects";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 /** The internship's projects, and which project each enrolled student chose and handed in. */
 export function ProjectsTab({ internshipId, canManage }: { internshipId: string; canManage: boolean }) {
+  const canDelete = useCanDelete();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Project | "new" | null>(null);
   const [reviewing, setReviewing] = useState<Project | null>(null);
@@ -99,6 +101,7 @@ export function ProjectsTab({ internshipId, canManage }: { internshipId: string;
                               <Button size="sm" variant="ghost" aria-label={`Edit ${p.title}`} onClick={() => setEditing(p)}>
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
+                              {canDelete && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -110,6 +113,7 @@ export function ProjectsTab({ internshipId, canManage }: { internshipId: string;
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
+                              )}
                             </>
                           )}
                         </div>

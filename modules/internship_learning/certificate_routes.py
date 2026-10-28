@@ -9,7 +9,7 @@ from app.core.exceptions import ServiceUnavailableError, ValidationError
 from app.core.logging_config import get_logger
 from app.db.session import get_db
 from modules.authentication.models import User
-from modules.authorization.dependencies import require_permissions
+from modules.our_internships.access import internship_access
 from modules.internship_learning.certificate_schemas import (
     CertificateInfo,
     CertificatesOverview,
@@ -55,7 +55,7 @@ async def _overview(service: CertificateService, internship, exams) -> Certifica
 async def open_certificates(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """The two certificates (participation and completion) and who is eligible for each. They are created the first time
@@ -72,7 +72,7 @@ async def open_certificates(
 async def certificates_overview(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     internship = await OurInternshipService(db).get(internship_id, organization_id)
@@ -85,7 +85,7 @@ async def set_eligibility(
     internship_id: uuid.UUID,
     payload: EligibilityRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Choose the certificate these students are eligible for (or none). A student is on one list only."""
@@ -100,7 +100,7 @@ async def issue_certificates(
     internship_id: uuid.UUID,
     payload: IssueRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Release the certificates. Without `confirm` it only lists who would get what. With it, the certificates are

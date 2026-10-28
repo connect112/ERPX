@@ -10,6 +10,7 @@ import { errorMessage, formatBytes } from "@/features/institutions/lib/format";
 import { offerKeys, offersApi, ourInternshipsKeys } from "@/features/our-internships/api/our-internships-api";
 import { OfferDesigner } from "@/features/our-internships/components/offer-designer";
 import { OfferEmailCard } from "@/features/our-internships/components/offer-email-card";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 /**
  * Everything about the offers in one place, top to bottom in the order it is done: the letter, where details go on it, the
@@ -17,6 +18,7 @@ import { OfferEmailCard } from "@/features/our-internships/components/offer-emai
  * each one went.
  */
 export function OffersTab({ internshipId }: { internshipId: string }) {
+  const canDelete = useCanDelete();
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const settings = useQuery({
@@ -65,6 +67,7 @@ export function OffersTab({ internshipId }: { internshipId: string }) {
                 <FileText className="h-4 w-4" aria-hidden="true" />
                 {s.template_filename} <span className="text-muted-foreground">({s.template_pages} page{s.template_pages === 1 ? "" : "s"}, {formatBytes(s.template_size)})</span>
               </span>
+              {canDelete && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -76,6 +79,7 @@ export function OffersTab({ internshipId }: { internshipId: string }) {
                 <Trash2 className="h-4 w-4" />
                 Remove
               </Button>
+              )}
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">

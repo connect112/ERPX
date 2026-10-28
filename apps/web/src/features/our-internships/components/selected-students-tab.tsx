@@ -18,6 +18,7 @@ import {
   ourInternshipsKeys,
 } from "@/features/our-internships/api/our-internships-api";
 import { formatMarks, formatScore, formatTeamScore } from "@/features/our-internships/lib/performance";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 /** The shortlist for this internship: review each student's results, add a note, or take someone off before offers go out. */
 const offerBadge: Record<OfferStatus, { label: string; variant: "secondary" | "info" | "success" | "destructive" }> = {
@@ -29,6 +30,7 @@ const offerBadge: Record<OfferStatus, { label: string; variant: "secondary" | "i
 
 export function SelectedStudentsTab({ internshipId }: { internshipId: string }) {
   const queryClient = useQueryClient();
+  const canDelete = useCanDelete();
   const selected = useQuery({
     queryKey: ourInternshipsKeys.selected(internshipId),
     queryFn: () => ourInternshipsApi.selected(internshipId),
@@ -126,6 +128,7 @@ export function SelectedStudentsTab({ internshipId }: { internshipId: string }) 
                     </div>
                   </TableCell>
                   <TableCell>
+                    {canDelete && (
                     <Button
                       variant="ghost"
                       size="icon"
@@ -136,6 +139,7 @@ export function SelectedStudentsTab({ internshipId }: { internshipId: string }) 
                     >
                       <UserMinus className="h-4 w-4" />
                     </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

@@ -16,6 +16,7 @@ import {
   assignmentsApi,
 } from "@/features/our-internships/api/learning-api";
 import { fromLocalInput, newRowId, rubricTotal, toLocalInput } from "@/features/our-internships/lib/learning";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 /**
  * Create or edit an assignment: the brief, the tasks, how it is marked (a rubric, or one score out of the maximum), when it
@@ -34,6 +35,7 @@ export function AssignmentFormDialog({
 }) {
   const queryClient = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
+  const canDelete = useCanDelete();
   const [saved, setSaved] = useState<Assignment | null>(assignment);
   const [title, setTitle] = useState(assignment?.title ?? "");
   const [description, setDescription] = useState(assignment?.description ?? "");
@@ -244,9 +246,11 @@ export function AssignmentFormDialog({
                   <span className="truncate">{f.filename}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(f.size_bytes)}</span>
                 </a>
-                <Button type="button" size="icon" variant="ghost" aria-label={`Remove ${f.filename}`} disabled={removeFile.isPending} onClick={() => removeFile.mutate(f.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {canDelete && (
+                  <Button type="button" size="icon" variant="ghost" aria-label={`Remove ${f.filename}`} disabled={removeFile.isPending} onClick={() => removeFile.mutate(f.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             ))}
             {(addFile.isError || removeFile.isError) && <p className="text-sm text-destructive">{errorMessage(addFile.error ?? removeFile.error, "That file could not be changed.")}</p>}

@@ -12,6 +12,7 @@ import { ourInternshipsKeys, type StudentPerformance } from "@/features/our-inte
 import { studentsApi, useDestinations, useValidationEvents } from "@/features/our-internships/api/students-api";
 import { EventSelect, InternshipStudentDialog } from "@/features/our-internships/components/internship-student-dialog";
 import { StudentWiseView } from "@/features/our-internships/components/student-wise-view";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 function ImportFlow({ internshipId, onClose }: { internshipId: string; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -142,6 +143,7 @@ export function StudentsManager({
 }) {
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
+  const canDelete = useCanDelete();
   const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState<StudentPerformance | null>(null);
   const [validating, setValidating] = useState(false);
@@ -187,7 +189,7 @@ export function StudentsManager({
           onSelect={onSelect}
           onEdit={canManage ? setEditing : undefined}
           onRemove={
-            canManage
+            canManage && canDelete
               ? (row) => {
                   if (window.confirm(`Take ${row.name} off ${row.event_name}? They stay at the institution and in their other events.`)) remove.mutate(row);
                 }

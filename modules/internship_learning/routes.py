@@ -16,7 +16,7 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.db.session import get_db
 from modules.authentication.dependencies import get_current_active_user
 from modules.authentication.models import User
-from modules.authorization.dependencies import require_permissions
+from modules.our_internships.access import internship_access
 from modules.internship_learning.models import AssignmentStatus, InternshipAssignment
 from modules.internship_learning.schemas import (
     AssignmentCreateRequest,
@@ -59,7 +59,7 @@ async def _internship(db: AsyncSession, internship_id: uuid.UUID, organization_i
 async def list_exams(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     await _internship(db, internship_id, organization_id)
@@ -71,7 +71,7 @@ async def list_exams(
 async def available_exams(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     await _internship(db, internship_id, organization_id)
@@ -84,7 +84,7 @@ async def link_exam(
     internship_id: uuid.UUID,
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     internship = await _internship(db, internship_id, organization_id)
@@ -97,7 +97,7 @@ async def unlink_exam(
     internship_id: uuid.UUID,
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     internship = await _internship(db, internship_id, organization_id)
@@ -111,7 +111,7 @@ async def assign_exam(
     exam_id: uuid.UUID,
     payload: ExamAssignRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Put every enrolled student on the exam and, if asked, email each their personal link."""
@@ -130,7 +130,7 @@ async def exam_results(
     internship_id: uuid.UUID,
     exam_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     internship = await _internship(db, internship_id, organization_id)
@@ -160,7 +160,7 @@ async def _assignment_out(service: InternshipLearningService, assignments: list[
 async def list_assignments(
     internship_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     await _internship(db, internship_id, organization_id)
@@ -173,7 +173,7 @@ async def create_assignment(
     internship_id: uuid.UUID,
     payload: AssignmentCreateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     internship = await _internship(db, internship_id, organization_id)
@@ -187,7 +187,7 @@ async def get_assignment(
     internship_id: uuid.UUID,
     assignment_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = InternshipLearningService(db)
@@ -201,7 +201,7 @@ async def update_assignment(
     assignment_id: uuid.UUID,
     payload: AssignmentUpdateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = InternshipLearningService(db)
@@ -219,7 +219,7 @@ async def delete_assignment(
     internship_id: uuid.UUID,
     assignment_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = InternshipLearningService(db)
@@ -234,7 +234,7 @@ async def add_assignment_file(
     assignment_id: uuid.UUID,
     file: UploadFile = File(...),
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Reference material the students can download (a brief, a dataset, a template)."""
@@ -263,7 +263,7 @@ async def delete_assignment_file(
     assignment_id: uuid.UUID,
     file_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = InternshipLearningService(db)
@@ -278,7 +278,7 @@ async def list_submissions(
     internship_id: uuid.UUID,
     assignment_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.view")),
+    user: User = Depends(internship_access("view")),
     db: AsyncSession = Depends(get_db),
 ):
     service = InternshipLearningService(db)
@@ -295,7 +295,7 @@ async def grade_submission(
     selection_id: uuid.UUID,
     payload: GradeRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("our_internships.manage")),
+    user: User = Depends(internship_access("manage")),
     db: AsyncSession = Depends(get_db),
 ):
     service = InternshipLearningService(db)

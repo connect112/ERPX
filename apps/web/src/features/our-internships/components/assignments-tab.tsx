@@ -13,11 +13,13 @@ import { errorMessage, formatBytes } from "@/features/institutions/lib/format";
 import { type Assignment, type SubmissionRow, assignmentsApi, learningKeys } from "@/features/our-internships/api/learning-api";
 import { AssignmentFormDialog } from "@/features/our-internships/components/assignment-form-dialog";
 import { ASSIGNMENT_STATUS, formatDateTime, sumScores } from "@/features/our-internships/lib/learning";
+import { useCanDelete } from "@/features/our-internships/lib/internship-access";
 
 /** The internship's assignments: write them, publish them, and mark what the enrolled students hand in. */
 export function AssignmentsTab({ internshipId, canManage }: { internshipId: string; canManage: boolean }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Assignment | "new" | null>(null);
+  const canDelete = useCanDelete();
   const [marking, setMarking] = useState<Assignment | null>(null);
   const assignments = useQuery({ queryKey: learningKeys.assignments(internshipId), queryFn: () => assignmentsApi.list(internshipId) });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["our-internships", "assignments", internshipId] });
@@ -93,6 +95,7 @@ export function AssignmentsTab({ internshipId, canManage }: { internshipId: stri
                             <Button size="sm" variant="ghost" aria-label={`Edit ${a.title}`} onClick={() => setEditing(a)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
+                            {canDelete && (
                             <Button
                               size="sm"
                               variant="ghost"
@@ -104,6 +107,7 @@ export function AssignmentsTab({ internshipId, canManage }: { internshipId: stri
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
+                            )}
                           </>
                         )}
                       </div>

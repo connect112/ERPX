@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useMyRoles } from "@/features/auth/api/authorization-hooks";
 import { ourInternshipsApi, ourInternshipsKeys } from "@/features/our-internships/api/our-internships-api";
 import { InternshipFormDialog } from "@/features/our-internships/components/internship-form-dialog";
 import { statusBadge } from "@/features/our-internships/lib/performance";
@@ -15,6 +16,9 @@ import { statusBadge } from "@/features/our-internships/lib/performance";
 export function OurInternshipsListPage() {
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
+  const roles = useMyRoles();
+  // instructors see the programmes they were given, but only people with the manage permission start new ones
+  const canCreate = !!roles.data && (roles.data.is_superuser || roles.data.effective_permissions.includes("our_internships.manage"));
   const { data, isLoading, isError } = useQuery({ queryKey: ourInternshipsKeys.list(), queryFn: ourInternshipsApi.list });
 
   return (
@@ -26,10 +30,12 @@ export function OurInternshipsListPage() {
             Select students for our internships from the results of the workshops and hackathons held at institutions.
           </p>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <Plus className="h-4 w-4" />
-          Start a new internship
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4" />
+            Start a new internship
+          </Button>
+        )}
       </div>
 
       <Card>
