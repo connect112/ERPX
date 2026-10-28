@@ -14,9 +14,10 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError, RateLimitError, ValidationError
+from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError, RateLimitError, ValidationError
 from modules.authentication.models import User
 from modules.email_studio.code_templates import CodeTemplateError, list_code_templates, load_code_template
+from modules.email_studio.react_import import build as build_react
 from modules.email_studio.engine import Draft, MissingPlaceholders, render_draft
 from modules.email_studio.models import (
     EmailBrandProfile,
@@ -49,6 +50,8 @@ from modules.email_studio.schemas import (
     LibraryItem,
     PlaceholderOut,
     PreviewContext,
+    ReactBuildResponse,
+    ReactIssue,
     PreviewResponse,
     TemplateOut,
     VersionOut,
@@ -79,7 +82,7 @@ _CATEGORY_OF_KEY = {
     "payroll_draft_ready": "Payment Confirmations",
     "payslip_ready": "Payment Confirmations",
 }
-_METHOD = {"visual": "Visual editor", "html": "HTML import", "code": "React Email component", "markdown": "Markdown (built-in)", "default": "Built-in"}
+_METHOD = {"visual": "Visual editor", "html": "HTML import", "code": "React Email component", "react": "React Email code", "markdown": "Markdown (built-in)", "default": "Built-in"}
 
 
 def sample_for(key: str | None) -> dict[str, str]:
@@ -143,9 +146,9 @@ class StudioService:
             return {}
         return dict((await self.db.execute(select(User.id, User.full_name).where(User.id.in_(wanted)))).all())
 
-    async def template(self, template_id: uuid.UUID) -> EmailStudioTemplate:
+    async def template(self, template_id: uuid.UUID, include_deleted: bool = False) -> EmailStudioTemplate:
         row = await self.db.get(EmailStudioTemplate, template_id)
-        if row is None or row.organization_id != self.organization_id:
+        if row is None or row.organization_id != self.organization_id or (row.deleted_at is not None and not include_deleted):
             raise NotFoundError("Email template", template_id)
         return row
 
@@ -169,7 +172,9 @@ class StudioService:
     # ------------------------------------------------------------------ library
 
     async def library(self) -> list[LibraryItem]:
-        templates = list((await self.db.execute(select(EmailStudioTemplate).where(EmailStudioTemplate.organization_id == self.organization_id))).scalars().all())
+        templates = list(
+            (await self.db.execute(select(EmailStudioTemplate).where(EmailStudioTemplate.organization_id == self.organization_id, EmailStudioTemplate.deleted_at.is_(None)))).scalars().all()
+        )
         assigns = list((await self.db.execute(select(EmailTemplateAssignment).where(EmailTemplateAssignment.organization_id == self.organization_id))).scalars().all())
         drafts = {r for r in (await self.db.execute(select(EmailStudioVersion.template_id).where(EmailStudioVersion.organization_id == self.organization_id, EmailStudioVersion.state == VersionState.DRAFT.value))).scalars().all()}
         names = await self._names({t.updated_by_user_id for t in templates})
@@ -183,11 +188,14 @@ class StudioService:
         by_id = {t.id: t for t in templates}
         items: list[LibraryItem] = []
         for t in templates:
+            used = sorted(by_template.get(t.id, []))
+            can_delete, blocked = self.delete_rule(t, used)
             items.append(
                 LibraryItem(
                     id=str(t.id), name=t.name, description=t.description, category=t.category, creation_method=_METHOD[t.source_type], source_type=t.source_type,
                     module=t.module, status=t.status, updated_at=t.updated_at, updated_by_name=names.get(t.updated_by_user_id) if t.updated_by_user_id else None,
-                    is_system=False, assigned_to=sorted(by_template.get(t.id, [])), has_draft=t.id in drafts,
+                    is_system=t.is_system, assigned_to=used, has_draft=t.id in drafts, can_delete=can_delete, delete_blocked_reason=blocked,
+                    used_by=[AssignmentOut(key=k, name=get_def(k).name if get_def(k) else k) for k in used],
                 )
             )
         edited = {o.key: o for o in overrides}
@@ -209,12 +217,43 @@ class StudioService:
             )
         return items
 
+    @staticmethod
+    def delete_rule(template: EmailStudioTemplate, used: list[str]) -> tuple[bool, str | None]:
+        """Whether a template can be deleted, and if not, why. The same rule backs the screen and the server's refusal."""
+        if template.is_system:
+            return False, "This is a protected system template and cannot be deleted."
+        if used:
+            names = ", ".join(get_def(k).name if get_def(k) else k for k in sorted(set(used)))
+            return False, f"This template is used for: {names}. Choose another template for it (or switch it back to the built-in wording) under 'Use for', then delete this one."
+        return True, None
+
+    async def deleted(self) -> list[LibraryItem]:
+        """Templates that were deleted and can still be restored."""
+        rows = list(
+            (
+                await self.db.execute(
+                    select(EmailStudioTemplate)
+                    .where(EmailStudioTemplate.organization_id == self.organization_id, EmailStudioTemplate.deleted_at.is_not(None))
+                    .order_by(EmailStudioTemplate.deleted_at.desc())
+                )
+            ).scalars().all()
+        )
+        names = await self._names({t.deleted_by_user_id for t in rows})
+        return [
+            LibraryItem(
+                id=str(t.id), name=t.name, description=t.description, category=t.category, creation_method=_METHOD[t.source_type], source_type=t.source_type,
+                module=t.module, status=t.status, updated_at=t.updated_at, is_system=t.is_system, deleted_at=t.deleted_at,
+                deleted_by_name=names.get(t.deleted_by_user_id) if t.deleted_by_user_id else None,
+            )
+            for t in rows
+        ]
+
     # ------------------------------------------------------------------ reading
 
     def _draft_out(self, v: EmailStudioVersion) -> DraftOut:
         return DraftOut(
             version_id=v.id, version_number=v.version_number, state=v.state, subject=v.subject, preheader=v.preheader, editor_json=v.editor_json,
-            html_source=v.html_source, body_html=v.body_html, code_template_key=v.code_template_key, code_props=v.code_props,
+            html_source=v.html_source, react_source=v.react_source, body_html=v.body_html, code_template_key=v.code_template_key, code_props=v.code_props,
             brand_profile_id=v.brand_profile_id, signature_id=v.signature_id, config=v.config or {}, updated_at=v.updated_at,
         )
 
@@ -234,6 +273,7 @@ class StudioService:
             published_version_number=published.version_number if published else None, has_draft=draft is not None, current=self._draft_out(current),
             assignments=[AssignmentOut(key=a.key, name=get_def(a.key).name if get_def(a.key) else a.key, hackathon_id=a.hackathon_id) for a in assigns],
             updated_at=template.updated_at, updated_by_name=names.get(template.updated_by_user_id) if template.updated_by_user_id else None,
+            is_system=template.is_system, deleted_at=template.deleted_at,
         )
 
     async def versions(self, template: EmailStudioTemplate) -> list[VersionOut]:
@@ -287,6 +327,14 @@ class StudioService:
                     version.body_html = sanitize_document(payload.html, payload.subject, payload.preheader)
                 except ValueError as exc:
                     raise ValidationError(str(exc)) from exc
+        elif source_type == SourceType.REACT.value:
+            if payload.react_source is not None:
+                version.react_source = payload.react_source
+            # The browser's HTML is never trusted: the email is always rebuilt here from the source that was saved.
+            built = build_react(version.react_source or "", payload.preheader.strip())
+            if built.ok:
+                version.body_html = built.html
+            version.config = {**version.config, "react_build": {"ok": built.ok, "errors": len(built.errors), "warnings": len(built.warnings)}}
         else:
             key = payload.code_template_key or version.code_template_key
             try:
@@ -323,6 +371,8 @@ class StudioService:
     async def create(self, payload: CreatePayload, user_id: uuid.UUID) -> TemplateOut:
         if payload.source_type == "code" and not payload.code_template_key:
             raise ValidationError("Choose an approved React Email template.")
+        if payload.source_type == "react" and not (payload.react_source or "").strip():
+            raise ValidationError("Paste the React Email code to import.")
         template = EmailStudioTemplate(
             organization_id=self.organization_id, name=payload.name.strip(), description=(payload.description or "").strip(), category=payload.category,
             source_type=payload.source_type, module=payload.module, status=TemplateStatus.DRAFT.value, created_by_user_id=user_id, updated_by_user_id=user_id,
@@ -367,7 +417,7 @@ class StudioService:
 
     @staticmethod
     def _copy(source: EmailStudioVersion, target: EmailStudioVersion) -> None:
-        for field in ("subject", "preheader", "editor_json", "html_source", "body_html", "body_text", "code_template_key", "code_props", "brand_profile_id", "signature_id", "config"):
+        for field in ("subject", "preheader", "editor_json", "html_source", "react_source", "body_html", "body_text", "code_template_key", "code_props", "brand_profile_id", "signature_id", "config"):
             setattr(target, field, getattr(source, field))
 
     async def discard_draft(self, template: EmailStudioTemplate) -> TemplateOut:
@@ -393,6 +443,12 @@ class StudioService:
         found: list[str] = []
         if not version.subject.strip():
             found.append("The subject cannot be empty.")
+        if template.source_type == SourceType.REACT.value:
+            built = build_react(version.react_source or "", version.preheader)
+            if not built.ok:
+                first = built.errors[0]
+                where = f"line {first.line}: " if first.line else ""
+                return found + [f"The React Email code has {len(built.errors)} error(s) and cannot be published. First: {where}{first.message}"]
         try:
             html = await self._html_of(version, template.source_type)
         except CodeTemplateError as exc:
@@ -478,18 +534,32 @@ class StudioService:
         await self.db.flush()
         return await self.out(template)
 
-    async def delete(self, template: EmailStudioTemplate) -> None:
-        """Delete a studio template and all its versions. The built-in ERPX emails are not studio templates, so they can never be
-        deleted here, and a template an ERPX email is using cannot be deleted until it is taken off that email (otherwise the
-        email would silently go back to its older wording). Emails already sent keep their history rows."""
+    async def delete(self, template: EmailStudioTemplate, user_id: uuid.UUID) -> None:
+        """Delete (hide) a template you made. A protected system template can never be deleted, and neither can one an ERPX email
+        is using until that email is pointed elsewhere (otherwise it would silently fall back to older wording). Nothing is removed:
+        the versions, the history of emails already sent and the audit trail stay, and the template can be restored."""
         used = list(
             (await self.db.execute(select(EmailTemplateAssignment.key).where(EmailTemplateAssignment.template_id == template.id))).scalars().all()
         )
-        if used:
-            names = ", ".join(get_def(k).name if get_def(k) else k for k in sorted(set(used)))
-            raise ConflictError(f"This template is used for: {names}. Take it off under 'Use for' first, then delete it.")
-        await self.db.delete(template)
+        allowed, reason = self.delete_rule(template, used)
+        if not allowed:
+            if template.is_system:
+                raise AuthorizationError(reason or "This template cannot be deleted.")
+            raise ConflictError(reason or "This template cannot be deleted.")
+        template.deleted_at = datetime.now(timezone.utc)
+        template.deleted_by_user_id = user_id
+        template.updated_by_user_id = user_id
         await self.db.flush()
+
+    async def restore_deleted(self, template_id: uuid.UUID, user_id: uuid.UUID) -> TemplateOut:
+        template = await self.template(template_id, include_deleted=True)
+        if template.deleted_at is None:
+            raise ConflictError("This template has not been deleted.")
+        template.deleted_at = None
+        template.deleted_by_user_id = None
+        template.updated_by_user_id = user_id
+        await self.db.flush()
+        return await self.out(template)
 
     # ------------------------------------------------------------------ which template an ERPX email uses
 
@@ -560,6 +630,12 @@ class StudioService:
         body = ""
         if source_type in ("visual", "html") and request_draft.html:
             body = sanitize_document(request_draft.html, request_draft.subject, request_draft.preheader)
+        elif source_type == "react":
+            built = build_react(request_draft.react_source or "", request_draft.preheader.strip())
+            if not built.ok:
+                first = built.errors[0]
+                raise ValueError(f"The React Email code has errors. {'Line ' + str(first.line) + ': ' if first.line else ''}{first.message}")
+            body = built.html
         return Draft(
             source_type=source_type, subject=request_draft.subject, preheader=request_draft.preheader, body_html=body,
             code_template_key=request_draft.code_template_key, code_props=self._clean_props(load_code_template(request_draft.code_template_key or ""), request_draft.code_props or {}) if source_type == "code" else None,
@@ -578,6 +654,19 @@ class StudioService:
         bad = unsupported(used, allowed_for_key(get_def(key)) if key else {r.name for r in catalog()})
         attachments = [a for a in (draft.config.get("attachments") or []) if isinstance(a, dict)]
         return PreviewResponse(subject=rendered.subject, html=rendered.html, text=rendered.text, missing=rendered.missing, warnings=rendered.warnings, unsupported=bad, attachments=attachments)
+
+    def react_build(self, source: str, preheader: str = "") -> ReactBuildResponse:
+        """Read pasted React Email code and report what it makes -- or exactly what stops it. Nothing is executed or stored."""
+        built = build_react(source, preheader.strip())
+
+        def issue(i):
+            return ReactIssue(severity=i.severity, message=i.message, line=i.line, column=i.column, code=i.code)
+
+        allowed = {r.name for r in catalog()}
+        return ReactBuildResponse(
+            ok=built.ok, errors=[issue(i) for i in built.errors], warnings=[issue(i) for i in built.warnings], html=built.html, text=built.text, title=built.title,
+            preheader=built.preheader, placeholders=built.placeholders, unsupported_placeholders=unsupported(built.placeholders, allowed), components=built.components,
+        )
 
     async def send_test(self, source_type: str, draft_payload: DraftPayload, context: PreviewContext, to_email: str, user_id: uuid.UUID, template_id: uuid.UUID | None) -> tuple[bool, str]:
         """Send the email being edited, with sample (or chosen) data, to one address. It is marked as a test, uses safe sample links and

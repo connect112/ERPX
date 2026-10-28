@@ -28,6 +28,8 @@ openpyxl==3.1.5
 reportlab==4.2.5
 svglib==1.5.1
 nh3==0.3.7
+tree-sitter==0.23.2
+tree-sitter-typescript==0.23.2
 pypdf==6.19.0
 prometheus-fastapi-instrumentator==7.0.0
 sentry-sdk==2.66.1

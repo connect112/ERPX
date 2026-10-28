@@ -37,6 +37,8 @@ from modules.email_studio.schemas import (
     PlaceholderOut,
     PreviewRequest,
     PreviewResponse,
+    ReactBuildRequest,
+    ReactBuildResponse,
     SignatureOut,
     SignaturePayload,
     TemplateOut,
@@ -125,10 +127,27 @@ async def publish_template(template_id: uuid.UUID, organization_id: uuid.UUID = 
 
 @router.delete("/templates/{template_id}", response_model=MessageOut)
 async def delete_template(template_id: uuid.UUID, organization_id: uuid.UUID = Org, user: User = Manage, db: AsyncSession = Db):
-    """Delete a template you made (never a built-in ERPX email). Refused while an ERPX email uses it."""
+    """Delete a template you made (never a built-in or protected system template). Refused while an ERPX email uses it. The template is
+    hidden, not erased: it can be restored, and its versions, send history and audit trail stay."""
     service = StudioService(db, organization_id)
-    await service.delete(await service.template(template_id))
-    return MessageOut(message="Deleted.")
+    await service.delete(await service.template(template_id), user.id)
+    return MessageOut(message="Deleted. You can restore it from Recently deleted.")
+
+
+@router.get("/deleted", response_model=list[LibraryItem])
+async def deleted_templates(organization_id: uuid.UUID = Org, user: User = Manage, db: AsyncSession = Db):
+    return await StudioService(db, organization_id).deleted()
+
+
+@router.post("/templates/{template_id}/restore-deleted", response_model=TemplateOut)
+async def restore_deleted_template(template_id: uuid.UUID, organization_id: uuid.UUID = Org, user: User = Manage, db: AsyncSession = Db):
+    return await StudioService(db, organization_id).restore_deleted(template_id, user.id)
+
+
+@router.post("/react-import/build", response_model=ReactBuildResponse)
+async def build_react_import(payload: ReactBuildRequest, organization_id: uuid.UUID = Org, user: User = Manage, db: AsyncSession = Db):
+    """Check pasted React Email code and show what it would send. The code is only read, never run, and nothing is saved."""
+    return StudioService(db, organization_id).react_build(payload.source, payload.preheader)
 
 
 @router.post("/templates/{template_id}/duplicate", response_model=TemplateOut, status_code=201)

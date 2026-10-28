@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Eye, Redo2, Save, Send, Undo2, Upload, Trash2, Plus } from "lucide-react";
+import { ArrowLeft, Eye, PanelRight, Redo2, Repeat2, Save, Send, Undo2, Upload, Trash2, Plus } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -23,15 +23,19 @@ import {
   useSignatures,
 } from "@/features/email-studio/api/studio-api";
 import { CodePropsForm } from "@/features/email-studio/components/code-props-form";
+import { ConvertDialog } from "@/features/email-studio/components/convert-dialog";
+import { DeleteTemplateDialog } from "@/features/email-studio/components/delete-template-dialog";
 import type { HtmlEditorHandle } from "@/features/email-studio/components/html-editor";
 import { PlaceholderPicker } from "@/features/email-studio/components/placeholder-picker";
 import { PreviewPane } from "@/features/email-studio/components/preview-pane";
+import type { ReactEditorHandle } from "@/features/email-studio/components/react-editor";
+import { ReactWorkbench } from "@/features/email-studio/components/react-workbench";
+import { TestDialog } from "@/features/email-studio/components/test-dialog";
 import type { VisualEditorHandle } from "@/features/email-studio/components/visual-editor";
 import { STATUS_LABEL, brandTheme, token } from "@/features/email-studio/lib/studio";
 import { useStudioPermissions } from "@/features/email-studio/lib/permissions";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { selectClass } from "@/features/our-internships/components/letter-fields";
-import { useAuthStore } from "@/store/auth-store";
 
 const VisualEditor = lazy(() => import("@/features/email-studio/components/visual-editor"));
 const HtmlEditor = lazy(() => import("@/features/email-studio/components/html-editor"));
@@ -42,7 +46,7 @@ type Panel = "email" | "placeholders" | "versions" | "use";
  * Where one email is designed. The design lives in this component's state until Save draft; Publish saves it first and then makes it
  * the version real emails use. Insert buttons type into whichever field (subject, design or HTML) had the cursor last.
  */
-export function EditorWorkspace({ template, onTemplate }: { template: TemplateOut; onTemplate: (t: TemplateOut, remount: boolean) => void }) {
+export function EditorWorkspace({ template, onTemplate, initialNotice }: { template: TemplateOut; onTemplate: (t: TemplateOut, remount: boolean) => void; initialNotice?: string | null }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const perms = useStudioPermissions();
@@ -62,16 +66,21 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
   const [config, setConfig] = useState(cur.config ?? {});
   const [codeProps, setCodeProps] = useState<Record<string, string>>(cur.code_props ?? {});
   const [html, setHtml] = useState(cur.html_source ?? cur.body_html);
+  const [source, setSource] = useState(cur.react_source ?? "");
   const [dirty, setDirty] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(true);
   const [panel, setPanel] = useState<Panel>("email");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
   const [, redraw] = useState(0);
 
   const visual = useRef<VisualEditorHandle | null>(null);
   const htmlEditor = useRef<HtmlEditorHandle | null>(null);
+  const reactEditor = useRef<ReactEditorHandle | null>(null);
   const subjectInput = useRef<HTMLInputElement | null>(null);
   const inserter = useRef<(text: string) => void>(() => undefined);
 
@@ -99,8 +108,9 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
       return snap ? { ...base, editor_json: snap.editor_json, html: snap.html } : { ...base, editor_json: cur.editor_json, html: cur.body_html };
     }
     if (template.source_type === "html") return { ...base, html };
+    if (template.source_type === "react") return { ...base, react_source: source };
     return { ...base, code_template_key: cur.code_template_key, code_props: codeProps };
-  }, [name, description, category, subject, preheader, brandId, signatureId, config, html, codeProps, template.source_type, cur]);
+  }, [name, description, category, subject, preheader, brandId, signatureId, config, html, source, codeProps, template.source_type, cur]);
 
   const done = (t: TemplateOut, remount = false) => {
     onTemplate(t, remount);
@@ -164,7 +174,8 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
   };
   useEffect(() => {
     // by default, placeholders go into the design (or the HTML)
-    inserter.current = (text) => (template.source_type === "visual" ? visual.current?.insertText(text) : htmlEditor.current?.insertText(text));
+    inserter.current = (text) =>
+      template.source_type === "visual" ? visual.current?.insertText(text) : template.source_type === "react" ? reactEditor.current?.insertText(text) : htmlEditor.current?.insertText(text);
   }, [template.source_type]);
 
   const attachments = config.attachments ?? [];
@@ -172,9 +183,9 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
 
   return (
     <div className="space-y-4 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:space-y-0 xl:gap-3">
-      <div className="flex flex-wrap items-center gap-3 xl:shrink-0">
+      <div className="sticky top-0 z-20 -mx-6 -mt-6 flex flex-wrap items-center gap-3 border-b bg-background px-6 py-3 xl:static xl:z-auto xl:mx-0 xl:mt-0 xl:shrink-0 xl:border-0 xl:p-0" role="toolbar" aria-label="Email actions">
         <Link to="/administration/email-templates" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> Library
+          <ArrowLeft className="h-4 w-4" /> Back to Library
         </Link>
         <Input aria-label="Template name" className="h-9 max-w-xs font-medium" value={name} disabled={readOnly} onChange={(e) => edit(setName)(e.target.value)} />
         <Badge variant={status.variant}>{status.label}</Badge>
@@ -197,15 +208,16 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
           <Button variant="outline" onClick={() => { setPreviewKey((n) => n + 1); setPreviewOpen(true); }}>
             <Eye className="h-4 w-4" /> Preview
           </Button>
+          <Button variant="outline" size="icon" className="xl:hidden" aria-label={settingsOpen ? "Hide email settings" : "Show email settings"} aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>
+            <PanelRight className="h-4 w-4" />
+          </Button>
           <Button
             variant="outline"
             size="icon"
             aria-label="Delete this template"
             title="Delete this template"
-            disabled={!perms.canManage || remove.isPending}
-            onClick={() => {
-              if (window.confirm(`Delete "${template.name}" for good? All its versions are deleted too. Emails already sent are not affected.`)) remove.mutate();
-            }}
+            disabled={!perms.canManage || template.is_system}
+            onClick={() => setDeleteOpen(true)}
           >
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
@@ -227,9 +239,9 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
         </div>
       </div>
       {archived && <p className="rounded-md border p-3 text-sm text-muted-foreground">This template is archived. Restore it from the library to edit it.</p>}
-      {(save.isError || publish.isError || discard.isError || restore.isError || remove.isError) && (
+      {(save.isError || publish.isError || discard.isError || restore.isError) && (
         <p role="alert" className="text-sm text-destructive xl:shrink-0">
-          {errorMessage(save.error ?? publish.error ?? discard.error ?? restore.error ?? remove.error, "Could not do that.")}
+          {errorMessage(save.error ?? publish.error ?? discard.error ?? restore.error, "Could not do that.")}
         </p>
       )}
       {notice && !dirty && <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p>}
@@ -254,11 +266,35 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
               </p>
             </div>
           )}
+          {template.source_type === "react" && (
+            <div className="xl:h-full" onFocusCapture={() => { inserter.current = (text) => reactEditor.current?.insertText(text); }}>
+              <ReactWorkbench
+                ref={reactEditor}
+                fill
+                autoBuild
+                source={source}
+                onSource={(v) => !readOnly && edit(setSource)(v)}
+                preheader={preheader}
+                readOnly={readOnly}
+                getDraft={getDraft}
+                erpxKey={erpxKey}
+                canUseStudents={perms.canUseStudents}
+                onBuilt={(b) => {
+                  if (b.ok && !preheader.trim() && b.preheader) edit(setPreheader)(b.preheader);
+                }}
+                actions={
+                  <Button variant="outline" size="sm" disabled={!perms.canManage || !source.trim()} onClick={() => setConvertOpen(true)}>
+                    <Repeat2 className="h-4 w-4" /> Convert to Visual Editor
+                  </Button>
+                }
+              />
+            </div>
+          )}
           {template.source_type === "code" && code && <CodePropsForm template={code} values={codeProps} onChange={edit(setCodeProps)} />}
           {template.source_type === "code" && !code && <p className="text-sm text-destructive">This approved template is no longer available.</p>}
         </div>
 
-        <aside className="min-w-0 space-y-3 rounded-md border p-3 xl:min-h-0 xl:overflow-y-auto" aria-label="Email settings">
+        <aside className={`min-w-0 space-y-3 rounded-md border p-3 xl:block xl:min-h-0 xl:overflow-y-auto ${settingsOpen ? "" : "hidden"}`} aria-label="Email settings">
           <div className="flex flex-wrap gap-1" role="tablist">
             {([["email", "Email"], ["placeholders", "Placeholders"], ["versions", "Versions"], ["use", "Use for"]] as [Panel, string][]).map(([id, label]) => (
               <Button key={id} role="tab" aria-selected={panel === id} size="sm" variant={panel === id ? "default" : "ghost"} onClick={() => setPanel(id)}>
@@ -297,6 +333,9 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
+                {template.source_type === "react" && signatureId && (
+                  <p className="text-xs text-muted-foreground">Imported code keeps its own sign-off. The signature appears only where the code has {token("signature")}.</p>
+                )}
                 {template.source_type === "visual" && signatureId && (
                   <label className="flex items-center gap-2 text-xs">
                     <input type="checkbox" checked={config.auto_signature ?? true} disabled={readOnly} onChange={(e) => edit(setConfig)({ ...config, auto_signature: e.target.checked })} />
@@ -410,35 +449,25 @@ export function EditorWorkspace({ template, onTemplate }: { template: TemplateOu
           {previewOpen && <PreviewPane sourceType={template.source_type} getDraft={getDraft} erpxKey={erpxKey} canUseStudents={perms.canUseStudents} refreshKey={previewKey} />}
         </DialogContent>
       </Dialog>
-      {testOpen && <TestDialog template={template} getDraft={getDraft} erpxKey={erpxKey} onClose={() => setTestOpen(false)} />}
+      {testOpen && <TestDialog sourceType={template.source_type} templateId={template.id} getDraft={getDraft} erpxKey={erpxKey} onClose={() => setTestOpen(false)} />}
+      {convertOpen && <ConvertDialog template={template} source={source} onClose={() => setConvertOpen(false)} />}
+      {deleteOpen && (
+        <DeleteTemplateDialog
+          name={template.name}
+          usedBy={template.assignments.map((a) => a.name)}
+          isSystem={template.is_system}
+          pending={remove.isPending}
+          error={remove.isError ? errorMessage(remove.error, "Could not delete the template.") : null}
+          onConfirm={() => remove.mutate()}
+          onClose={() => setDeleteOpen(false)}
+          onReassign={() => {
+            setDeleteOpen(false);
+            setSettingsOpen(true);
+            setPanel("use");
+          }}
+        />
+      )}
     </div>
-  );
-}
-
-function TestDialog({ template, getDraft, erpxKey, onClose }: { template: TemplateOut; getDraft: () => Promise<DraftPayload>; erpxKey: string | null; onClose: () => void }) {
-  const [to, setTo] = useState(useAuthStore.getState().user?.email ?? "");
-  const send = useMutation({ mutationFn: async () => studioApi.test(template.source_type, await getDraft(), { type: "sample", key: erpxKey }, to.trim(), template.id) });
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Send a test email</DialogTitle>
-          <DialogDescription>Sends what is on screen, with sample values and safe sample links, to one address. It is marked as a test and starts nothing in ERPX.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="es-test-to">Send to</Label>
-            <Input id="es-test-to" type="email" value={to} onChange={(e) => setTo(e.target.value)} />
-          </div>
-          {send.isError && <p role="alert" className="text-sm text-destructive">{errorMessage(send.error, "Could not send the test.")}</p>}
-          {send.data && <p role="status" className={`text-sm ${send.data.sent ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}>{send.data.message}</p>}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose}>Close</Button>
-            <Button disabled={!to.trim() || send.isPending} onClick={() => send.mutate()}>{send.isPending ? "Sending..." : "Send test"}</Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 

@@ -5,7 +5,8 @@ import { brandTheme, filterLibrary, formatBytes, groupByCategory, groupPlacehold
 
 const item = (over: Partial<LibraryItem>): LibraryItem => ({
   id: "1", key: null, name: "A", description: "", category: "Custom Emails", creation_method: "Visual editor", source_type: "visual", module: null,
-  status: "draft", updated_at: null, updated_by_name: null, is_system: false, assigned_to: [], customised: false, has_attachment: false, has_draft: false, ...over,
+  status: "draft", updated_at: null, updated_by_name: null, is_system: false, assigned_to: [], customised: false, has_attachment: false, has_draft: false,
+  can_delete: true, delete_blocked_reason: null, used_by: [], deleted_at: null, deleted_by_name: null, ...over,
 });
 
 describe("filterLibrary", () => {

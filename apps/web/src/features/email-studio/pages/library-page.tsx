@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Copy, Eye, Mail, Paperclip, Pencil, Plus, Send, Trash2, Wand2 } from "lucide-react";
+import { Archive, ArchiveRestore, Copy, Eye, Lock, Mail, Paperclip, Pencil, Plus, RotateCcw, Send, Trash2, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type LibraryItem, type TemplateOut, studioApi, studioKeys, useCodeTemplates, useLibrary } from "@/features/email-studio/api/studio-api";
+import { DeleteTemplateDialog } from "@/features/email-studio/components/delete-template-dialog";
 import { PreviewPane } from "@/features/email-studio/components/preview-pane";
 import { useStudioPermissions } from "@/features/email-studio/lib/permissions";
 import { type LibraryFilters, STATUS_LABEL, draftPayload, filterLibrary, groupByCategory } from "@/features/email-studio/lib/studio";
@@ -22,6 +23,7 @@ import { useAuthStore } from "@/store/auth-store";
 const METHODS = [
   { value: "visual", label: "Visual editor" },
   { value: "html", label: "HTML import" },
+  { value: "react", label: "React Email code" },
   { value: "code", label: "React Email component" },
   { value: "markdown", label: "Markdown (built-in)" },
   { value: "default", label: "Built-in" },
@@ -39,6 +41,26 @@ export function LibraryPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const [test, setTest] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<LibraryItem | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
+
+  const deleted = useQuery({ queryKey: studioKeys.deleted, queryFn: studioApi.deleted, enabled: showDeleted && perms.canManage });
+  const remove = useMutation({
+    mutationFn: (id: string) => studioApi.remove(id),
+    onSuccess: () => {
+      setDeleting(null);
+      void queryClient.invalidateQueries({ queryKey: studioKeys.library });
+      void queryClient.invalidateQueries({ queryKey: studioKeys.deleted });
+    },
+  });
+  const restoreDeleted = useMutation({
+    mutationFn: (id: string) => studioApi.restoreDeleted(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: studioKeys.library });
+      void queryClient.invalidateQueries({ queryKey: studioKeys.deleted });
+    },
+    onError: (e) => setError(errorMessage(e, "Could not restore it.")),
+  });
 
   const items = useMemo(() => library.data ?? [], [library.data]);
   const categories = useMemo(() => [...new Set(items.map((i) => i.category))].sort(), [items]);
@@ -110,12 +132,45 @@ export function LibraryPage() {
             <option value="updated">Last updated</option>
           </select>
         </div>
-        <Button asChild className="ml-auto">
+        {perms.canManage && (
+          <Button variant={showDeleted ? "default" : "outline"} aria-pressed={showDeleted} className="ml-auto" onClick={() => setShowDeleted((v) => !v)}>
+            <RotateCcw className="h-4 w-4" /> Recently deleted
+          </Button>
+        )}
+        <Button asChild className={perms.canManage ? "" : "ml-auto"}>
           <Link to="/administration/email-templates/create">
             <Plus className="h-4 w-4" /> Create email
           </Link>
         </Button>
       </div>
+      {showDeleted && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Recently deleted</CardTitle>
+            <CardDescription>Deleted templates are hidden, not erased. Restore one to use it again; its versions and history come back with it.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {deleted.isLoading && <Skeleton className="m-6 h-12" />}
+            {deleted.data?.length === 0 && <p className="px-6 py-4 text-sm text-muted-foreground">Nothing has been deleted.</p>}
+            <ul className="divide-y">
+              {deleted.data?.map((row) => (
+                <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{row.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {row.creation_method} · deleted {row.deleted_at ? new Date(row.deleted_at).toLocaleString() : ""}
+                      {row.deleted_by_name ? ` by ${row.deleted_by_name}` : ""}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" disabled={restoreDeleted.isPending} onClick={() => restoreDeleted.mutate(row.id)}>
+                    <RotateCcw className="h-4 w-4" /> Restore
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       {shown.length === 0 && <p className="rounded-md border p-8 text-center text-sm text-muted-foreground">No email matches these filters.</p>}
 
@@ -141,6 +196,11 @@ export function LibraryPage() {
                         <Badge variant={status.variant}>{status.label}</Badge>
                         {row.has_draft && row.status === "published" && <Badge variant="warning">Unpublished changes</Badge>}
                         <Badge variant="outline">{row.creation_method}</Badge>
+                        {row.is_system && !row.id.startsWith("system:") && (
+                          <Badge variant="secondary">
+                            <Lock className="mr-1 h-3 w-3" aria-hidden="true" /> Protected
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground">{row.description || "No description."}</p>
                       <p className="text-xs text-muted-foreground">
@@ -193,20 +253,25 @@ export function LibraryPage() {
                               <Archive className="h-4 w-4" />
                             </Button>
                           )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Delete ${row.name}`}
-                            title="Delete this template"
-                            disabled={!perms.canManage || act.isPending}
-                            onClick={() => {
-                              if (window.confirm(`Delete "${row.name}" for good? All its versions are deleted too. Emails already sent are not affected.`)) {
-                                act.mutate(async () => void (await studioApi.remove(row.id)));
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {row.is_system ? (
+                            <Button size="sm" variant="ghost" aria-label={`${row.name} is protected and cannot be deleted`} title="Protected system template" disabled>
+                              <Lock className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`Delete ${row.name}`}
+                              title={row.can_delete ? "Delete this template" : (row.delete_blocked_reason ?? "Delete this template")}
+                              disabled={!perms.canManage || act.isPending}
+                              onClick={() => {
+                                remove.reset();
+                                setDeleting(row);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </>
                       )}
                     </div>
@@ -218,6 +283,19 @@ export function LibraryPage() {
         </Card>
       ))}
 
+      {deleting && (
+        <DeleteTemplateDialog
+          name={deleting.name}
+          usedBy={deleting.used_by.map((u) => u.name)}
+          isSystem={deleting.is_system}
+          blockedReason={deleting.delete_blocked_reason}
+          pending={remove.isPending}
+          error={remove.isError ? errorMessage(remove.error, "Could not delete the template.") : null}
+          onConfirm={() => remove.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
+          onReassign={() => navigate(`/administration/email-templates/studio/${deleting.id}`)}
+        />
+      )}
       {legacyKey && <TemplateEditorDialog scope={{}} templateKey={legacyKey} onClose={() => { setLegacyKey(null); void refresh(); }} />}
       {preview && <TemplateDialog id={preview} mode="preview" onClose={() => setPreview(null)} />}
       {test && <TemplateDialog id={test} mode="test" onClose={() => setTest(null)} />}
