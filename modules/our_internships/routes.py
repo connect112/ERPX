@@ -508,3 +508,7 @@ router.include_router(student_routes.router)
 from modules.our_internships import instructor_routes  # noqa: E402
 
 router.include_router(instructor_routes.router)
+
+from modules.our_internships import letter_routes  # noqa: E402
+
+router.include_router(letter_routes.router)

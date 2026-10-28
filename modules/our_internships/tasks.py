@@ -109,3 +109,4 @@ def send_offer_task(self, selection_id: str) -> None:
         logger.warning("internship_offer_retry", selection_id=selection_id, attempt=self.request.retries)
         raise self.retry(countdown=120 * (self.request.retries + 1))
 
+from modules.our_internships import letter_tasks  # noqa: E402,F401  (registers the offer letter generator tasks with Celery)

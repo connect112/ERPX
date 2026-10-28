@@ -19,7 +19,7 @@ import { ExamsTab } from "@/features/our-internships/components/exams-tab";
 import { ProjectsTab } from "@/features/our-internships/components/projects-tab";
 import { CertificatesTab } from "@/features/our-internships/components/certificates-tab";
 import { AwardsTab } from "@/features/our-internships/components/awards-tab";
-import { OffersTab } from "@/features/our-internships/components/offers-tab";
+import { OfferLettersTab } from "@/features/our-internships/components/offer-letters-tab";
 import { OnboardingTab } from "@/features/our-internships/components/onboarding-tab";
 import { SelectedStudentsTab } from "@/features/our-internships/components/selected-students-tab";
 import { StudentsManager } from "@/features/our-internships/components/students-manager";
@@ -192,7 +192,7 @@ export function OurInternshipDetailPage() {
           <TabsTrigger value="students">Students{board ? ` (${board.students.length})` : ""}</TabsTrigger>
           <TabsTrigger value="teams">Teams{board ? ` (${board.teams.filter((t) => t.team_id).length})` : ""}</TabsTrigger>
           <TabsTrigger value="selected">Selected ({i.selected_count})</TabsTrigger>
-          <TabsTrigger value="offers">Offers</TabsTrigger>
+          {isAdmin && <TabsTrigger value="offers">Offer letters</TabsTrigger>}
           <TabsTrigger value="onboarding">Onboarding</TabsTrigger>
           <TabsTrigger value="exams">Exams</TabsTrigger>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
@@ -227,9 +227,12 @@ export function OurInternshipDetailPage() {
         <TabsContent value="selected">
           <SelectedStudentsTab internshipId={internshipId} />
         </TabsContent>
-        <TabsContent value="offers">
-          <OffersTab internshipId={internshipId} />
-        </TabsContent>
+        {isAdmin && (
+          // the signature, the official wording and what is emailed to students are for administrators only
+          <TabsContent value="offers">
+            <OfferLettersTab internshipId={internshipId} />
+          </TabsContent>
+        )}
         <TabsContent value="onboarding">
           <OnboardingTab internship={i} />
         </TabsContent>
