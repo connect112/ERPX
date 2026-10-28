@@ -86,6 +86,9 @@ from modules.internship_learning.project_models import InternshipProject, Projec
 from modules.internship_learning.award_models import InternshipAward, AwardGrant  # noqa: E402,F401
 from modules.internship_learning.certificate_models import CertificateEligibility  # noqa: E402,F401
 from modules.email_templates.models import EmailTemplate  # noqa: E402,F401
+from modules.email_studio.models import (  # noqa: E402,F401
+    EmailAsset, EmailBrandProfile, EmailComponent, EmailSendRecord, EmailSignature, EmailStudioTemplate, EmailStudioVersion, EmailTemplateAssignment,
+)
 from modules.hackathons.models import Hackathon, Team, TeamMember, Submission, ProblemStatement, TeamReport, TaskSubmission  # noqa: E402,F401
 from modules.placements.models import Company, JobPosting, Application, ExternalJob, JobFeedSettings  # noqa: E402,F401
 from modules.social_media.models import AIUsage, AccountDay, JobRun, TrackedLink, LinkDay, LeadLink, Experiment, MediaMetric, Report, IgComment, IgConversation, IgMedia, IgMessage, PublishAttempt, ResearchItem, SocialAccount, SocialAsset, SocialPost, SocialReply, SocialSettings, WebhookEvent  # noqa: E402,F401

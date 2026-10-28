@@ -165,7 +165,11 @@ TEMPLATES: tuple[TemplateDef, ...] = (
             "Your certificate of completion is attached to this email as a PDF.\n\n"
             "> Well done, and thank you for all your work."
         ),
-        variables=(_NAME, Variable("internship_title", "The internship's title", "Pentrix Cyber Internship")),
+        variables=(
+            _NAME,
+            Variable("internship_title", "The internship's title", "Pentrix Cyber Internship"),
+            Variable("certificate_type", "completion or participation", "completion"),
+        ),
         has_attachment=True,
     ),
     TemplateDef(
@@ -180,8 +184,68 @@ TEMPLATES: tuple[TemplateDef, ...] = (
             "Hi {{full_name}}, thank you for taking part in **{{internship_title}}**. "
             "Your certificate of participation is attached to this email as a PDF."
         ),
-        variables=(_NAME, Variable("internship_title", "The internship's title", "Pentrix Cyber Internship")),
+        variables=(
+            _NAME,
+            Variable("internship_title", "The internship's title", "Pentrix Cyber Internship"),
+            Variable("certificate_type", "completion or participation", "completion"),
+        ),
         has_attachment=True,
+    ),
+    TemplateDef(
+        key="internship_offer_letter",
+        name="Internship offer letter",
+        category="Internships",
+        description="Congratulates a selected student and carries their offer letter (attached as a PDF).",
+        when_sent="When an administrator releases an approved offer letter.",
+        subject="Your internship offer letter - {{company_name}}",
+        body=(
+            "# Congratulations, {{student_name}}!\n\n"
+            "We are pleased to offer you the position of {{internship_position}} on {{internship_name}} at {{company_name}}.\n\n"
+            "Your offer letter (reference {{reference}}) is attached to this email. Please read it carefully, sign it, and send it back "
+            "with the documents it lists. Reply to this email if you have any questions.\n\n"
+            "> We look forward to working with you."
+        ),
+        variables=(
+            Variable("full_name", "The student's name (same as student_name)", "Asha Rao"),
+            Variable("student_name", "The student's full name", "Asha Rao"),
+            Variable("student_email", "The student's email address", "asha@example.com"),
+            Variable("registration_id", "The student's registration or roll number", "APL-1002"),
+            Variable("institution_name", "The student's institution", "Apollo University"),
+            Variable("institution_location", "Where the institution is", "Tirupati"),
+            Variable("internship_name", "The internship programme", "Pentrix Cyber Internship"),
+            Variable("internship_position", "The position offered", "Intern"),
+            Variable("internship_duration", "How long it runs", "3 months"),
+            Variable("internship_start_date", "The start date", "13-03-2026"),
+            Variable("internship_end_date", "The end date", "12-06-2026"),
+            Variable("program_type", "Paid or unpaid internship", "Unpaid Internship"),
+            Variable("company_name", "The company's name", "GIR Technologies"),
+            Variable("authorized_signatory", "The authorised signatory", "Atluri Srujan"),
+            Variable("authorized_designation", "Their designation", "CEO"),
+            Variable("reference", "The offer letter's reference number", "OFR-2026-AB12-001"),
+            Variable("letter_date", "The date on the letter", "28 October 2026"),
+        ),
+        has_attachment=True,
+    ),
+    TemplateDef(
+        key="internship_welcome",
+        name="Internship welcome (LMS access)",
+        category="Internships",
+        description="Tells a student who already has an ERPX account that their internship access is ready.",
+        when_sent="When LMS access is granted for an internship and the student already has an account.",
+        subject="Your Pentrix LMS access is ready",
+        body=(
+            "# Welcome, {{full_name}}\n\n"
+            "Your access to the Pentrix LMS is ready. You are now enrolled in {{course_title}}.\n\n"
+            "[Sign in]({{login_url}})\n\n"
+            "> Sign in with your existing account."
+        ),
+        variables=(
+            _NAME,
+            Variable("internship_title", "The internship's title", "Pentrix Cyber Internship"),
+            Variable("course_title", "The course they are enrolled in", "Cyber Security Fundamentals"),
+            Variable("login_url", "The sign-in page", "https://lms.example.com/login"),
+        ),
+        required=("login_url",),
     ),
     TemplateDef(
         key="workshop_exam_invite",

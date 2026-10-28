@@ -123,7 +123,14 @@ const BroadcastPage = lazy(() => import("@/features/notifications/pages/broadcas
 const CommunicationLogPage = lazy(() => import("@/features/communication/pages/communication-log-page").then((m) => ({ default: m.CommunicationLogPage })));
 const EventsListPage = lazy(() => import("@/features/events/pages/events-list-page").then((m) => ({ default: m.EventsListPage })));
 const BackupsPage = lazy(() => import("@/features/backups/pages/backups-page").then((m) => ({ default: m.BackupsPage })));
-const EmailTemplatesPage = lazy(() => import("@/features/email-templates/pages/email-templates-page").then((m) => ({ default: m.EmailTemplatesPage })));
+const StudioLayout = lazy(() => import("@/features/email-studio/pages/studio-layout").then((m) => ({ default: m.StudioLayout })));
+const LibraryPage = lazy(() => import("@/features/email-studio/pages/library-page").then((m) => ({ default: m.LibraryPage })));
+const CreatePage = lazy(() => import("@/features/email-studio/pages/create-page").then((m) => ({ default: m.CreatePage })));
+const BrandsPage = lazy(() => import("@/features/email-studio/pages/brands-page").then((m) => ({ default: m.BrandsPage })));
+const ComponentsPage = lazy(() => import("@/features/email-studio/pages/components-page").then((m) => ({ default: m.ComponentsPage })));
+const SignaturesPage = lazy(() => import("@/features/email-studio/pages/signatures-page").then((m) => ({ default: m.SignaturesPage })));
+const HistoryPage = lazy(() => import("@/features/email-studio/pages/history-page").then((m) => ({ default: m.HistoryPage })));
+const EditorPage = lazy(() => import("@/features/email-studio/pages/editor-page").then((m) => ({ default: m.EditorPage })));
 const IntegrationsPage = lazy(() => import("@/features/integrations/pages/integrations-page").then((m) => ({ default: m.IntegrationsPage })));
 const MonitoringPage = lazy(() => import("@/features/monitoring/pages/monitoring-page").then((m) => ({ default: m.MonitoringPage })));
 const OrganizationDetailPage = lazy(() => import("@/features/organizations/pages/organization-detail-page").then((m) => ({ default: m.OrganizationDetailPage })));
@@ -294,7 +301,20 @@ export const router = createBrowserRouter([
       { path: "administration/audit-logs", element: <AuditLogListPage /> },
       { path: "administration/broadcast", element: <BroadcastPage /> },
       { path: "administration/backups", element: <BackupsPage /> },
-      { path: "administration/email-templates", element: <EmailTemplatesPage /> },
+      // Email Studio. The path is the old Email Templates one, so existing links keep working.
+      {
+        path: "administration/email-templates",
+        element: <StudioLayout />,
+        children: [
+          { index: true, element: <LibraryPage /> },
+          { path: "create", element: <CreatePage /> },
+          { path: "brands", element: <BrandsPage /> },
+          { path: "components", element: <ComponentsPage /> },
+          { path: "signatures", element: <SignaturesPage /> },
+          { path: "history", element: <HistoryPage /> },
+        ],
+      },
+      { path: "administration/email-templates/studio/:templateId", element: <EditorPage /> },
       { path: "administration/integrations", element: <IntegrationsPage /> },
       { path: "administration/monitoring", element: <MonitoringPage /> },
       { path: "communication/logs", element: <CommunicationLogPage /> },
