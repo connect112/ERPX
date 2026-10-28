@@ -27,6 +27,7 @@ aiosmtplib==3.0.2
 openpyxl==3.1.5
 reportlab==4.2.5
 svglib==1.5.1
+nh3==0.3.7
 pypdf==6.19.0
 prometheus-fastapi-instrumentator==7.0.0
 sentry-sdk==2.66.1

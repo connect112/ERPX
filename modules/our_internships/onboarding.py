@@ -113,6 +113,7 @@ class GrantOutcome:
     full_name: str
     reset_token: str | None
     course_title: str
+    internship_title: str = ""
 
 
 class OnboardingService:
@@ -298,7 +299,7 @@ class OnboardingService:
         selection.lms_granted_at = datetime.now(timezone.utc)
         selection.lms_granted_by_user_id = user_id
         await self.db.flush()
-        return GrantOutcome(created_account=created, email=email, full_name=student.name, reset_token=reset_token, course_title=course.title)
+        return GrantOutcome(created_account=created, email=email, full_name=student.name, reset_token=reset_token, course_title=course.title, internship_title=internship.title)
 
     async def _existing_unlinked_student(self, organization_id: uuid.UUID, email: str) -> Student | None:
         from sqlalchemy import func
@@ -353,10 +354,16 @@ async def notify_access(outcome: GrantOutcome) -> None:
             link = f"{settings.STUDENT_PORTAL_URL.rstrip('/')}/reset-password?token={outcome.reset_token}"
             send_password_reset_email_task.delay(outcome.email, outcome.full_name, link, "account_invite")
             return
-        text = (
-            f"Dear {outcome.full_name},\n\nYour access to the Pentrix LMS is ready. You are now enrolled in {outcome.course_title}.\n\n"
-            f"Sign in with your existing account here: {login_url}\n\nRegards,\nPentrix"
-        )
-        await email_service.send(outcome.email, "Your Pentrix LMS access is ready", text, None)
+        from app.db.session import get_db_context
+        from modules.email_templates.render import render_email
+
+        async with get_db_context() as db:
+            subject, text, html = await render_email(
+                db,
+                "internship_welcome",
+                {"full_name": outcome.full_name, "internship_title": outcome.internship_title, "course_title": outcome.course_title, "login_url": login_url},
+                recipient_email=outcome.email,
+            )
+        await email_service.send(outcome.email, subject, text, html)
     except Exception:  # noqa: BLE001
         logger.warning("internship_lms_notice_failed", email=outcome.email, exc_info=True)

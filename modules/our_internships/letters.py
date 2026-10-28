@@ -612,6 +612,31 @@ class LetterService:
         html = f"<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1f2937\">{body}</div>"
         return subject, text, html
 
+    async def render_offer_email(self, internship: OurInternship, config: LetterConfig, values: dict[str, str]) -> tuple[str, str, str, Any]:
+        """(subject, text, html, note for the send history). A published Email Studio template that an administrator assigned to the
+        offer email is used; otherwise the email written in the letter settings, as before. A studio template that needs a value this
+        student does not have raises MissingPlaceholders, so the letter is reported as not sent rather than sent wrongly."""
+        from modules.email_studio.engine import render_assigned
+        from modules.email_studio.service import allowed_for_key
+        from packages.email.history import SendMeta
+        from packages.email.registry import get_def
+
+        definition = get_def("internship_offer_letter")
+        merged: dict[str, object] = {**values, "full_name": values.get("student_name", "")}
+        rendered = await render_assigned(
+            self.db, internship.organization_id, "internship_offer_letter", merged,
+            allowed=allowed_for_key(definition), required=definition.required if definition else (),
+        )
+        if rendered is not None:
+            note = SendMeta(
+                organization_id=internship.organization_id, key="internship_offer_letter", module="Internships", template_id=rendered.template_id,
+                version_id=rendered.version_id, source=rendered.source, reply_to=rendered.reply_to, from_name=rendered.from_name,
+                extra_attachments=rendered.attachments, requires=rendered.requires,
+            )
+            return rendered.subject, rendered.text, rendered.html, note
+        subject, text, html = self.render_email(config, values)
+        return subject, text, html, SendMeta(organization_id=internship.organization_id, key="internship_offer_letter", module="Internships", source="letter_settings")
+
     async def email_preview(self, internship: OurInternship, student_id: uuid.UUID | None) -> dict[str, Any]:
         loaded = await self.load(internship)
         facts, reference, filename = SAMPLE_FACTS, "OFR-0000-0000-000", "OfferLetter_Sample.pdf"
@@ -624,14 +649,19 @@ class LetterService:
             reference = selection.offer_reference or reference
             letter = (await self.current_letters(internship)).get(selection.id)
             filename = letter.filename if letter and letter.filename else letter_filename(facts.name, internship.id, 1)
-        subject, text, _ = self.render_email(loaded.config, self.email_values(loaded.config, facts, internship.title, reference))
+        from modules.email_studio.engine import MissingPlaceholders
+
+        try:
+            subject, text, _, _ = await self.render_offer_email(internship, loaded.config, self.email_values(loaded.config, facts, internship.title, reference))
+        except MissingPlaceholders as exc:
+            return {"to": facts.email, "subject": "(cannot be made)", "body": f"The email template needs a value this student does not have. {exc}", "attachment": filename}
         return {"to": facts.email, "subject": subject, "body": text, "attachment": filename}
 
     async def send_test(self, internship: OurInternship, to_email: str) -> None:
         loaded = await self.load(internship)
         pdf, _, _ = await self.preview(internship, None, None)
         values = self.email_values(loaded.config, SAMPLE_FACTS, internship.title, "OFR-TEST-000")
-        subject, text, html = self.render_email(loaded.config, values)
+        subject, text, html, _ = await self.render_offer_email(internship, loaded.config, values)
         sent = await email_service.send(
             to_email, "[Test] " + subject, text, html,
             attachments=[EmailAttachment(filename="OfferLetter_Sample.pdf", content=pdf, mime_type="application/pdf")],

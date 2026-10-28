@@ -71,6 +71,8 @@ from modules.trainers.routes import router as trainers_router
 from modules.workflow.routes import router as workflow_router
 from modules.email_templates.routes import event_router as email_template_events_router
 from modules.email_templates.routes import router as email_templates_router
+from modules.email_studio.routes import public_router as email_assets_public_router
+from modules.email_studio.routes import router as email_studio_router
 from modules.hackathons.routes import router as hackathons_router
 from modules.placements.routes import router as placements_router
 from modules.social_media.routes import router as social_media_router
@@ -137,6 +139,8 @@ api_router.include_router(my_internships_router, prefix="/my-internships", tags=
 api_router.include_router(my_internship_awards_router, prefix="/my-internship-awards", tags=["My Internships"])
 api_router.include_router(instructing_internships_router, prefix="/instructing-internships", tags=["Our Internships"])
 api_router.include_router(email_templates_router, prefix="/email-templates", tags=["Email templates"])
+api_router.include_router(email_studio_router, prefix="/email-studio", tags=["Email Studio"])
+api_router.include_router(email_assets_public_router, prefix="/public/email-assets", tags=["Email Studio"])
 api_router.include_router(email_template_events_router, prefix="/hackathons", tags=["Email templates"])
 api_router.include_router(placements_router, prefix="/placements", tags=["Placements"])
 api_router.include_router(social_media_router, prefix="/social-media", tags=["Social Media"])

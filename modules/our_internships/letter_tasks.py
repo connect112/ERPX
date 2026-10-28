@@ -20,6 +20,7 @@ from modules.our_internships.letter_models import DeliveryStatus, LetterStatus, 
 from modules.our_internships.letter_pdf import StudentFacts
 from modules.our_internships.letters import LetterService, facts_of
 from modules.our_internships.models import InternshipSelection, OfferStatus, OurInternship
+from packages.email.history import set_send_meta
 from packages.email.service import EmailAttachment, email_service
 
 logger = get_logger(__name__)
@@ -83,7 +84,9 @@ async def _send_letter(letter_id: uuid.UUID) -> bool:
                 if institution is not None:
                     facts = facts_of(student, institution)
             values = service.email_values(loaded.config, facts, internship.title, letter.reference, letter.generated_at)
-            subject, text, html = service.render_email(loaded.config, values)
+            subject, text, html, note = await service.render_offer_email(internship, loaded.config, values)
+            note.sent_by_user_id = letter.released_by_user_id
+            set_send_meta(note)  # so the history shows the template and version that made this email
             sent = await email_service.send(
                 recipient, subject, text, html,
                 attachments=[EmailAttachment(filename=letter.filename or "OfferLetter.pdf", content=letter.pdf_data, mime_type="application/pdf")],

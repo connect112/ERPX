@@ -17,6 +17,7 @@ from email.message import EmailMessage
 
 from app.core.config import settings
 from app.core.logging_config import get_logger
+from packages.email.history import record_send, take_send_meta
 
 logger = get_logger(__name__)
 
@@ -45,15 +46,25 @@ class EmailService:
         html_body: str | None = None,
         attachments: list[EmailAttachment] | None = None,
     ) -> bool:
+        meta = take_send_meta()  # which template made this email (left by the renderer), for the send history
+        sender_name = " ".join((meta.from_name if meta else "").split()) or self.from_name
         message = EmailMessage()
-        message["From"] = f"{self.from_name} <{self.from_email}>"
+        message["From"] = f"{sender_name.replace(chr(34), '')} <{self.from_email}>"
         message["To"] = to_email
-        message["Subject"] = subject
+        message["Subject"] = " ".join(str(subject).split())  # one line: a subject can never add a header
+        if meta and meta.reply_to and "@" in meta.reply_to and not any(c in meta.reply_to for c in ("\r", "\n", "<", ">", ",", ";")):
+            message["Reply-To"] = meta.reply_to
         message.set_content(text_body)
         if html_body:
             message.add_alternative(html_body, subtype="html")
 
-        for attachment in attachments or []:
+        if meta and meta.requires and not attachments:
+            missing = ", ".join(meta.requires)
+            logger.warning("email_required_attachment_missing", to=to_email, subject=subject, missing=missing)
+            await record_send(meta, to_email, subject, False, f"Not sent: the required attachment is missing ({missing}).", 0)
+            return False
+        all_attachments = list(attachments or []) + list(meta.extra_attachments if meta else [])
+        for attachment in all_attachments:
             maintype, _, subtype = attachment.mime_type.partition("/")
             message.add_attachment(
                 attachment.content,
@@ -73,9 +84,11 @@ class EmailService:
                 tls_context=ssl.create_default_context(),
             )
             logger.info("email_sent", to=to_email, subject=subject)
+            await record_send(meta, to_email, subject, True, None, len(all_attachments))
             return True
-        except Exception:
+        except Exception as exc:
             logger.exception("email_send_failed", to=to_email, subject=subject)
+            await record_send(meta, to_email, subject, False, f"{type(exc).__name__}: {exc}"[:400], len(all_attachments))
             return False
 
 

@@ -1,0 +1,392 @@
+[
+  {
+    "key": "account_verification",
+    "name": "Account verification",
+    "description": "A branded email with a button that confirms a new account's email address.",
+    "category": "Account Verification",
+    "module": "authentication",
+    "suggested_for": "verification",
+    "subject": "Verify your {{company_name}} account",
+    "placeholders": [
+      "full_name",
+      "verification_url",
+      "company_name"
+    ],
+    "props": [
+      {
+        "name": "heading",
+        "label": "Heading",
+        "type": "text",
+        "default": "Welcome, {{full_name}}",
+        "required": true
+      },
+      {
+        "name": "message",
+        "label": "Message",
+        "type": "textarea",
+        "default": "Please confirm your email address to activate your account."
+      },
+      {
+        "name": "button_text",
+        "label": "Button text",
+        "type": "text",
+        "default": "Verify email",
+        "required": true
+      },
+      {
+        "name": "expiry_note",
+        "label": "Note under the button",
+        "type": "textarea",
+        "default": "This link expires in 24 hours. If you didn't create this account, you can ignore this email."
+      },
+      {
+        "name": "primary_color",
+        "label": "Main colour",
+        "type": "color",
+        "default": "#2563eb"
+      },
+      {
+        "name": "secondary_color",
+        "label": "Secondary colour",
+        "type": "color",
+        "default": "#1e40af"
+      },
+      {
+        "name": "accent_color",
+        "label": "Accent colour",
+        "type": "color",
+        "default": "#f59e0b"
+      },
+      {
+        "name": "background_color",
+        "label": "Page background",
+        "type": "color",
+        "default": "#f4f4f5"
+      },
+      {
+        "name": "text_color",
+        "label": "Text colour",
+        "type": "color",
+        "default": "#111827"
+      }
+    ]
+  },
+  {
+    "key": "password_reset",
+    "name": "Password reset",
+    "description": "A calm, security-focused email with a button to choose a new password.",
+    "category": "Password Reset",
+    "module": "authentication",
+    "suggested_for": "password_reset",
+    "subject": "Reset your {{company_name}} password",
+    "placeholders": [
+      "full_name",
+      "reset_url",
+      "company_name"
+    ],
+    "props": [
+      {
+        "name": "heading",
+        "label": "Heading",
+        "type": "text",
+        "default": "Reset your password",
+        "required": true
+      },
+      {
+        "name": "message",
+        "label": "Message",
+        "type": "textarea",
+        "default": "Hi {{full_name}}, we received a request to reset your password. Use the button below to choose a new one."
+      },
+      {
+        "name": "button_text",
+        "label": "Button text",
+        "type": "text",
+        "default": "Reset password",
+        "required": true
+      },
+      {
+        "name": "security_note",
+        "label": "Security note",
+        "type": "textarea",
+        "default": "This link expires in 1 hour and can be used once. If you didn't ask for this, you can ignore this email and your password will stay the same."
+      },
+      {
+        "name": "primary_color",
+        "label": "Main colour",
+        "type": "color",
+        "default": "#2563eb"
+      },
+      {
+        "name": "secondary_color",
+        "label": "Secondary colour",
+        "type": "color",
+        "default": "#1e40af"
+      },
+      {
+        "name": "accent_color",
+        "label": "Accent colour",
+        "type": "color",
+        "default": "#f59e0b"
+      },
+      {
+        "name": "background_color",
+        "label": "Page background",
+        "type": "color",
+        "default": "#f4f4f5"
+      },
+      {
+        "name": "text_color",
+        "label": "Text colour",
+        "type": "color",
+        "default": "#111827"
+      }
+    ]
+  },
+  {
+    "key": "internship_offer",
+    "name": "Internship offer letter",
+    "description": "Congratulates a selected student and summarises the internship; their offer letter PDF is attached by ERPX.",
+    "category": "Internship Offer Letters",
+    "module": "internships",
+    "suggested_for": "internship_offer_letter",
+    "subject": "Congratulations {{student_name}} - internship offer from {{company_name}}",
+    "placeholders": [
+      "student_name",
+      "institution_name",
+      "internship_name",
+      "internship_position",
+      "internship_duration",
+      "internship_start_date",
+      "internship_end_date",
+      "program_type",
+      "company_name",
+      "reference",
+      "letter_date",
+      "signature"
+    ],
+    "props": [
+      {
+        "name": "heading",
+        "label": "Heading",
+        "type": "text",
+        "default": "Congratulations, {{student_name}}!",
+        "required": true
+      },
+      {
+        "name": "intro",
+        "label": "Opening message",
+        "type": "textarea",
+        "default": "We are pleased to offer you a place on {{internship_name}} at {{company_name}}."
+      },
+      {
+        "name": "attachment_note",
+        "label": "Attachment notice",
+        "type": "textarea",
+        "default": "Your offer letter (reference {{reference}}) is attached to this email as a PDF. Please read it carefully, sign it and send it back with the documents it lists."
+      },
+      {
+        "name": "closing",
+        "label": "Closing line",
+        "type": "text",
+        "default": "We look forward to working with you."
+      },
+      {
+        "name": "primary_color",
+        "label": "Main colour",
+        "type": "color",
+        "default": "#2563eb"
+      },
+      {
+        "name": "secondary_color",
+        "label": "Secondary colour",
+        "type": "color",
+        "default": "#1e40af"
+      },
+      {
+        "name": "accent_color",
+        "label": "Accent colour",
+        "type": "color",
+        "default": "#f59e0b"
+      },
+      {
+        "name": "background_color",
+        "label": "Page background",
+        "type": "color",
+        "default": "#f4f4f5"
+      },
+      {
+        "name": "text_color",
+        "label": "Text colour",
+        "type": "color",
+        "default": "#111827"
+      }
+    ]
+  },
+  {
+    "key": "internship_welcome",
+    "name": "Internship welcome",
+    "description": "Welcomes a student who has joined an internship, with the key instructions and a link to sign in.",
+    "category": "Internship Onboarding",
+    "module": "internships",
+    "suggested_for": "internship_welcome",
+    "subject": "Welcome to {{internship_title}}",
+    "placeholders": [
+      "full_name",
+      "internship_title",
+      "course_title",
+      "login_url",
+      "company_name",
+      "signature"
+    ],
+    "props": [
+      {
+        "name": "heading",
+        "label": "Heading",
+        "type": "text",
+        "default": "Welcome, {{full_name}}",
+        "required": true
+      },
+      {
+        "name": "intro",
+        "label": "Welcome message",
+        "type": "textarea",
+        "default": "Your access to {{internship_title}} is ready. You are now enrolled in {{course_title}}."
+      },
+      {
+        "name": "instructions_title",
+        "label": "Instructions heading",
+        "type": "text",
+        "default": "Before you start"
+      },
+      {
+        "name": "step_one",
+        "label": "Instruction 1",
+        "type": "text",
+        "default": "Sign in with the button below."
+      },
+      {
+        "name": "step_two",
+        "label": "Instruction 2",
+        "type": "text",
+        "default": "Open your course and read the programme guidelines."
+      },
+      {
+        "name": "step_three",
+        "label": "Instruction 3",
+        "type": "text",
+        "default": "Contact your coordinator if anything is unclear."
+      },
+      {
+        "name": "button_text",
+        "label": "Button text",
+        "type": "text",
+        "default": "Sign in",
+        "required": true
+      },
+      {
+        "name": "footer_note",
+        "label": "Closing note",
+        "type": "textarea",
+        "default": "We are glad to have you with us."
+      },
+      {
+        "name": "primary_color",
+        "label": "Main colour",
+        "type": "color",
+        "default": "#2563eb"
+      },
+      {
+        "name": "secondary_color",
+        "label": "Secondary colour",
+        "type": "color",
+        "default": "#1e40af"
+      },
+      {
+        "name": "accent_color",
+        "label": "Accent colour",
+        "type": "color",
+        "default": "#f59e0b"
+      },
+      {
+        "name": "background_color",
+        "label": "Page background",
+        "type": "color",
+        "default": "#f4f4f5"
+      },
+      {
+        "name": "text_color",
+        "label": "Text colour",
+        "type": "color",
+        "default": "#111827"
+      }
+    ]
+  },
+  {
+    "key": "certificate_distribution",
+    "name": "Certificate distribution",
+    "description": "Delivers a participation or completion certificate; ERPX attaches that student's own PDF and says which kind it is.",
+    "category": "Internship Certificates",
+    "module": "internships",
+    "suggested_for": "internship_completion_certificate",
+    "subject": "Your internship {{certificate_type}} certificate: {{internship_title}}",
+    "placeholders": [
+      "full_name",
+      "internship_title",
+      "certificate_type",
+      "company_name",
+      "signature"
+    ],
+    "props": [
+      {
+        "name": "heading",
+        "label": "Heading",
+        "type": "text",
+        "default": "Congratulations, {{full_name}}!",
+        "required": true
+      },
+      {
+        "name": "message",
+        "label": "Message",
+        "type": "textarea",
+        "default": "Your certificate of {{certificate_type}} for {{internship_title}} is attached to this email as a PDF."
+      },
+      {
+        "name": "closing",
+        "label": "Closing line",
+        "type": "text",
+        "default": "Thank you for all your work."
+      },
+      {
+        "name": "primary_color",
+        "label": "Main colour",
+        "type": "color",
+        "default": "#2563eb"
+      },
+      {
+        "name": "secondary_color",
+        "label": "Secondary colour",
+        "type": "color",
+        "default": "#1e40af"
+      },
+      {
+        "name": "accent_color",
+        "label": "Accent colour",
+        "type": "color",
+        "default": "#f59e0b"
+      },
+      {
+        "name": "background_color",
+        "label": "Page background",
+        "type": "color",
+        "default": "#f4f4f5"
+      },
+      {
+        "name": "text_color",
+        "label": "Text colour",
+        "type": "color",
+        "default": "#111827"
+      }
+    ]
+  }
+]

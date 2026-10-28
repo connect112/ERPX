@@ -21,6 +21,7 @@ apps/web/
 apps/student-portal/
 apps/trainer-portal/
 apps/corporate-portal/
+apps/email-code-templates/
 **/node_modules/
 
 # Tests, docs, infra, load tests — not needed at runtime

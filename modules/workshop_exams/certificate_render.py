@@ -38,7 +38,7 @@ async def certificate_email(
         return await render_email(
             db,
             f"internship_{exam.award}_certificate",
-            {"full_name": full_name, "internship_title": internship.title},
+            {"full_name": full_name, "internship_title": internship.title, "certificate_type": exam.award},
             organization_id=exam.organization_id,
         )
     if exam.hackathon_id is None:
