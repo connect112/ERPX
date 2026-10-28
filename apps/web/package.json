@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@codemirror/lang-html": "6.4.12",
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/lint": "6.9.7",
     "@hookform/resolvers": "^3.9.0",
     "@radix-ui/react-dialog": "^1.1.1",
     "@radix-ui/react-dropdown-menu": "^2.1.1",
@@ -32,6 +34,7 @@
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.441.0",
     "pdfjs-dist": "4.10.38",
+    "prettier": "3.6.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.0",

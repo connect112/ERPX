@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { apiClient } from "@/api/client";
 
-export type SourceType = "visual" | "html" | "code";
+export type SourceType = "visual" | "html" | "code" | "react";
 export type LibrarySource = SourceType | "markdown" | "default";
 
 export interface LibraryItem {
@@ -22,6 +22,12 @@ export interface LibraryItem {
   customised: boolean;
   has_attachment: boolean;
   has_draft: boolean;
+  /** Deleting: only templates you made can go, and not while an ERPX email uses them. */
+  can_delete: boolean;
+  delete_blocked_reason: string | null;
+  used_by: { key: string; name: string }[];
+  deleted_at: string | null;
+  deleted_by_name: string | null;
 }
 
 export interface EditorDoc {
@@ -50,6 +56,8 @@ export interface DraftOut {
   preheader: string;
   editor_json: EditorDoc | null;
   html_source: string | null;
+  /** react: the React Email code exactly as pasted. */
+  react_source: string | null;
   body_html: string;
   code_template_key: string | null;
   code_props: Record<string, string> | null;
@@ -80,6 +88,8 @@ export interface TemplateOut {
   assignments: Assignment[];
   updated_at: string;
   updated_by_name: string | null;
+  is_system: boolean;
+  deleted_at: string | null;
 }
 
 export interface VersionOut {
@@ -106,6 +116,7 @@ export interface DraftPayload {
   preheader: string;
   editor_json?: EditorDoc | null;
   html?: string | null;
+  react_source?: string | null;
   code_template_key?: string | null;
   code_props?: Record<string, string> | null;
   brand_profile_id: string | null;
@@ -128,6 +139,28 @@ export interface PreviewResult {
   warnings: string[];
   unsupported: string[];
   attachments: Attachment[];
+}
+
+export interface ReactIssue {
+  severity: "error" | "warning";
+  message: string;
+  line: number | null;
+  column: number | null;
+  code: string;
+}
+
+/** What the server made of pasted React Email code: the email, or exactly what stopped it (with line numbers). */
+export interface ReactBuild {
+  ok: boolean;
+  errors: ReactIssue[];
+  warnings: ReactIssue[];
+  html: string;
+  text: string;
+  title: string;
+  preheader: string;
+  placeholders: string[];
+  unsupported_placeholders: string[];
+  components: string[];
 }
 
 export interface Placeholder {
@@ -243,6 +276,7 @@ export interface HistoryItem {
 export const studioKeys = {
   all: ["email-studio"] as const,
   library: ["email-studio", "library"] as const,
+  deleted: ["email-studio", "deleted"] as const,
   template: (id: string) => ["email-studio", "template", id] as const,
   versions: (id: string) => ["email-studio", "versions", id] as const,
   placeholders: (key: string | null) => ["email-studio", "placeholders", key] as const,
@@ -269,6 +303,9 @@ export const studioApi = {
   discardDraft: (id: string) => apiClient.delete<TemplateOut>(`${base}/templates/${id}/draft`).then((r) => r.data),
   publish: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/publish`).then((r) => r.data),
   remove: (id: string) => apiClient.delete<{ message: string }>(`${base}/templates/${id}`).then((r) => r.data),
+  deleted: () => apiClient.get<LibraryItem[]>(`${base}/deleted`).then((r) => r.data),
+  restoreDeleted: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/restore-deleted`).then((r) => r.data),
+  reactBuild: (source: string, preheader = "") => apiClient.post<ReactBuild>(`${base}/react-import/build`, { source, preheader }).then((r) => r.data),
   duplicate: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/duplicate`).then((r) => r.data),
   archive: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/archive`).then((r) => r.data),
   unarchive: (id: string) => apiClient.post<TemplateOut>(`${base}/templates/${id}/unarchive`).then((r) => r.data),

@@ -21,6 +21,7 @@ class SourceType(str, enum.Enum):
     VISUAL = "visual"  # designed in the React Email visual editor; the editor's JSON is kept
     HTML = "html"  # imported HTML, edited as source
     CODE = "code"  # an approved React Email component, edited through its declared properties
+    REACT = "react"  # React Email source pasted by an administrator, read (never run) into email HTML
 
 
 class TemplateStatus(str, enum.Enum):
@@ -133,6 +134,11 @@ class EmailStudioTemplate(TimestampedBase):
     published_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("email_studio_versions.id", ondelete="SET NULL", use_alter=True, name="fk_email_template_published_version"), nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # A system template can never be deleted; this flag decides that, not the template's name.
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Deleting hides a template and keeps everything (versions, send history, the audit trail); it can be restored.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class EmailStudioVersion(TimestampedBase):
@@ -154,6 +160,8 @@ class EmailStudioVersion(TimestampedBase):
     editor_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # html: the source exactly as imported (never sent), kept apart from the sanitised copy below
     html_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # react: the React Email source exactly as pasted (never run, never sent); body_html is built from it on every save
+    react_source: Mapped[str | None] = mapped_column(Text, nullable=True)
     # what is sent: sanitised email HTML (still holding {{placeholders}}) and its plain-text twin
     body_html: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     body_text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")

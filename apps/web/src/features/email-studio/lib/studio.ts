@@ -126,6 +126,7 @@ export function draftPayload(t: TemplateOut, edits: Partial<DraftPayload>): Draf
     preheader: c.preheader,
     editor_json: c.editor_json,
     html: t.source_type === "html" ? (c.html_source ?? c.body_html) : c.body_html,
+    react_source: c.react_source,
     code_template_key: c.code_template_key,
     code_props: c.code_props,
     brand_profile_id: c.brand_profile_id,

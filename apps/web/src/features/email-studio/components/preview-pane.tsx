@@ -22,12 +22,15 @@ export function PreviewPane({
   erpxKey,
   canUseStudents,
   refreshKey,
+  compact,
 }: {
   sourceType: SourceType;
   getDraft: () => Promise<DraftPayload>;
   erpxKey: string | null;
   canUseStudents: boolean;
   refreshKey: number;
+  /** Inside a panel that scrolls on its own: a shorter frame. */
+  compact?: boolean;
 }) {
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [view, setView] = useState<View>("rendered");
@@ -136,7 +139,7 @@ export function PreviewPane({
       )}
 
       {!result ? (
-        <Skeleton className="h-[60vh] w-full" />
+        <Skeleton className={compact ? "h-72 w-full" : "h-[60vh] w-full"} />
       ) : view === "rendered" ? (
         <div className="overflow-x-auto rounded-md border bg-muted/40 p-3">
           <iframe
@@ -144,11 +147,11 @@ export function PreviewPane({
             sandbox=""
             srcDoc={result.html}
             style={{ width: device === "mobile" ? 375 : 680, maxWidth: "100%" }}
-            className="mx-auto block h-[62vh] rounded border bg-white"
+            className={`mx-auto block rounded border bg-white ${compact ? "h-[420px]" : "h-[62vh]"}`}
           />
         </div>
       ) : (
-        <pre className="max-h-[62vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-xs">{view === "text" ? result.text : result.html}</pre>
+        <pre className={`${compact ? "max-h-[420px]" : "max-h-[62vh]"} overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 text-xs`}>{view === "text" ? result.text : result.html}</pre>
       )}
     </div>
   );

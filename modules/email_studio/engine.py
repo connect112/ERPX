@@ -315,7 +315,7 @@ async def assigned_version(
         if row is None:
             continue
         template = await db.get(EmailStudioTemplate, row.template_id)
-        if template is None or template.status != TemplateStatus.PUBLISHED.value or template.published_version_id is None:
+        if template is None or template.deleted_at is not None or template.status != TemplateStatus.PUBLISHED.value or template.published_version_id is None:
             continue
         version = await db.get(EmailStudioVersion, template.published_version_id)
         if version is not None:

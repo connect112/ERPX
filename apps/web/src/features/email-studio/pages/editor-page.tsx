@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { type TemplateOut, studioKeys, useTemplate } from "@/features/email-studio/api/studio-api";
@@ -10,6 +10,8 @@ import { errorMessage } from "@/features/institutions/lib/format";
 /** The editor, full width. A restore or discard remounts it so it starts from the version it now holds. */
 export function EditorPage() {
   const { templateId = "" } = useParams();
+  const location = useLocation();
+  const initialNotice = (location.state as { notice?: string } | null)?.notice ?? null;
   const queryClient = useQueryClient();
   const template = useTemplate(templateId);
   const [remount, setRemount] = useState(0);
@@ -23,6 +25,7 @@ export function EditorPage() {
       <EditorWorkspace
         key={`${templateId}-${remount}`}
         template={template.data}
+        initialNotice={initialNotice}
         onTemplate={(t: TemplateOut, again: boolean) => {
           queryClient.setQueryData(studioKeys.template(templateId), t);
           if (again) setRemount((n) => n + 1);

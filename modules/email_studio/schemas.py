@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-SourceLiteral = Literal["visual", "html", "code"]
+SourceLiteral = Literal["visual", "html", "code", "react"]
 _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 CATEGORIES = (
@@ -34,6 +34,7 @@ class DraftPayload(BaseModel):
     html: str | None = Field(default=None, max_length=700_000)  # visual: the editor's export; html: the source
     code_template_key: str | None = Field(default=None, max_length=80)
     code_props: dict[str, str] | None = None
+    react_source: str | None = Field(default=None, max_length=200_000)  # react: the pasted React Email code
     brand_profile_id: uuid.UUID | None = None
     signature_id: uuid.UUID | None = None
     config: dict[str, Any] = Field(default_factory=dict)
@@ -111,6 +112,7 @@ class DraftOut(BaseModel):
     preheader: str
     editor_json: dict[str, Any] | None = None
     html_source: str | None = None
+    react_source: str | None = None
     body_html: str
     code_template_key: str | None = None
     code_props: dict[str, str] | None = None
@@ -141,6 +143,8 @@ class TemplateOut(BaseModel):
     assignments: list[AssignmentOut]
     updated_at: datetime
     updated_by_name: str | None = None
+    is_system: bool = False
+    deleted_at: datetime | None = None
 
 
 class LibraryItem(BaseModel):
@@ -160,6 +164,38 @@ class LibraryItem(BaseModel):
     customised: bool = False
     has_attachment: bool = False
     has_draft: bool = False
+    # Deleting: only templates you made can go, and not while an ERPX email uses them.
+    can_delete: bool = False
+    delete_blocked_reason: str | None = None
+    used_by: list[AssignmentOut] = Field(default_factory=list)
+    deleted_at: datetime | None = None
+    deleted_by_name: str | None = None
+
+
+class ReactIssue(BaseModel):
+    severity: str  # error | warning
+    message: str
+    line: int | None = None
+    column: int | None = None
+    code: str = ""
+
+
+class ReactBuildRequest(BaseModel):
+    source: str = Field(max_length=200_000)
+    preheader: str = Field(default="", max_length=200)
+
+
+class ReactBuildResponse(BaseModel):
+    ok: bool
+    errors: list[ReactIssue]
+    warnings: list[ReactIssue]
+    html: str = ""
+    text: str = ""
+    title: str = ""
+    preheader: str = ""
+    placeholders: list[str] = Field(default_factory=list)
+    unsupported_placeholders: list[str] = Field(default_factory=list)
+    components: list[str] = Field(default_factory=list)
 
 
 class AssignRequest(BaseModel):

@@ -247,7 +247,7 @@ class BrandingService:
 async def templates_using_brand(db: AsyncSession, brand_id: uuid.UUID) -> list[str]:
     rows = (
         await db.execute(
-            select(EmailStudioTemplate.name).join(EmailStudioVersion, EmailStudioVersion.template_id == EmailStudioTemplate.id).where(EmailStudioVersion.brand_profile_id == brand_id).distinct()
+            select(EmailStudioTemplate.name).join(EmailStudioVersion, EmailStudioVersion.template_id == EmailStudioTemplate.id).where(EmailStudioVersion.brand_profile_id == brand_id, EmailStudioTemplate.deleted_at.is_(None)).distinct()
         )
     ).scalars().all()
     return list(rows)
