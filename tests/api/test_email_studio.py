@@ -685,3 +685,78 @@ async def test_the_internship_welcome_email_uses_a_template_when_one_is_assigned
     await assign(client, auth_headers, "internship_welcome", t["id"])
     await onboarding.notify_access(outcome)
     assert mailed[-1][1] == "Welcome to Pentrix Cyber Internship" and "Hi Asha Rao, Cyber 101" in mailed[-1][2]
+
+
+# ------------------------------------------------------------ deleting templates
+
+
+async def test_a_template_you_made_can_be_deleted_with_its_versions_but_not_while_an_erpx_email_uses_it(client, auth_headers, db_session, organization):
+    from modules.email_studio.models import EmailStudioTemplate, EmailStudioVersion
+
+    t = await create(client, auth_headers, name="To delete")
+    await publish(client, auth_headers, t)
+    await client.put(f"{_S}/templates/{t['id']}/draft", json=draft(subject="Second"), headers=auth_headers)
+    await assign(client, auth_headers, "verification", t["id"])
+    busy = await client.delete(f"{_S}/templates/{t['id']}", headers=auth_headers)
+    assert busy.status_code == 409 and "Verify your email" in busy.text and "Use for" in busy.text
+    assert any(i["id"] == t["id"] for i in (await client.get(f"{_S}/library", headers=auth_headers)).json())  # still there
+    # taking it off the ERPX email frees it
+    await client.delete(f"{_S}/assignments/verification", headers=auth_headers)
+    gone = await client.delete(f"{_S}/templates/{t['id']}", headers=auth_headers)
+    assert gone.status_code == 200 and gone.json()["message"] == "Deleted."
+    assert all(i["id"] != t["id"] for i in (await client.get(f"{_S}/library", headers=auth_headers)).json())
+    assert (await client.get(f"{_S}/templates/{t['id']}", headers=auth_headers)).status_code == 404
+    tid = uuid.UUID(t["id"])
+    assert (await db_session.execute(select(EmailStudioTemplate).where(EmailStudioTemplate.id == tid))).first() is None
+    assert (await db_session.execute(select(EmailStudioVersion).where(EmailStudioVersion.template_id == tid))).first() is None  # versions go with it
+    assert (await client.delete(f"{_S}/templates/{t['id']}", headers=auth_headers)).status_code == 404  # already gone
+
+
+async def test_a_draft_only_and_an_archived_template_can_be_deleted_too(client, auth_headers):
+    draft_only = await create(client, auth_headers, name="Never published")
+    assert (await client.delete(f"{_S}/templates/{draft_only['id']}", headers=auth_headers)).status_code == 200
+    archived = await create(client, auth_headers, name="Archived one")
+    await publish(client, auth_headers, archived)
+    await client.post(f"{_S}/templates/{archived['id']}/archive", headers=auth_headers)
+    assert (await client.delete(f"{_S}/templates/{archived['id']}", headers=auth_headers)).status_code == 200
+
+
+async def test_the_built_in_emails_cannot_be_deleted_and_sent_emails_keep_their_history(client, auth_headers, db_session, organization, monkeypatch):
+    # built-in emails are not studio templates: there is nothing to delete, and no route to do it
+    assert (await client.delete(f"{_S}/templates/system:verification", headers=auth_headers)).status_code == 422
+    assert (await client.delete(f"{_S}/templates/{uuid.uuid4()}", headers=auth_headers)).status_code == 404
+    still = {i["key"] for i in (await client.get(f"{_S}/library", headers=auth_headers)).json() if i["is_system"]}
+    assert {"verification", "password_reset", "internship_offer_letter"} <= still
+
+    @asynccontextmanager
+    async def same_session():
+        yield db_session
+
+    async def fake_smtp(message, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.db.session.get_db_context", same_session)
+    monkeypatch.setattr(mail_service.aiosmtplib, "send", fake_smtp)
+    t = await create(client, auth_headers, name="Used once")
+    await publish(client, auth_headers, t)
+    await assign(client, auth_headers, "verification", t["id"])
+    subject, text, html = await render_email(db_session, "verification", {"full_name": "Asha", "verification_url": "https://x.example/v"}, organization_id=organization.id)
+    assert await mail_service.EmailService().send("asha@example.com", subject, text, html) is True
+    await client.delete(f"{_S}/assignments/verification", headers=auth_headers)
+    assert (await client.delete(f"{_S}/templates/{t['id']}", headers=auth_headers)).status_code == 200
+    rows = (await db_session.execute(select(EmailSendRecord).where(EmailSendRecord.recipient == "asha@example.com"))).scalars().all()
+    assert len(rows) == 1 and rows[0].status == "sent" and rows[0].template_id is None  # the record stays, without the link to the template
+
+
+async def test_deleting_needs_permission_and_stays_inside_the_organisation(client, auth_headers, db_session, organization):
+    from modules.organizations.repository import OrganizationRepository
+
+    t = await create(client, auth_headers, name="Protected")
+    viewer = await user_with(db_session, organization, ["email_templates.view"])
+    assert (await client.delete(f"{_S}/templates/{t['id']}", headers=viewer)).status_code == 403
+    other_org = await OrganizationRepository(db_session).create(name="Other", slug=f"other-{uuid.uuid4().hex[:8]}")
+    await db_session.flush()
+    _, token = await _make_user(db_session, other_org, is_superuser=True, email=f"o-{uuid.uuid4().hex[:8]}@erpx.example.com")
+    assert (await client.delete(f"{_S}/templates/{t['id']}", headers={"Authorization": f"Bearer {token}"})).status_code == 404
+    editor = await user_with(db_session, organization, ["email_templates.view", "email_templates.manage"])
+    assert (await client.delete(f"{_S}/templates/{t['id']}", headers=editor)).status_code == 200  # managing is enough

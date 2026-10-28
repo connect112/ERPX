@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Copy, Eye, Mail, Paperclip, Pencil, Plus, Send, Wand2 } from "lucide-react";
+import { Archive, ArchiveRestore, Copy, Eye, Mail, Paperclip, Pencil, Plus, Send, Trash2, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -193,6 +193,20 @@ export function LibraryPage() {
                               <Archive className="h-4 w-4" />
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Delete ${row.name}`}
+                            title="Delete this template"
+                            disabled={!perms.canManage || act.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Delete "${row.name}" for good? All its versions are deleted too. Emails already sent are not affected.`)) {
+                                act.mutate(async () => void (await studioApi.remove(row.id)));
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
                         </>
                       )}
                     </div>
