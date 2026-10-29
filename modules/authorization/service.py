@@ -196,6 +196,9 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("email_templates.view", "email_templates", "View the wording of the emails ERPX sends"),
     ("email_templates.manage", "email_templates", "Edit email templates and send test emails"),
     ("email_templates.publish", "email_templates", "Publish email templates, use them for ERPX emails, and approve signature images"),
+    ("pentrix_ops.bookings.view", "pentrix_ops", "View every Pentrix appointment"),
+    ("pentrix_ops.bookings.manage", "pentrix_ops", "Assign, reschedule and cancel Pentrix appointments, change their status and meeting details, and set the booking hours"),
+    ("pentrix_ops.bookings.assigned", "pentrix_ops", "View and update the Pentrix appointments assigned to you"),
     ("documents.view", "documents", "View and download uploaded documents"),
     ("documents.manage", "documents", "Upload and delete documents"),
     ("trainers.view", "trainers", "View trainer profiles"),
@@ -458,6 +461,13 @@ SYSTEM_ROLES: list[tuple[str, str, str, list[str]]] = [
             "communication.manage",
             "events.manage",
         ],
+    ),
+    (
+        "Pentrix Staff",
+        "pentrix_staff",
+        "Takes Pentrix candidate appointments: sees only the ones assigned to them and can mark them in progress, completed or no show. "
+        "No other administrative access.",
+        ["dashboard.view", "pentrix_ops.bookings.assigned"],
     ),
     (
         "Student",

@@ -36,6 +36,9 @@ const CourseDetailPage = lazy(() => import("@/features/courses/pages/course-deta
 const CoursesListPage = lazy(() => import("@/features/courses/pages/courses-list-page").then((m) => ({ default: m.CoursesListPage })));
 const LearningPathDetailPage = lazy(() => import("@/features/courses/learning-paths/pages/learning-path-detail-page").then((m) => ({ default: m.LearningPathDetailPage })));
 const LearningPathsListPage = lazy(() => import("@/features/courses/learning-paths/pages/learning-paths-list-page").then((m) => ({ default: m.LearningPathsListPage })));
+const PentrixBookingsPage = lazy(() => import("@/features/pentrix-ops/pages/bookings-page").then((m) => ({ default: m.BookingsPage })));
+const PentrixAvailabilityPage = lazy(() => import("@/features/pentrix-ops/pages/availability-page").then((m) => ({ default: m.AvailabilityPage })));
+const PentrixMyBookingsPage = lazy(() => import("@/features/pentrix-ops/pages/my-bookings-page").then((m) => ({ default: m.MyBookingsPage })));
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-page").then((m) => ({ default: m.DashboardPage })));
 const QuestionBankPage = lazy(() => import("@/features/examinations/question-bank/pages/question-bank-page").then((m) => ({ default: m.QuestionBankPage })));
 const AnnouncementsListPage = lazy(() => import("@/features/lms/announcements/pages/announcements-list-page").then((m) => ({ default: m.AnnouncementsListPage })));
@@ -315,6 +318,9 @@ export const router = createBrowserRouter([
         ],
       },
       { path: "administration/email-templates/studio/:templateId", element: <EditorPage /> },
+      { path: "pentrix-ops/bookings", element: <PentrixBookingsPage /> },
+      { path: "pentrix-ops/availability", element: <PentrixAvailabilityPage /> },
+      { path: "pentrix-ops/my-bookings", element: <PentrixMyBookingsPage /> },
       { path: "administration/integrations", element: <IntegrationsPage /> },
       { path: "administration/monitoring", element: <MonitoringPage /> },
       { path: "communication/logs", element: <CommunicationLogPage /> },

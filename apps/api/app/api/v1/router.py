@@ -62,6 +62,8 @@ from modules.our_internships.routes import router as our_internships_router
 from modules.payroll.routes import router as payroll_router
 from modules.pentrix.router import router as pentrix_router
 from modules.procurement.routes import router as procurement_router
+from modules.pentrix_ops.routes import internal_router as pentrix_internal_router
+from modules.pentrix_ops.routes import router as pentrix_ops_router
 from modules.provisioning.routes import router as provisioning_router
 from modules.reports.routes import router as reports_router
 from modules.settings.routes import router as settings_router
@@ -127,6 +129,8 @@ api_router.include_router(timetable_router, prefix="/timetable", tags=["Timetabl
 api_router.include_router(live_classes_router, prefix="/live-classes", tags=["Live Classes"])
 api_router.include_router(messaging_router, prefix="/messaging", tags=["Messaging"])
 api_router.include_router(workshops_router, prefix="/workshops", tags=["Workshops"])
+api_router.include_router(pentrix_ops_router, prefix="/pentrix-ops", tags=["Pentrix Operations"])
+api_router.include_router(pentrix_internal_router, prefix="/internal/pentrix", tags=["Internal - Pentrix"])
 api_router.include_router(workshop_exams_router, prefix="/workshop-exams", tags=["Workshop Exams"])
 api_router.include_router(workshop_exams_public_router, prefix="/public", tags=["Workshop Exams (public)"])
 api_router.include_router(hackathons_router, prefix="/hackathons", tags=["Hackathons"])

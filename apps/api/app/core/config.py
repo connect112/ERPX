@@ -173,6 +173,15 @@ class Settings(BaseSettings):
     # comparing against an empty secret.
     ERPX_INTERNAL_SERVICE_SECRET: str = ""
 
+    # ERPX's own calls to Pentrix's internal API (modules/pentrix_ops/client.py), signed with the same shared secret. e.g.
+    # http://pentrix_backend:8000. Empty = the Pentrix operations screens say the connection is not configured.
+    PENTRIX_INTERNAL_API_BASE_URL: str = ""
+    # The organisation the Pentrix operations belong to (its slug). Empty = the oldest organisation other than the student programme's.
+    PENTRIX_ORGANIZATION_SLUG: str = ""
+    # Where candidates are sent from reminder emails that have no meeting link yet, and the time zone appointments are shown in.
+    PENTRIX_PORTAL_URL: str = "https://pentrix.in"
+    PENTRIX_TIMEZONE: str = "Asia/Kolkata"
+
     # A separate secret (not ERPX_INTERNAL_SERVICE_SECRET) for the
     # self-hosted Jitsi recording server's finalize script to call
     # POST /live-classes/recording-webhook once a recording has been
