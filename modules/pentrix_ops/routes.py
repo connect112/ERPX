@@ -17,16 +17,23 @@ from app.core.exceptions import ValidationError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.pentrix_ops.candidates import CandidateFilters, PentrixCandidateService
 from modules.pentrix_ops.client import PentrixClient
 from modules.pentrix_ops.schemas import (
+    AssessmentDetail,
     AssignRequest,
     AvailabilitySettings,
     BlockRequest,
     BookingOut,
     BookingPage,
+    CandidateDetail,
+    CandidateEdit,
+    CandidateOut,
+    CandidatePage,
     MeetingRequest,
     MessageOut,
     NotesRequest,
+    OverviewOut,
     RescheduleRequest,
     StaffOut,
     StatusRequest,
@@ -42,6 +49,10 @@ internal_router = APIRouter()
 View = Depends(require_permissions("pentrix_ops.bookings.view"))
 Manage = Depends(require_permissions("pentrix_ops.bookings.manage"))
 Assigned = Depends(require_permissions("pentrix_ops.bookings.assigned"))
+OverviewView = Depends(require_permissions("pentrix_ops.overview.view"))
+RegistrationsView = Depends(require_permissions("pentrix_ops.registrations.view"))
+RegistrationsManage = Depends(require_permissions("pentrix_ops.registrations.manage"))
+AssessmentsView = Depends(require_permissions("pentrix_ops.assessments.view"))
 Org = Depends(get_current_user_organization_id)
 Db = Depends(get_db)
 
@@ -220,6 +231,106 @@ async def my_booking_notes(booking_id: uuid.UUID, payload: NotesRequest, organiz
     return _out(await service.set_notes(organization_id, await service.my_booking(organization_id, booking_id, user.id), payload.notes, user.id))
 
 
+# ------------------------------------------------------------------ overview, registrations and assessments (Pentrix candidates)
+
+
+@router.get("/overview", response_model=OverviewOut)
+async def overview(organization_id: uuid.UUID = Org, user: User = OverviewView, db: AsyncSession = Db):
+    await _scope(organization_id, db)
+    return await PentrixCandidateService(db).overview(organization_id)
+
+
+def _filters(
+    q: str | None, assessment: list[str] | None, qualification: list[str] | None, booking: list[str] | None, payment: list[str] | None,
+    registered_from: datetime | None, registered_to: datetime | None,
+) -> CandidateFilters:
+    return CandidateFilters(
+        q=q, assessment=assessment or [], qualification=qualification or [], booking=booking or [], payment=payment or [],
+        registered_from=registered_from, registered_to=registered_to,
+    )
+
+
+async def _candidate_page(
+    db: AsyncSession, organization_id: uuid.UUID, filters: CandidateFilters, sort: str, order: str, page: int, page_size: int
+) -> CandidatePage:
+    rows, total = await PentrixCandidateService(db).search(organization_id, filters, sort=sort, descending=order == "desc", page=page, page_size=page_size)
+    return CandidatePage(items=[CandidateOut(**PentrixCandidateService.out(r)) for r in rows], total=total, page=page, page_size=page_size)
+
+
+@router.get("/candidates", response_model=CandidatePage)
+async def list_candidates(
+    q: str | None = Query(default=None, max_length=100),
+    assessment: list[str] | None = Query(default=None, description="not_started | in_progress | completed | pending"),
+    qualification: list[str] | None = Query(default=None, description="qualified | not_qualified | pending"),
+    booking: list[str] | None = Query(default=None, description="scheduled | not_scheduled | completed | cancelled | no_show"),
+    payment: list[str] | None = Query(default=None, description="paid | pending | failed | refunded | none | not_paid"),
+    registered_from: datetime | None = None,
+    registered_to: datetime | None = None,
+    sort: str = Query(default="registered"),
+    order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    organization_id: uuid.UUID = Org,
+    user: User = RegistrationsView,
+    db: AsyncSession = Db,
+):
+    await _scope(organization_id, db)
+    filters = _filters(q, assessment, qualification, booking, payment, registered_from, registered_to)
+    return await _candidate_page(db, organization_id, filters, sort, order, page, page_size)
+
+
+@router.post("/candidates/sync", response_model=SyncOut)
+async def sync_candidates_now(organization_id: uuid.UUID = Org, user: User = RegistrationsView, db: AsyncSession = Db):
+    """Pull the latest candidates from Pentrix now (it also happens every minute by itself)."""
+    await _scope(organization_id, db)
+    return SyncOut(updated=await PentrixCandidateService(db).sync())
+
+
+@router.get("/candidates/{candidate_id}", response_model=CandidateDetail)
+async def get_candidate(candidate_id: uuid.UUID, organization_id: uuid.UUID = Org, user: User = RegistrationsView, db: AsyncSession = Db):
+    await _scope(organization_id, db)
+    return await PentrixCandidateService(db).detail(organization_id, candidate_id)
+
+
+@router.patch("/candidates/{candidate_id}", response_model=CandidateOut)
+async def edit_candidate(candidate_id: uuid.UUID, payload: CandidateEdit, organization_id: uuid.UUID = Org, user: User = RegistrationsManage, db: AsyncSession = Db):
+    await _scope(organization_id, db)
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise ValidationError("Nothing to change.")
+    service = PentrixCandidateService(db)
+    return CandidateOut(**service.out(await service.update(organization_id, candidate_id, changes, user.id)))
+
+
+@router.get("/assessments", response_model=CandidatePage)
+async def list_assessments(
+    q: str | None = Query(default=None, max_length=100),
+    assessment: list[str] | None = Query(default=None),
+    qualification: list[str] | None = Query(default=None),
+    booking: list[str] | None = Query(default=None),
+    payment: list[str] | None = Query(default=None),
+    registered_from: datetime | None = None,
+    registered_to: datetime | None = None,
+    sort: str = Query(default="assessed"),
+    order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    organization_id: uuid.UUID = Org,
+    user: User = AssessmentsView,
+    db: AsyncSession = Db,
+):
+    await _scope(organization_id, db)
+    filters = _filters(q, assessment, qualification, booking, payment, registered_from, registered_to)
+    return await _candidate_page(db, organization_id, filters, sort, order, page, page_size)
+
+
+@router.get("/assessments/{candidate_id}", response_model=AssessmentDetail)
+async def get_assessment(candidate_id: uuid.UUID, organization_id: uuid.UUID = Org, user: User = AssessmentsView, db: AsyncSession = Db):
+    """Attempts, scores and the criteria for one candidate: no contact, booking or payment history."""
+    await _scope(organization_id, db)
+    return await PentrixCandidateService(db).assessment_detail(organization_id, candidate_id)
+
+
 # ------------------------------------------------------------------ from Pentrix (signed, no user)
 
 
@@ -230,4 +341,14 @@ async def receive_booking(request: Request, db: AsyncSession = Db):
     if not isinstance(data, dict) or not data.get("id"):
         raise ValidationError("A booking is required.")
     await PentrixBookingService(db).upsert(await pentrix_organization_id(db), data)
+    return MessageOut(message="Stored.")
+
+
+@internal_router.post("/candidates", response_model=MessageOut, dependencies=[Depends(verify_internal_signature)])
+async def receive_candidate(request: Request, db: AsyncSession = Db):
+    """Pentrix tells ERPX a candidate's summary changed. Signed with the shared secret; an older message never overwrites a newer state."""
+    data = await request.json()
+    if not isinstance(data, dict) or not data.get("id"):
+        raise ValidationError("A candidate is required.")
+    await PentrixCandidateService(db).upsert(await pentrix_organization_id(db), data)
     return MessageOut(message="Stored.")

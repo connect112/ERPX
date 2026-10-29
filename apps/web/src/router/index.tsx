@@ -39,6 +39,11 @@ const LearningPathsListPage = lazy(() => import("@/features/courses/learning-pat
 const PentrixBookingsPage = lazy(() => import("@/features/pentrix-ops/pages/bookings-page").then((m) => ({ default: m.BookingsPage })));
 const PentrixAvailabilityPage = lazy(() => import("@/features/pentrix-ops/pages/availability-page").then((m) => ({ default: m.AvailabilityPage })));
 const PentrixMyBookingsPage = lazy(() => import("@/features/pentrix-ops/pages/my-bookings-page").then((m) => ({ default: m.MyBookingsPage })));
+const PentrixOverviewPage = lazy(() => import("@/features/pentrix-ops/pages/overview-page").then((m) => ({ default: m.OverviewPage })));
+const PentrixRegistrationsPage = lazy(() => import("@/features/pentrix-ops/pages/registrations-page").then((m) => ({ default: m.RegistrationsPage })));
+const PentrixCandidatePage = lazy(() => import("@/features/pentrix-ops/pages/candidate-page").then((m) => ({ default: m.CandidatePage })));
+const PentrixAssessmentsPage = lazy(() => import("@/features/pentrix-ops/pages/assessments-page").then((m) => ({ default: m.AssessmentsPage })));
+const PentrixAssessmentDetailPage = lazy(() => import("@/features/pentrix-ops/pages/assessment-detail-page").then((m) => ({ default: m.AssessmentDetailPage })));
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-page").then((m) => ({ default: m.DashboardPage })));
 const QuestionBankPage = lazy(() => import("@/features/examinations/question-bank/pages/question-bank-page").then((m) => ({ default: m.QuestionBankPage })));
 const AnnouncementsListPage = lazy(() => import("@/features/lms/announcements/pages/announcements-list-page").then((m) => ({ default: m.AnnouncementsListPage })));
@@ -318,6 +323,11 @@ export const router = createBrowserRouter([
         ],
       },
       { path: "administration/email-templates/studio/:templateId", element: <EditorPage /> },
+      { path: "pentrix-ops/overview", element: <PentrixOverviewPage /> },
+      { path: "pentrix-ops/registrations", element: <PentrixRegistrationsPage /> },
+      { path: "pentrix-ops/registrations/:id", element: <PentrixCandidatePage /> },
+      { path: "pentrix-ops/assessments", element: <PentrixAssessmentsPage /> },
+      { path: "pentrix-ops/assessments/:id", element: <PentrixAssessmentDetailPage /> },
       { path: "pentrix-ops/bookings", element: <PentrixBookingsPage /> },
       { path: "pentrix-ops/availability", element: <PentrixAvailabilityPage /> },
       { path: "pentrix-ops/my-bookings", element: <PentrixMyBookingsPage /> },

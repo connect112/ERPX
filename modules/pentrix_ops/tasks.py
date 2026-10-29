@@ -1,13 +1,14 @@
 """
 Pentrix operations: scheduled tasks.
 
-* pentrix.sync_bookings (every minute): pull what Pentrix changed. Pentrix also tells ERPX straight away when something changes; this
+* pentrix.sync_bookings and pentrix.sync_candidates (every minute): pull what Pentrix changed. Pentrix also tells ERPX straight away when something changes; this
   pull is what guarantees nothing is missed if that message never arrived.
 * pentrix.send_booking_reminders (every minute): send the reminder emails that are due (see reminders.py).
 """
 from app.core.celery_app import celery_app
 from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
+from modules.pentrix_ops.candidates import PentrixCandidateService
 from modules.pentrix_ops.client import PentrixClient
 from modules.pentrix_ops.reminders import send_due_reminders
 from modules.pentrix_ops.service import PentrixBookingService
@@ -22,6 +23,13 @@ async def _sync() -> int:
         return await PentrixBookingService(db).sync()
 
 
+async def _sync_candidates() -> int:
+    if not PentrixClient.configured():
+        return 0
+    async with get_db_context() as db:
+        return await PentrixCandidateService(db).sync()
+
+
 async def _remind() -> dict:
     async with get_db_context() as db:
         summary = await send_due_reminders(db)
@@ -34,6 +42,15 @@ def sync_bookings_task() -> int:
         return run_async(_sync())
     except Exception:  # noqa: BLE001 - the next minute tries again from the saved cursor
         logger.warning("pentrix_sync_task_failed", exc_info=True)
+        return -1
+
+
+@celery_app.task(name="pentrix.sync_candidates")
+def sync_candidates_task() -> int:
+    try:
+        return run_async(_sync_candidates())
+    except Exception:  # noqa: BLE001 - the next minute tries again from the saved cursor
+        logger.warning("pentrix_candidate_sync_task_failed", exc_info=True)
         return -1
 
 

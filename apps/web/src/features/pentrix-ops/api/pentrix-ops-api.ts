@@ -44,6 +44,8 @@ export interface BookingFilters {
   staff: string;
   q: string;
   page: number;
+  /** Rows per page; the bookings screen uses 20, a dashboard widget fewer. */
+  pageSize?: number;
 }
 
 export interface Availability {
@@ -93,7 +95,7 @@ export const pentrixApi = {
   bookings: (f: BookingFilters) =>
     apiClient
       .get<BookingPage>(`${base}/bookings`, {
-        params: { scope: f.scope, status: f.status || undefined, staff: f.staff || undefined, q: f.q || undefined, page: f.page, page_size: 20 },
+        params: { scope: f.scope, status: f.status || undefined, staff: f.staff || undefined, q: f.q || undefined, page: f.page, page_size: f.pageSize ?? 20 },
       })
       .then((r) => r.data),
   mine: (scope: Scope, page: number) => apiClient.get<BookingPage>(`${base}/my-bookings`, { params: { scope, page, page_size: 20 } }).then((r) => r.data),

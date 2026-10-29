@@ -156,6 +156,9 @@ export const navSections: NavSection[] = [
   {
     title: "Pentrix",
     items: [
+      { label: "Overview", href: "/pentrix-ops/overview", icon: LayoutDashboard, enabled: true, permission: "pentrix_ops.overview.view" },
+      { label: "Registrations", href: "/pentrix-ops/registrations", icon: Contact, enabled: true, permission: "pentrix_ops.registrations.view" },
+      { label: "Assessments", href: "/pentrix-ops/assessments", icon: ClipboardCheck, enabled: true, permission: "pentrix_ops.assessments.view" },
       { label: "Bookings", href: "/pentrix-ops/bookings", icon: CalendarClock, enabled: true, permission: "pentrix_ops.bookings.view" },
       { label: "Booking Settings", href: "/pentrix-ops/availability", icon: CalendarDays, enabled: true, permission: "pentrix_ops.bookings.view" },
       { label: "My Assigned Bookings", href: "/pentrix-ops/my-bookings", icon: UserCheck, enabled: true, permission: "pentrix_ops.bookings.assigned" },
