@@ -29,13 +29,14 @@ export function AppSidebar() {
   const isVisible = (item: {
     permission?: string;
     superuserOnly?: boolean;
+    alsoSuperuser?: boolean;
     ownership?: "trainer" | "employee" | "student";
   }) => {
     if (item.superuserOnly) return isSuperuser;
     if (item.ownership === "trainer") return isTrainer;
     if (item.ownership === "employee") return isEmployee;
     if (item.ownership === "student") return isStudent;
-    if (item.permission) return permissions.includes(item.permission);
+    if (item.permission) return permissions.includes(item.permission) || (item.alsoSuperuser === true && isSuperuser);
     return true;
   };
   const visibleSections = navSections

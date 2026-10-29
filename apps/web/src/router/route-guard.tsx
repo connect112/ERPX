@@ -38,6 +38,7 @@ const guardedRoutes = navSections
     href: item.href,
     permission: item.permission,
     superuserOnly: item.superuserOnly,
+    alsoSuperuser: item.alsoSuperuser,
     ownership: item.ownership,
   }))
   // Longest href first, so a more specific section (e.g. /accounting/ledger)
@@ -74,7 +75,7 @@ export function RouteGuard() {
           : guard.ownership === "student"
             ? isStudent
             : guard.permission
-              ? permissions.includes(guard.permission)
+              ? permissions.includes(guard.permission) || (guard.alsoSuperuser === true && isSuperuser)
               : true;
 
     if (!allowed) {
