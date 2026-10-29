@@ -126,6 +126,11 @@ async def test_folders_search_sort_and_filters(client, auth_headers, db_session,
     body = response.json()
     assert [f["name"] for f in body["folders"]] == ["a", "b"] and body["items"] == []
     assert {f["name"]: f["file_count"] for f in body["folders"]} == {"a": 2, "b": 1}
+    assert body["subtree_count"] == 3 and body["subtree_bytes"] == 1 + 5000 + 2   # the whole folder, not just its own files
+
+    # a search or filter looks across all storage, whichever folder is open
+    elsewhere = await client.get(f"{BASE}/files", params={"path": "Database files", "q": token}, headers=auth_headers)
+    assert elsewhere.json()["flat"] is True and elsewhere.json()["subtree_count"] == 3
 
     inside = (await client.get(f"{BASE}/files", params={"path": "/".join([*folder, "a"]), "sort": "size", "order": "desc"},
                                headers=auth_headers)).json()

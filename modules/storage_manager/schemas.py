@@ -51,6 +51,9 @@ class FileListResponse(BaseModel):
     page_size: int
     total_bytes: int
     flat: bool
+    # Everything inside the open folder (or every match of a search), including sub-folders.
+    subtree_count: int
+    subtree_bytes: int
 
 
 class Analysis(BaseModel):

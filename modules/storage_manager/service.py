@@ -314,9 +314,13 @@ class StorageManagerService:
                     return False
             return True
 
-        in_subtree = [i for i in inv.items if i.path[: len(path)] == path and matches(i)]
         flat = bool(q or source or status or type_group or min_size is not None or max_size is not None
                     or date_from or date_to or owner or large is not None)
+        # A search or filter looks across all storage and lists matches as one flat list; without one, the folder
+        # at `path` is shown with its direct files and sub-folders.
+        in_subtree = [i for i in inv.items if matches(i)] if flat else [i for i in inv.items if i.path[: len(path)] == path]
+        subtree_count = len(in_subtree)
+        subtree_bytes = sum(i.size_bytes for i in in_subtree)
         if flat:
             files, folders = in_subtree, []
         else:
@@ -340,7 +344,7 @@ class StorageManagerService:
         files = sorted(files, key=keys.get(sort, keys["name"]), reverse=(order == "desc"))
         total_bytes = sum(f.size_bytes for f in files)
         start = (max(page, 1) - 1) * page_size
-        return files[start:start + page_size], folders, len(files), total_bytes, flat
+        return files[start:start + page_size], folders, len(files), total_bytes, flat, subtree_count, subtree_bytes
 
     # ---- dependency analysis -------------------------------------------------------------------------------
 
@@ -671,10 +675,20 @@ class StorageManagerService:
         ))
 
 
+# Fixed, so a file is previewed the same way on every operating system (Windows maps .csv to Excel, for one).
+_TYPES = {
+    "pdf": "application/pdf", "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+    "webp": "image/webp", "svg": "image/svg+xml", "mp4": "video/mp4", "webm": "video/webm", "txt": "text/plain",
+    "csv": "text/csv", "json": "application/json", "html": "text/html", "htm": "text/html", "sql": "application/sql",
+    "dump": "application/octet-stream", "zip": "application/zip",
+}
+
+
 def _guess_type(key: str) -> str | None:
     import mimetypes
 
-    return mimetypes.guess_type(key)[0]
+    extension = key.rsplit(".", 1)[-1].lower() if "." in key.rsplit("/", 1)[-1] else ""
+    return _TYPES.get(extension) or mimetypes.guess_type(key)[0]
 
 
 def read_host_status() -> dict:

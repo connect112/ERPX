@@ -69,13 +69,13 @@ async def list_files(
     viewer = await get_viewer(user, db)
     inv = await service.inventory(viewer)
     segments = _split_path(path)
-    items, folders, total, total_bytes, flat = service.browse(
+    items, folders, total, total_bytes, flat, subtree_count, subtree_bytes = service.browse(
         inv, path=segments, q=q, source=source, status=status, type_group=type_group, min_size=min_size,
         max_size=max_size, date_from=date_from, date_to=date_to, owner=owner, large=large, sort=sort, order=order,
         page=page, page_size=page_size,
     )
     return FileListResponse(items=items, folders=folders, path=segments, total=total, page=page, page_size=page_size,
-                            total_bytes=total_bytes, flat=flat)
+                            total_bytes=total_bytes, flat=flat, subtree_count=subtree_count, subtree_bytes=subtree_bytes)
 
 
 @router.get("/usage", response_model=UsageResponse)
