@@ -33,7 +33,7 @@ five-minute window; `X-ERPX-Actor` carries the ERPX user for Pentrix's audit tra
 | Variable | Meaning |
 | --- | --- |
 | `PENTRIX_INTERNAL_API_BASE_URL` | e.g. `http://pentrix_backend:8000` (both stacks are on `webnet`). Empty = the screens say the connection is not configured. |
-| `PENTRIX_ORGANIZATION_SLUG` | The organisation the Pentrix operations belong to. Empty = the oldest organisation other than `gir-pentrix-program`. **Set it in production.** |
+| `PENTRIX_ORGANIZATION_SLUG` | The organisation whose administrators run Pentrix. `docker-compose.prod.yml` defaults it to `gir-pentrix-program`. Left empty elsewhere, the oldest organisation other than `gir-pentrix-program` is used (right for a development database, wrong for production). |
 | `PENTRIX_PORTAL_URL` | Where a candidate reminder links when there is no meeting link yet (default `https://pentrix.in`). |
 | `PENTRIX_TIMEZONE` | The zone reminder times are shown in (default `Asia/Kolkata`). |
 
