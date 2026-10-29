@@ -112,6 +112,10 @@ celery_app.conf.beat_schedule = {
         "task": "pentrix.sync_bookings",
         "schedule": crontab(minute="*"),
     },
+    "pentrix-sync-candidates": {
+        "task": "pentrix.sync_candidates",
+        "schedule": crontab(minute="*"),
+    },
     "pentrix-send-booking-reminders": {
         "task": "pentrix.send_booking_reminders",
         "schedule": crontab(minute="*"),

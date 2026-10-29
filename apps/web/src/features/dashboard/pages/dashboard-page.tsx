@@ -2,6 +2,8 @@ import { Building2, Shield, Users } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDashboardSummary } from "@/features/dashboard/api/dashboard-api";
+import { UpcomingBookingsWidget } from "@/features/pentrix-ops/components/upcoming-bookings-widget";
+import { usePentrixPermissions } from "@/features/pentrix-ops/lib/format";
 import { useAuthStore } from "@/store/auth-store";
 
 function StatCard({
@@ -31,6 +33,7 @@ function StatCard({
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user);
   const { data, isLoading, isError, error } = useDashboardSummary();
+  const pentrix = usePentrixPermissions();
 
   const noOrgError =
     isError &&
@@ -84,6 +87,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      {pentrix.canView && <UpcomingBookingsWidget title="Upcoming Pentrix bookings" />}
     </div>
   );
 }

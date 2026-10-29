@@ -94,3 +94,96 @@ class FreeForm(BaseModel):
     """A pass-through for answers that are Pentrix's own shape (the slots, the closed periods)."""
 
     data: Any = None
+
+
+# ---- candidates ---------------------------------------------------------------------------------------------------------------
+
+
+class AssessmentLine(BaseModel):
+    state: str
+    attempts: int = 0
+    readiness_commitment_pct: float | None = None
+    technical_pct: float | None = None
+    qualified: bool | None = None
+    assessed_at: datetime | None = None
+
+
+class BookingLine(BaseModel):
+    status: str
+    status_label: str
+    slot_start: datetime | None = None
+    slot_end: datetime | None = None
+    scheduled: bool = False
+
+
+class PaymentLine(BaseModel):
+    status: str
+    paid_total_paise: int = 0
+    currency: str = "INR"
+    last_paid_at: datetime | None = None
+    payment_count: int = 0
+
+
+class CandidateOut(BaseModel):
+    id: uuid.UUID
+    pentrix_user_id: str
+    full_name: str
+    email: str
+    phone: str | None = None
+    email_verified: bool = False
+    registered_at: datetime
+    assessment: AssessmentLine
+    booking: BookingLine | None = None
+    payment: PaymentLine
+    enrolled: bool = False
+    last_activity_at: datetime | None = None
+
+
+class CandidatePage(BaseModel):
+    items: list[CandidateOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class CandidateEdit(BaseModel):
+    """Only these can be changed from ERPX. The email address is how the person signs in, so it is not editable here."""
+
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    phone: str | None = Field(default=None, max_length=24)
+
+
+class EmailLine(BaseModel):
+    id: uuid.UUID
+    subject: str
+    status: str
+    template_key: str | None = None
+    module: str | None = None
+    error: str | None = None
+    sent_at: datetime
+
+
+class CandidateDetail(BaseModel):
+    candidate: CandidateOut
+    live: bool
+    error: str | None = None
+    profile: Any = None  # Pentrix's own shape: registration, assessment, bookings, payments, enrollment, activity
+    emails: list[EmailLine] = []
+
+
+class AssessmentDetail(BaseModel):
+    candidate: CandidateOut
+    live: bool
+    error: str | None = None
+    assessment: Any = None
+
+
+class OverviewOut(BaseModel):
+    configured: bool
+    last_synced_at: datetime | None = None
+    last_sync_error: str | None = None
+    totals: dict[str, int]
+    bookings: dict[str, int]
+    funnel: list[dict[str, Any]]
+    payment_status: dict[str, int]
+    recent_registrations: list[CandidateOut]

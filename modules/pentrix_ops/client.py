@@ -66,7 +66,7 @@ class PentrixClient:
             message = response.text[:300]
         message = message or "Pentrix refused that."
         if response.status_code == 404:
-            raise NotFoundError("Pentrix booking", message)
+            raise NotFoundError("Pentrix record", message)
         if response.status_code in (400, 422):
             raise ValidationError(message)
         if response.status_code in (403, 409):
@@ -116,3 +116,17 @@ class PentrixClient:
 
     async def delete_block(self, block_id: str, actor: str | None) -> dict:
         return await self.request("DELETE", f"/booking-blocks/{block_id}", actor=actor)
+
+    # ------------------------------------------------------------------ candidates
+
+    async def candidate_changes(self, cursor: str | None, limit: int = 200) -> dict:
+        return await self.request("GET", "/candidates", params={"cursor": cursor, "limit": limit})
+
+    async def candidate(self, pentrix_user_id: str) -> dict:
+        return await self.request("GET", f"/candidates/{pentrix_user_id}")
+
+    async def candidate_assessment(self, pentrix_user_id: str) -> dict:
+        return await self.request("GET", f"/candidates/{pentrix_user_id}/assessment")
+
+    async def update_candidate(self, pentrix_user_id: str, changes: dict, actor: str | None) -> dict:
+        return await self.request("PATCH", f"/candidates/{pentrix_user_id}", changes, actor=actor)

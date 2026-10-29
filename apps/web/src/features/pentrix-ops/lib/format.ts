@@ -48,5 +48,54 @@ export function usePentrixPermissions() {
     canView: has("pentrix_ops.bookings.view"),
     canManage: has("pentrix_ops.bookings.manage"),
     canTake: has("pentrix_ops.bookings.assigned"),
+    canOverview: has("pentrix_ops.overview.view"),
+    canRegistrations: has("pentrix_ops.registrations.view"),
+    canEditRegistrations: has("pentrix_ops.registrations.manage"),
+    canAssessments: has("pentrix_ops.assessments.view"),
   };
 }
+
+/** A day in India, e.g. "Tue, 29 Oct 2026". */
+export const dayIst = istDate;
+
+export function dayMonthIst(iso: string): string {
+  return new Intl.DateTimeFormat("en-IN", { timeZone: IST, day: "numeric", month: "short", year: "numeric" }).format(new Date(iso));
+}
+
+export function agoOrDate(iso: string | null | undefined): string {
+  if (!iso) return "Never";
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h ago`;
+  return dayMonthIst(iso);
+}
+
+export function rupees(paise: number, currency = "INR"): string {
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: paise % 100 === 0 ? 0 : 2 }).format(paise / 100);
+}
+
+export function percent(value: number | null | undefined): string {
+  return value === null || value === undefined ? "—" : `${Math.round(value * 10) / 10}%`;
+}
+
+export function duration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "—";
+  const m = Math.floor(seconds / 60);
+  return m >= 1 ? `${m} min ${seconds % 60} s` : `${seconds} s`;
+}
+
+type Tone = "secondary" | "success" | "warning" | "destructive" | "info";
+
+export const ASSESSMENT_LABEL: Record<string, string> = { not_started: "Not started", in_progress: "In progress", completed: "Completed" };
+export const ASSESSMENT_TONE: Record<string, Tone> = { not_started: "secondary", in_progress: "warning", completed: "info" };
+
+/** Qualified / Not qualified / No result yet. A person who has not been assessed is none of the first two. */
+export function qualificationOf(qualified: boolean | null): { label: string; tone: Tone } {
+  if (qualified === true) return { label: "Qualified", tone: "success" };
+  if (qualified === false) return { label: "Not qualified", tone: "destructive" };
+  return { label: "No result yet", tone: "secondary" };
+}
+
+export const PAYMENT_LABEL: Record<string, string> = { paid: "Paid", pending: "Pending", failed: "Failed", refunded: "Refunded", none: "No payment" };
+export const PAYMENT_TONE: Record<string, Tone> = { paid: "success", pending: "warning", failed: "destructive", refunded: "secondary", none: "secondary" };

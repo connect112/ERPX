@@ -5,7 +5,7 @@ the team they are assigned to, when reminders were sent -- and where the regular
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_model import TimestampedBase
@@ -49,6 +49,54 @@ class PentrixBooking(TimestampedBase):
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     reminders: Mapped[list["PentrixBookingReminder"]] = relationship(back_populates="booking", cascade="all, delete-orphan")
+
+
+class PentrixCandidate(TimestampedBase):
+    """A synchronised summary of one Pentrix candidate, keyed by the id Pentrix gave them (never matched by name or email). It holds what
+    the lists, filters and dashboards need; the full record (every attempt, booking and payment) is asked of Pentrix when someone opens a
+    candidate. Pentrix is the source of truth, so a newer Pentrix state always wins."""
+
+    __tablename__ = "pentrix_candidates"
+    __table_args__ = (
+        Index("ix_pentrix_candidates_org_registered", "organization_id", "registered_at"),
+        Index("ix_pentrix_candidates_org_qualified", "organization_id", "qualified"),
+        Index("ix_pentrix_candidates_org_payment", "organization_id", "payment_status"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    pentrix_user_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+    email: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="", index=True)
+    phone: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    # Assessment: not_started | in_progress | completed. `qualified` stays NULL until there is a submitted result, so "not qualified"
+    # only ever means the candidate took the assessment and did not meet the criteria.
+    assessment_state: Mapped[str] = mapped_column(String(16), nullable=False, default="not_started", server_default="not_started")
+    assessment_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    readiness_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    technical_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    qualified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # The appointment that matters: the next open one, otherwise the latest.
+    booking_pentrix_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    booking_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    booking_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    booking_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # paid | refunded | pending | failed | none. "paid" only follows a payment Pentrix's provider-verified webhook confirmed.
+    payment_status: Mapped[str] = mapped_column(String(12), nullable=False, default="none", server_default="none")
+    paid_total_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    payment_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default="INR")
+    last_paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payment_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    enrolled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Pentrix's own stamp: an older message never overwrites a newer state.
+    source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PentrixBookingReminder(TimestampedBase):
