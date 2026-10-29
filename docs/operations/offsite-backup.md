@@ -58,17 +58,38 @@ is missing, more than a day old, or has no `SHA256SUMS`; the in-app backup faile
 email per problem, a daily reminder for critical ones, and one when it clears. It writes `monitor_status.json` for the
 Storage Manager.
 
-## Retiring the in-app SQL dumps (plan, not yet done)
+## Retiring the in-app SQL dumps: accelerated, evidence-based plan (not yet done)
 
 The in-app job (`backups.trigger_daily_backup`, 02:00 UTC) writes an uncompressed SQL dump to a temp file inside the
-API container, then uploads it to MinIO `backups/`. That is about 1.15 GB a day on the same disk, with no retention,
-and it needs twice that free while it runs. It duplicates the off-server backup, so the plan is to keep one daily
-producer:
+API container, then uploads it to MinIO `backups/`. That is about 1.15 GB a night on the same disk as the databases,
+with no retention, and it needs about twice that free while it runs (temp file plus the copy). It duplicates the
+off-server backup, so one daily producer is enough. Waiting seven nights is not safe on this disk:
 
-1. Run both until the off-server backup has 7 consecutive green nights, the monitor is emailing, and
-   `restore_verify.sh` has passed.
-2. Add a setting `BACKUP_IN_APP_SCHEDULE_ENABLED` (default on) that the beat schedule honours, then switch it off.
-   The manual "Trigger backup" button stays. No code is deleted.
-3. Only after that, and only with explicit approval, remove the old dumps from MinIO.
-4. Update `docs/operations/disaster-recovery-runbook.md` and `docs/deployment/production-checklist.md`, which still
-   describe the in-app dump as the backup.
+| Night (02:00 UTC) | Free before | Needs while running | Free after | Result without any change |
+|---|---|---|---|---|
+| 30 Oct | 5.4 GB | 2.3 GB | ~4.2 GB | ok |
+| 31 Oct | ~4.2 GB | 2.3 GB | ~3.1 GB | ok |
+| 1 Nov | ~3.1 GB | 2.3 GB | ~1.9 GB | ok, very tight |
+| 2 Nov | ~1.9 GB | 2.3 GB | disk can reach 100% | **Postgres and the apps can fail** |
+
+(Figures from the 29 Oct audit: 15 GB used of 20 GB, 1.15 GB per dump; they move with other activity.)
+
+Gates, replacing "seven nights" with evidence. Each step needs your approval before it touches production.
+
+1. **Today, no production change:** keep the off-server backup running. Review the Stage 3 report on the four oldest dumps.
+   Approving their removal frees about 4.5 GB and moves the danger date from 2 Nov to about 6 Nov.
+2. **After the first scheduled off-server run (03:30 UTC 30 Oct) is green:** `restore_verify.sh` passes off-box on
+   that backup, the monitor is installed and a test alert has been received. This is the evidence that the new backup is
+   restorable; it does not need seven nights.
+3. **Deploy the safeguards branch** (`srujan/backup-safeguards`) with the schedule flag still ON. The disk guard alone
+   removes the outage risk: a run that would not fit is recorded as failed with the numbers and writes nothing. With the
+   table above, the guard stops the 1 Nov run (needs 3.4 GB free, has ~3.1 GB) instead of letting the disk fill.
+4. **After three green off-server nights (30 Oct, 31 Oct, 1 Nov) and one passing restore verification:** set
+   `BACKUP_IN_APP_SCHEDULE_ENABLED=false` and restart the beat container. No code is removed and the "Trigger backup"
+   button still works. The disk stops growing.
+5. **Then, with explicit approval of the exact files,** remove the old dumps from MinIO `backups/`, keeping the newest
+   two until the off-server backup has a week of history.
+6. Update `docs/operations/disaster-recovery-runbook.md` and `docs/deployment/production-checklist.md` (the first is done
+   on `srujan/backup-safeguards`).
+
+Rollback at any step: set the flag back to `true` and restart beat. The off-server backup is independent of the app.
