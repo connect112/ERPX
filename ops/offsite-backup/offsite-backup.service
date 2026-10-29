@@ -1,0 +1,11 @@
+[Unit]
+Description=Off-server backup of ERPX and Pentrix to S3
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/backups/offsite/offsite_backup.sh
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=3h
