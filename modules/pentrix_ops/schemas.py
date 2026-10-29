@@ -38,6 +38,24 @@ class StaffOut(BaseModel):
     email: str
 
 
+class HoursWindow(BaseModel):
+    weekday: int = Field(ge=0, le=6)  # 0 = Monday
+    start: str = Field(pattern=r"^\d{2}:\d{2}$")
+    end: str = Field(pattern=r"^\d{2}:\d{2}$")
+
+
+class HoursRequest(BaseModel):
+    windows: list[HoursWindow] = Field(default=[], max_length=28)
+
+
+class StaffHoursOut(BaseModel):
+    user_id: uuid.UUID
+    full_name: str
+    email: str
+    restricted: bool  # False = no hours set: can take any appointment the booking hours allow
+    windows: list[HoursWindow]
+
+
 class AssignRequest(BaseModel):
     staff_user_id: uuid.UUID | None = None  # null takes the assignment off
 
@@ -135,6 +153,7 @@ class CandidateOut(BaseModel):
     assessment: AssessmentLine
     booking: BookingLine | None = None
     payment: PaymentLine
+    marketing_opt_in: bool = False
     enrolled: bool = False
     last_activity_at: datetime | None = None
 

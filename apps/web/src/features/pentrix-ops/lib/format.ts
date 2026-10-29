@@ -54,6 +54,9 @@ export function usePentrixPermissions() {
     canAssessments: has("pentrix_ops.assessments.view"),
     canPayments: has("pentrix_ops.payments.view"),
     canManagePayments: has("pentrix_ops.payments.manage"),
+    canMarketing: has("pentrix_ops.marketing.view"),
+    canManageMarketing: has("pentrix_ops.marketing.manage"),
+    canSendMarketing: has("pentrix_ops.marketing.send"),
   };
 }
 

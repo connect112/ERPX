@@ -162,6 +162,7 @@ export const navSections: NavSection[] = [
       { label: "Bookings", href: "/pentrix-ops/bookings", icon: CalendarClock, enabled: true, permission: "pentrix_ops.bookings.view" },
       { label: "Payments", href: "/pentrix-ops/payments", icon: CreditCard, enabled: true, permission: "pentrix_ops.payments.view" },
       { label: "Daily Summary", href: "/pentrix-ops/payments/daily", icon: BarChart3, enabled: true, permission: "pentrix_ops.payments.view" },
+      { label: "Marketing", href: "/pentrix-ops/marketing", icon: Megaphone, enabled: true, permission: "pentrix_ops.marketing.view" },
       { label: "Booking Settings", href: "/pentrix-ops/availability", icon: CalendarDays, enabled: true, permission: "pentrix_ops.bookings.view" },
       { label: "My Assigned Bookings", href: "/pentrix-ops/my-bookings", icon: UserCheck, enabled: true, permission: "pentrix_ops.bookings.assigned" },
     ],

@@ -54,6 +54,9 @@ class EmailService:
         message["Subject"] = " ".join(str(subject).split())  # one line: a subject can never add a header
         if meta and meta.reply_to and "@" in meta.reply_to and not any(c in meta.reply_to for c in ("\r", "\n", "<", ">", ",", ";")):
             message["Reply-To"] = meta.reply_to
+        for name, value in (meta.headers if meta else {}).items():
+            if name.replace('-', '').isalnum() and not any(c in str(value) for c in ('\r', '\n')):
+                message[name] = str(value)
         message.set_content(text_body)
         if html_body:
             message.add_alternative(html_body, subtype="html")

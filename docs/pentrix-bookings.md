@@ -33,7 +33,7 @@ five-minute window; `X-ERPX-Actor` carries the ERPX user for Pentrix's audit tra
 | Variable | Meaning |
 | --- | --- |
 | `PENTRIX_INTERNAL_API_BASE_URL` | e.g. `http://pentrix_backend:8000` (both stacks are on `webnet`). Empty = the screens say the connection is not configured. |
-| `PENTRIX_ORGANIZATION_SLUG` | The organisation the Pentrix operations belong to. Empty = the oldest organisation other than `gir-pentrix-program`. **Set it in production.** |
+| `PENTRIX_ORGANIZATION_SLUG` | The organisation whose administrators run Pentrix. `docker-compose.prod.yml` defaults it to `gir-pentrix-program`. Left empty elsewhere, the oldest organisation other than `gir-pentrix-program` is used (right for a development database, wrong for production). |
 | `PENTRIX_PORTAL_URL` | Where a candidate reminder links when there is no meeting link yet (default `https://pentrix.in`). |
 | `PENTRIX_TIMEZONE` | The zone reminder times are shown in (default `Asia/Kolkata`). |
 
@@ -50,6 +50,14 @@ Pentrix needs `ERPX_INTERNAL_API_BASE_URL` and the same secret (already set for 
 Administrators get all three. The new **Pentrix Staff** system role has only `assigned` (plus the dashboard), so staff do not get Pentrix
 administration. Anyone holding `assigned` can be chosen when assigning; an assignment is refused if that person already has an appointment
 at an overlapping time.
+
+## Team availability
+
+Pentrix → Booking Settings → **Team availability** lists the team members who can take appointments. *Set hours* gives one or more windows
+(a weekday and a start and end time, India time). A member with **no windows is not restricted**: they can be given any appointment the booking hours
+allow. A member **with** windows can only be given an appointment that falls completely inside one of them, and ERPX checks this when an appointment
+is **assigned** and when an assigned appointment is **moved** (it refuses and names their hours). The existing check against overlapping
+appointments still applies. Setting hours needs `pentrix_ops.bookings.manage`; seeing them needs `view`.
 
 ## Reminders
 
@@ -71,5 +79,6 @@ until 2 hours before, two reschedules. Everything is editable under *Pentrix →
 
 ## Not in this phase
 
-Per-person working hours for team members (an assignment only checks for an overlapping appointment); candidate phone numbers (Pentrix does
-not collect them); the Pentrix Overview, Registrations, Assessments and Payments screens and the ERPX dashboard widgets (later phases).
+Candidate phone numbers were not collected when this phase was built; they are now optional (set by the candidate on their Profile, or by the ERPX
+team) and appear on Registrations. The Overview, Registrations, Assessments, Payments and Marketing screens are described in the other
+`docs/pentrix-*.md` files.

@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { type CandidateFilters, EMPTY_FILTERS } from "@/features/pentrix-ops/api/candidates-api";
 
-const KEYS = ["q", "assessment", "qualification", "booking", "payment", "registered_from", "registered_to", "sort", "order"] as const;
+const KEYS = ["q", "assessment", "qualification", "booking", "payment", "marketing", "registered_from", "registered_to", "sort", "order"] as const;
 
 /** The filters live in the address, so a link (from the Overview, or sent to a colleague) opens the list already narrowed. */
 export function useUrlFilters(defaults: CandidateFilters = EMPTY_FILTERS) {

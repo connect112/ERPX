@@ -11,7 +11,7 @@ _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 CATEGORIES = (
     "Account Verification", "Password Reset", "Account Invitations", "Institution Communication", "Workshop Notifications",
     "Hackathon Notifications", "Internship Offer Letters", "Internship Onboarding", "Exams and Assignments", "Project Notifications",
-    "Payment Confirmations", "Internship Certificates", "General Announcements", "Pentrix Bookings", "Custom Emails",
+    "Payment Confirmations", "Internship Certificates", "General Announcements", "Pentrix Bookings", "Pentrix Marketing", "Custom Emails",
 )
 
 

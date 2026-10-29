@@ -33,6 +33,7 @@ from modules.pentrix_ops.schemas import (
     CandidatePage,
     DailyDetail,
     DailyOut,
+    HoursRequest,
     MeetingRequest,
     MessageOut,
     NotesRequest,
@@ -41,6 +42,7 @@ from modules.pentrix_ops.schemas import (
     PaymentPage,
     PaymentsSummaryOut,
     RescheduleRequest,
+    StaffHoursOut,
     StaffOut,
     StatusRequest,
     SyncOut,
@@ -113,6 +115,32 @@ async def staff(organization_id: uuid.UUID = Org, user: User = View, db: AsyncSe
     """Team members who can be given appointments."""
     await _scope(organization_id, db)
     return [StaffOut(id=u.id, full_name=u.full_name, email=u.email) for u in await PentrixBookingService(db).eligible_staff(organization_id)]
+
+
+def _hours_out(user: User, rows) -> StaffHoursOut:
+    return StaffHoursOut(
+        user_id=user.id, full_name=user.full_name, email=user.email, restricted=bool(rows),
+        windows=[{"weekday": r.weekday, "start": f"{r.start_time:%H:%M}", "end": f"{r.end_time:%H:%M}"} for r in rows],
+    )
+
+
+@router.get("/staff-hours", response_model=list[StaffHoursOut])
+async def staff_hours(organization_id: uuid.UUID = Org, user: User = View, db: AsyncSession = Db):
+    """When each team member who can take appointments is available (in India time)."""
+    await _scope(organization_id, db)
+    service = PentrixBookingService(db)
+    team = await service.eligible_staff(organization_id)
+    hours = await service.hours(organization_id, [u.id for u in team])
+    return [_hours_out(u, hours.get(u.id, [])) for u in team]
+
+
+@router.put("/staff-hours/{staff_user_id}", response_model=StaffHoursOut)
+async def set_staff_hours(staff_user_id: uuid.UUID, payload: HoursRequest, organization_id: uuid.UUID = Org, user: User = Manage, db: AsyncSession = Db):
+    await _scope(organization_id, db)
+    service = PentrixBookingService(db)
+    rows = await service.set_hours(organization_id, staff_user_id, [w.model_dump() for w in payload.windows])
+    person = next(u for u in await service.eligible_staff(organization_id) if u.id == staff_user_id)
+    return _hours_out(person, rows)
 
 
 @router.post("/sync", response_model=SyncOut)
@@ -250,11 +278,11 @@ async def overview(organization_id: uuid.UUID = Org, user: User = OverviewView, 
 
 def _filters(
     q: str | None, assessment: list[str] | None, qualification: list[str] | None, booking: list[str] | None, payment: list[str] | None,
-    registered_from: datetime | None, registered_to: datetime | None,
+    registered_from: datetime | None, registered_to: datetime | None, marketing: list[str] | None = None,
 ) -> CandidateFilters:
     return CandidateFilters(
         q=q, assessment=assessment or [], qualification=qualification or [], booking=booking or [], payment=payment or [],
-        registered_from=registered_from, registered_to=registered_to,
+        marketing=marketing or [], registered_from=registered_from, registered_to=registered_to,
     )
 
 
@@ -272,6 +300,7 @@ async def list_candidates(
     qualification: list[str] | None = Query(default=None, description="qualified | not_qualified | pending"),
     booking: list[str] | None = Query(default=None, description="scheduled | not_scheduled | completed | cancelled | no_show"),
     payment: list[str] | None = Query(default=None, description="paid | pending | failed | refunded | none | not_paid"),
+    marketing: list[str] | None = Query(default=None, description="opted_in | not_opted_in"),
     registered_from: datetime | None = None,
     registered_to: datetime | None = None,
     sort: str = Query(default="registered"),
@@ -283,7 +312,7 @@ async def list_candidates(
     db: AsyncSession = Db,
 ):
     await _scope(organization_id, db)
-    filters = _filters(q, assessment, qualification, booking, payment, registered_from, registered_to)
+    filters = _filters(q, assessment, qualification, booking, payment, registered_from, registered_to, marketing)
     return await _candidate_page(db, organization_id, filters, sort, order, page, page_size)
 
 

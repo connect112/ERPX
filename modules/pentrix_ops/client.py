@@ -141,3 +141,9 @@ class PentrixClient:
 
     async def payment_day(self, day: str) -> dict:
         return await self.request("GET", f"/payments/day/{day}")
+
+    # ------------------------------------------------------------------ marketing consent
+
+    async def unsubscribe_candidate(self, pentrix_user_id: str, source: str, actor: str | None) -> dict:
+        """Tell Pentrix a candidate unsubscribed from marketing email. ERPX can only ever turn consent off, never on."""
+        return await self.request("POST", f"/candidates/{pentrix_user_id}/marketing-unsubscribe", {"source": source}, actor=actor)

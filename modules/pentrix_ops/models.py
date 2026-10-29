@@ -3,9 +3,9 @@ Pentrix operations in ERPX: a copy of Pentrix's appointments (Pentrix stays the 
 the team they are assigned to, when reminders were sent -- and where the regular pull of changes had got to.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -94,6 +94,10 @@ class PentrixCandidate(TimestampedBase):
     last_paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     payment_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
+    # Agreed to marketing email in Pentrix (an explicit opt-in, off by default) and when that choice was last made.
+    marketing_opt_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    marketing_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     enrolled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Pentrix's own stamp: an older message never overwrites a newer state.
@@ -164,6 +168,97 @@ class PentrixDailySummary(TimestampedBase):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PentrixMarketingTemplate(TimestampedBase):
+    """An Email Studio template made available for Pentrix marketing email, with the campaign it belongs to and the dates it can be used
+    between. The template itself (design, wording, versions) stays in Email Studio; this only says it may be used here."""
+
+    __tablename__ = "pentrix_marketing_templates"
+    __table_args__ = (UniqueConstraint("organization_id", "template_id", name="uq_pentrix_marketing_template"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("email_studio_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    campaign_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    available_from: Mapped[Date | None] = mapped_column(Date, nullable=True)
+    available_until: Mapped[Date | None] = mapped_column(Date, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class PentrixMarketingSuppression(TimestampedBase):
+    """An address that must never receive Pentrix marketing email: the person used an unsubscribe link. It is honoured here at once, even
+    if Pentrix cannot be told straight away; it is lifted only if the candidate later opts in again themselves in their portal."""
+
+    __tablename__ = "pentrix_marketing_suppressions"
+    __table_args__ = (UniqueConstraint("organization_id", "email", name="uq_pentrix_marketing_suppression"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)  # lower case
+    pentrix_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="unsubscribe_link", server_default="unsubscribe_link")
+    # Whether Pentrix has been told (so the candidate's Settings show it off too); retried until it has.
+    pentrix_synced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+
+class PentrixMarketingCampaign(TimestampedBase):
+    """One confirmed send of a template to a chosen set of candidates."""
+
+    __tablename__ = "pentrix_marketing_campaigns"
+    __table_args__ = (Index("uq_pentrix_campaign_idempotency", "organization_id", "idempotency_key", unique=True),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("email_studio_templates.id", ondelete="SET NULL"), nullable=True)
+    version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("email_studio_versions.id", ondelete="SET NULL"), nullable=True)
+    campaign_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    subject: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
+    brand_profile_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("email_brand_profiles.id", ondelete="SET NULL"), nullable=True)
+    signature_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("email_signatures.id", ondelete="SET NULL"), nullable=True)
+    # sending | completed | cancelled
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="sending", server_default="sending")
+    recipient_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    excluded: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # how many were left out, and why
+    selection: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # how the people were chosen (for the record)
+    idempotency_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PentrixMarketingRecipient(TimestampedBase):
+    """One address in a campaign. The unique key on (campaign, address) is what stops anyone getting the same campaign twice."""
+
+    __tablename__ = "pentrix_marketing_recipients"
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "email", name="uq_pentrix_campaign_recipient"),
+        Index("ix_pentrix_campaign_recipient_status", "campaign_id", "status"),
+    )
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pentrix_marketing_campaigns.id", ondelete="CASCADE"), nullable=False, index=True)
+    pentrix_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+    # queued | sending | sent | delivered | failed | bounced | skipped
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="queued", server_default="queued")
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PentrixStaffAvailability(TimestampedBase):
+    """A time of day, on one weekday, when a team member can take Pentrix appointments (in the booking time zone, India). A member with no
+    rows here is not restricted: they can be given any appointment the booking hours allow. With rows, they can only be given
+    appointments that fall completely inside one of their windows."""
+
+    __tablename__ = "pentrix_staff_availability"
+    __table_args__ = (Index("ix_pentrix_staff_availability_user", "organization_id", "user_id", "weekday"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    weekday: Mapped[int] = mapped_column(Integer, nullable=False)  # 0 = Monday ... 6 = Sunday
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[time] = mapped_column(Time, nullable=False)
 
 
 class PentrixBookingReminder(TimestampedBase):

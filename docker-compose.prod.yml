@@ -67,7 +67,8 @@ x-backend-env: &backend-env
   ERPX_INTERNAL_SERVICE_SECRET: ${ERPX_INTERNAL_SERVICE_SECRET}
   # ERPX -> Pentrix internal API (Pentrix bookings, docs/pentrix-bookings.md); signed with the same shared secret.
   PENTRIX_INTERNAL_API_BASE_URL: ${PENTRIX_INTERNAL_API_BASE_URL:-http://pentrix_backend:8000}
-  PENTRIX_ORGANIZATION_SLUG: ${PENTRIX_ORGANIZATION_SLUG:-}
+  # The organisation whose administrators run Pentrix (production: gir-pentrix-program). Without it the oldest other organisation would be picked.
+  PENTRIX_ORGANIZATION_SLUG: ${PENTRIX_ORGANIZATION_SLUG:-gir-pentrix-program}
   PENTRIX_PORTAL_URL: https://pentrix.in
   SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL}
   SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD}

@@ -125,6 +125,10 @@ celery_app.conf.beat_schedule = {
         "task": "pentrix.reconcile_payments",
         "schedule": crontab(minute=40, hour="0,18"),
     },
+    "pentrix-dispatch-marketing": {
+        "task": "pentrix.dispatch_marketing",
+        "schedule": crontab(minute="*"),
+    },
     "pentrix-send-booking-reminders": {
         "task": "pentrix.send_booking_reminders",
         "schedule": crontab(minute="*"),

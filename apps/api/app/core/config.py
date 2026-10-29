@@ -181,6 +181,8 @@ class Settings(BaseSettings):
     # Where candidates are sent from reminder emails that have no meeting link yet, and the time zone appointments are shown in.
     PENTRIX_PORTAL_URL: str = "https://pentrix.in"
     PENTRIX_TIMEZONE: str = "Asia/Kolkata"
+    # Marketing email goes out at no more than this many messages a minute, across all campaigns.
+    PENTRIX_MARKETING_PER_MINUTE: int = 60
 
     # A separate secret (not ERPX_INTERNAL_SERVICE_SECRET) for the
     # self-hosted Jitsi recording server's finalize script to call
