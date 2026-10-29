@@ -24,6 +24,7 @@ from modules.attendance.routes import router as attendance_router
 from modules.audit.routes import router as audit_router
 from modules.authentication.routes import router as auth_router
 from modules.backups.routes import router as backups_router
+from modules.storage_manager.routes import router as storage_manager_router
 from modules.authorization.routes import router as authorization_router
 from modules.batches.routes import router as batches_router
 from modules.branches.routes import router as branches_router
@@ -122,6 +123,7 @@ api_router.include_router(ai_router, prefix="/ai", tags=["AI"])
 api_router.include_router(reports_router, prefix="/reports", tags=["Reports"])
 api_router.include_router(audit_router, prefix="/audit", tags=["Audit"])
 api_router.include_router(backups_router, prefix="/backups", tags=["Backups"])
+api_router.include_router(storage_manager_router, prefix="/storage-manager", tags=["Storage Manager"])
 api_router.include_router(integrations_router, prefix="/integrations", tags=["Integrations"])
 api_router.include_router(documents_router, prefix="/documents", tags=["Documents"])
 api_router.include_router(trainers_router, prefix="/trainers", tags=["Trainers"])

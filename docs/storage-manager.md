@@ -1,8 +1,30 @@
 # ERPX Storage Manager: design
 
-Status: design for review. Nothing here is built yet. The goal is a graphical place inside ERPX to see every file the
+Status: backend built and tested (PR 1-4 below); the web UI follows. This began as a preliminary design and was then checked against the full specification (next section). The goal is a graphical place inside ERPX to see every file the
 platform stores, understand what is using the disk, and safely remove files that are no longer needed, by a person,
 one confirmed action at a time.
+
+## Comparison with the full specification
+
+The preliminary design was reviewed against the complete requirements. What was missing or different, and what changed:
+
+| Requirement | In the preliminary design | Now |
+|---|---|---|
+| Administration > Storage Manager navigation | not mentioned | added to the web app's Administration group |
+| Secure downloads | previews only | `GET /preview?download=true` (short-lived link or sandboxed authenticated stream) |
+| File **and folder** navigation | files and filters only | virtual folders (storage > source > key folders, organization ids shown as names), breadcrumb, folder size and count |
+| Destructive operations | `storage.delete` for administrators | **platform superusers only** at first; administrators can inspect, preview and see the dependency check, but every delete, restore and purge route requires a superuser. No delete permission exists to grant. |
+| Trash retention | proposed 30 days | enforced: a purge is refused for anything in Trash under `STORAGE_TRASH_MIN_DAYS` (30), and nothing purges automatically |
+| Dependency verification | registry check | registry **plus** a scan of every file-like column in every table, repeated on the server at deletion time |
+| Duplicate detection | by size and checksum | objects by size + ETag, database-stored files by `md5` computed inside Postgres |
+| Protected category | listed | enforced in the API: backups, anything under `backups/`, and every database-stored file refuse deletion |
+| Docker, database and server storage | via the monitor's status file | same; the inspector also queries database and table sizes directly |
+| Complete deletion audit | log table | `storage_deletion_log` (append-only, no write routes) with the evidence, reason, user, IP and request id |
+| Complete backend and frontend tests | backend only | backend tests (real Postgres and MinIO) and web tests |
+
+Deliberate limits: only an unreferenced file in object storage can be moved to Trash. A file with a live record is "in use"
+and the owning module must release it first. Files stored inside the database (generated offer letters, certificate
+templates, MoU files) can be browsed, previewed and downloaded but never deleted here.
 
 ## Principles (these are rules, not preferences)
 
