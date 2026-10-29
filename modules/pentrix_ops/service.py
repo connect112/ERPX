@@ -3,7 +3,8 @@ Pentrix bookings in ERPX: the synchronised copy, assigning team members, the scr
 owns the booking, and the answer written back to the copy), and the regular pull of what changed.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
@@ -17,7 +18,7 @@ from modules.authorization.models import Permission, RolePermission, UserRole
 from modules.organizations.models import Organization
 from modules.pentrix_ops.client import PentrixClient
 from modules.pentrix_ops.mirror import insert_or_existing
-from modules.pentrix_ops.models import ACTIVE_STATUSES, PentrixBooking, PentrixSyncState
+from modules.pentrix_ops.models import ACTIVE_STATUSES, PentrixBooking, PentrixStaffAvailability, PentrixSyncState
 from modules.users.models import UserProfile
 
 logger = get_logger(__name__)
@@ -197,6 +198,66 @@ class PentrixBookingService:
         )
         return list((await self.db.execute(query)).scalars().all())
 
+    # ------------------------------------------------------------------ a team member's hours
+
+    async def hours(self, organization_id: uuid.UUID, user_ids: list[uuid.UUID] | None = None) -> dict[uuid.UUID, list[PentrixStaffAvailability]]:
+        query = select(PentrixStaffAvailability).where(PentrixStaffAvailability.organization_id == organization_id)
+        if user_ids is not None:
+            query = query.where(PentrixStaffAvailability.user_id.in_(user_ids))
+        out: dict[uuid.UUID, list[PentrixStaffAvailability]] = {}
+        for row in (await self.db.execute(query.order_by(PentrixStaffAvailability.weekday, PentrixStaffAvailability.start_time))).scalars():
+            out.setdefault(row.user_id, []).append(row)
+        return out
+
+    @staticmethod
+    def parse_windows(windows: list[dict]) -> list[tuple[int, time, time]]:
+        """Check what was entered: real weekdays, HH:MM times, a start before its end, and no overlap inside a day."""
+        parsed: list[tuple[int, time, time]] = []
+        for w in windows:
+            try:
+                weekday = int(w["weekday"])
+                start, end = time.fromisoformat(str(w["start"])), time.fromisoformat(str(w["end"]))
+            except (KeyError, ValueError, TypeError) as exc:
+                raise ValidationError("Each window needs a weekday and a start and end time like 18:00.") from exc
+            if not 0 <= weekday <= 6:
+                raise ValidationError("A weekday is 0 (Monday) to 6 (Sunday).")
+            if start >= end:
+                raise ValidationError("A window must end after it starts.")
+            parsed.append((weekday, start.replace(second=0, microsecond=0), end.replace(second=0, microsecond=0)))
+        if len(parsed) > 28:
+            raise ValidationError("That is too many windows.")
+        for day in range(7):
+            ordered = sorted((s, e) for d, s, e in parsed if d == day)
+            if any(a_end > b_start for (_, a_end), (b_start, _) in zip(ordered, ordered[1:])):
+                raise ValidationError("Windows on the same day cannot overlap.")
+        return sorted(parsed)
+
+    async def set_hours(self, organization_id: uuid.UUID, user_id: uuid.UUID, windows: list[dict]) -> list[PentrixStaffAvailability]:
+        """Replace a team member's hours. An empty list takes the restriction off."""
+        if user_id not in {u.id for u in await self.eligible_staff(organization_id)}:
+            raise ValidationError("That person cannot be given appointments, so they have no hours to set.")
+        parsed = self.parse_windows(windows)
+        for row in (await self.hours(organization_id, [user_id])).get(user_id, []):
+            await self.db.delete(row)
+        await self.db.flush()
+        rows = [PentrixStaffAvailability(organization_id=organization_id, user_id=user_id, weekday=d, start_time=s, end_time=e) for d, s, e in parsed]
+        self.db.add_all(rows)
+        await self.db.flush()
+        return rows
+
+    async def within_hours(self, organization_id: uuid.UUID, user_id: uuid.UUID, start: datetime, end: datetime) -> tuple[bool, str]:
+        """Whether the appointment sits completely inside the person's hours (always true for someone with none set), and their hours in words."""
+        rows = (await self.hours(organization_id, [user_id])).get(user_id, [])
+        if not rows:
+            return True, ""
+        zone = ZoneInfo(settings.PENTRIX_TIMEZONE)
+        local_start, local_end = start.astimezone(zone), end.astimezone(zone)
+        covered = local_start.date() == local_end.date() and any(
+            r.weekday == local_start.weekday() and r.start_time <= local_start.time().replace(tzinfo=None) and local_end.time().replace(tzinfo=None) <= r.end_time for r in rows
+        )
+        names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        return covered, ", ".join(f"{names[r.weekday]} {r.start_time:%H:%M}-{r.end_time:%H:%M}" for r in rows)
+
     async def _overlapping(self, booking: PentrixBooking, staff_id: uuid.UUID) -> PentrixBooking | None:
         return (
             await self.db.execute(
@@ -218,6 +279,9 @@ class PentrixBookingService:
         staff = next((u for u in await self.eligible_staff(organization_id) if u.id == staff_user_id), None)
         if staff is None:
             raise ValidationError("That person cannot be given appointments. Choose someone from the list of team members.")
+        free, hours = await self.within_hours(organization_id, staff_user_id, booking.slot_start, booking.slot_end)
+        if not free:
+            raise ConflictError(f"{staff.full_name} is not available at that time (their hours: {hours}).")
         clash = await self._overlapping(booking, staff_user_id)
         if clash is not None:
             raise ConflictError(f"{staff.full_name} already has an appointment at that time ({clash.candidate_name or clash.reference}).")
@@ -231,6 +295,9 @@ class PentrixBookingService:
     async def reschedule(self, organization_id: uuid.UUID, booking: PentrixBooking, slot_start: datetime, actor: uuid.UUID) -> PentrixBooking:
         if booking.assigned_staff_user_id:  # the person it is assigned to must be free at the new time
             moved = PentrixBooking(id=booking.id, slot_start=slot_start, slot_end=slot_start + (booking.slot_end - booking.slot_start))
+            free, hours = await self.within_hours(organization_id, booking.assigned_staff_user_id, moved.slot_start, moved.slot_end)
+            if not free:
+                raise ConflictError(f"{booking.assigned_staff_name or 'The assigned team member'} is not available at that time (their hours: {hours}). Reassign it first.")
             clash = await self._overlapping(moved, booking.assigned_staff_user_id)
             if clash is not None:
                 raise ConflictError(f"{booking.assigned_staff_name or 'The assigned team member'} already has an appointment at that time. Reassign it first.")

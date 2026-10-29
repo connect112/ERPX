@@ -3,9 +3,9 @@ Pentrix operations in ERPX: a copy of Pentrix's appointments (Pentrix stays the 
 the team they are assigned to, when reminders were sent -- and where the regular pull of changes had got to.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -244,6 +244,21 @@ class PentrixMarketingRecipient(TimestampedBase):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PentrixStaffAvailability(TimestampedBase):
+    """A time of day, on one weekday, when a team member can take Pentrix appointments (in the booking time zone, India). A member with no
+    rows here is not restricted: they can be given any appointment the booking hours allow. With rows, they can only be given
+    appointments that fall completely inside one of their windows."""
+
+    __tablename__ = "pentrix_staff_availability"
+    __table_args__ = (Index("ix_pentrix_staff_availability_user", "organization_id", "user_id", "weekday"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    weekday: Mapped[int] = mapped_column(Integer, nullable=False)  # 0 = Monday ... 6 = Sunday
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[time] = mapped_column(Time, nullable=False)
 
 
 class PentrixBookingReminder(TimestampedBase):

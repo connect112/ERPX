@@ -51,6 +51,14 @@ Administrators get all three. The new **Pentrix Staff** system role has only `as
 administration. Anyone holding `assigned` can be chosen when assigning; an assignment is refused if that person already has an appointment
 at an overlapping time.
 
+## Team availability
+
+Pentrix → Booking Settings → **Team availability** lists the team members who can take appointments. *Set hours* gives one or more windows
+(a weekday and a start and end time, India time). A member with **no windows is not restricted**: they can be given any appointment the booking hours
+allow. A member **with** windows can only be given an appointment that falls completely inside one of them, and ERPX checks this when an appointment
+is **assigned** and when an assigned appointment is **moved** (it refuses and names their hours). The existing check against overlapping
+appointments still applies. Setting hours needs `pentrix_ops.bookings.manage`; seeing them needs `view`.
+
 ## Reminders
 
 Three moments (30 minutes before, 5 minutes before, at the start) to the candidate and the assigned team member, from the Email Studio
@@ -71,5 +79,6 @@ until 2 hours before, two reschedules. Everything is editable under *Pentrix →
 
 ## Not in this phase
 
-Per-person working hours for team members (an assignment only checks for an overlapping appointment); candidate phone numbers (Pentrix does
-not collect them); the Pentrix Overview, Registrations, Assessments and Payments screens and the ERPX dashboard widgets (later phases).
+Candidate phone numbers were not collected when this phase was built; they are now optional (set by the candidate on their Profile, or by the ERPX
+team) and appear on Registrations. The Overview, Registrations, Assessments, Payments and Marketing screens are described in the other
+`docs/pentrix-*.md` files.

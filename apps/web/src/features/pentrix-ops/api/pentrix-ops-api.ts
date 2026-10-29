@@ -72,6 +72,22 @@ export interface AvailabilitySettings {
   meeting_url_template: string;
 }
 
+/** A time of day on one weekday (0 = Monday) when a team member can take appointments, in India time. */
+export interface HoursWindow {
+  weekday: number;
+  start: string;
+  end: string;
+}
+
+export interface StaffHours {
+  user_id: string;
+  full_name: string;
+  email: string;
+  /** False = no hours set: they can take any appointment the booking hours allow. */
+  restricted: boolean;
+  windows: HoursWindow[];
+}
+
 export interface ClosedPeriod {
   id: string;
   start_at: string;
@@ -86,6 +102,7 @@ export const pentrixKeys = {
   bookings: (filters: BookingFilters) => ["pentrix-ops", "bookings", filters] as const,
   mine: (scope: Scope, page: number) => ["pentrix-ops", "mine", scope, page] as const,
   staff: ["pentrix-ops", "staff"] as const,
+  staffHours: ["pentrix-ops", "staff-hours"] as const,
   settings: ["pentrix-ops", "settings"] as const,
   closed: ["pentrix-ops", "closed"] as const,
   availability: ["pentrix-ops", "availability"] as const,
@@ -101,6 +118,8 @@ export const pentrixApi = {
   mine: (scope: Scope, page: number) => apiClient.get<BookingPage>(`${base}/my-bookings`, { params: { scope, page, page_size: 20 } }).then((r) => r.data),
   staff: () => apiClient.get<StaffMember[]>(`${base}/staff`).then((r) => r.data),
   sync: () => apiClient.post<{ updated: number }>(`${base}/sync`).then((r) => r.data),
+  staffHours: () => apiClient.get<StaffHours[]>(`${base}/staff-hours`).then((r) => r.data),
+  setStaffHours: (userId: string, windows: HoursWindow[]) => apiClient.put<StaffHours>(`${base}/staff-hours/${userId}`, { windows }).then((r) => r.data),
   assign: (id: string, staffUserId: string | null) => apiClient.post<PentrixBooking>(`${base}/bookings/${id}/assign`, { staff_user_id: staffUserId }).then((r) => r.data),
   setStatus: (id: string, status: string) => apiClient.post<PentrixBooking>(`${base}/bookings/${id}/status`, { status }).then((r) => r.data),
   reschedule: (id: string, slotStart: string) => apiClient.post<PentrixBooking>(`${base}/bookings/${id}/reschedule`, { slot_start: slotStart }).then((r) => r.data),

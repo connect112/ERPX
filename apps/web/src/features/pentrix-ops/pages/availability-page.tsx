@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type AvailabilitySettings, pentrixApi, pentrixKeys } from "@/features/pentrix-ops/api/pentrix-ops-api";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { type AvailabilitySettings, type HoursWindow, type StaffHours, pentrixApi, pentrixKeys } from "@/features/pentrix-ops/api/pentrix-ops-api";
 import { fromIstInput, istDateTime, usePentrixPermissions } from "@/features/pentrix-ops/lib/format";
 import { errorMessage } from "@/features/institutions/lib/format";
 
@@ -20,6 +21,89 @@ function NumberField({ id, label, value, onChange, disabled, hint }: { id: strin
       <Input id={id} type="number" min={0} value={value} disabled={disabled} onChange={(e) => onChange(Number(e.target.value))} />
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function hoursInWords(windows: HoursWindow[]): string {
+  return windows.map((w) => `${DAYS[w.weekday]} ${w.start}–${w.end}`).join(", ");
+}
+
+function HoursDialog({ member, onClose }: { member: StaffHours; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [windows, setWindows] = useState<HoursWindow[]>(member.windows);
+  const save = useMutation({
+    mutationFn: () => pentrixApi.setStaffHours(member.user_id, windows),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: pentrixKeys.staffHours });
+      onClose();
+    },
+  });
+  const change = (index: number, patch: Partial<HoursWindow>) => setWindows((all) => all.map((w, i) => (i === index ? { ...w, ...patch } : w)));
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Hours for {member.full_name}</DialogTitle>
+          <DialogDescription>
+            Times are India Standard Time. With no windows, {member.full_name} can be given any appointment the booking hours allow. With windows, only appointments that fit
+            completely inside one.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+          {windows.length === 0 && <p className="rounded-md border p-3 text-sm text-muted-foreground">No windows: available whenever the booking hours allow.</p>}
+          {windows.map((w, i) => (
+            <div key={i} className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label htmlFor={`hw-day-${i}`}>Day</Label>
+                <select id={`hw-day-${i}`} className="h-10 rounded-md border bg-background px-3 text-sm" value={w.weekday} onChange={(e) => change(i, { weekday: Number(e.target.value) })}>
+                  {WEEKDAYS.map((d, n) => <option key={d} value={n}>{d}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1"><Label htmlFor={`hw-from-${i}`}>From</Label><Input id={`hw-from-${i}`} type="time" className="w-32" value={w.start} onChange={(e) => change(i, { start: e.target.value })} /></div>
+              <div className="space-y-1"><Label htmlFor={`hw-to-${i}`}>To</Label><Input id={`hw-to-${i}`} type="time" className="w-32" value={w.end} onChange={(e) => change(i, { end: e.target.value })} /></div>
+              <Button type="button" variant="ghost" size="icon" aria-label={`Remove window ${i + 1}`} onClick={() => setWindows((all) => all.filter((_, n) => n !== i))}><Trash2 className="h-4 w-4" /></Button>
+            </div>
+          ))}
+          <Button type="button" variant="outline" size="sm" onClick={() => setWindows((all) => [...all, { weekday: 0, start: "18:00", end: "21:00" }])}>Add a window</Button>
+          {save.isError && <p role="alert" className="text-sm text-destructive">{errorMessage(save.error, "Could not save the hours.")}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save hours"}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** When each team member who takes Pentrix appointments is available. ERPX checks it when an appointment is assigned or moved. */
+function TeamHoursCard({ canManage }: { canManage: boolean }) {
+  const team = useQuery({ queryKey: pentrixKeys.staffHours, queryFn: pentrixApi.staffHours });
+  const [editing, setEditing] = useState<StaffHours | null>(null);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Team availability</CardTitle>
+        <CardDescription>When each team member can take appointments (India time). Someone with no hours set can take any appointment the booking hours allow.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {team.isLoading && <Skeleton className="h-16" />}
+        {team.isError && <p role="alert" className="text-sm text-destructive">{errorMessage(team.error, "Could not load the team.")}</p>}
+        {team.data && team.data.length === 0 && <p className="text-sm text-muted-foreground">Nobody has been given the Pentrix Staff role yet.</p>}
+        {team.data?.map((m) => (
+          <div key={m.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3">
+            <div>
+              <div className="font-medium">{m.full_name}</div>
+              <div className="text-sm text-muted-foreground">{m.restricted ? hoursInWords(m.windows) : "Any time the booking hours allow"}</div>
+            </div>
+            {canManage && <Button size="sm" variant="outline" aria-label={`Set hours for ${m.full_name}`} onClick={() => setEditing(m)}>Set hours</Button>}
+          </div>
+        ))}
+      </CardContent>
+      {editing && <HoursDialog key={editing.user_id} member={editing} onClose={() => setEditing(null)} />}
+    </Card>
   );
 }
 
@@ -189,6 +273,7 @@ export function AvailabilityPage() {
           )}
         </CardContent>
       </Card>
+      <TeamHoursCard canManage={perms.canManage} />
     </div>
   );
 }
