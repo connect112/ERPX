@@ -106,6 +106,16 @@ celery_app.conf.beat_schedule = {
     },
     # Placements job feed: jobs from outside job sites. Every 6 hours (each source also enforces its own minimum
     # gap, e.g. Remotive asks for at most four reads a day).
+    # Pentrix appointments: pull changes from Pentrix, and send the reminder emails that are due. Both every minute; both are safe to
+    # run twice (the pull resumes from a saved cursor, each reminder is recorded under a unique key).
+    "pentrix-sync-bookings": {
+        "task": "pentrix.sync_bookings",
+        "schedule": crontab(minute="*"),
+    },
+    "pentrix-send-booking-reminders": {
+        "task": "pentrix.send_booking_reminders",
+        "schedule": crontab(minute="*"),
+    },
     "placements-refresh-job-feed": {
         "task": "placements.refresh_job_feed",
         "schedule": crontab(minute=17, hour="*/6"),
@@ -165,6 +175,7 @@ celery_app.autodiscover_tasks(
         "modules.hackathons",
         "modules.our_internships",
         "modules.placements",
+        "modules.pentrix_ops",
         "modules.social_media",
     ]
 )

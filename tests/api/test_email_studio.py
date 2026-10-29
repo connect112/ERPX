@@ -116,7 +116,7 @@ async def test_the_library_lists_built_in_emails_and_studio_templates_together(c
     assert system["verification"]["creation_method"] == "Built-in" and system["verification"]["status"] == "active"
     assert system["internship_offer_letter"]["category"] == "Internship Offer Letters"
     cats = (await client.get(f"{_S}/categories", headers=auth_headers)).json()
-    assert "Account Verification" in cats and "Custom Emails" in cats and len(cats) == 14
+    assert "Account Verification" in cats and "Custom Emails" in cats and "Pentrix Bookings" in cats and len(cats) == 15
 
 
 async def test_a_visual_design_is_saved_as_editor_json_and_sanitised_html_and_can_be_reopened(client, auth_headers):

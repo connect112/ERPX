@@ -154,6 +154,14 @@ export const navSections: NavSection[] = [
     ],
   },
   {
+    title: "Pentrix",
+    items: [
+      { label: "Bookings", href: "/pentrix-ops/bookings", icon: CalendarClock, enabled: true, permission: "pentrix_ops.bookings.view" },
+      { label: "Booking Settings", href: "/pentrix-ops/availability", icon: CalendarDays, enabled: true, permission: "pentrix_ops.bookings.view" },
+      { label: "My Assigned Bookings", href: "/pentrix-ops/my-bookings", icon: UserCheck, enabled: true, permission: "pentrix_ops.bookings.assigned" },
+    ],
+  },
+  {
     title: "Business Modules",
     items: [
       { label: "Leads", href: "/crm/leads", icon: Users, enabled: true, permission: "crm.leads.view" },

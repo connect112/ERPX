@@ -399,6 +399,70 @@ TEMPLATES: tuple[TemplateDef, ...] = (
     ),
 )
 
+def _booking_reminders() -> tuple[TemplateDef, ...]:
+    """The reminder emails for a Pentrix appointment: three moments, each worded for the candidate and for the team member."""
+    shared = (
+        Variable("full_name", "The recipient's name", "Asha Rao"),
+        Variable("candidate_name", "The candidate the appointment is with", "Meera Iyer"),
+        Variable("booking_date", "The date of the appointment", "Friday, 30 October 2026"),
+        Variable("booking_time", "The start time", "6:00 PM"),
+        Variable("timezone", "The time zone the time is in", "IST (India Standard Time)"),
+        Variable("duration_minutes", "How long it lasts", "60"),
+        Variable("representative", "The team member it is with", "Priya Nair"),
+        Variable("booking_reference", "The booking reference", "BK-7F3KQ2"),
+        Variable("meeting_url", "The meeting link, or the page with the details when there is no link yet", "https://meet.example.com/pentrix-bk-7f3kq2"),
+        Variable("meeting_label", "What the link is called", "Join the meeting"),
+    )
+    details = "**{{booking_date}}** at **{{booking_time}}** ({{timezone}}) · {{duration_minutes}} minutes · Booking {{booking_reference}}"
+    moments = (
+        ("30m", "30 minutes", "starts in 30 minutes", "Your appointment starts in 30 minutes"),
+        ("5m", "5 minutes", "starts in 5 minutes", "Your appointment starts in 5 minutes"),
+        ("now", "now", "is starting now", "Your appointment is starting now"),
+    )
+    out: list[TemplateDef] = []
+    for kind, label, phrase, subject in moments:
+        out.append(
+            TemplateDef(
+                key=f"pentrix_booking_reminder_{kind}_candidate",
+                name=f"Pentrix booking reminder, {label} (candidate)",
+                category="Pentrix",
+                description=f"Reminds the candidate that their Pentrix appointment {phrase}.",
+                when_sent=f"Automatically {'at the start time' if kind == 'now' else label + ' before the appointment'}, to the candidate.",
+                subject=f"{subject}: {{{{booking_time}}}} {{{{timezone}}}}",
+                body=(
+                    f"# Your appointment {phrase}\n\n"
+                    f"Hi {{{{full_name}}}}, your appointment with {{{{representative}}}} {phrase}.\n\n"
+                    f"{details}\n\n"
+                    "[{{meeting_label}}]({{meeting_url}})\n\n"
+                    "> Need to change it? Open your Pentrix portal."
+                ),
+                variables=shared,
+                required=("meeting_url",),
+            )
+        )
+        out.append(
+            TemplateDef(
+                key=f"pentrix_booking_reminder_{kind}_staff",
+                name=f"Pentrix booking reminder, {label} (team member)",
+                category="Pentrix",
+                description=f"Reminds the assigned team member that their Pentrix appointment {phrase}.",
+                when_sent=f"Automatically {'at the start time' if kind == 'now' else label + ' before the appointment'}, to the assigned team member.",
+                subject=f"{subject}: {{{{candidate_name}}}}, {{{{booking_time}}}} {{{{timezone}}}}",
+                body=(
+                    f"# Appointment {phrase}\n\n"
+                    f"Hi {{{{full_name}}}}, your appointment with **{{{{candidate_name}}}}** {phrase}.\n\n"
+                    f"{details}\n\n"
+                    "[{{meeting_label}}]({{meeting_url}})"
+                ),
+                variables=shared,
+                required=("meeting_url",),
+            )
+        )
+    return tuple(out)
+
+
+TEMPLATES = TEMPLATES + _booking_reminders()
+
 BY_KEY: dict[str, TemplateDef] = {t.key: t for t in TEMPLATES}
 
 
