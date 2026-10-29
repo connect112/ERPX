@@ -168,7 +168,7 @@ function TemplatesTab() {
           <CardTitle className="text-base">Templates available for Pentrix marketing</CardTitle>
           <CardDescription>Only a published template, inside its dates and switched on, can be sent. Create and edit templates in Email Studio.</CardDescription>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline"><Link to="/administration/email-templates"><ExternalLink className="h-4 w-4" /> Email Studio</Link></Button>
           {perms.canManageMarketing && <Button onClick={() => setAssigning(true)}>Make a template available</Button>}
         </div>
