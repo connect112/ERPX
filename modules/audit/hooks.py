@@ -27,12 +27,13 @@ isn't populated until the flush actually executes the INSERT:
     the change it describes.
 """
 
+import hashlib
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum as PyEnum
 
-from sqlalchemy import event, inspect
+from sqlalchemy import LargeBinary, event, inspect
 from sqlalchemy.orm import Session
 
 from app.core.audit_context import get_audit_context
@@ -44,9 +45,19 @@ logger = get_logger(__name__)
 _PENDING_KEY = "_audit_pending"
 
 
+def _binary_marker(value) -> str:
+    """What the audit trail keeps of a file stored in a column: its size and a short fingerprint, never the bytes.
+    Stored as the repr of a PDF this was several times the file's size, and copied into the audit table on every
+    create and update — it filled the disk and every backup. The fingerprint still shows whether a file changed."""
+    data = bytes(value)
+    return f"<binary {len(data)} bytes sha256:{hashlib.sha256(data).hexdigest()[:12]}>"
+
+
 def _serialize(value):
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return _binary_marker(value)
     if isinstance(value, PyEnum):
         return value.value
     if isinstance(value, (uuid.UUID,)):
@@ -73,13 +84,25 @@ def _column_keys(obj) -> list[str]:
     return [attr.key for attr in inspect(obj).mapper.column_attrs]
 
 
+def _is_binary_column(attr) -> bool:
+    return any(isinstance(column.type, LargeBinary) for column in attr.columns)
+
+
 def _snapshot(obj) -> dict:
     excluded = _excluded_fields(obj)
-    return {
-        key: _serialize(getattr(obj, key))
-        for key in _column_keys(obj)
-        if key not in excluded
-    }
+    state = inspect(obj)
+    snapshot = {}
+    for attr in state.mapper.column_attrs:
+        key = attr.key
+        if key in excluded:
+            continue
+        # A file column that was deferred and never loaded (a row being deleted) must not be fetched just to be
+        # described: that is a synchronous read of the whole file inside the flush.
+        if state.key is not None and key in state.unloaded and _is_binary_column(attr):
+            snapshot[key] = "<binary, not loaded>"
+            continue
+        snapshot[key] = _serialize(getattr(obj, key))
+    return snapshot
 
 
 def _diff(obj) -> dict:
