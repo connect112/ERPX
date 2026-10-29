@@ -187,3 +187,81 @@ class OverviewOut(BaseModel):
     funnel: list[dict[str, Any]]
     payment_status: dict[str, int]
     recent_registrations: list[CandidateOut]
+
+
+# ---- payments -----------------------------------------------------------------------------------------------------------------
+
+
+class PaymentOut(BaseModel):
+    id: uuid.UUID
+    pentrix_payment_id: str
+    candidate_id: uuid.UUID | None = None
+    candidate_name: str
+    candidate_email: str
+    provider: str
+    method: str
+    purpose: str
+    purpose_label: str
+    amount_paise: int
+    currency: str
+    status: str
+    status_label: str
+    pentrix_status: str
+    reference: str | None = None
+    provider_order_id: str | None = None
+    invoice_number: str | None = None
+    receipt_number: str | None = None
+    provisioning_status: str | None = None
+    created_at: datetime | None = None
+    paid_at: datetime | None = None
+    failed_at: datetime | None = None
+    refunded_at: datetime | None = None
+    invoice_available: bool = False
+
+
+class PaymentPage(BaseModel):
+    items: list[PaymentOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class PaymentSyncState(BaseModel):
+    configured: bool
+    last_synced_at: datetime | None = None
+    last_error: str | None = None
+
+
+class PaymentsSummaryOut(BaseModel):
+    date: Any
+    collected_today_paise: int
+    successful_today: int
+    refunded_today_paise: int
+    pending_payments: int
+    latest_payment: PaymentOut | None = None
+    recent: list[PaymentOut]
+    sync: PaymentSyncState
+
+
+class DailyOut(BaseModel):
+    date: Any
+    status: str  # matched | mismatch | error | open | unreconciled
+    reconciled: bool
+    reconciled_at: datetime | None = None
+    successful_count: int
+    collected_paise: int
+    pending_count: int
+    failed_count: int
+    refund_count: int
+    refunded_paise: int
+    partial_refund_count: int
+    net_paise: int
+    mismatches: list[dict[str, Any]] = []
+    repaired_count: int = 0
+    attempts: int = 0
+    last_error: str | None = None
+
+
+class DailyDetail(BaseModel):
+    summary: DailyOut
+    transactions: list[PaymentOut]

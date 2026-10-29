@@ -116,6 +116,15 @@ celery_app.conf.beat_schedule = {
         "task": "pentrix.sync_candidates",
         "schedule": crontab(minute="*"),
     },
+    "pentrix-sync-payments": {
+        "task": "pentrix.sync_payments",
+        "schedule": crontab(minute="*"),
+    },
+    # 00:10 India time (18:40 UTC) reconciles the day that has just closed; 06:10 India time (00:40 UTC) checks again for late arrivals.
+    "pentrix-reconcile-payments": {
+        "task": "pentrix.reconcile_payments",
+        "schedule": crontab(minute=40, hour="0,18"),
+    },
     "pentrix-send-booking-reminders": {
         "task": "pentrix.send_booking_reminders",
         "schedule": crontab(minute="*"),

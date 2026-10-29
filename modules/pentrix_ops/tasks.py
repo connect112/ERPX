@@ -1,7 +1,8 @@
 """
 Pentrix operations: scheduled tasks.
 
-* pentrix.sync_bookings and pentrix.sync_candidates (every minute): pull what Pentrix changed. Pentrix also tells ERPX straight away when something changes; this
+* pentrix.sync_bookings, pentrix.sync_candidates and pentrix.sync_payments (every minute): pull what Pentrix changed.
+* pentrix.reconcile_payments (00:10 and 06:10 India time): check the days that have closed against Pentrix. Pentrix also tells ERPX straight away when something changes; this
   pull is what guarantees nothing is missed if that message never arrived.
 * pentrix.send_booking_reminders (every minute): send the reminder emails that are due (see reminders.py).
 """
@@ -10,8 +11,9 @@ from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
 from modules.pentrix_ops.candidates import PentrixCandidateService
 from modules.pentrix_ops.client import PentrixClient
+from modules.pentrix_ops.payments import PentrixPaymentService
 from modules.pentrix_ops.reminders import send_due_reminders
-from modules.pentrix_ops.service import PentrixBookingService
+from modules.pentrix_ops.service import PentrixBookingService, pentrix_organization_id
 
 logger = get_logger(__name__)
 
@@ -28,6 +30,21 @@ async def _sync_candidates() -> int:
         return 0
     async with get_db_context() as db:
         return await PentrixCandidateService(db).sync()
+
+
+async def _sync_payments() -> int:
+    if not PentrixClient.configured():
+        return 0
+    async with get_db_context() as db:
+        return await PentrixPaymentService(db).sync()
+
+
+async def _reconcile() -> dict:
+    if not PentrixClient.configured():
+        return {"days": 0, "mismatched": 0, "errors": 0}
+    async with get_db_context() as db:
+        rows = await PentrixPaymentService(db).reconcile_due(await pentrix_organization_id(db))
+    return {"days": len(rows), "mismatched": sum(1 for r in rows if r.status == "mismatch"), "errors": sum(1 for r in rows if r.status == "error")}
 
 
 async def _remind() -> dict:
@@ -52,6 +69,23 @@ def sync_candidates_task() -> int:
     except Exception:  # noqa: BLE001 - the next minute tries again from the saved cursor
         logger.warning("pentrix_candidate_sync_task_failed", exc_info=True)
         return -1
+
+
+@celery_app.task(name="pentrix.sync_payments")
+def sync_payments_task() -> int:
+    try:
+        return run_async(_sync_payments())
+    except Exception:  # noqa: BLE001 - the next minute tries again from the saved cursor
+        logger.warning("pentrix_payment_sync_task_failed", exc_info=True)
+        return -1
+
+
+@celery_app.task(name="pentrix.reconcile_payments")
+def reconcile_payments_task() -> dict:
+    """After each day closes in India: check the closed days against Pentrix, repair what differs, and record the outcome."""
+    result = run_async(_reconcile())
+    logger.info("pentrix_payments_reconciled", **result)
+    return result
 
 
 @celery_app.task(name="pentrix.send_booking_reminders")

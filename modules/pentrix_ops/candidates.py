@@ -21,6 +21,7 @@ from app.core.exceptions import NotFoundError, ServiceUnavailableError, Validati
 from app.core.logging_config import get_logger
 from modules.email_studio.models import EmailSendRecord
 from modules.pentrix_ops.client import PentrixClient
+from modules.pentrix_ops.mirror import insert_or_existing
 from modules.pentrix_ops.models import ACTIVE_STATUSES, PentrixBooking, PentrixCandidate, PentrixSyncState
 from modules.pentrix_ops.service import STATUS_LABEL, parse_time, pentrix_organization_id
 
@@ -125,8 +126,10 @@ class PentrixCandidateService:
             return row
         registered = parse_time(data.get("registered_at")) or datetime.now(timezone.utc)
         if row is None:
-            row = PentrixCandidate(organization_id=organization_id, pentrix_user_id=pentrix_id, registered_at=registered)
-            self.db.add(row)
+            row = await insert_or_existing(
+                self.db, PentrixCandidate, PentrixCandidate.pentrix_user_id, pentrix_id,
+                lambda: PentrixCandidate(organization_id=organization_id, pentrix_user_id=pentrix_id, registered_at=registered),
+            )
         assessment = data.get("assessment") or {}
         booking = data.get("booking") or {}
         payment = data.get("payment") or {}

@@ -7,10 +7,10 @@ details and the availability rules need `pentrix_ops.bookings.manage`. A team me
 they cannot see anyone else's. Every check is made here, on the server.
 """
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ValidationError
@@ -19,6 +19,7 @@ from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.pentrix_ops.candidates import CandidateFilters, PentrixCandidateService
 from modules.pentrix_ops.client import PentrixClient
+from modules.pentrix_ops.payments import PaymentFilters, PentrixPaymentService, today_ist
 from modules.pentrix_ops.schemas import (
     AssessmentDetail,
     AssignRequest,
@@ -30,10 +31,15 @@ from modules.pentrix_ops.schemas import (
     CandidateEdit,
     CandidateOut,
     CandidatePage,
+    DailyDetail,
+    DailyOut,
     MeetingRequest,
     MessageOut,
     NotesRequest,
     OverviewOut,
+    PaymentOut,
+    PaymentPage,
+    PaymentsSummaryOut,
     RescheduleRequest,
     StaffOut,
     StatusRequest,
@@ -53,6 +59,8 @@ OverviewView = Depends(require_permissions("pentrix_ops.overview.view"))
 RegistrationsView = Depends(require_permissions("pentrix_ops.registrations.view"))
 RegistrationsManage = Depends(require_permissions("pentrix_ops.registrations.manage"))
 AssessmentsView = Depends(require_permissions("pentrix_ops.assessments.view"))
+PaymentsView = Depends(require_permissions("pentrix_ops.payments.view"))
+PaymentsManage = Depends(require_permissions("pentrix_ops.payments.manage"))
 Org = Depends(get_current_user_organization_id)
 Db = Depends(get_db)
 
@@ -331,6 +339,126 @@ async def get_assessment(candidate_id: uuid.UUID, organization_id: uuid.UUID = O
     return await PentrixCandidateService(db).assessment_detail(organization_id, candidate_id)
 
 
+# ------------------------------------------------------------------ payments (Pentrix payments, invoices and the daily summary)
+
+
+def _payment_filters(
+    q: str | None, status: list[str] | None, purpose: str | None, date_from: datetime | None, date_to: datetime | None, candidate: str | None
+) -> PaymentFilters:
+    return PaymentFilters(q=q, status=status or [], purpose=purpose, date_from=date_from, date_to=date_to, candidate_pentrix_id=candidate)
+
+
+def _payment_out(pair) -> PaymentOut:
+    return PaymentOut(**PentrixPaymentService.out(*pair))
+
+
+@router.get("/payments", response_model=PaymentPage)
+async def list_payments(
+    q: str | None = Query(default=None, max_length=100),
+    status: list[str] | None = Query(default=None, description="pending | paid | failed | refunded | partially_refunded"),
+    purpose: str | None = Query(default=None, max_length=40),
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    candidate: str | None = Query(default=None, description="a Pentrix candidate id"),
+    sort: str = Query(default="date"),
+    order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    organization_id: uuid.UUID = Org,
+    user: User = PaymentsView,
+    db: AsyncSession = Db,
+):
+    await _scope(organization_id, db)
+    filters = _payment_filters(q, status, purpose, date_from, date_to, candidate)
+    rows, total = await PentrixPaymentService(db).search(organization_id, filters, sort=sort, descending=order == "desc", page=page, page_size=page_size)
+    return PaymentPage(items=[_payment_out(r) for r in rows], total=total, page=page, page_size=page_size)
+
+
+@router.get("/payments/summary", response_model=PaymentsSummaryOut)
+async def payments_summary(organization_id: uuid.UUID = Org, user: User = PaymentsView, db: AsyncSession = Db):
+    """Today's collections, pending payments and the latest transactions (the Overview and the main dashboard)."""
+    await _scope(organization_id, db)
+    data = await PentrixPaymentService(db).summary(organization_id)
+    data["latest_payment"] = PaymentOut(**data["latest_payment"]) if data["latest_payment"] else None
+    data["recent"] = [PaymentOut(**r) for r in data["recent"]]
+    return data
+
+
+@router.post("/payments/sync", response_model=SyncOut)
+async def sync_payments_now(organization_id: uuid.UUID = Org, user: User = PaymentsManage, db: AsyncSession = Db):
+    """Pull the latest payments from Pentrix now. This is also the retry after a failed synchronisation (it happens every minute by itself)."""
+    await _scope(organization_id, db)
+    return SyncOut(updated=await PentrixPaymentService(db).sync())
+
+
+def _range(date_from: date | None, date_to: date | None) -> tuple[date, date]:
+    last = date_to or today_ist()
+    return (date_from or last - timedelta(days=13)), last
+
+
+@router.get("/payments/daily", response_model=list[DailyOut])
+async def daily_summaries(date_from: date | None = None, date_to: date | None = None, organization_id: uuid.UUID = Org, user: User = PaymentsView, db: AsyncSession = Db):
+    """One entry per calendar day in India (newest first), 14 days by default."""
+    await _scope(organization_id, db)
+    first, last = _range(date_from, date_to)
+    return [DailyOut(**d) for d in await PentrixPaymentService(db).days(organization_id, first, last)]
+
+
+@router.get("/payments/daily/export")
+async def export_daily_summaries(date_from: date | None = None, date_to: date | None = None, organization_id: uuid.UUID = Org, user: User = PaymentsView, db: AsyncSession = Db):
+    await _scope(organization_id, db)
+    first, last = _range(date_from, date_to)
+    service = PentrixPaymentService(db)
+    content = service.days_csv(await service.days(organization_id, first, last))
+    return Response(content, media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="pentrix-daily-summary-{first}-to-{last}.csv"'})
+
+
+@router.get("/payments/daily/{day}", response_model=DailyDetail)
+async def daily_detail(day: date, organization_id: uuid.UUID = Org, user: User = PaymentsView, db: AsyncSession = Db):
+    await _scope(organization_id, db)
+    service = PentrixPaymentService(db)
+    summary = (await service.days(organization_id, day, day))[0]
+    return DailyDetail(summary=DailyOut(**summary), transactions=[_payment_out(r) for r in await service.day_transactions(organization_id, day)])
+
+
+@router.get("/payments/daily/{day}/export")
+async def export_daily_transactions(day: date, organization_id: uuid.UUID = Org, user: User = PaymentsView, db: AsyncSession = Db):
+    await _scope(organization_id, db)
+    service = PentrixPaymentService(db)
+    content = service.transactions_csv(await service.day_transactions(organization_id, day))
+    return Response(content, media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="pentrix-payments-{day}.csv"'})
+
+
+@router.post("/payments/daily/{day}/reconcile", response_model=DailyOut)
+async def reconcile_day(day: date, organization_id: uuid.UUID = Org, user: User = PaymentsManage, db: AsyncSession = Db):
+    """Check a closed day against Pentrix again (and repair what differs). A day that is still going cannot be reconciled."""
+    await _scope(organization_id, db)
+    if day >= today_ist():
+        raise ValidationError("A day can be reconciled once it has ended.")
+    service = PentrixPaymentService(db)
+    row = await service.reconcile(organization_id, day)
+    return DailyOut(**service.summary_out(row, day))
+
+
+@router.get("/payments/{payment_id}", response_model=PaymentOut)
+async def get_payment(payment_id: uuid.UUID, organization_id: uuid.UUID = Org, user: User = PaymentsView, db: AsyncSession = Db):
+    await _scope(organization_id, db)
+    service = PentrixPaymentService(db)
+    return _payment_out(await service.with_candidate(await service.get(organization_id, payment_id)))
+
+
+@router.get("/payments/{payment_id}/invoice")
+async def payment_invoice(payment_id: uuid.UUID, download: bool = False, organization_id: uuid.UUID = Org, user: User = PaymentsView, db: AsyncSession = Db):
+    """The invoice for a payment that was made, as a PDF (shown in the browser, or downloaded with ?download=true)."""
+    await _scope(organization_id, db)
+    service = PentrixPaymentService(db)
+    payment, candidate = await service.with_candidate(await service.get(organization_id, payment_id))
+    pdf, filename = service.invoice_pdf(payment, candidate)
+    safe = "".join(c for c in filename if c.isalnum() or c in "-_.") or "invoice.pdf"
+    disposition = "attachment" if download else "inline"
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'{disposition}; filename="{safe}"'})
+
+
 # ------------------------------------------------------------------ from Pentrix (signed, no user)
 
 
@@ -351,4 +479,15 @@ async def receive_candidate(request: Request, db: AsyncSession = Db):
     if not isinstance(data, dict) or not data.get("id"):
         raise ValidationError("A candidate is required.")
     await PentrixCandidateService(db).upsert(await pentrix_organization_id(db), data)
+    return MessageOut(message="Stored.")
+
+
+@internal_router.post("/payments", response_model=MessageOut, dependencies=[Depends(verify_internal_signature)])
+async def receive_payment(request: Request, db: AsyncSession = Db):
+    """Pentrix tells ERPX a payment changed. Signed with the shared secret; matched only by Pentrix's payment id, and an older message
+    never overwrites a newer state."""
+    data = await request.json()
+    if not isinstance(data, dict) or not data.get("id"):
+        raise ValidationError("A payment is required.")
+    await PentrixPaymentService(db).upsert(await pentrix_organization_id(db), data)
     return MessageOut(message="Stored.")

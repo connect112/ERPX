@@ -130,3 +130,14 @@ class PentrixClient:
 
     async def update_candidate(self, pentrix_user_id: str, changes: dict, actor: str | None) -> dict:
         return await self.request("PATCH", f"/candidates/{pentrix_user_id}", changes, actor=actor)
+
+    # ------------------------------------------------------------------ payments
+
+    async def payment_changes(self, cursor: str | None, limit: int = 200) -> dict:
+        return await self.request("GET", "/payments", params={"cursor": cursor, "limit": limit})
+
+    async def payment(self, payment_id: str) -> dict:
+        return await self.request("GET", f"/payments/{payment_id}")
+
+    async def payment_day(self, day: str) -> dict:
+        return await self.request("GET", f"/payments/day/{day}")

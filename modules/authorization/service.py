@@ -203,6 +203,8 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("pentrix_ops.registrations.view", "pentrix_ops", "View Pentrix candidates and their full records"),
     ("pentrix_ops.registrations.manage", "pentrix_ops", "Change a Pentrix candidate's name and phone number"),
     ("pentrix_ops.assessments.view", "pentrix_ops", "View Pentrix assessment attempts, scores and qualification"),
+    ("pentrix_ops.payments.view", "pentrix_ops", "View Pentrix payments, invoices and the daily payment summary"),
+    ("pentrix_ops.payments.manage", "pentrix_ops", "Retry Pentrix payment synchronisation and daily reconciliation"),
     ("documents.view", "documents", "View and download uploaded documents"),
     ("documents.manage", "documents", "Upload and delete documents"),
     ("trainers.view", "trainers", "View trainer profiles"),

@@ -5,7 +5,8 @@ the team they are assigned to, when reminders were sent -- and where the regular
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_model import TimestampedBase
@@ -97,6 +98,72 @@ class PentrixCandidate(TimestampedBase):
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Pentrix's own stamp: an older message never overwrites a newer state.
     source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PentrixPayment(TimestampedBase):
+    """A synchronised copy of one Pentrix payment, keyed by the id Pentrix gave it (so a payment can never be stored twice, and the
+    original transaction reference is kept as it was). Pentrix is the source of truth: a payment is only ever "paid" here because
+    Pentrix recorded it after its provider's verified webhook, never because of anything a browser reported."""
+
+    __tablename__ = "pentrix_payments"
+    __table_args__ = (
+        Index("ix_pentrix_payments_org_paid", "organization_id", "paid_at"),
+        Index("ix_pentrix_payments_org_status", "organization_id", "status"),
+        Index("ix_pentrix_payments_org_created", "organization_id", "created_at_source"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    pentrix_payment_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    pentrix_user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    candidate_name: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+    candidate_email: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+
+    provider: Mapped[str] = mapped_column(String(20), nullable=False, default="", server_default="")
+    provider_order_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    provider_payment_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    purpose: Mapped[str] = mapped_column(String(40), nullable=False, default="", server_default="")
+    # Pentrix's words: created | pending | succeeded | failed | refunded | partially_refunded.
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    amount_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR", server_default="INR")
+    invoice_number: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    receipt_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provisioning_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    created_at_source: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Pentrix's own stamp: an older message never overwrites a newer state.
+    source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PentrixDailySummary(TimestampedBase):
+    """What was collected on one calendar day in India, as ERPX reconciled it against Pentrix after the day closed. One row per day,
+    rewritten (never duplicated) each time the day is reconciled."""
+
+    __tablename__ = "pentrix_daily_summaries"
+    __table_args__ = (UniqueConstraint("organization_id", "day", name="uq_pentrix_daily_summary_day"),)
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    day: Mapped[Date] = mapped_column(Date, nullable=False)
+    # matched | mismatch | error
+    status: Mapped[str] = mapped_column(String(10), nullable=False)
+    successful_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    collected_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    pending_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    refund_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    refunded_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    partial_refund_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # What Pentrix reported for the day, and every difference found (after trying to repair them from Pentrix).
+    pentrix_totals: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    mismatches: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    repaired_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PentrixBookingReminder(TimestampedBase):

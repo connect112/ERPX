@@ -16,6 +16,7 @@ from modules.authentication.models import User, UserStatus
 from modules.authorization.models import Permission, RolePermission, UserRole
 from modules.organizations.models import Organization
 from modules.pentrix_ops.client import PentrixClient
+from modules.pentrix_ops.mirror import insert_or_existing
 from modules.pentrix_ops.models import ACTIVE_STATUSES, PentrixBooking, PentrixSyncState
 from modules.users.models import UserProfile
 
@@ -72,11 +73,13 @@ class PentrixBookingService:
             raise ValidationError("The booking has no time.")
         staff_id = await self._known_user(data.get("assigned_staff_ref"))
         if row is None:
-            row = PentrixBooking(
-                organization_id=organization_id, pentrix_booking_id=data["id"], slot_start=start, slot_end=end,
-                scheduled_at=parse_time(data.get("created_at")) or now, status=data.get("status", "confirmed"), pentrix_user_id=data.get("user_id", ""),
+            row = await insert_or_existing(
+                self.db, PentrixBooking, PentrixBooking.pentrix_booking_id, data["id"],
+                lambda: PentrixBooking(
+                    organization_id=organization_id, pentrix_booking_id=data["id"], slot_start=start, slot_end=end,
+                    scheduled_at=parse_time(data.get("created_at")) or now, status=data.get("status", "confirmed"), pentrix_user_id=data.get("user_id", ""),
+                ),
             )
-            self.db.add(row)
         elif row.slot_start != start:
             row.scheduled_at = updated or now  # a new time: its reminders start from now
         row.reference = data.get("reference")
