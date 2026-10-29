@@ -2,6 +2,7 @@ import { Building2, Shield, Users } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDashboardSummary } from "@/features/dashboard/api/dashboard-api";
+import { DailyPaymentsWidget } from "@/features/pentrix-ops/components/daily-payments-widget";
 import { UpcomingBookingsWidget } from "@/features/pentrix-ops/components/upcoming-bookings-widget";
 import { usePentrixPermissions } from "@/features/pentrix-ops/lib/format";
 import { useAuthStore } from "@/store/auth-store";
@@ -89,6 +90,7 @@ export function DashboardPage() {
       )}
 
       {pentrix.canView && <UpcomingBookingsWidget title="Upcoming Pentrix bookings" />}
+      <DailyPaymentsWidget />
     </div>
   );
 }

@@ -44,6 +44,8 @@ const PentrixRegistrationsPage = lazy(() => import("@/features/pentrix-ops/pages
 const PentrixCandidatePage = lazy(() => import("@/features/pentrix-ops/pages/candidate-page").then((m) => ({ default: m.CandidatePage })));
 const PentrixAssessmentsPage = lazy(() => import("@/features/pentrix-ops/pages/assessments-page").then((m) => ({ default: m.AssessmentsPage })));
 const PentrixAssessmentDetailPage = lazy(() => import("@/features/pentrix-ops/pages/assessment-detail-page").then((m) => ({ default: m.AssessmentDetailPage })));
+const PentrixPaymentsPage = lazy(() => import("@/features/pentrix-ops/pages/payments-page").then((m) => ({ default: m.PaymentsPage })));
+const PentrixDailySummaryPage = lazy(() => import("@/features/pentrix-ops/pages/daily-summary-page").then((m) => ({ default: m.DailySummaryPage })));
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-page").then((m) => ({ default: m.DashboardPage })));
 const QuestionBankPage = lazy(() => import("@/features/examinations/question-bank/pages/question-bank-page").then((m) => ({ default: m.QuestionBankPage })));
 const AnnouncementsListPage = lazy(() => import("@/features/lms/announcements/pages/announcements-list-page").then((m) => ({ default: m.AnnouncementsListPage })));
@@ -329,6 +331,8 @@ export const router = createBrowserRouter([
       { path: "pentrix-ops/assessments", element: <PentrixAssessmentsPage /> },
       { path: "pentrix-ops/assessments/:id", element: <PentrixAssessmentDetailPage /> },
       { path: "pentrix-ops/bookings", element: <PentrixBookingsPage /> },
+      { path: "pentrix-ops/payments", element: <PentrixPaymentsPage /> },
+      { path: "pentrix-ops/payments/daily", element: <PentrixDailySummaryPage /> },
       { path: "pentrix-ops/availability", element: <PentrixAvailabilityPage /> },
       { path: "pentrix-ops/my-bookings", element: <PentrixMyBookingsPage /> },
       { path: "administration/integrations", element: <IntegrationsPage /> },

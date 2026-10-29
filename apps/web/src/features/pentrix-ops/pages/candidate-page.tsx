@@ -13,6 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type Candidate, type CandidateDetail, candidatesApi, useCandidateDetail } from "@/features/pentrix-ops/api/candidates-api";
+import { EMPTY_PAYMENT_FILTERS, usePayments } from "@/features/pentrix-ops/api/payments-api";
+import { InvoiceButtons } from "@/features/pentrix-ops/components/payment-parts";
 import { pentrixKeys } from "@/features/pentrix-ops/api/pentrix-ops-api";
 import { AssessmentRecordView } from "@/features/pentrix-ops/components/assessment-record";
 import { AssessmentBadge, BookingBadge, PaymentBadge, QualificationBadge } from "@/features/pentrix-ops/components/candidate-badges";
@@ -117,6 +119,9 @@ export function CandidatePage() {
   const [editing, setEditing] = useState(false);
   const data = detail.data;
   const profile = data?.profile ?? null;
+  // ERPX's own copy of this candidate's payments, which is where invoices can be viewed and downloaded.
+  const records = usePayments({ ...EMPTY_PAYMENT_FILTERS, candidate: data?.candidate.pentrix_user_id }, 50, perms.canPayments && !!data);
+  const recordFor = (pentrixPaymentId: string) => records.data?.items.find((r) => r.pentrix_payment_id === pentrixPaymentId);
 
   useEffect(() => setEditing(false), [id]);
 
@@ -220,6 +225,7 @@ export function CandidatePage() {
                           <TableHead>Status</TableHead>
                           <TableHead>Transaction reference</TableHead>
                           <TableHead>Invoice</TableHead>
+                          {perms.canPayments && <TableHead><span className="sr-only">Invoice file</span></TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -235,6 +241,7 @@ export function CandidatePage() {
                             </TableCell>
                             <TableCell className="font-mono text-xs">{p.reference ?? "—"}</TableCell>
                             <TableCell className="font-mono text-xs">{p.invoice_number ?? "—"}</TableCell>
+                            {perms.canPayments && <TableCell>{recordFor(p.id) ? <InvoiceButtons payment={recordFor(p.id)!} /> : <span className="text-muted-foreground">—</span>}</TableCell>}
                           </TableRow>
                         ))}
                       </TableBody>

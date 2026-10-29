@@ -52,6 +52,8 @@ export function usePentrixPermissions() {
     canRegistrations: has("pentrix_ops.registrations.view"),
     canEditRegistrations: has("pentrix_ops.registrations.manage"),
     canAssessments: has("pentrix_ops.assessments.view"),
+    canPayments: has("pentrix_ops.payments.view"),
+    canManagePayments: has("pentrix_ops.payments.manage"),
   };
 }
 
@@ -97,5 +99,21 @@ export function qualificationOf(qualified: boolean | null): { label: string; ton
   return { label: "No result yet", tone: "secondary" };
 }
 
-export const PAYMENT_LABEL: Record<string, string> = { paid: "Paid", pending: "Pending", failed: "Failed", refunded: "Refunded", none: "No payment" };
-export const PAYMENT_TONE: Record<string, Tone> = { paid: "success", pending: "warning", failed: "destructive", refunded: "secondary", none: "secondary" };
+export const PAYMENT_LABEL: Record<string, string> = { paid: "Paid", pending: "Pending", failed: "Failed", refunded: "Refunded", partially_refunded: "Partially refunded", none: "No payment" };
+export const PAYMENT_TONE: Record<string, Tone> = { paid: "success", pending: "warning", failed: "destructive", refunded: "secondary", partially_refunded: "secondary", none: "secondary" };
+
+/** Today's date in India as 2026-10-29, and a date some days away from it. */
+export function todayIst(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: IST }).format(new Date());
+}
+
+export function addDays(day: string, days: number): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** A calendar day such as "2026-10-20" written as "20 Oct 2026". */
+export function dayLabel(day: string): string {
+  return dayMonthIst(`${day}T12:00:00+05:30`);
+}

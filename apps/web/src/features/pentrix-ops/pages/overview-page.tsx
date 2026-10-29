@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { candidatesApi, useOverview } from "@/features/pentrix-ops/api/candidates-api";
 import { pentrixKeys } from "@/features/pentrix-ops/api/pentrix-ops-api";
 import { AssessmentBadge, QualificationBadge } from "@/features/pentrix-ops/components/candidate-badges";
+import { DailyPaymentsWidget } from "@/features/pentrix-ops/components/daily-payments-widget";
 import { UpcomingBookingsWidget } from "@/features/pentrix-ops/components/upcoming-bookings-widget";
 import { PAYMENT_LABEL, agoOrDate, dayMonthIst, usePentrixPermissions } from "@/features/pentrix-ops/lib/format";
 import { errorMessage } from "@/features/institutions/lib/format";
@@ -124,6 +125,7 @@ export function OverviewPage() {
           </div>
 
           {perms.canView && <UpcomingBookingsWidget />}
+          <DailyPaymentsWidget withRecent />
 
           <div className="grid gap-6 lg:grid-cols-3">
             <Card className="lg:col-span-2">
@@ -173,6 +175,7 @@ export function OverviewPage() {
                 )}
                 {perms.canView && <Button asChild variant="outline" className="justify-start"><Link to="/pentrix-ops/bookings">Manage Bookings</Link></Button>}
                 {perms.canAssessments && <Button asChild variant="outline" className="justify-start"><Link to="/pentrix-ops/assessments">Review Assessments</Link></Button>}
+                {perms.canPayments && <Button asChild variant="outline" className="justify-start"><Link to="/pentrix-ops/payments">Review Payments</Link></Button>}
               </CardContent>
             </Card>
           </div>
