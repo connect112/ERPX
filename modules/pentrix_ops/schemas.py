@@ -135,6 +135,7 @@ class CandidateOut(BaseModel):
     assessment: AssessmentLine
     booking: BookingLine | None = None
     payment: PaymentLine
+    marketing_opt_in: bool = False
     enrolled: bool = False
     last_activity_at: datetime | None = None
 

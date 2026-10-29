@@ -82,6 +82,7 @@ _CATEGORY_OF_KEY = {
     "payroll_draft_ready": "Payment Confirmations",
     "payslip_ready": "Payment Confirmations",
     **{f"pentrix_booking_reminder_{kind}_{who}": "Pentrix Bookings" for kind in ("30m", "5m", "now") for who in ("candidate", "staff")},
+    "pentrix_marketing": "Pentrix Marketing",
 }
 _METHOD = {"visual": "Visual editor", "html": "HTML import", "code": "React Email component", "react": "React Email code", "markdown": "Markdown (built-in)", "default": "Built-in"}
 

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, not_, or_, select, update
+from sqlalchemy import and_, delete, func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -22,7 +22,7 @@ from app.core.logging_config import get_logger
 from modules.email_studio.models import EmailSendRecord
 from modules.pentrix_ops.client import PentrixClient
 from modules.pentrix_ops.mirror import insert_or_existing
-from modules.pentrix_ops.models import ACTIVE_STATUSES, PentrixBooking, PentrixCandidate, PentrixSyncState
+from modules.pentrix_ops.models import ACTIVE_STATUSES, PentrixBooking, PentrixCandidate, PentrixMarketingSuppression, PentrixSyncState
 from modules.pentrix_ops.service import STATUS_LABEL, parse_time, pentrix_organization_id
 
 logger = get_logger(__name__)
@@ -32,6 +32,7 @@ ASSESSMENT_FILTERS = {"not_started", "in_progress", "completed", "pending"}
 QUALIFICATION_FILTERS = {"qualified", "not_qualified", "pending"}
 BOOKING_FILTERS = {"scheduled", "not_scheduled", "completed", "cancelled", "no_show"}
 PAYMENT_FILTERS = {"paid", "pending", "failed", "refunded", "none", "not_paid"}
+MARKETING_FILTERS = {"opted_in", "not_opted_in"}
 SORTS = {
     "registered": PentrixCandidate.registered_at,
     "name": func.lower(PentrixCandidate.full_name),
@@ -52,11 +53,12 @@ class CandidateFilters:
     qualification: list[str] = field(default_factory=list)
     booking: list[str] = field(default_factory=list)
     payment: list[str] = field(default_factory=list)
+    marketing: list[str] = field(default_factory=list)
     registered_from: datetime | None = None
     registered_to: datetime | None = None
 
     def validate(self) -> "CandidateFilters":
-        for name, allowed in (("assessment", ASSESSMENT_FILTERS), ("qualification", QUALIFICATION_FILTERS), ("booking", BOOKING_FILTERS), ("payment", PAYMENT_FILTERS)):
+        for name, allowed in (("assessment", ASSESSMENT_FILTERS), ("qualification", QUALIFICATION_FILTERS), ("booking", BOOKING_FILTERS), ("payment", PAYMENT_FILTERS), ("marketing", MARKETING_FILTERS)):
             bad = [v for v in getattr(self, name) if v not in allowed]
             if bad:
                 raise ValidationError(f"'{bad[0]}' is not a {name} filter.")
@@ -100,6 +102,8 @@ def conditions(organization_id: uuid.UUID, f: CandidateFilters, now: datetime) -
         parts = {v: PentrixCandidate.payment_status == v for v in ("paid", "pending", "failed", "refunded", "none")}
         parts["not_paid"] = PentrixCandidate.payment_status != "paid"
         out.append(or_(*[parts[v] for v in f.payment]))
+    if f.marketing:
+        out.append(or_(*[PentrixCandidate.marketing_opt_in.is_(v == "opted_in") for v in f.marketing]))
     if f.registered_from:
         out.append(PentrixCandidate.registered_at >= f.registered_from)
     if f.registered_to:
@@ -159,10 +163,22 @@ class PentrixCandidateService:
         row.payment_currency = payment.get("currency") or "INR"
         row.last_paid_at = parse_time(payment.get("last_paid_at"))
         row.payment_count = int(payment.get("payment_count") or 0)
+        marketing = data.get("marketing") or {}
+        row.marketing_opt_in = bool(marketing.get("opt_in"))
+        row.marketing_changed_at = parse_time(marketing.get("changed_at"))
         row.enrolled = bool(data.get("enrolled"))
         row.last_activity_at = parse_time(data.get("last_activity_at"))
         row.source_updated_at = updated
         await self.db.flush()
+        if row.marketing_opt_in and row.marketing_changed_at and row.email:
+            # They opted in again themselves, after an unsubscribe: that is their choice and it stands.
+            await self.db.execute(
+                delete(PentrixMarketingSuppression).where(
+                    PentrixMarketingSuppression.organization_id == row.organization_id,
+                    PentrixMarketingSuppression.email == row.email.lower(),
+                    PentrixMarketingSuppression.created_at < row.marketing_changed_at,
+                )
+            )
         await self.db.refresh(row)
         return row
 
@@ -384,6 +400,7 @@ class PentrixCandidateService:
                 "last_paid_at": row.last_paid_at,
                 "payment_count": row.payment_count,
             },
+            "marketing_opt_in": row.marketing_opt_in,
             "enrolled": row.enrolled,
             "last_activity_at": row.last_activity_at,
         }

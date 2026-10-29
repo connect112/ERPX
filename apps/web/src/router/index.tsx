@@ -45,6 +45,8 @@ const PentrixCandidatePage = lazy(() => import("@/features/pentrix-ops/pages/can
 const PentrixAssessmentsPage = lazy(() => import("@/features/pentrix-ops/pages/assessments-page").then((m) => ({ default: m.AssessmentsPage })));
 const PentrixAssessmentDetailPage = lazy(() => import("@/features/pentrix-ops/pages/assessment-detail-page").then((m) => ({ default: m.AssessmentDetailPage })));
 const PentrixPaymentsPage = lazy(() => import("@/features/pentrix-ops/pages/payments-page").then((m) => ({ default: m.PaymentsPage })));
+const PentrixMarketingPage = lazy(() => import("@/features/pentrix-ops/pages/marketing-page").then((m) => ({ default: m.MarketingPage })));
+const PentrixUnsubscribePage = lazy(() => import("@/features/pentrix-ops/pages/unsubscribe-page").then((m) => ({ default: m.UnsubscribePage })));
 const PentrixDailySummaryPage = lazy(() => import("@/features/pentrix-ops/pages/daily-summary-page").then((m) => ({ default: m.DailySummaryPage })));
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-page").then((m) => ({ default: m.DashboardPage })));
 const QuestionBankPage = lazy(() => import("@/features/examinations/question-bank/pages/question-bank-page").then((m) => ({ default: m.QuestionBankPage })));
@@ -333,6 +335,7 @@ export const router = createBrowserRouter([
       { path: "pentrix-ops/bookings", element: <PentrixBookingsPage /> },
       { path: "pentrix-ops/payments", element: <PentrixPaymentsPage /> },
       { path: "pentrix-ops/payments/daily", element: <PentrixDailySummaryPage /> },
+      { path: "pentrix-ops/marketing", element: <PentrixMarketingPage /> },
       { path: "pentrix-ops/availability", element: <PentrixAvailabilityPage /> },
       { path: "pentrix-ops/my-bookings", element: <PentrixMyBookingsPage /> },
       { path: "administration/integrations", element: <IntegrationsPage /> },
@@ -357,6 +360,15 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <PublicExamPage />
+      </Suspense>
+    ),
+  },
+  // The page an unsubscribe link in a Pentrix marketing email opens: no sign-in, no ERPX navigation.
+  {
+    path: "/pentrix-unsubscribe",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <PentrixUnsubscribePage />
       </Suspense>
     ),
   },

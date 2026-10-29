@@ -33,6 +33,8 @@ class SendMeta:
     reply_to: str = ""
     from_name: str = ""
     extra_attachments: list[Any] = field(default_factory=list)
+    # Extra message headers, e.g. List-Unsubscribe. Values with a line break are dropped.
+    headers: dict[str, str] = field(default_factory=dict)
     # names of recipient-specific documents the template needs (an offer letter, a certificate); sending refuses to go without one
     requires: list[str] = field(default_factory=list)
 

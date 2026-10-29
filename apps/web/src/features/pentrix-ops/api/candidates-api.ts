@@ -44,6 +44,8 @@ export interface Candidate {
   assessment: AssessmentLine;
   booking: BookingLine | null;
   payment: PaymentLine;
+  /** Agreed to marketing email in Pentrix (an explicit opt-in). */
+  marketing_opt_in: boolean;
   enrolled: boolean;
   last_activity_at: string | null;
 }
@@ -62,6 +64,7 @@ export interface CandidateFilters {
   qualification: string;
   booking: string;
   payment: string;
+  marketing: string;
   registered_from: string;
   registered_to: string;
   sort: string;
@@ -70,7 +73,7 @@ export interface CandidateFilters {
 }
 
 export const EMPTY_FILTERS: CandidateFilters = {
-  q: "", assessment: "", qualification: "", booking: "", payment: "", registered_from: "", registered_to: "", sort: "registered", order: "desc", page: 1,
+  q: "", assessment: "", qualification: "", booking: "", payment: "", marketing: "", registered_from: "", registered_to: "", sort: "registered", order: "desc", page: 1,
 };
 
 export interface Overview {
@@ -208,6 +211,7 @@ export function candidateParams(f: CandidateFilters): URLSearchParams {
   add("qualification", f.qualification);
   add("booking", f.booking);
   add("payment", f.payment);
+  add("marketing", f.marketing);
   // dates are chosen as whole days in India: from the start of the first day to the end of the last
   if (f.registered_from) p.append("registered_from", new Date(`${f.registered_from}T00:00:00+05:30`).toISOString());
   if (f.registered_to) p.append("registered_to", new Date(new Date(`${f.registered_to}T00:00:00+05:30`).getTime() + 86_400_000).toISOString());

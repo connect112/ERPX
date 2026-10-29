@@ -176,6 +176,7 @@ export function OverviewPage() {
                 {perms.canView && <Button asChild variant="outline" className="justify-start"><Link to="/pentrix-ops/bookings">Manage Bookings</Link></Button>}
                 {perms.canAssessments && <Button asChild variant="outline" className="justify-start"><Link to="/pentrix-ops/assessments">Review Assessments</Link></Button>}
                 {perms.canPayments && <Button asChild variant="outline" className="justify-start"><Link to="/pentrix-ops/payments">Review Payments</Link></Button>}
+                {perms.canSendMarketing && <Button asChild variant="outline" className="justify-start"><Link to="/pentrix-ops/registrations?marketing=opted_in">Send Marketing Emails</Link></Button>}
               </CardContent>
             </Card>
           </div>

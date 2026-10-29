@@ -250,11 +250,11 @@ async def overview(organization_id: uuid.UUID = Org, user: User = OverviewView, 
 
 def _filters(
     q: str | None, assessment: list[str] | None, qualification: list[str] | None, booking: list[str] | None, payment: list[str] | None,
-    registered_from: datetime | None, registered_to: datetime | None,
+    registered_from: datetime | None, registered_to: datetime | None, marketing: list[str] | None = None,
 ) -> CandidateFilters:
     return CandidateFilters(
         q=q, assessment=assessment or [], qualification=qualification or [], booking=booking or [], payment=payment or [],
-        registered_from=registered_from, registered_to=registered_to,
+        marketing=marketing or [], registered_from=registered_from, registered_to=registered_to,
     )
 
 
@@ -272,6 +272,7 @@ async def list_candidates(
     qualification: list[str] | None = Query(default=None, description="qualified | not_qualified | pending"),
     booking: list[str] | None = Query(default=None, description="scheduled | not_scheduled | completed | cancelled | no_show"),
     payment: list[str] | None = Query(default=None, description="paid | pending | failed | refunded | none | not_paid"),
+    marketing: list[str] | None = Query(default=None, description="opted_in | not_opted_in"),
     registered_from: datetime | None = None,
     registered_to: datetime | None = None,
     sort: str = Query(default="registered"),
@@ -283,7 +284,7 @@ async def list_candidates(
     db: AsyncSession = Db,
 ):
     await _scope(organization_id, db)
-    filters = _filters(q, assessment, qualification, booking, payment, registered_from, registered_to)
+    filters = _filters(q, assessment, qualification, booking, payment, registered_from, registered_to, marketing)
     return await _candidate_page(db, organization_id, filters, sort, order, page, page_size)
 
 

@@ -461,7 +461,39 @@ def _booking_reminders() -> tuple[TemplateDef, ...]:
     return tuple(out)
 
 
-TEMPLATES = TEMPLATES + _booking_reminders()
+def _marketing() -> tuple[TemplateDef, ...]:
+    """The placeholders available to a Pentrix marketing email. Which wording is sent is decided per campaign (any published Email Studio
+    template made available for it), so this is the list of values, not one fixed email."""
+    return (
+        TemplateDef(
+            key="pentrix_marketing",
+            name="Pentrix marketing email",
+            category="Pentrix",
+            description="An update or offer sent to Pentrix candidates who agreed to receive them.",
+            when_sent="When an administrator confirms a send from Pentrix > Registrations.",
+            subject="News from Pentrix",
+            body=(
+                "# Hello {{first_name}}\n\n"
+                "Here is the latest from Pentrix.\n\n"
+                "[Open your Pentrix portal]({{portal_url}})\n\n"
+                "> You are receiving this because you chose to hear from Pentrix. [Unsubscribe]({{unsubscribe_url}})"
+            ),
+            variables=(
+                Variable("full_name", "The candidate's full name", "Asha Rao"),
+                Variable("first_name", "The candidate's first name", "Asha"),
+                Variable("email", "The candidate's email address", "asha@example.com"),
+                Variable("campaign_name", "The name of the campaign", "November intake"),
+                Variable("assessment_status", "Where they are with the assessment (Not started, In progress or Completed)", "Completed"),
+                Variable("qualification_status", "Qualified, Not qualified, or No result yet", "Qualified"),
+                Variable("portal_url", "The address of their Pentrix portal", "https://pentrix.in/portal"),
+                Variable("unsubscribe_url", "The link that stops these emails", "https://erp.example.com/pentrix-unsubscribe?token=sample"),
+            ),
+            required=("unsubscribe_url",),
+        ),
+    )
+
+
+TEMPLATES = TEMPLATES + _booking_reminders() + _marketing()
 
 BY_KEY: dict[str, TemplateDef] = {t.key: t for t in TEMPLATES}
 

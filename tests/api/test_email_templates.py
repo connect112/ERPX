@@ -88,6 +88,7 @@ def test_every_default_renders_with_its_sample_values_and_uses_only_its_own_plac
         "pentrix_booking_reminder_5m_staff",
         "pentrix_booking_reminder_now_candidate",
         "pentrix_booking_reminder_now_staff",
+        "pentrix_marketing",
     }
     for template in TEMPLATES:
         allowed = {v.name for v in template.variables}

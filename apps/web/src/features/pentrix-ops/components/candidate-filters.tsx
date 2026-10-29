@@ -9,6 +9,7 @@ import { selectClass } from "@/features/our-internships/components/letter-fields
 const ASSESSMENT = [["", "Any"], ["not_started", "Not started"], ["in_progress", "In progress"], ["completed", "Completed"], ["pending", "Not completed"]];
 const QUALIFICATION = [["", "Any"], ["qualified", "Qualified"], ["not_qualified", "Not qualified"], ["pending", "No result yet"]];
 const BOOKING = [["", "Any"], ["scheduled", "Booking scheduled"], ["not_scheduled", "No booking scheduled"], ["completed", "Completed"], ["cancelled", "Cancelled"], ["no_show", "No show"]];
+const MARKETING = [["", "Any"], ["opted_in", "Agreed to marketing email"], ["not_opted_in", "Has not agreed"]];
 const PAYMENT = [["", "Any"], ["paid", "Paid"], ["not_paid", "Not paid"], ["pending", "Payment pending"], ["failed", "Payment failed"], ["refunded", "Refunded"], ["none", "No payment made"]];
 
 function Pick({ id, label, value, options, onChange }: { id: string; label: string; value: string; options: string[][]; onChange: (v: string) => void }) {
@@ -51,6 +52,7 @@ export function CandidateFilterBar({
       <Pick id={`${idPrefix}-qualification`} label="Qualification" value={filters.qualification} options={QUALIFICATION} onChange={(v) => update({ qualification: v })} />
       <Pick id={`${idPrefix}-booking`} label="Booking" value={filters.booking} options={BOOKING} onChange={(v) => update({ booking: v })} />
       <Pick id={`${idPrefix}-payment`} label="Payment" value={filters.payment} options={PAYMENT} onChange={(v) => update({ payment: v })} />
+      <Pick id={`${idPrefix}-marketing`} label="Marketing email" value={filters.marketing} options={MARKETING} onChange={(v) => update({ marketing: v })} />
       <div className="space-y-1">
         <Label htmlFor={`${idPrefix}-from`}>Registered from</Label>
         <Input id={`${idPrefix}-from`} type="date" className="w-40" value={filters.registered_from} onChange={(e) => update({ registered_from: e.target.value })} />
