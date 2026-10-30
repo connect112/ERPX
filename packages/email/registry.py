@@ -223,8 +223,43 @@ TEMPLATES: tuple[TemplateDef, ...] = (
             Variable("authorized_designation", "Their designation", "CEO"),
             Variable("reference", "The offer letter's reference number", "OFR-2026-AB12-001"),
             Variable("letter_date", "The date on the letter", "28 October 2026"),
+            Variable("onboarding_link", "The student's personal onboarding link (empty when onboarding is manual)", "https://erp.example.com/internship-onboarding#t=..."),
+            Variable("onboarding_deadline", "When onboarding closes for this student", "15 Nov 2026, 11:59 PM IST"),
+            Variable("onboarding_start_date", "When onboarding opens", "1 Nov 2026"),
+            Variable("internship_fee", "The internship fee", "INR 5,000.00"),
+            Variable("late_fee", "The late fee, if one applies", "INR 500.00"),
+            Variable("total_payable", "What the student pays in total", "INR 5,900.00"),
+            Variable("application_reference", "The student's application reference", "ERPX-INT-2026-000001"),
         ),
         has_attachment=True,
+    ),
+    TemplateDef(
+        key="internship_onboarding_invitation",
+        name="Internship onboarding invitation",
+        category="Internships",
+        description="Sends a selected student their personal onboarding link (information, documents, acceptance, payment).",
+        when_sent="When an administrator sends or resends the onboarding invitation. Each sending replaces the previous link.",
+        subject="Complete your internship onboarding - {{internship_name}}",
+        body=(
+            "# Welcome aboard, {{student_name}}\n\n"
+            "Please complete your onboarding for {{internship_name}} before {{onboarding_deadline}}. "
+            "Your application reference is {{application_reference}}.\n\n"
+            "[Start onboarding]({{onboarding_link}})\n\n"
+            "> This link is personal. Do not forward it. Use the newest email if you receive more than one."
+        ),
+        variables=(
+            _NAME,
+            Variable("student_name", "The student's full name", "Asha Rao"),
+            Variable("internship_name", "The internship programme", "Pentrix Cyber Internship"),
+            Variable("onboarding_link", "The student's personal onboarding link (empty when onboarding is manual)", "https://erp.example.com/internship-onboarding#t=..."),
+            Variable("onboarding_deadline", "When onboarding closes for this student", "15 Nov 2026, 11:59 PM IST"),
+            Variable("onboarding_start_date", "When onboarding opens", "1 Nov 2026"),
+            Variable("internship_fee", "The internship fee", "INR 5,000.00"),
+            Variable("late_fee", "The late fee, if one applies", "INR 500.00"),
+            Variable("total_payable", "What the student pays in total", "INR 5,900.00"),
+            Variable("application_reference", "The student's application reference", "ERPX-INT-2026-000001"),
+        ),
+        required=("onboarding_link",),
     ),
     TemplateDef(
         key="internship_welcome",

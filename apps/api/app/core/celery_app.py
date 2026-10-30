@@ -211,5 +211,6 @@ celery_app.autodiscover_tasks(
         "modules.pentrix_ops",
         "modules.social_media",
         "modules.bulk_exports",
+        "modules.internship_onboarding",
     ]
 )
