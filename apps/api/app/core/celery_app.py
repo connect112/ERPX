@@ -180,6 +180,11 @@ celery_app.conf.beat_schedule = {
         "task": "bulk_exports.cleanup",
         "schedule": crontab(minute="*/30"),
     },
+    # Internship onboarding: ask Cashfree about orders still open (a notification may have been lost). No-op unless enabled.
+    "internship-onboarding-reconcile-payments": {
+        "task": "internship_onboarding.reconcile_payments",
+        "schedule": crontab(minute="*/15"),
+    },
 }
 
 
