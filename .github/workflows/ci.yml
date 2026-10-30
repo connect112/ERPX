@@ -2,9 +2,9 @@ name: ERPX CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, master, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main, master, develop]
 
 jobs:
   backend:
@@ -44,12 +44,16 @@ jobs:
         working-directory: apps/api
         env:
           DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
+          # alembic/env.py imports the top-level `modules` package; without the
+          # repository root on the path the step dies with ModuleNotFoundError.
+          PYTHONPATH: ${{ github.workspace }}
         run: alembic upgrade head
 
       - name: Run backend tests
         env:
           DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
           REDIS_URL: redis://localhost:6379/0
+          PYTHONPATH: ${{ github.workspace }}
         run: pytest -v --cov=apps/api/app --cov=modules --cov=packages
 
       # Production Hardening Audit: no dependency vulnerability scanning
