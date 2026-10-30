@@ -10,7 +10,8 @@ below. **No secrets are in this file; never add any.** The owner is Srujan (GIR 
 | Repository | `connect112/ERPX`, default branch `master` |
 | Release commit (merge of #157, 2026-10-30) | `28b5b642f3b1027695e4fcff7861a703337c8a37` |
 | This handoff | added on top of that commit by the PR that carries this file; run `git log -1 origin/master` for the exact current SHA |
-| Alembic head on `master` | `0096` (Storage Manager). Production database was at `0095` when this was written (see section 6) |
+| Alembic head on `master` | `0096` (Storage Manager); production database is at `0096` (see section 6). PR #159 adds `0097` |
+| In review | **#159 Universal Bulk Download** (draft, branch `claude/pensive-wozniak-81byk7`), see section 12. It also carries this handoff (#158 merged into it), so #158 and #159 merge cleanly in either order |
 | Merged in the release | #151 audit fix, #152 backup safeguards, #153 off-server backup/monitor/release scripts, #154 + #155 Storage Manager, #157 security dependency updates. All source branches still exist. |
 | Not merged | #156 only (CI runs on `master`; the workflow only listed `main`/`develop`), optional. Earlier features such as Email Studio (incl. React import, migration 0090), offer letters (0088) and internship instructors (0087) are already on `master` (#143 to #146). |
 | `master` protection | 1 approving review and signed commits required. PRs authored by the owner cannot be self-approved, so merging needs the owner's explicit "use `--admin`" for that merge. Use merge commits, never squash stacked PRs. Do not delete branches. |
@@ -71,11 +72,15 @@ only prune allowed; never prune volumes or images; never touch `backups/` in Min
 | 5 Storage Manager | Merged (#154, #155). Allowlisted sources, reference scan before any deletion, Trash (>= 30 days, no auto purge), append-only log, read-only server inspector, `backups/` always protected, superuser-only delete/restore/purge. Migration 0096 up, exact rollback with rows, re-upgrade: pass. UI verified locally as Administrator and superuser. |
 | Security (#157) | `pip-audit` gate 0 Critical/High (was 14); combined-tree backend suite 2050 passed + 2 load-dependent integration failures that pass alone; production image builds, `pip check` clean; web `tsc`, 177 tests, build pass. |
 
-**Production verification results: to be filled in after the deploy** (health, authentication, Storage Manager checklist, backup preservation, next S3 backup). Do not claim the release complete before then.
+**Production verification results (owner, 2026-10-30):** Stage 3 archival and cleanup complete. Stages 4 and 5 and the security updates are deployed;
+the production database is at `0096`; the API, Celery worker, beat and web checkpoints passed; the Storage Manager's initial Administrator checks passed.
+**Still open:** the superuser Trash/Restore acceptance (postponed), and confirmation that the next scheduled S3 backup writes `manifest.json` and
+`SHA256SUMS`. Do not call Stage 4 or the Storage Manager acceptance complete before then.
 
 ## 6. Database migration status
 
-`master` head is `0096`. Production was at `0095` before this release; the API container applies `0096` when it is recreated in step 2a. Local dev: apply with `alembic upgrade head`.
+`master` head is `0096`, and production is at `0096`. PR #159 adds `0097_bulk_export_jobs` (one new table; upgrade, downgrade with rows present, and re-upgrade
+verified on an isolated database; no schema drift for the table). The API container applies it when recreated. Local dev: apply with `alembic upgrade head`.
 Migration numbers are assigned in order on `master`; always check `alembic heads` after merging `master` and use the next number.
 
 ## 7. Security: changed and unresolved
@@ -97,13 +102,15 @@ Unresolved, deliberately not hidden and no gate weakened:
 
 ## 9. Outstanding tasks (in order)
 
-1. Deploy the release with the owner's approval of the exact commit; fill in section 5 with the real results.
-2. After the first 03:30 UTC run: confirm `manifest.json` + `SHA256SUMS` in the new `daily/` folder, then call Stage 4 complete.
+1. ~~Deploy the release~~ done (section 5). Remaining acceptance: superuser Trash/Restore (postponed).
+2. After the next 03:30 UTC run: confirm `manifest.json` + `SHA256SUMS` in the new `daily/` folder, then call Stage 4 complete.
 3. Run `restore_verify.sh` on a non-production machine; send one test alert and fix SPF/DKIM/DMARC (owner decision).
 4. After three green nights and a passing restore verification: retire the in-app schedule (`BACKUP_IN_APP_SCHEDULE_ENABLED=false`, recreate `celery_beat` only), owner approval.
 5. Decide the frontend toolchain migration vs exception list; bump the Moderate backend packages; give CI MinIO and a Postgres 17 client.
 6. Owner-side leftovers from earlier work (not part of this release): lawyer review of the Pentrix Privacy text, and real SMTP delivery checks for offer letters and certificates.
-7. **Next development: universal payments (section 10).** Do not start before the release is accepted.
+7. **Universal Bulk Download: implemented in PR #159 (draft, section 12).** Owner review, approval of the exact commit, then deploy with the section 4
+   checkpoints: `api` (applies 0097), then `celery_worker` and `celery_beat`, then `web`. Then run the check in section 12 as a plain Administrator.
+8. **Next development: Cashfree universal payment integration (section 10).** Start after #159 is accepted; confirm scope with the owner first.
 
 ## 10. Universal payment integration: requirements to implement next
 
@@ -111,7 +118,7 @@ Owner priority after the release: an **admin-configurable payment system, Cashfr
 
 - **Provider abstraction** (`packages/payments` or `modules/payments`): one interface (`create_order`, `fetch_status`, `verify_webhook`/parse event, `refund`, optional `payout`), a registry keyed by provider code, adapters `cashfree` first, `razorpay` and others later without changing callers.
 - **Admin configuration (UI + API, new permissions):** enable/disable per provider and per organization, test vs live mode, default provider and simple routing rules, display name, webhook URL shown for copying. Credentials are write-only: encrypted at rest (key from the environment), never returned by any API, never logged, masked in the UI.
-- **Data model (new migration after 0096):** provider config, payment order, payment attempt/transaction, refund, webhook event (raw body hash, signature result, processed flag). Amounts in minor units with currency (INR default), idempotency keys, unique provider reference ids.
+- **Data model (new migration: next number on `master`, after 0097 once #159 is merged):** provider config, payment order, payment attempt/transaction, refund, webhook event (raw body hash, signature result, processed flag). Amounts in minor units with currency (INR default), idempotency keys, unique provider reference ids.
 - **Webhooks:** raw-body signature verification, timestamp/replay protection, idempotent processing, retry-safe, async handling in Celery; reconciliation job that fetches status for stale pending orders.
 - **Consumers to wire in later:** fees/payments in `our_internships` (`PaymentStatus`), `accounting` receipts/payments, and the Pentrix mirror (`modules/pentrix_ops`, which already stores provider = Razorpay or Stripe for Pentrix-originated payments).
 - **Non-functional:** RBAC permissions, audit log entries for config changes, org isolation, sandbox/mocked tests only (no real keys in the repo or CI), docs, and a deployment plan with the same checkpoints as section 4.
@@ -135,3 +142,26 @@ cd apps/web && npm ci && npx tsc -b && npx eslint src && npx vitest run && npm r
 Local credentials come from the repo's `.env` for the developer machine (never commit or print them). Backup tests need `pg_dump`/`pg_restore` 17 on the PATH.
 Verify UI changes in a browser as a plain Administrator, not Super Admin. Open PRs as drafts, list what changed and how it was verified, end commits with the co-author line. A cloud session cannot reach AWS or production:
 prepare scripts and runbooks, and let the owner run them.
+
+## 12. Universal Bulk Download (PR #159, implemented, not merged)
+
+Full description: `docs/bulk-downloads.md` (on the #159 branch).
+
+- **What:** one export service, `modules/bulk_exports`, with an adapter per module. Covered today: workshop / exam / hackathon-award certificates,
+  internship participation and completion certificates, internship offer letters, payslips and uploaded documents. LMS course certificates and Pentrix
+  certifications have no PDF, so they are not included.
+- **Use:** "Bulk download" buttons on the exam, internship (certificates and offer letters), payroll run and documents screens. Choose documents across
+  pages or "all matching"; name files with presets or a template with clickable placeholders (including each module's own fields) and a live preview;
+  folders and ZIP name are configurable. Small selections are zipped at once, larger ones by Celery with progress. Administration → Bulk Downloads
+  lists the user's own downloads.
+- **Safety:** each module's existing permission (including internship instructors); organization isolation; the id list is fixed after the
+  permission check and checked again by the worker and before each link; only the requester sees a job or file; 5-minute signed links; ZIPs expire
+  after 24 h and are removed; a 20-minute time budget per job (under Celery's 30-minute limit); max 2000 documents / 2 GiB per ZIP; audit through the
+  existing hooks. Documents are never changed: certificates are re-rendered with their issued number, stored files are copied byte for byte.
+- **Data:** migration `0097` (one table, `bulk_export_jobs`). New optional settings `BULK_EXPORT_*` with safe defaults; no new secrets.
+- **Verified in the cloud session:** backend tests for the feature and every touched module, web `tsc` / `eslint` / `vitest`, and a browser run as a
+  plain Administrator through the Celery path. Storage was a local S3-compatible stand-in (`moto`), since MinIO could not be downloaded there.
+- **After deploy (owner):** as a plain Administrator, download the certificates of one real exam with a custom name format. Check the files open,
+  names and folders match the preview, the link comes through `/_files` (real MinIO behind Caddy), and the job shows under Bulk Downloads.
+  Check the ZIP is gone from `bulk-exports/` after expiry or "remove".
+
