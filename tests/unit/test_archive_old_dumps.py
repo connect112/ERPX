@@ -269,9 +269,12 @@ def test_the_archive_document_embeds_exactly_the_reviewed_code():
 
 def test_the_committed_archive_files_are_what_the_generator_produces():
     names = ["archive_host.sh", "archive_container.py", "pentrix-op-archive-old-dumps.json"]
-    before = {n: (SSM / n).read_bytes() for n in names}
+    def read(n):  # a Windows checkout with autocrlf has CRLF on disk; the generator writes LF, which is what is committed
+        return (SSM / n).read_bytes().replace(b"\r\n", b"\n")
+
+    before = {n: read(n) for n in names}
     subprocess.run(["python", str(SSM / "build_archive_doc.py")], check=True, capture_output=True)
-    assert {n: (SSM / n).read_bytes() for n in names} == before
+    assert {n: read(n) for n in names} == before
 
 
 def test_the_host_script_lists_exactly_the_four_approved_dumps():
