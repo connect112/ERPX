@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { BulkDownloadButton } from "@/features/bulk-downloads/components/bulk-download-button";
 import {
   useDeleteDocument,
   useDocumentsList,
@@ -65,10 +66,13 @@ export function DocumentsPanel({ entityType, entityId }: DocumentsPanelProps) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Documents</CardTitle>
-        <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={upload.isPending}>
-          <Upload className="h-4 w-4" />
-          {upload.isPending ? "Uploading..." : "Upload"}
-        </Button>
+        <div className="flex gap-2">
+          {(documents?.length ?? 0) > 1 && <BulkDownloadButton source="documents" scopeId={entityId} size="sm" label="Download all" />}
+          <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={upload.isPending}>
+            <Upload className="h-4 w-4" />
+            {upload.isPending ? "Uploading..." : "Upload"}
+          </Button>
+        </div>
         <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelected} />
       </CardHeader>
       <CardContent>
