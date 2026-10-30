@@ -135,6 +135,9 @@ const BroadcastPage = lazy(() => import("@/features/notifications/pages/broadcas
 const CommunicationLogPage = lazy(() => import("@/features/communication/pages/communication-log-page").then((m) => ({ default: m.CommunicationLogPage })));
 const EventsListPage = lazy(() => import("@/features/events/pages/events-list-page").then((m) => ({ default: m.EventsListPage })));
 const BackupsPage = lazy(() => import("@/features/backups/pages/backups-page").then((m) => ({ default: m.BackupsPage })));
+const StorageManagerPage = lazy(() =>
+  import("@/features/storage-manager/pages/storage-manager-page").then((m) => ({ default: m.StorageManagerPage }))
+);
 const StudioLayout = lazy(() => import("@/features/email-studio/pages/studio-layout").then((m) => ({ default: m.StudioLayout })));
 const LibraryPage = lazy(() => import("@/features/email-studio/pages/library-page").then((m) => ({ default: m.LibraryPage })));
 const CreatePage = lazy(() => import("@/features/email-studio/pages/create-page").then((m) => ({ default: m.CreatePage })));
@@ -313,6 +316,7 @@ export const router = createBrowserRouter([
       { path: "administration/audit-logs", element: <AuditLogListPage /> },
       { path: "administration/broadcast", element: <BroadcastPage /> },
       { path: "administration/backups", element: <BackupsPage /> },
+      { path: "administration/storage", element: <StorageManagerPage /> },
       // Email Studio. The path is the old Email Templates one, so existing links keep working.
       {
         path: "administration/email-templates",

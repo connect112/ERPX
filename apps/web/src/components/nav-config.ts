@@ -20,6 +20,7 @@ import {
   Flag,
   Gift,
   Globe,
+  HardDrive,
   GraduationCap,
   History,
   HandCoins,
@@ -97,6 +98,11 @@ export interface NavItem {
    */
   superuserOnly?: boolean;
   /**
+   * Shown to platform superusers as well as to holders of `permission`. A Super Admin holds no permission codes, so
+   * without this a permission-gated page they are allowed to use (Storage Manager) would never appear in their menu.
+   */
+  alsoSuperuser?: boolean;
+  /**
    * Gates this item on an ownership record instead of a permission code
    * — "trainer" means "only if this account has a Trainer record"
    * (GET /trainers/me succeeds), checked in app-sidebar.tsx via
@@ -148,6 +154,7 @@ export const navSections: NavSection[] = [
       { label: "Audit Logs", href: "/administration/audit-logs", icon: History, enabled: true, permission: "audit.view" },
       { label: "Broadcast Notification", href: "/administration/broadcast", icon: Megaphone, enabled: true, permission: "notifications.manage" },
       { label: "Database Backups", href: "/administration/backups", icon: Database, enabled: true, superuserOnly: true },
+      { label: "Storage Manager", href: "/administration/storage", icon: HardDrive, enabled: true, permission: "storage.view", alsoSuperuser: true },
       { label: "Email Studio", href: "/administration/email-templates", icon: Mail, enabled: true, permission: "email_templates.view" },
       { label: "Integrations", href: "/administration/integrations", icon: Plug, enabled: true, permission: "integrations.view" },
       { label: "System Health", href: "/administration/monitoring", icon: Activity, enabled: true, superuserOnly: true },
