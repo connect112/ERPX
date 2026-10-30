@@ -125,6 +125,10 @@ services:
     environment:
       <<: *backend-env
       RUN_MIGRATIONS: "true"
+    # Read-only: the host's monitor writes monitor_status.json here for the Storage Manager's Server tab
+    # (ops/offsite-backup/offsite_monitor.py). Only this folder is shared, not the backup scripts or their config.
+    volumes:
+      - /opt/backups/offsite/status:/host-status:ro
     depends_on:
       minio:
         condition: service_healthy
