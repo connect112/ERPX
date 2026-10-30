@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fromLocalInput, money, slugKey, statusLabel, statusTone, tokenFromHash, toLocalInput } from "@/features/internship-onboarding/lib/format";
+import { fromLocalInput, inZone, money, slugKey, statusLabel, statusTone, tokenFromHash, toLocalInput } from "@/features/internship-onboarding/lib/format";
 
 describe("onboarding format helpers", () => {
   it("formats decimal-string amounts without float maths", () => {
@@ -22,6 +22,14 @@ describe("onboarding format helpers", () => {
     expect(iso).not.toBeNull();
     expect(toLocalInput(iso)).toBe("2026-11-15T23:59");
     expect(fromLocalInput("")).toBeNull();
+  });
+
+  it("shows deadlines in the internship's own time zone", () => {
+    const text = inZone("2026-11-15T18:29:00Z", "Asia/Kolkata");
+    expect(text).toContain("15 Nov 2026");
+    expect(text).toMatch(/11:59\s?pm/i);
+    expect(text).toMatch(/IST|GMT\+5:30/);
+    expect(inZone(null, "Asia/Kolkata")).toBe("—");
   });
 
   it("labels and colours statuses", () => {

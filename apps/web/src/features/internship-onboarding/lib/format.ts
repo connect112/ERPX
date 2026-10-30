@@ -63,7 +63,10 @@ export function money(amount: string | null | undefined, currency = "INR"): stri
 export function inZone(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return "—";
   try {
-    return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone, timeZoneName: "short" }).format(new Date(iso));
+    // explicit parts: Intl refuses timeZoneName together with dateStyle/timeStyle
+    return new Intl.DateTimeFormat("en-IN", {
+      day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", timeZone, timeZoneName: "short",
+    }).format(new Date(iso));
   } catch {
     return new Date(iso).toLocaleString();
   }

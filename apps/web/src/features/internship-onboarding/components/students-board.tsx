@@ -78,7 +78,7 @@ export function StudentsBoard({ internshipId, timezone, canManage }: { internshi
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+      <div className={`grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6 ${board.isLoading ? "opacity-50" : ""}`} aria-busy={board.isLoading}>
         {METRICS.map(([key, label]) => (
           <div key={key} className="rounded-md border p-2">
             <div className="text-xs text-muted-foreground">{label}</div>
@@ -168,6 +168,13 @@ export function StudentsBoard({ internshipId, timezone, canManage }: { internshi
                 <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{inZone(r.deadline, timezone)}</TableCell>
               </TableRow>
             ))}
+            {board.isLoading && (
+              <TableRow>
+                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                  Loading…
+                </TableCell>
+              </TableRow>
+            )}
             {!board.isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">

@@ -31,9 +31,15 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
   reconciliation task every 15 min) behind a provider interface; production refused unless explicitly authorised.
   Confirmed payment sets the selection's existing `payment_status = paid` (the LMS gate).
 
+- **Frontend** staff panel in Our Internships > Onboarding (students board, payment checks, settings editor with form and
+  document builders, templates, student detail) and the public student page `/internship-onboarding#t=...`.
+  Browser-checked as a plain Administrator plus a student on a 390 px screen: configure, link, save and resume, two
+  uploads, accept, bank claim, finance confirmation, document verification, completion page with WhatsApp link;
+  token removed from the address bar; no console errors. Duplicate UTR correctly refused (409).
+
 ## Next (in order)
 
-1. Frontend: admin settings editor (modes, fees, deadlines, documents, form builder, accounts), dashboard, student
+1. (done) Frontend: admin settings editor (modes, fees, deadlines, documents, form builder, accounts), dashboard, student
    detail, document review, payment verification; public student page `/internship-onboarding#t=...` with the steps
    and Cashfree hosted checkout (`sdk.cashfree.com/js/v3`).
 2. **F** receipts/invoices (numbering, PDF, private storage, email, idempotent), refunds (ledger + Cashfree refund API),
@@ -55,6 +61,7 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
 
 - `tests/unit/test_internship_onboarding_rules.py` 40 passed; `tests/api/test_internship_onboarding.py` 13 passed;
   `tests/api/test_internship_onboarding_payments.py` 13 passed (Cashfree with mocked HTTP and real HMAC signatures).
+- Web: `tsc -b`, `eslint`, `vitest` (193 passed; 6 onboarding helper tests).
 - Regression for touched shared code: offer letters, our internships, internship offers, email templates and Studio,
   RBAC: pass. Migrations `0098`/`0099`: upgrade, downgrade to `0097`, re-upgrade: pass; no drift against the models.
 
