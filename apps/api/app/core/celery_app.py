@@ -175,6 +175,11 @@ celery_app.conf.beat_schedule = {
         "task": "social.refresh_tokens",
         "schedule": crontab(hour=3, minute=15),
     },
+    # Bulk downloads: remove ZIPs past their expiry, and end jobs a stopped worker left half done.
+    "bulk-exports-cleanup": {
+        "task": "bulk_exports.cleanup",
+        "schedule": crontab(minute="*/30"),
+    },
 }
 
 
@@ -205,5 +210,6 @@ celery_app.autodiscover_tasks(
         "modules.placements",
         "modules.pentrix_ops",
         "modules.social_media",
+        "modules.bulk_exports",
     ]
 )
