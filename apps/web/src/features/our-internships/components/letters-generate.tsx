@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { BulkDownloadButton } from "@/features/bulk-downloads/components/bulk-download-button";
 import { errorMessage, formatBytes } from "@/features/institutions/lib/format";
 import {
   type GenerateResult,
@@ -271,6 +272,7 @@ export function LettersList({ internshipId, settings, onGo }: { internshipId: st
           <Download className="h-4 w-4" />
           {chosenLetters.length ? `Download ${chosenLetters.length} as ZIP` : "Download all as ZIP"}
         </Button>
+        <BulkDownloadButton source="offer_letters" scopeId={internshipId} size="sm" label="Bulk download (custom names)" />
         <Button size="sm" variant="outline" disabled={act.isPending || outdated.length === 0} onClick={() => regenerate(outdated.map((r) => r.student_id))}>
           <RefreshCw className="h-4 w-4" />
           Regenerate {outdated.length || ""} outdated
