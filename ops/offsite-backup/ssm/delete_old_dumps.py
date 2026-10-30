@@ -37,15 +37,17 @@ LATEST_APPROVED_DAY = max(day for *_, day in APPROVED)
 
 
 class MinioStore:
-    """The real bucket. Only these four calls exist, so there is no way to list or delete anything else from here."""
+    """The real bucket. Only these calls exist, so there is no way to list anything, or delete anything but a key passed to remove()."""
 
     def __init__(self):
+        # The container's own environment (the same variables the application reads). Importing the application's settings
+        # module here would load much of the app just to read these, which matters on a host with little free memory.
         from minio import Minio
-        from app.core.config import settings
 
-        self.bucket = settings.MINIO_BUCKET
-        self.client = Minio(settings.MINIO_ENDPOINT, access_key=settings.MINIO_ACCESS_KEY,
-                            secret_key=settings.MINIO_SECRET_KEY, secure=settings.MINIO_SECURE)
+        self.bucket = os.environ.get("MINIO_BUCKET", "erpx-storage")      # the application's default bucket
+        self.client = Minio(os.environ["MINIO_ENDPOINT"], access_key=os.environ["MINIO_ACCESS_KEY"],
+                            secret_key=os.environ["MINIO_SECRET_KEY"],
+                            secure=os.environ.get("MINIO_SECURE", "false").strip().lower() in ("1", "true", "yes"))
 
     def versioning(self):
         return (self.client.get_bucket_versioning(self.bucket).status or "").strip()
@@ -71,6 +73,15 @@ class MinioStore:
             response.close()
             response.release_conn()
         return digest.hexdigest()
+
+    def chunks(self, key, offset=0, length=0):
+        """Read-only stream of the object (or a byte range of it), 1 MiB at a time. length 0 means to the end."""
+        response = self.client.get_object(self.bucket, key, offset=offset, length=length)
+        try:
+            yield from response.stream(1024 * 1024)
+        finally:
+            response.close()
+            response.release_conn()
 
     def remove(self, key):
         self.client.remove_object(self.bucket, key)

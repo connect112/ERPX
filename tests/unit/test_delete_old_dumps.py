@@ -310,3 +310,18 @@ def test_the_document_is_valid_shell_in_both_modes(mode, confirm):
     script.write_text(body + "\n")
     result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_every_command_that_feeds_docker_exec_through_stdin_passes_it_on():
+    """`docker exec` drops stdin unless -i is given: the SQL for the four records would silently go nowhere, psql would run
+    on empty input, and the files would be gone with their records unchanged. The rehearsal found this."""
+    joined = "\n".join(COMMANDS)
+    assert "| docker exec -i shared_postgres psql" in joined
+    assert not re.search(r"\|\s*docker exec (?!-i)", joined)
+    assert not re.search(r"docker exec (?!-i)[^\n|]*<\s*/tmp/", joined)
+
+
+def test_the_document_stops_loudly_if_the_four_records_were_not_all_updated():
+    joined = "\n".join(COMMANDS)
+    assert "records with their file pointer cleared" in joined and "exit 8" in joined
+    assert joined.index("recording the removal") < joined.index("file pointer cleared") < joined.index("post-cleanup checks")

@@ -24,6 +24,29 @@ FACTS_SQL = (
     "started_at from backup_jobs where status = 'completed' order by started_at desc limit 3) t))"
 )
 PSQL = "docker exec shared_postgres psql -U postgres -d erpx"
+PSQL_STDIN = "docker exec -i shared_postgres psql -U postgres -d erpx"   # for SQL piped in
+
+ARCHIVE_PREFIX = "archive/inapp-dumps-2026-10-08-to-11/"
+_expected = [[a[0], a[3], f"{ARCHIVE_PREFIX}{a[4]}_{a[0]}.sql.gz"] for a in namespace["APPROVED"]]
+# Python for the host's python3, written without single quotes so it can sit inside a single-quoted shell string.
+ARCHIVE_GATE_PY = "\n".join([
+    "import json,subprocess,sys",
+    "exp=" + json.dumps(_expected),
+    "try:",
+    "    m=json.load(sys.stdin)",
+    '    assert m["all_verified"] is True, "the marker does not say all four were verified"',
+    '    got={f["job_id"]:f for f in m["files"]}',
+    '    assert set(got)=={e[0] for e in exp}, "the marker is not for exactly the four approved dumps"',
+    "    for job_id,sha,key in exp:",
+    "        f=got[job_id]",
+    '        assert f["verified"] is True and f["original_sha256"]==sha and f["archive_object_key"]==key, "not verified or not the approved dump: "+job_id',
+    '        r=subprocess.run(["aws","s3api","head-object","--bucket","pentrix-erpx-backups-373384939117","--key",key,"--query","ContentLength","--output","text"],capture_output=True,text=True,check=True)',
+    '        assert int(r.stdout.strip())==f["archive_size_bytes"], "the S3 copy is not the verified size: "+job_id',
+    '    print("archive verified for",len(got),"dumps")',
+    "except Exception as e:",
+    '    print("archive gate failed:",e)',
+    "    sys.exit(1)",
+])
 
 commands = [
     "set -euo pipefail",
@@ -40,6 +63,10 @@ commands = [
     'AWS_CONFIG_FILE=/opt/backups/offsite/aws_config AWS_DEFAULT_REGION=us-east-1 aws s3api head-object --bucket pentrix-erpx-backups-373384939117 '
     '--key "daily/$STAMP/SHA256SUMS" > /dev/null || { echo "ABORT: the S3 backup for $STAMP has no SHA256SUMS. Nothing was changed."; exit 4; }',
     'echo "S3 backup $STAMP is complete (SHA256SUMS present)"',
+    "echo '== gate 1b: the four archive copies are in S3 and were verified by reading them back =='",
+    "export AWS_CONFIG_FILE=/opt/backups/offsite/aws_config AWS_DEFAULT_REGION=us-east-1",
+    'aws s3 cp "s3://pentrix-erpx-backups-373384939117/' + ARCHIVE_PREFIX + 'VERIFIED.json" - 2>/dev/null | python3 -c \'' + ARCHIVE_GATE_PY + '\' '
+    '|| { echo "ABORT: the archive copies are missing or were not verified (no valid VERIFIED.json). Nothing was changed."; exit 4; }',
     "echo '== gate 2: facts from the database (read-only) =='",
     f'facts() {{ {PSQL} -tA -c "{FACTS_SQL}"; }}',
     "FACTS=$(facts)",
@@ -50,15 +77,20 @@ commands = [
     'grep -v \'^SQL|\' "$OUT" || true',
     '[ "$RC" = "0" ] || { echo "STOPPED (code $RC). The lines above say exactly what, if anything, was done."; rm -f "$OUT" /tmp/ro_delete.py; exit "$RC"; }',
     'if [ "$MODE" = "delete" ]; then grep \'^SQL|\' "$OUT" | sed \'s/^SQL|//\' > /tmp/ro_update.sql || true; '
-    f'if [ -s /tmp/ro_update.sql ]; then echo "== recording the removal (one transaction) =="; (echo "begin;"; cat /tmp/ro_update.sql; echo "commit;") | {PSQL} -v ON_ERROR_STOP=1; fi; '
+    # -i is essential: without it `docker exec` does not pass the SQL to psql, which then runs on empty input and changes nothing
+    f'if [ -s /tmp/ro_update.sql ]; then echo "== recording the removal (one transaction) =="; (echo "begin;"; cat /tmp/ro_update.sql; echo "commit;") | {PSQL_STDIN} -v ON_ERROR_STOP=1; fi; '
     'rm -f /tmp/ro_update.sql; fi',
+    'if [ "$MODE" = "delete" ]; then '
+    f'CLEARED=$({PSQL} -tA -c "select count(*) from backup_jobs where id::text in ({ids}) and storage_key is null"); '
+    'echo "records with their file pointer cleared: $CLEARED of 4"; '
+    '[ "$CLEARED" = "4" ] || { echo "ERROR: the files were removed but not all four records were updated. Run Mode=delete again: it finishes the records and touches no file."; rm -f "$OUT" /tmp/ro_delete.py; exit 8; }; fi',
     'rm -f "$OUT"',
     "echo '== post-cleanup checks =='",
     f'{PSQL} -tA -F " | " -c "select started_at::date, id, status, size_bytes, storage_key is null as file_pointer_cleared from backup_jobs where id::text in ({ids}) order by started_at"',
     f'{PSQL} -tA -F " | " -c "select started_at, status, size_bytes, storage_key from backup_jobs order by started_at desc limit 4"',
     'df -h / | tail -1',
     "echo \"containers: $(docker ps | awk 'NR>1' | wc -l) running, $(docker ps | grep -c unhealthy || true) unhealthy\"",
-    'docker exec erpx_api curl -fsS http://localhost:8000/api/v1/health; echo',
+    'docker exec erpx_api curl -fsS http://localhost:8000/api/v1/health || echo "WARNING: the API health endpoint did not answer: check the application now"; echo',
     'if [ "$MODE" = "delete" ]; then echo "== verify again: the four should read as already removed and the newest three present =="; '
     'FACTS=$(facts); nice -n 19 docker exec -i -e MODE=verify -e DATA_JSON="$FACTS" erpx_api python - < /tmp/ro_delete.py; fi',
     'rm -f /tmp/ro_delete.py',

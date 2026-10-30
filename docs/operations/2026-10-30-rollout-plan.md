@@ -29,7 +29,9 @@ Two facts about this deployment that shape everything:
 2. `restore_verify.sh` has passed on a machine that is not production.
 3. Disk room for building images. A build can need 1 to 2 GB while the old image is still kept (images are not deleted).
    With about 4 GB free, do the four-dump cleanup (about 4.45 GB) first, using `ops/offsite-backup/ssm/pentrix-op-delete-old-dumps.json`:
-   registered by the account owner, run once with `Mode=verify`, and only then with `Mode=delete` after the owner's separate approval.
+   registered by the account owner. **Archive first** with `pentrix-op-archive-old-dumps` (`plan`, `archive`, `verify`: gzip copies in S3
+   under `archive/`, read back and checked against the original checksums); the deletion document refuses to run without that verification.
+   Then `Mode=verify`, and only with the owner's separate approval `Mode=delete`.
    See `ops/offsite-backup/ssm/README.md` for its gates, how records are handled, and the recovery assessment.
 4. Record the running image IDs (the read-only health document can print them) so every rollback below is a known target.
 5. Build one service at a time, `docker compose up -d --no-deps <service>`, and `docker builder prune -af` before each build,
