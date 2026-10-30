@@ -17,6 +17,7 @@ import {
   CreditCard,
   Crosshair,
   FileText,
+  FolderDown,
   Flag,
   Gift,
   Globe,
@@ -155,6 +156,8 @@ export const navSections: NavSection[] = [
       { label: "Broadcast Notification", href: "/administration/broadcast", icon: Megaphone, enabled: true, permission: "notifications.manage" },
       { label: "Database Backups", href: "/administration/backups", icon: Database, enabled: true, superuserOnly: true },
       { label: "Storage Manager", href: "/administration/storage", icon: HardDrive, enabled: true, permission: "storage.view", alsoSuperuser: true },
+      // Open to any signed-in staff member: it lists only their own downloads; each module checks its own permission.
+      { label: "Bulk Downloads", href: "/administration/bulk-downloads", icon: FolderDown, enabled: true },
       { label: "Email Studio", href: "/administration/email-templates", icon: Mail, enabled: true, permission: "email_templates.view" },
       { label: "Integrations", href: "/administration/integrations", icon: Plug, enabled: true, permission: "integrations.view" },
       { label: "System Health", href: "/administration/monitoring", icon: Activity, enabled: true, superuserOnly: true },

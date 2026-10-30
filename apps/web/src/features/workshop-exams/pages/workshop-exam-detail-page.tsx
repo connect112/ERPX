@@ -27,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { BulkDownloadButton } from "@/features/bulk-downloads/components/bulk-download-button";
 import { CertificateDesigner } from "@/features/workshop-exams/components/certificate-designer";
 import { AttendeeEditDialog } from "@/features/workshop-exams/components/attendee-edit-dialog";
 import { CertificateReviewDialog } from "@/features/workshop-exams/components/certificate-review-dialog";
@@ -255,6 +256,7 @@ function LiveTab({ exam }: { exam: WorkshopExam }) {
           <Download className="h-4 w-4" />
           Download results (CSV)
         </Button>
+        <BulkDownloadButton source="exam_certificates" scopeId={exam.id} label="Download certificates" />
         <Button
           variant="outline"
           disabled={
