@@ -30,7 +30,9 @@ allows put/get only and explicitly denies delete, lifecycle and policy changes (
 2. Install on the host (as root): copy `offsite_backup.sh offsite_monitor.py alert_mail.py minio_export.py
    make_manifest.py counts.sql aws_config` to `/opt/backups/offsite/`, the four `*.service`/`*.timer` files to
    `/etc/systemd/system/`, and create `/opt/backups/offsite/monitor.conf` from `monitor.conf.example`.
-3. `systemctl daemon-reload && systemctl enable --now offsite-backup.timer offsite-monitor.timer`.
+3. `mkdir -p /opt/backups/offsite/status`: the monitor writes `monitor_status.json` there, and the Storage Manager's
+   Server tab reads that folder (mounted read-only into the API container).
+4. `systemctl daemon-reload && systemctl enable --now offsite-backup.timer offsite-monitor.timer`.
 
 ## Restoring
 

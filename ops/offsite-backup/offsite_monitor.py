@@ -19,6 +19,8 @@ import time
 from datetime import datetime, timedelta, timezone
 
 STATE_DIR = os.environ.get("OFFSITE_DIR", "/opt/backups/offsite")
+# monitor_status.json goes in its own folder so the API container can mount just that, read-only, for the Storage Manager.
+STATUS_DIR = os.environ.get("OFFSITE_STATUS_DIR", os.path.join(STATE_DIR, "status"))
 BUCKET = os.environ.get("OFFSITE_BUCKET", "pentrix-erpx-backups-373384939117")
 WARN_PCT = int(os.environ.get("DISK_WARN_PCT", "80"))
 CRIT_PCT = int(os.environ.get("DISK_CRIT_PCT", "90"))
@@ -129,6 +131,23 @@ def _run(cmd, timeout=60):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
+def parse_docker_df(text):
+    """`docker system df --format '{{json .}}'` prints one JSON object per line; keep the fields the inspector shows."""
+    rows = []
+    for line in text.splitlines():
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        rows.append({key: str(item.get(key, "")) for key in ("Type", "TotalCount", "Size", "Reclaimable")})
+    return rows
+
+
+def _docker_df():
+    result = _run(["docker", "system", "df", "--format", "{{json .}}"])
+    return parse_docker_df(result.stdout) if result.returncode == 0 else []
+
+
 def _read_json(path):
     try:
         with open(path, encoding="utf-8") as handle:
@@ -207,12 +226,17 @@ def main():
         "checked_at": now.isoformat(timespec="seconds"),
         "disk_total_bytes": usage.total, "disk_free_bytes": usage.free,
         "alerts": alerts,
+        "docker_df": _docker_df(),
+        "offsite_backup": _read_json(os.path.join(STATE_DIR, "last_status.json")),
     }
-    for name, payload in (("alert_state.json", new_state), ("monitor_status.json", status)):
-        tmp = os.path.join(STATE_DIR, name + ".tmp")
+    os.makedirs(STATUS_DIR, exist_ok=True)
+    os.chmod(STATUS_DIR, 0o755)
+    for directory, name, payload in ((STATE_DIR, "alert_state.json", new_state), (STATUS_DIR, "monitor_status.json", status)):
+        tmp = os.path.join(directory, name + ".tmp")
         with open(tmp, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=1)
-        os.replace(tmp, os.path.join(STATE_DIR, name))
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, os.path.join(directory, name))
     print(f"{len(alerts)} problem(s):", "; ".join(a["name"] for a in alerts) or "none")
     return 0
 

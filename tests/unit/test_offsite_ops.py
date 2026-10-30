@@ -81,6 +81,20 @@ def test_inactive_timer_is_critical():
     assert names(monitor.evaluate_timer(False)) == {"timer": "critical"}
 
 
+# ---- docker usage parsing ---------------------------------------------------------------------------------------
+
+def test_docker_df_lines_are_parsed_and_noise_is_skipped():
+    text = (
+        '{"Type":"Images","TotalCount":"18","Size":"6.2GB","Reclaimable":"1.1GB (17%)","Active":"13"}\n'
+        "WARNING: something unrelated\n"
+        '{"Type":"Local Volumes","TotalCount":"5","Size":"7.4GB","Reclaimable":"0B (0%)"}\n'
+    )
+    rows = monitor.parse_docker_df(text)
+    assert [r["Type"] for r in rows] == ["Images", "Local Volumes"]
+    assert rows[0] == {"Type": "Images", "TotalCount": "18", "Size": "6.2GB", "Reclaimable": "1.1GB (17%)"}
+    assert monitor.parse_docker_df("") == []
+
+
 # ---- notification decisions ------------------------------------------------------------------------------------
 
 def _alert(name, severity):
