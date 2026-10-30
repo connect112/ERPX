@@ -42,3 +42,44 @@ def reconcile_payments_task() -> dict[str, int]:
     if result["checked"]:
         logger.info("onboarding_reconcile", **result)
     return result
+
+
+async def _follow_up(application_id) -> str:
+    from modules.internship_onboarding.completion import follow_up
+
+    async with get_db_context() as db:
+        return await follow_up(db, application_id)
+
+
+@celery_app.task(name="internship_onboarding.follow_up", bind=True, max_retries=3, default_retry_delay=60)
+def follow_up_task(self, application_id: str) -> str:
+    import uuid
+
+    try:
+        return run_async(_follow_up(uuid.UUID(application_id)))
+    except Exception as exc:  # noqa: BLE001 - the sweep retries too
+        logger.warning("onboarding_follow_up_failed", application_id=application_id, exc_info=True)
+        raise self.retry(exc=exc) from exc
+
+
+def enqueue_follow_up(application_id) -> None:
+    """After the request commits (a short delay), never blocking or failing the caller."""
+    try:
+        follow_up_task.apply_async(args=[str(application_id)], countdown=10, retry=False)
+    except Exception:  # noqa: BLE001 - the periodic sweep catches it
+        logger.warning("onboarding_follow_up_enqueue_failed", application_id=str(application_id), exc_info=True)
+
+
+async def _sweep() -> dict[str, int]:
+    from modules.internship_onboarding.completion import sweep
+
+    async with get_db_context() as db:
+        return await sweep(db)
+
+
+@celery_app.task(name="internship_onboarding.sweep")
+def sweep_task() -> dict[str, int]:
+    result = run_async(_sweep())
+    if any(result.values()):
+        logger.info("onboarding_sweep", **result)
+    return result

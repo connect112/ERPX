@@ -636,6 +636,9 @@ class ApplicationService:
         await event(self.db, application, "document_verified" if approve else "document_rejected", user_id=user.id,
                     document=document.requirement_key, version=document.version, note=document.review_note)  # fmt: skip
         await self.sync_verification(internship, application, selection, user.id)
+        from modules.internship_onboarding.completion import check_and_queue
+
+        await check_and_queue(self.db, application)
         return document
 
     async def sync_verification(

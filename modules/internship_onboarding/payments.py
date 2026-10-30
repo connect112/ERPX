@@ -86,6 +86,9 @@ class PaymentService:
             selection.payment_confirmed_by_user_id = user_id
             await event(self.db, application, "payment_completed", actor="staff" if user_id else "system", user_id=user_id, amount=str(net))
         await self.db.flush()
+        from modules.internship_onboarding.completion import check_and_queue
+
+        await check_and_queue(self.db, application)
 
     async def _payable_now(self, ctx: Context) -> ledger.Totals:
         cfg = ctx.config

@@ -318,6 +318,9 @@ class PortalService:
         self._touch(ctx, "payment" if cfg.modes.require_payment else "done")
         await self.db.flush()
         await event(self.db, app, "offer_accepted", actor="student", terms_version=app.terms_version, total=snapshot["total"])
+        from modules.internship_onboarding.completion import check_and_queue
+
+        await check_and_queue(self.db, app)
 
     async def decline(self, ctx: Context, reason: str | None) -> None:
         self._require_open(ctx)

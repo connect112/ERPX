@@ -329,3 +329,58 @@ async def test_the_adapter_refuses_an_order_echoed_back_with_another_amount(gate
             customer_email="e@example.com", customer_phone="+91 98765 43210", return_url="https://x", note="n",
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
         )  # fmt: skip
+
+
+# ------------------------------------------------------------------ completion, automatic LMS access, reminders
+
+
+async def test_completion_is_recorded_once_and_automatic_lms_access_follows(client, auth_headers, db_session, organization, storage, rbac_seeded):
+    from modules.courses.models import Course
+    from modules.internship_onboarding.completion import follow_up, sweep
+    from modules.internship_onboarding.models import OnboardingApplication, OnboardingDocument, OnboardingEvent
+
+    internship, (s0, _) = await world(db_session, organization)
+    await configure(client, auth_headers, internship, modes={"require_payment": False, "lms_access": "automatic"},
+                    fees={"base_amount": "0", "methods": [], "late_fee": {"mode": "none", "value": "0"}})  # fmt: skip
+    await ready_to_pay(client, auth_headers, internship, s0)
+    application = (await db_session.execute(select(OnboardingApplication))).scalar_one()
+    assert application.completed_at is None
+    for d in (await db_session.execute(select(OnboardingDocument))).scalars().all():
+        await client.post(f"{BASE}/{internship.id}/onboarding-flow/documents/{d.id}/review", json={"approve": True}, headers=auth_headers)
+    await db_session.refresh(application)
+    assert application.completed_at is not None
+    events = [e.event for e in (await db_session.execute(select(OnboardingEvent).where(OnboardingEvent.application_id == application.id))).scalars()]
+    assert events.count("onboarding_completed") == 1
+
+    # no course chosen yet: access waits, nothing half-created
+    assert await follow_up(db_session, application.id) == "blocked"
+    course = Course(organization_id=organization.id, title="Cloud Basics", slug=f"cloud-{application.id.hex[:6]}")
+    db_session.add(course)
+    await db_session.flush()
+    internship.lms_course_id = course.id
+    await db_session.flush()
+    assert await follow_up(db_session, application.id) == "granted"
+    assert await follow_up(db_session, application.id) == "already granted"  # idempotent
+    selection = (await db_session.execute(select(InternshipSelection).where(InternshipSelection.student_id == s0.id))).scalar_one()
+    assert selection.lms_status.value == "granted"
+    assert (await sweep(db_session))["completed"] == 0  # nothing recorded twice
+
+
+async def test_reminders_go_once_per_configured_day_and_never_to_finished_or_declined_students(client, auth_headers, db_session, organization, storage, monkeypatch):
+    from modules.internship_onboarding import emails
+    from modules.internship_onboarding.completion import sweep
+
+    queued: list = []
+    monkeypatch.setattr(emails, "enqueue_invitations", lambda ids: queued.extend(ids))
+    internship, (s0, s1) = await world(db_session, organization)
+    # closes in 2 days 12 hours: the 3-day reminder is due now, the 1-day one is not yet
+    from tests.api.test_internship_onboarding import iso
+
+    await configure(client, auth_headers, internship, deadlines={"opens_at": iso(-1), "closes_at": iso(2.5)})
+    await link(client, auth_headers, internship, s0)
+    declined = await link(client, auth_headers, internship, s1)
+    await client.post(f"{PUBLIC}/decline", json={}, headers=tok(declined))
+    first = await sweep(db_session)
+    assert first["reminders"] == 1 and len(queued) == 1
+    second = await sweep(db_session)
+    assert second["reminders"] == 0 and len(queued) == 1  # never twice

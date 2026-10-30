@@ -37,12 +37,26 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
   uploads, accept, bank claim, finance confirmation, document verification, completion page with WhatsApp link;
   token removed from the address bar; no console errors. Duplicate UTR correctly refused (409).
 
+- **G (core)** completion recorded once when every requirement is met (acceptance, document review or payment
+  triggers it), then automatic LMS access through the existing idempotent `OnboardingService.grant` when the internship
+  uses automatic access (a zero-fee internship settles the existing payment gate as "No fee"); a sweep (`:07`/`:37`)
+  catches up missed completions, retries LMS grants (a waiting reason is noted once, not every run) and sends deadline
+  reminders once per student and configured day (not to declined, cancelled, completed or link-less students).
+
 ## Next (in order)
 
 1. (done) Frontend: admin settings editor (modes, fees, deadlines, documents, form builder, accounts), dashboard, student
    detail, document review, payment verification; public student page `/internship-onboarding#t=...` with the steps
    and Cashfree hosted checkout (`sdk.cashfree.com/js/v3`).
-2. **F** receipts/invoices (numbering, PDF, private storage, email, idempotent), refunds (ledger + Cashfree refund API),
+2. **F** receipts/invoices: new table (next migration after `0099`) with per-organization numbering, issued once per
+   confirmed payment (unique on the transaction), PDF via reportlab (pattern: `modules/workshop_exams/certificate_pdf.py`),
+   private storage, email via a new registry template, student download from the portal, staff resend. Tax lines only
+   from the fee snapshot; no GST number is invented (organization tax details are an owner decision).
+   Refunds: `refund` ledger rows with approval (`our_internships.finance.manage`), Cashfree `POST /orders/{id}/refunds`
+   in the adapter, manual refunds confirmed by finance; never delete payments.
+3. **G (rest)** completion and payment-confirmation emails, bulk exports (CSV of the board/payments), Bulk Download
+   source for onboarding documents (reuse `modules/bulk_exports`).
+2b. (old plan) **F** (numbering, PDF, private storage, email, idempotent), refunds (ledger + Cashfree refund API),
    cancellations.
 3. **G** reminders (7/3/1 days, configurable, deduplicated), bulk actions, automatic LMS grant on eligibility (reuse
    `OnboardingService.grant`), completion email.
@@ -62,6 +76,7 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
 - `tests/unit/test_internship_onboarding_rules.py` 40 passed; `tests/api/test_internship_onboarding.py` 13 passed;
   `tests/api/test_internship_onboarding_payments.py` 13 passed (Cashfree with mocked HTTP and real HMAC signatures).
 - Web: `tsc -b`, `eslint`, `vitest` (193 passed; 6 onboarding helper tests).
+- After G: onboarding + our internships + email templates suites: 98 passed.
 - Regression for touched shared code: offer letters, our internships, internship offers, email templates and Studio,
   RBAC: pass. Migrations `0098`/`0099`: upgrade, downgrade to `0097`, re-upgrade: pass; no drift against the models.
 
