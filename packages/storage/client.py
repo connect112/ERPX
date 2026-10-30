@@ -23,6 +23,7 @@ HMAC signing with no network call, so it's cheap enough to call directly.
 
 import asyncio
 from datetime import timedelta
+from urllib.parse import quote
 
 from minio import Minio
 from minio.error import S3Error
@@ -78,10 +79,21 @@ class StorageClient:
             logger.exception("storage_presign_upload_failed", object_key=object_key)
             raise ServiceUnavailableError("Could not generate an upload URL.") from exc
 
-    def presigned_download_url(self, object_key: str) -> str:
+    def presigned_download_url(
+        self, object_key: str, expires: timedelta = DOWNLOAD_PRESIGN_EXPIRY, download_name: str | None = None
+    ) -> str:
+        """``download_name`` makes the browser save the file under that name instead of the object key."""
+        headers = None
+        if download_name:
+            plain = download_name.encode("ascii", "ignore").decode("ascii").replace('"', "").replace("\\", "") or "download"
+            headers = {
+                "response-content-disposition": f"attachment; filename=\"{plain}\"; filename*=UTF-8''{quote(download_name)}"
+            }
         try:
             return public_url(
-                self._client.presigned_get_object(self.bucket, object_key, expires=DOWNLOAD_PRESIGN_EXPIRY)
+                self._client.presigned_get_object(
+                    self.bucket, object_key, expires=expires, response_headers=headers
+                )
             )
         except S3Error as exc:
             logger.exception("storage_presign_download_failed", object_key=object_key)

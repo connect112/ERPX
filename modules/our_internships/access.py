@@ -291,28 +291,45 @@ def internship_access(level: Level):
 def exam_access(level: Level):
     """Allow the workshops permission, or an instructor of the internship the exam belongs to. Instructors are refused
     every DELETE. Without an exam in the path only the workshops permission opens it."""
-    permission = f"workshops.{level}"
 
     async def dependency(
         request: Request,
         user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        if not user.is_superuser:
-            codes = await AuthorizationRepository(db).get_permission_codes_for_user(user.id)
-            if permission not in codes:
-                exam_id = _path_uuid(request, "exam_id")
-                internship_id = None
-                if exam_id is not None:
-                    internship_id = (await db.execute(select(WorkshopExam.internship_id).where(WorkshopExam.id == exam_id))).scalar_one_or_none()
-                assignment = await InstructorService(db).assignment_for(user, internship_id) if internship_id else None
-                if assignment is None:
-                    raise AuthorizationError(f"This action requires the following permission(s): {permission}")
-                if request.method == "DELETE":
-                    raise AuthorizationError(NO_DELETE)
+        await assert_exam_access(db, user, _path_uuid(request, "exam_id"), level, deleting=request.method == "DELETE")
         return user
 
     return dependency
+
+
+async def assert_exam_access(
+    db: AsyncSession, user: User, exam_id: uuid.UUID | None, level: Level, *, deleting: bool = False
+) -> None:
+    """The rule behind ``exam_access``, for callers that are not an exam endpoint (bulk downloads)."""
+    if user.is_superuser:
+        return
+    permission = f"workshops.{level}"
+    codes = await AuthorizationRepository(db).get_permission_codes_for_user(user.id)
+    if permission in codes:
+        return
+    internship_id = None
+    if exam_id is not None:
+        internship_id = (await db.execute(select(WorkshopExam.internship_id).where(WorkshopExam.id == exam_id))).scalar_one_or_none()
+    assignment = await InstructorService(db).assignment_for(user, internship_id) if internship_id else None
+    if assignment is None:
+        raise AuthorizationError(f"This action requires the following permission(s): {permission}")
+    if deleting:
+        raise AuthorizationError(NO_DELETE)
+
+
+async def assert_internship_access(db: AsyncSession, user: User, internship_id: uuid.UUID, level: Level) -> None:
+    """The rule behind ``internship_access`` for one internship, for callers that are not an internship endpoint."""
+    service = InstructorService(db)
+    if await service.has_global(user, level):
+        return
+    if await service.assignment_for(user, internship_id) is None:
+        raise AuthorizationError(f"This action requires the permission: our_internships.{level}")
 
 
 async def assert_can_create_exam(user: User, db: AsyncSession, internship_id: uuid.UUID | None) -> None:

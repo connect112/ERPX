@@ -11,7 +11,7 @@ from app.core.config import settings
 from modules.organizations.models import Organization
 from modules.workshop_exams.certificate_pdf import build_certificate_pdf
 from modules.workshop_exams.certificate_template import NameAdjust, build_templated_certificate_pdf
-from modules.workshop_exams.models import WorkshopExam, WorkshopExamAttendee
+from modules.workshop_exams.models import WorkshopExam, WorkshopExamAttendee, WorkshopExamCertificateTemplate
 from modules.workshop_exams.service import WorkshopExamService
 
 
@@ -67,12 +67,22 @@ def adjust_of(attendee: WorkshopExamAttendee) -> NameAdjust | None:
     return NameAdjust.model_validate(attendee.certificate_adjust) if attendee.certificate_adjust else None
 
 
+_LOAD = object()
+
+
 async def render_certificate(
-    db: AsyncSession, exam: WorkshopExam, attendee: WorkshopExamAttendee, certificate_number: str | None = None
+    db: AsyncSession,
+    exam: WorkshopExam,
+    attendee: WorkshopExamAttendee,
+    certificate_number: str | None = None,
+    *,
+    template: WorkshopExamCertificateTemplate | None | object = _LOAD,
 ) -> bytes:
+    """``template`` lets a caller rendering many certificates of one exam (a bulk download) load the artwork once."""
     number = certificate_number or attendee.certificate_number
     assert number is not None
-    template = await WorkshopExamService(db).get_template(exam.id) if exam.has_certificate_template else None
+    if template is _LOAD:
+        template = await WorkshopExamService(db).get_template(exam.id) if exam.has_certificate_template else None
     if template is not None:
         # The admin's own artwork with this attendee's name printed on it.
         return build_templated_certificate_pdf(
