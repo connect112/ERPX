@@ -1,6 +1,9 @@
 # Production rollout plan: backup safeguards, audit fix, monitoring, Storage Manager
 
-Status: plan only. Nothing here has been deployed. Every step that touches production needs the owner's approval first.
+Status: plan only, finalized 2026-10-30 after an integration trial (all five PRs merged together locally: backend 2036 of 2037 tests passed,
+the one failure being a Windows line-ending artifact of a test that regenerates files; web type-check, 177 unit tests and build clean;
+migration 0096 upgrade, exact rollback with rows present, and re-upgrade proven on a scratch database).
+Nothing here has been deployed. Every step that touches production needs the owner's approval first.
 Written 2026-10-30 for PRs #151 (audit), #152 (backup safeguards), #153 (off-server tooling and monitor), #154 and #155
 (Storage Manager backend and web).
 
@@ -22,6 +25,30 @@ Two facts about this deployment that shape everything:
    the new `storage.view` permission, the same way earlier permission additions shipped.
 2. **Containers only receive the variables listed in `x-backend-env`.** #152 adds `BACKUP_IN_APP_SCHEDULE_ENABLED` and
    `BACKUP_FORMAT` there (both defaulting to today's behaviour). Without that, setting the flag in `/opt/erpx/.env` would do nothing.
+
+## Merge order (merging changes nothing in production; deploying does)
+
+Use **"Create a merge commit"** for every PR. #155 is stacked on #154 and carries its four commits, so squashing #154 would make
+#155 re-apply them and conflict; a merge commit keeps both histories intact. Order:
+
+1. #151 audit fix, 2. #152 backup safeguards, 3. #153 off-server tooling and monitor (independent of each other).
+4. #154 Storage Manager backend. Then change #155's base to `master` (`gh pr edit 155 --base master`) and merge it.
+5. #156 (CI trigger and path) at any point; it touches only `.github/workflows/ci.yml`.
+
+Files that more than one PR edits: `docker-compose.prod.yml` and `apps/api/app/core/config.py` (#152 and #154, different lines; the trial
+merge is clean) and the Storage Manager files shared by #154/#155 (the stack). A trial merge of all five heads gave a single alembic
+head (0096 on 0095) and every commit of every branch reachable from the result. `master` has no required status checks, so nothing blocks the merges.
+
+Re-run this before merging: `git fetch && git merge-base --is-ancestor origin/master <branch>` for each branch (a new commit on `master`
+means that branch needs one merge of `master` first).
+
+## How the commands run
+
+The earlier deploys used a broad deploy credential that is no longer in use. The current access is the read-only IAM user plus fixed
+SSM documents the owner runs. A release therefore needs one of: (a) the owner pastes the reviewed deploy script for each step into
+**Systems Manager, Run Command, `AWS-RunShellScript`** targeting only `i-0054474b85332980a` and returns the output, or (b) the owner
+registers fixed `pentrix-op-deploy-*` documents (same review pattern as the archive and delete documents). (a) needs no new AWS
+resource. Either way each step stops on the first failing command and prints the verification at the end.
 
 ## Preconditions (all before step 1)
 
@@ -62,6 +89,7 @@ Rollback: set `true`, recreate `celery_beat`. The manual "Trigger backup" button
 Recreate `api` (applies 0096 and recreates the container with the read-only `/host-status` mount), then build `web`.
 Verify: `alembic_version` is `0096`; Administration shows Storage Manager for an Administrator account, and a
 platform superuser sees the Server tab with disk and Docker figures; every other business page still works.
+The full acceptance checklist (browsing, previews, permissions, Trash and Restore on one test file) is in `docs/storage-manager.md`.
 Nothing is deleted by deploying it: deletion is a manual, typed action by a superuser, and the first real use should be on one
 unused file chosen together.
 
@@ -75,8 +103,47 @@ unused file chosen together.
   still restore with `psql`; `restore_backup.py` handles both.
 - The off-server backup does not depend on the application, so it keeps running through every rollback.
 
+## CI and dependency vulnerabilities (not a deployment dependency)
+
+Production is built on the host, not by CI, and `master` has no required checks, so CI does not gate this release. It is still red, for
+reasons found on 2026-10-30 from run 41011257023 of PR #156 and from local `pip-audit` / `npm audit`:
+
+- **Backend job fails at "Run migrations"**: `ModuleNotFoundError: No module named 'modules'`, because the repository root is not on
+  `PYTHONPATH`. Fixed in #156 (two lines). Whatever fails after that (the job has no MinIO or `pg_dump`) is unknown until it runs.
+- **Backend `pip-audit` gate**: Critical/High in `python-jose` 3.3.0 (3 entries, 2 without upstream fix), `ecdsa` 0.19.2 (no fix; arrives
+  only through `python-jose`), `pypdf` 6.19.0 (fix 6.21.2) and `starlette` 0.38.6 (fix needs 1.x, so FastAPI 0.133+).
+- **Frontend `npm audit` gate**: `web` 24 findings (2 Critical, 12 High), each portal 15 (2 Critical, 8 High).
+
+Proposed fix, kept out of these five PRs as branch `srujan/security-dependency-updates`: replace `python-jose` with `PyJWT` (three
+HS256 call sites; also removes `ecdsa`), `pypdf` 6.21.2, `python-dotenv` 1.2.2, `fastapi` 0.162.0 with `starlette` 1.10.0 and
+`prometheus-fastapi-instrumentator` 8.1.0 (7.x requires Starlette below 1.0), and `npm audit fix` (lockfile only) in the four apps,
+which clears every in-range finding. It must pass the full backend suite before it is proposed for merge and is deployed on its own,
+never inside the Storage Manager release.
+
+Still open after that, and **not** hidden by weakening the gate: `vitest` 3 to 5 (Critical, with `tinypool`), `vite` 5 to 8 (High) and `zod` 3
+to 4 (High) in all four apps. They are dev tooling except `zod`, and need a toolchain migration (Vite 8 wants Node 20.19+, `zod` 4 is
+a rewrite across about 175 files in `web` and needs `@hookform/resolvers` 5). `web` also has three High findings with no upstream
+fix (`@react-email/editor`, `@tiptap/html`, `happy-dom`): `happy-dom` is only used by Tiptap's server-side HTML parser, and ERPX uses the
+editor in the browser. Making CI green needs the owner's decision between that migration and a documented, expiring exception list for
+advisories with no upstream fix.
+
 ## What stays out of scope
 
 Deleting the four old dumps (separate approval, with evidence), cleaning the existing 270 MB in `audit_logs`, any IAM change
-(including restricting the shared role to the ERPX host), and CI: the workflow only triggers on pull requests into `main` or
-`develop`, so none of these PRs ran CI. That gap is not touched here.
+(including restricting the shared role to the ERPX host), the dependency migration above, and retiring the in-app backup schedule
+(step 3, which waits for three green off-server nights).
+
+## Approvals needed to finish today (each is separate; none is implied by another)
+
+| # | Approval | What it allows | Production effect |
+|---|---|---|---|
+| 1 | Stage 3 deletion (after archive is verified) | `pentrix-op-delete-old-dumps` `verify`, then `delete` of the four archived dumps | frees 4.45 GB |
+| 2 | Merge #151 to #156 with merge commits, in the order above | changes `master` only | none |
+| 3 | Deployment route (a) or (b) above | how the steps below run | none |
+| 4 | Step 1: install monitor and manifest on the host | two timers, one script replaced, one folder | no app restart |
+| 5 | Step 2: backend deploy of #151 and #152 | recreate worker, beat, api (no migration) | brief API restarts |
+| 6 | Step 4: Storage Manager (#154, #155) | applies migration 0096, recreates api and web | brief restarts, two new tables |
+| 7 | Alert path | send one test alert to `support@pentrix.in`, and the SPF/DKIM/DMARC choice | one email |
+| 8 | Later, separately | retire the in-app schedule (step 3), and the dependency PR | not today |
+
+Approvals 4, 5 and 6 can be given as one "deploy steps 1, 2, 4 of this plan at commit `<sha>`" once #2 is done and the merged commit is known.
