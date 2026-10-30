@@ -181,6 +181,11 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute="*/30"),
     },
     # Internship onboarding: ask Cashfree about orders still open (a notification may have been lost). No-op unless enabled.
+    # Internship onboarding: completions missed, automatic LMS grants to retry, and deadline reminders (each once).
+    "internship-onboarding-sweep": {
+        "task": "internship_onboarding.sweep",
+        "schedule": crontab(minute="7,37"),
+    },
     "internship-onboarding-reconcile-payments": {
         "task": "internship_onboarding.reconcile_payments",
         "schedule": crontab(minute="*/15"),
