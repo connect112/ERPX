@@ -11,7 +11,11 @@ so it cannot end up in access logs. Every route is rate-limited.
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, Header, Request, UploadFile, status
+from datetime import date
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
@@ -21,6 +25,7 @@ from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
 from modules.internship_onboarding.config import OnboardingConfig
 from modules.internship_onboarding.emails import enqueue_invitations
+from modules.internship_onboarding.payments import MAX_PROOF_BYTES, PaymentService
 from modules.internship_onboarding.portal import GONE, PortalService
 from modules.internship_onboarding.schemas import (
     AcceptRequest,
@@ -30,6 +35,7 @@ from modules.internship_onboarding.schemas import (
     DeclineRequest,
     DraftRequest,
     LinkOut,
+    RecordPaymentRequest,
     ReopenRequest,
     ReviewRequest,
     StudentIdsRequest,
@@ -38,6 +44,7 @@ from modules.internship_onboarding.schemas import (
     TemplateDuplicateRequest,
     TemplateOut,
     TemplateUpdateRequest,
+    VerifyPaymentRequest,
 )
 from modules.internship_onboarding.service import ApplicationService, ConfigService, TemplateService, config_of
 from modules.our_internships.access import internship_access
@@ -250,6 +257,64 @@ async def review_document(
     return {"id": document.id, "status": document.status}
 
 
+# ------------------------------------------------------------------ payments (staff)
+
+
+@router.get("/{internship_id}/onboarding-flow/payments")
+async def list_payments(
+    internship_id: uuid.UUID,
+    status_filter: str | None = None,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every ledger entry of the internship (finance permission). ``status_filter=awaiting_verification`` is the queue."""
+    return await PaymentService(db).list_for_internship(await _internship(db, internship_id, organization_id), user, status_filter)
+
+
+@router.get("/{internship_id}/onboarding-flow/payments/{transaction_id}/proof")
+async def payment_proof(
+    internship_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    return {"url": await PaymentService(db).proof_url(await _internship(db, internship_id, organization_id), transaction_id, user)}
+
+
+@router.post("/{internship_id}/onboarding-flow/payments/{transaction_id}/verify")
+async def verify_payment(
+    internship_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    payload: VerifyPaymentRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm (only after checking the money arrived in the account) or reject a bank/UPI payment."""
+    claim = await PaymentService(db).verify_claim(
+        await _internship(db, internship_id, organization_id), transaction_id, payload.approve, payload.amount_received, payload.note, user
+    )
+    return {"id": claim.id, "status": claim.status, "amount": str(claim.amount)}
+
+
+@router.post("/{internship_id}/onboarding-flow/students/{student_id}/payments", status_code=status.HTTP_201_CREATED)
+async def record_payment(
+    internship_id: uuid.UUID,
+    student_id: uuid.UUID,
+    payload: RecordPaymentRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await PaymentService(db).record_payment(
+        await _internship(db, internship_id, organization_id), student_id, payload.method, payload.reference, payload.paid_on,
+        payload.amount, payload.note, user,
+    )
+    return {"id": row.id, "status": row.status}
+
+
 # ------------------------------------------------------------------ templates
 
 
@@ -373,6 +438,55 @@ async def portal_decline(
     ctx = await _context(db, x_onboarding_token)
     await service.decline(ctx, payload.reason)
     return await service.view(ctx)
+
+
+@public_router.post("/internship-onboarding/payments/manual", status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+async def portal_manual_payment(
+    request: Request,
+    method: str = Form(...),
+    reference: str = Form(..., min_length=4, max_length=120),
+    paid_on: date = Form(...),
+    amount: Decimal = Form(..., gt=0, max_digits=12, decimal_places=2),
+    remarks: str | None = Form(default=None, max_length=1000),
+    proof: UploadFile = File(...),
+    x_onboarding_token: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.core.exceptions import ValidationError
+
+    if method not in ("bank_transfer", "upi"):
+        raise ValidationError("Choose bank transfer or UPI.")
+    ctx = await _context(db, x_onboarding_token)
+    data = await proof.read(MAX_PROOF_BYTES + 1)
+    await PaymentService(db).submit_claim(ctx, method, reference, paid_on, amount, remarks, proof.filename or "proof", data)
+    return await PortalService(db).view(ctx)
+
+
+@public_router.post("/internship-onboarding/payments/checkout")
+@limiter.limit("10/minute")
+async def portal_checkout(request: Request, x_onboarding_token: str | None = Header(default=None), db: AsyncSession = Depends(get_db)):
+    """Start (or resume) online payment. The amount is decided here, never by the browser."""
+    return await PaymentService(db).start_checkout(await _context(db, x_onboarding_token))
+
+
+@public_router.post("/internship-onboarding/payments/refresh")
+@limiter.limit("10/minute")
+async def portal_refresh(request: Request, x_onboarding_token: str | None = Header(default=None), db: AsyncSession = Depends(get_db)):
+    """Ask the gateway about this student's payment. Returning from the checkout page alone never confirms anything."""
+    ctx = await _context(db, x_onboarding_token)
+    outcome = await PaymentService(db).refresh_for_student(ctx)
+    return {"outcome": outcome, **(await PortalService(db).view(ctx))}
+
+
+@public_router.post("/payments/cashfree/webhook", include_in_schema=False)
+@limiter.limit("300/minute")
+async def cashfree_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    raw = await request.body()
+    if len(raw) > 64 * 1024:
+        return JSONResponse({"ok": False}, status_code=413)
+    code, outcome = await PaymentService(db).handle_webhook(raw, dict(request.headers))
+    return JSONResponse({"ok": code == 200, "outcome": outcome}, status_code=code)
 
 
 __all__ = ["router", "templates_router", "public_router", "GONE"]

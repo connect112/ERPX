@@ -10,31 +10,37 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
 | Next migration numbers | `0098` (onboarding core), `0099` (payments); re-check `master` before merging |
 | Draft PR | see the PR for this branch |
 
-## Done
+## Done (backend, database-backed, tested)
 
-- Milestone A: repository audit, gap matrix, architecture (`docs/internship-onboarding.md`).
-- `modules/internship_onboarding/config.py`: validated per-internship settings (modes, fees, deadlines, document
-  requirements, custom form fields, declaration, bank/UPI accounts, communication); refuses contradictory settings.
-- `modules/internship_onboarding/fees.py`: Decimal fee snapshot (discount, inclusive/exclusive tax, late fee).
+- **A** audit, gap matrix, architecture (`docs/internship-onboarding.md`).
+- **B** validated, versioned per-internship settings (finance sections need `our_internships.finance.manage`; account
+  numbers masked otherwise); versioned templates (create, update, duplicate, archive, apply; accepted terms untouched);
+  application references `ERPX-INT-<year>-<n>`; personal links (SHA-256 only, rotated per send, revocable, URL fragment
+  + `X-Onboarding-Token` header so they never reach logs); deadlines enforced server-side; individual reopening with at
+  most one late fee, waivable. Migrations `0098` (onboarding) and `0099` (payments).
+- **C** student API: view, drafts with form validation, proposed corrections (applied only after staff review),
+  document uploads type-checked by content and versioned, acceptance (declaration, terms version, fee snapshot) and
+  decline writing the selection's existing `offer_response`; read-only after expiry.
+- **D** document review (`our_internships.onboarding.review`, 3-minute previews, restricted sensitive names, reasons
+  required) driving the selection's `verification_status`; dashboard with derived statuses and money totals; student
+  detail with timeline; offer emails carry the onboarding placeholders with a fresh link; invitation email task.
+- **E** one ledger for every method; bank/UPI claims (UTR unique per organization among live claims, proof required)
+  confirmed only by `our_internships.finance.manage`; amount differences must be explained and leave a balance (never
+  "paid" on part of the fee); staff-recorded payments; payment-order modes; zero-fee internships; Cashfree adapter
+  (orders, payment status, HMAC webhook with age limit, duplicate/out-of-order handling, amount/currency matching,
+  reconciliation task every 15 min) behind a provider interface; production refused unless explicitly authorised.
+  Confirmed payment sets the selection's existing `payment_status = paid` (the LMS gate).
 
-## In progress / next (in order)
+## Next (in order)
 
-1. Unit tests for `config.py` and `fees.py`.
-2. `state.py`: derived offer / document / payment / overall status (no stored overall status).
-3. Models + migration `0098`: config + versions, templates + versions, applications (1:1 with
-   `our_internship_selections`, reference, hashed token, drafts, acceptance + fee snapshot, deadline override,
-   reopening), documents (versions, review), events, reference counters.
-4. Services: config save (finance sections need `our_internships.finance.manage`), templates, invitation tokens
-   (issue/rotate/revoke), reopening with late fee, student portal (open, draft, info corrections, form validation,
-   document upload with content-type sniffing, accept/decline), document review → `selection.verification_status`.
-5. Permissions: `our_internships.onboarding.review`, `our_internships.finance.view`, `our_internships.finance.manage`.
-6. Offer email placeholders (`onboarding_link`, `onboarding_deadline`, `onboarding_start_date`, `internship_fee`,
-   `late_fee`, `total_payable`, `application_reference`) on `internship_offer_letter`; link rotated when the email is sent.
-7. Routes: admin (`/our-internships/{id}/onboarding-flow/...`, `/onboarding-templates`), public
-   (`/public/internship-onboarding/{token}`), tests.
-8. Milestone E: ledger + orders (`0099`), bank/UPI claims and finance verification, Cashfree adapter + webhook.
-9. Frontend: admin config / dashboard / review / payment verification; student portal page.
-10. Milestones F-H: receipts/invoices, refunds, reminders, bulk, completion + WhatsApp, automatic LMS, E2E, release scripts.
+1. Frontend: admin settings editor (modes, fees, deadlines, documents, form builder, accounts), dashboard, student
+   detail, document review, payment verification; public student page `/internship-onboarding#t=...` with the steps
+   and Cashfree hosted checkout (`sdk.cashfree.com/js/v3`).
+2. **F** receipts/invoices (numbering, PDF, private storage, email, idempotent), refunds (ledger + Cashfree refund API),
+   cancellations.
+3. **G** reminders (7/3/1 days, configurable, deduplicated), bulk actions, automatic LMS grant on eligibility (reuse
+   `OnboardingService.grant`), completion email.
+4. **H** E2E in the browser, release and rollback scripts for the approved merge commit (`0098`/`0099` downgrade).
 
 ## Blockers and owner decisions
 
@@ -47,7 +53,10 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
 
 ## Tests run
 
-- None yet for this branch (config and fees only smoke-imported).
+- `tests/unit/test_internship_onboarding_rules.py` 40 passed; `tests/api/test_internship_onboarding.py` 13 passed;
+  `tests/api/test_internship_onboarding_payments.py` 13 passed (Cashfree with mocked HTTP and real HMAC signatures).
+- Regression for touched shared code: offer letters, our internships, internship offers, email templates and Studio,
+  RBAC: pass. Migrations `0098`/`0099`: upgrade, downgrade to `0097`, re-upgrade: pass; no drift against the models.
 
 ## How to continue
 
