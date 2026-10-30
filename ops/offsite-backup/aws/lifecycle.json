@@ -1,0 +1,34 @@
+{
+  "Rules": [
+    {
+      "ID": "daily-keep-14",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "daily/" },
+      "Expiration": { "Days": 15 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 3 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
+    },
+    {
+      "ID": "weekly-keep-8",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "weekly/" },
+      "Expiration": { "Days": 57 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 3 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
+    },
+    {
+      "ID": "cleanup-expired-delete-markers",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    },
+    {
+      "ID": "monthly-keep-6",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "monthly/" },
+      "Expiration": { "Days": 186 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 3 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
+    }
+  ]
+}

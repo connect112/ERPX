@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RunOnlyTheFixedReadOnlyDocumentsOnTheErpxServer",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ec2:us-east-1:373384939117:instance/i-0054474b85332980a",
+        "arn:aws:ssm:us-east-1:373384939117:document/pentrix-ro-*"
+      ]
+    },
+    {
+      "Sid": "ReadCommandResults",
+      "Effect": "Allow",
+      "Action": ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:ListCommands", "ssm:DescribeInstanceInformation"],
+      "Resource": "*"
+    }
+  ]
+}

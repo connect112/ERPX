@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "2.2",
+  "description": "READ-ONLY: verify the four oldest in-app database dumps (records, size, recomputed sha256, references). Changes nothing.",
+  "mainSteps": [
+    {
+      "action": "aws:runShellScript",
+      "name": "readOnlyChecks",
+      "inputs": {
+        "runCommand": [
+          "set -u",
+          "echo '== 1. backup records for the four dumps (read-only query) =='",
+          "docker exec shared_postgres psql -U postgres -d erpx -tA -F ' | ' -c \"select id, status, started_at, size_bytes, sha256, storage_key from backup_jobs where id::text in ('60b5ddc6-ab6d-4dcb-a36b-9085908d5589','6d502c1b-d465-4690-848e-6b161f0099a1','6b693aff-1ca9-4d19-851d-1e585c63b0de','aec2d1b7-6673-4674-86c9-1832afe0db6b') order by started_at\"",
+          "echo '== 2. the newest two backup records, which must be kept =='",
+          "docker exec shared_postgres psql -U postgres -d erpx -tA -F ' | ' -c \"select id, status, started_at, size_bytes, storage_key from backup_jobs order by started_at desc limit 2\"",
+          "echo '== 3. size and recomputed sha256 of each object, read through MinIO (not modified) =='",
+          "printf 'import hashlib,sys\\nfrom minio import Minio\\nfrom app.core.config import settings as s\\nc=Minio(s.MINIO_ENDPOINT,access_key=s.MINIO_ACCESS_KEY,secret_key=s.MINIO_SECRET_KEY,secure=s.MINIO_SECURE)\\nfor key in sys.argv[1:]:\\n    st=c.stat_object(s.MINIO_BUCKET,key); h=hashlib.sha256(); r=c.get_object(s.MINIO_BUCKET,key)\\n    for chunk in r.stream(1048576): h.update(chunk)\\n    r.close(); r.release_conn(); print(key,st.size,h.hexdigest())\\n' > /tmp/ro_hash.py",
+          "KEYS=$(docker exec shared_postgres psql -U postgres -d erpx -tA -c \"select storage_key from backup_jobs where id::text in ('60b5ddc6-ab6d-4dcb-a36b-9085908d5589','6d502c1b-d465-4690-848e-6b161f0099a1','6b693aff-1ca9-4d19-851d-1e585c63b0de','aec2d1b7-6673-4674-86c9-1832afe0db6b') order by started_at\")",
+          "nice -n 19 ionice -c3 docker exec -i erpx_api python - $KEYS < /tmp/ro_hash.py; rm -f /tmp/ro_hash.py",
+          "echo '== 4. is anything on the host or in the repo config pointing at these files? =='",
+          "grep -rIl --exclude-dir=node_modules --exclude-dir=.git --exclude='*.log' -e '60b5ddc6' -e '6d502c1b' -e '6b693aff' -e 'aec2d1b7' /opt /etc/cron.d /etc/systemd/system 2>/dev/null | head -20; echo '(end of references)'",
+          "echo '== 5. space that deleting them would free =='",
+          "docker exec shared_postgres psql -U postgres -d erpx -tA -c \"select pg_size_pretty(sum(size_bytes)) from backup_jobs where id::text in ('60b5ddc6-ab6d-4dcb-a36b-9085908d5589','6d502c1b-d465-4690-848e-6b161f0099a1','6b693aff-1ca9-4d19-851d-1e585c63b0de','aec2d1b7-6673-4674-86c9-1832afe0db6b')\"",
+          "df -h / | tail -1"
+        ],
+        "timeoutSeconds": "1800"
+      }
+    }
+  ]
+}

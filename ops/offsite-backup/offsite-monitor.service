@@ -1,0 +1,11 @@
+[Unit]
+Description=Storage and backup watchdog (read-only; emails on problems)
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/opt/backups/offsite/monitor.conf
+Environment=AWS_CONFIG_FILE=/opt/backups/offsite/aws_config
+ExecStart=/usr/bin/python3 /opt/backups/offsite/offsite_monitor.py
+Nice=10
+TimeoutStartSec=5min
