@@ -90,6 +90,15 @@ class Settings(BaseSettings):
     STORAGE_TRASH_MIN_DAYS: int = 30
     # JSON written by the host's monitor (ops/offsite-backup/offsite_monitor.py), mounted read-only for the inspector.
     STORAGE_HOST_STATUS_PATH: str = "/host-status/monitor_status.json"
+    # Bulk downloads (modules/bulk_exports): the finished ZIP is kept in storage this long, then removed by the
+    # cleanup task; the job row stays as the record. Download links are signed for a few minutes only.
+    BULK_EXPORT_RETENTION_HOURS: int = 24
+    BULK_EXPORT_LINK_MINUTES: int = 5
+    BULK_EXPORT_MAX_ITEMS: int = 5000
+    BULK_EXPORT_MAX_BYTES: int = 2 * 1024**3
+    # A selection this small is zipped straight away in the request; anything larger goes to the Celery worker.
+    BULK_EXPORT_INLINE_MAX_ITEMS: int = 20
+    BULK_EXPORT_MAX_ACTIVE_PER_USER: int = 3
 
     # ---- Search ----
     ELASTICSEARCH_URL: str = "http://elasticsearch:9200"
