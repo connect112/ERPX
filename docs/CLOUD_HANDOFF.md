@@ -109,7 +109,8 @@ Unresolved, deliberately not hidden and no gate weakened:
 5. Decide the frontend toolchain migration vs exception list; bump the Moderate backend packages; give CI MinIO and a Postgres 17 client.
 6. Owner-side leftovers from earlier work (not part of this release): lawyer review of the Pentrix Privacy text, and real SMTP delivery checks for offer letters and certificates.
 7. **Universal Bulk Download: implemented in PR #159 (draft, section 12).** Owner review, approval of the exact commit, then deploy with the section 4
-   checkpoints: `api` (applies 0097), then `celery_worker` and `celery_beat`, then `web`. Then run the check in section 12 as a plain Administrator.
+   checkpoints using **`ops/release-2026-10-31-bulk-download/`** (not the 2026-10-30 scripts: their rollback would downgrade to 0095): `01_source`,
+   `02a` api (applies 0097, C1), `02b` worker + beat (C2), `03` web (C3); `99_rollback` MODE=api goes back to 0096 only. Then section 12's check.
 8. **Next development: Cashfree universal payment integration (section 10).** Start after #159 is accepted; confirm scope with the owner first.
 
 ## 10. Universal payment integration: requirements to implement next
@@ -159,6 +160,9 @@ Full description: `docs/bulk-downloads.md` (on the #159 branch).
   after 24 h and are removed; a 20-minute time budget per job (under Celery's 30-minute limit); max 2000 documents / 2 GiB per ZIP; audit through the
   existing hooks. Documents are never changed: certificates are re-rendered with their issued number, stored files are copied byte for byte.
 - **Data:** migration `0097` (one table, `bulk_export_jobs`). New optional settings `BULK_EXPORT_*` with safe defaults; no new secrets.
+- **Deploy:** `ops/release-2026-10-31-bulk-download/` (same steps and checkpoints as section 4, run the same way from git). They stop inside the
+  01:45-04:30 UTC backup window, keep their rollback targets in `/opt/backups/pre-release/images-0097.env`, take a `pg_dump` before 0097, and
+  `99_rollback.sh` MODE=api downgrades 0097 -> 0096 only (drops `bulk_export_jobs`; Storage Manager tables stay).
 - **Verified in the cloud session:** backend tests for the feature and every touched module, web `tsc` / `eslint` / `vitest`, and a browser run as a
   plain Administrator through the Celery path. Storage was a local S3-compatible stand-in (`moto`), since MinIO could not be downloaded there.
 - **After deploy (owner):** as a plain Administrator, download the certificates of one real exam with a custom name format. Check the files open,
