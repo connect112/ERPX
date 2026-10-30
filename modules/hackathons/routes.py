@@ -2,7 +2,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Request, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -284,6 +284,7 @@ async def submit_my_task(
     hackathon_id: uuid.UUID,
     task_id: uuid.UUID,
     background_tasks: BackgroundTasks,
+    request: Request,
     repo_url: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
     student: Student = Depends(get_current_student),
@@ -291,6 +292,10 @@ async def submit_my_task(
 ):
     """Submit (or update) the team's work on one task: a report and/or a repository / registry URL."""
     hackathon = await _visible_hackathon(db, hackathon_id, student)
+    if repo_url is None and "repo_url" in await request.form():
+        # FastAPI 0.13x+ reads an empty form value as "not sent". Here an empty URL means "clear the saved one" and a missing
+        # field means "keep it", so look at the raw form to tell them apart.
+        repo_url = ""
     data = await file.read(MAX_REPORT_BYTES + 1) if file is not None and file.filename else None
     submission = await ParticipationService(db).save_task_submission(
         hackathon, student, task_id, repo_url, file.filename if file is not None else None, data

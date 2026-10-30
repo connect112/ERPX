@@ -16,7 +16,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 import pytest
-from jose import jwt as jose_jwt
+import jwt as jose_jwt
 
 from app.core.config import settings
 from modules.courses.repository import CourseRepository

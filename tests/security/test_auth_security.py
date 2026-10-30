@@ -5,7 +5,7 @@ being treated as inert data rather than executed.
 """
 
 import pytest
-from jose import jwt as pyjwt
+import jwt as pyjwt
 
 from app.core.config import settings
 
