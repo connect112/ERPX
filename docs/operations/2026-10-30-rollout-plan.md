@@ -50,6 +50,28 @@ SSM documents the owner runs. A release therefore needs one of: (a) the owner pa
 registers fixed `pentrix-op-deploy-*` documents (same review pattern as the archive and delete documents). (a) needs no new AWS
 resource. Either way each step stops on the first failing command and prints the verification at the end.
 
+## Final sequence (the shortest safe path; exact scripts are in `ops/release-2026-10-30/`)
+
+Storage was recovered on 2026-10-30 (8.6 GB free), so builds are safe. The backend steps are combined: #151, #152 and #154 are one
+image, so it is built once per service and the migration rides on the `api` recreate, which goes first. If it fails, nothing else has
+been touched.
+
+| Step | Script | What changes | Checkpoint (all must pass) | Rollback |
+|---|---|---|---|---|
+| 0 | `00_preflight_readonly.sh` | nothing (read only) | `/opt/erpx` is a clean git checkout that can fast-forward; image ids and the live backup files are recorded | none needed |
+| merge | (GitHub) | `master` only | merge order above; note the merged commit id | revert is not needed: nothing is deployed |
+| 1 | `01_source_and_host_tools.sh` | `/opt/erpx` fast-forwards to the commit; monitor installed; `offsite_backup.sh` replaced (adds the manifest step); backup units untouched | syntax checks pass; timers active; `monitor_status.json` written | `99_rollback.sh` `MODE=host` |
+| 2a | `02a_deploy_api.sh` | pre-migration dump, then build and recreate `api`, applying 0096 | C1: `0096 (head)`, health ok, `custom True`, two new tables, `storage.view` granted, `/host-status` readable | `MODE=api` (downgrades 0095 first) |
+| 2b | `02b_deploy_worker_beat.sh` | `celery_worker`, then `celery_beat` | C2: worker pong, beat running, same effective settings | `MODE=workers` |
+| 3 | `03_deploy_web.sh` | `web` only | C3: healthy, bundle contains Storage Manager | `MODE=web` |
+| accept | `docs/storage-manager.md` checklist | nothing | Administrator, then superuser; Trash and Restore on one test file only | n/a |
+| proof | next 03:30 UTC run | nothing | `manifest.json` and `SHA256SUMS` in the new `daily/` folder; monitor quiet | `MODE=host` |
+
+Protected throughout: the in-app dumps of 28, 29 and 30 Oct (no script touches `backups/`; Storage Manager also refuses to delete
+anything under it), the S3 daily/weekly/monthly folders and the `archive/` copies (the instance role cannot delete, and no step writes there
+except the normal 03:30 run), and every Pentrix container. The only prune is `docker builder prune -af` (build cache), as in every earlier deploy.
+Each script stops on its first failure and never rolls back on its own.
+
 ## Preconditions (all before step 1)
 
 1. The first scheduled off-server backup (03:30 UTC) is green: `SHA256SUMS` present, three files, manifest, timer active.
