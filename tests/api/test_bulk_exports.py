@@ -314,7 +314,7 @@ async def test_limits_on_size_and_on_jobs_running_at_once(client, auth_headers, 
     monkeypatch.setattr(settings, "BULK_EXPORT_MAX_ITEMS", 2)
     too_many = await client.post(f"{BASE}/jobs", json=job_body("exam_certificates", exam.id, {"mode": "filtered"}), headers=auth_headers)
     assert too_many.status_code in (400, 422) and "at most 2" in too_many.text
-    monkeypatch.setattr(settings, "BULK_EXPORT_MAX_ITEMS", 5000)
+    monkeypatch.setattr(settings, "BULK_EXPORT_MAX_ITEMS", 2000)
     monkeypatch.setattr(settings, "BULK_EXPORT_INLINE_MAX_ITEMS", 0)
     monkeypatch.setattr(settings, "BULK_EXPORT_MAX_ACTIVE_PER_USER", 1)
     first = await client.post(f"{BASE}/jobs", json=job_body("exam_certificates", exam.id, {"mode": "filtered"}), headers=auth_headers)
@@ -430,3 +430,64 @@ async def test_the_request_and_each_download_are_in_the_audit_trail_without_the_
     assert created.user_id == superuser[0].id and created.changes["source"] == "exam_certificates"
     assert "item_ids" not in created.changes
     assert any("download_count" in r.changes for r in rows if r.action.value == "update")
+
+
+async def test_a_job_that_runs_out_of_time_fails_cleanly_and_leaves_no_temp_file(client, auth_headers, db_session, organization, storage, queued, monkeypatch):
+    import glob
+    import tempfile
+
+    monkeypatch.setattr(settings, "BULK_EXPORT_INLINE_MAX_ITEMS", 0)
+    exam, _ = await make_exam(db_session, organization)
+    job = (await client.post(f"{BASE}/jobs", json=job_body("exam_certificates", exam.id, {"mode": "filtered"}), headers=auth_headers)).json()
+    monkeypatch.setattr(settings, "BULK_EXPORT_MAX_SECONDS", -1)
+    before = set(glob.glob(f"{tempfile.gettempdir()}/erpx-bulk-*.zip"))
+    row = await db_session.get(BulkExportJob, uuid.UUID(job["id"]))
+    await BulkExportService(db_session).run(row, db_session.flush)
+    assert row.status == "failed" and "too long" in row.error and not storage.objects
+    assert set(glob.glob(f"{tempfile.gettempdir()}/erpx-bulk-*.zip")) == before
+
+
+def test_the_cleanup_removes_only_old_half_built_zips():
+    import os
+    import tempfile
+    import time
+
+    folder = tempfile.gettempdir()
+    old = os.path.join(folder, f"erpx-bulk-{uuid.uuid4().hex}.zip")
+    fresh = os.path.join(folder, f"erpx-bulk-{uuid.uuid4().hex}.zip")
+    other = os.path.join(folder, f"keep-{uuid.uuid4().hex}.zip")
+    for path in (old, fresh, other):
+        open(path, "wb").close()
+    os.utime(old, (time.time() - 3 * 3600, time.time() - 3 * 3600))
+    os.utime(other, (time.time() - 3 * 3600, time.time() - 3 * 3600))
+    try:
+        assert BulkExportService.sweep_temp_files() >= 1
+        assert not os.path.exists(old) and os.path.exists(fresh) and os.path.exists(other)
+    finally:
+        for path in (fresh, other):
+            os.path.exists(path) and os.unlink(path)
+
+
+async def test_a_certificate_given_without_the_exam_keeps_the_date_it_was_emailed(db_session, organization):
+    from modules.workshop_exams.certificate_render import render_certificate
+    import modules.workshop_exams.certificate_render as render_module
+
+    exam, attendees = await make_exam(db_session, organization, names=("Forced Person",))
+    person = attendees[0]
+    person.submitted_at = None
+    person.certificate_forced = True
+    person.certificate_sent_at = datetime(2026, 3, 14, 10, 0, tzinfo=timezone.utc)
+    await db_session.flush()
+    seen = {}
+    real = render_module.build_certificate_pdf
+
+    def spy(**kwargs):
+        seen.update(kwargs)
+        return real(**kwargs)
+
+    render_module.build_certificate_pdf = spy
+    try:
+        await render_certificate(db_session, exam, person)
+    finally:
+        render_module.build_certificate_pdf = real
+    assert seen["issued_on"] == person.certificate_sent_at

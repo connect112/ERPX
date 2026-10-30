@@ -61,7 +61,8 @@ listed, and an export never assigns numbers, sends email or changes a document.
   link is issued, the permission is checked again, so someone who lost access cannot collect a file prepared earlier.
 - ZIPs are written to a temporary local file (deleted in all cases) and stored under `bulk-exports/<org>/<job>.zip`.
   Links are short-lived. The clean-up task (Celery beat `bulk-exports-cleanup`, every 30 min) removes ZIPs past
-  `expires_at` and ends jobs a stopped worker left behind (> 2 h). The Storage Manager lists these ZIPs as protected.
+  `expires_at`, ends jobs a stopped worker left behind (> 2 h) and deletes half-built ZIPs such a worker left in its
+  temporary folder. The Storage Manager lists these ZIPs as protected.
 - Audit: the job row goes through the normal audit hooks: creation (who, what, which scope, naming options), status
   changes and each download link handed out. The id list and progress counters are excluded from the audit trail.
 - Limits: documents per ZIP, total bytes, and jobs running at once per user (below); job creation is rate-limited
@@ -73,10 +74,11 @@ listed, and an export never assigns numbers, sends email or changes a document.
 |---|---|---|
 | `BULK_EXPORT_RETENTION_HOURS` | 24 | How long a finished ZIP is kept |
 | `BULK_EXPORT_LINK_MINUTES` | 5 | Validity of a download link |
-| `BULK_EXPORT_MAX_ITEMS` | 5000 | Documents per download |
+| `BULK_EXPORT_MAX_ITEMS` | 2000 | Documents per download (about 0.3 s each for a designed certificate) |
 | `BULK_EXPORT_MAX_BYTES` | 2 GiB | Total size of the documents in one ZIP |
 | `BULK_EXPORT_INLINE_MAX_ITEMS` | 20 | Up to this many are zipped in the request; more go to Celery |
 | `BULK_EXPORT_MAX_ACTIVE_PER_USER` | 3 | Downloads one person can have queued or running |
+| `BULK_EXPORT_MAX_SECONDS` | 1200 | A job stops cleanly after this long (Celery's hard limit is 30 min) |
 
 The worker needs local temporary space for the largest ZIP it builds (see `BULK_EXPORT_MAX_BYTES`); the production host
 has about 8.6 GB free.

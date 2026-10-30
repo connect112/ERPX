@@ -103,8 +103,9 @@ async def render_certificate(
         heading=exam.certificate_heading,
         body_text=body,
         issuer_name=issuer,
+        # A certificate given without the exam carries the day it was emailed, so a later copy shows the same date.
         issued_on=attendee.submitted_at
-        or (attendee.created_at if attendee.certificate_only else datetime.now(timezone.utc)),
+        or (attendee.created_at if attendee.certificate_only else attendee.certificate_sent_at or datetime.now(timezone.utc)),
         certificate_number=number,
         verify_url=verify_url(number),
     )

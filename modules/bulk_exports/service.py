@@ -13,6 +13,7 @@ files are copied byte for byte.
 
 import os
 import tempfile
+import time
 import uuid
 import zipfile
 from collections.abc import Awaitable, Callable
@@ -38,6 +39,7 @@ MAX_FAILURES_KEPT = 200
 FAILURE_REPORT = "_failed_documents.txt"
 PROGRESS_EVERY = 10
 STALE_AFTER = timedelta(hours=2)
+TEMP_PREFIX = "erpx-bulk-"
 
 COMMON_PLACEHOLDERS = (
     Placeholder("document_type", "Document type", "Certificate"),
@@ -341,10 +343,15 @@ class BulkExportService:
             names = filenames.UniqueNames()
             written = 0
             total_bytes = 0
-            fd, path = tempfile.mkstemp(prefix="erpx-bulk-", suffix=".zip")
+            deadline = time.monotonic() + settings.BULK_EXPORT_MAX_SECONDS
+            fd, path = tempfile.mkstemp(prefix=TEMP_PREFIX, suffix=".zip")
             os.close(fd)
             with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
                 for position, item in enumerate(items, start=1):
+                    if time.monotonic() > deadline:
+                        raise ValidationError(
+                            "This download took too long to prepare in one go. Choose fewer documents and try again."
+                        )
                     if position % PROGRESS_EVERY == 0:
                         if not await self._still_wanted(job, commits):
                             logger.info("bulk_export_cancelled", job_id=str(job.id))
@@ -444,4 +451,22 @@ class BulkExportService:
             job.error = "The download stopped before it finished. Please start it again."
             job.finished_at = now
         await self.db.flush()
-        return {"expired": removed, "stale": len(stale)}
+        return {"expired": removed, "stale": len(stale), "temp_files": self.sweep_temp_files()}
+
+    @staticmethod
+    def sweep_temp_files(older_than: timedelta = STALE_AFTER) -> int:
+        """Delete half-built ZIPs a killed worker left in its temporary folder (normally ``run`` always removes its own)."""
+        cutoff = time.time() - older_than.total_seconds()
+        removed = 0
+        folder = tempfile.gettempdir()
+        for name in os.listdir(folder):
+            if not (name.startswith(TEMP_PREFIX) and name.endswith(".zip")):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                    os.unlink(path)
+                    removed += 1
+            except OSError:
+                continue
+        return removed
