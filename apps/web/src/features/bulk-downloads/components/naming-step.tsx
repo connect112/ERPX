@@ -183,8 +183,12 @@ export function NamingStep({ source, scopeId, info, selection, options, onOption
         />
       </div>
 
-      <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm" aria-live="polite">
-        <div className="font-medium">Preview</div>
+      <div
+        className={"space-y-2 rounded-md border bg-muted/30 p-3 text-sm transition-opacity " + (settled ? "" : "opacity-60")}
+        aria-live="polite"
+        aria-busy={!settled}
+      >
+        <div className="font-medium">Preview{!settled && <span className="font-normal text-muted-foreground"> · updating…</span>}</div>
         {preview.data && !preview.data.valid && <p className="text-destructive">{preview.data.error}</p>}
         {preview.isError && <p className="text-destructive">The preview could not be made.</p>}
         {preview.data?.valid && (
