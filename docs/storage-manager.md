@@ -128,6 +128,59 @@ the existing storage client or authenticated streams; both are scoped to the cal
 4. Trash, restore, impact preview, confirmed deletion, deletion log (migrations).
 5. Web UI: explorer, checkboxes, previews, charts, Trash, deletion log, server inspector.
 
-Open questions for the owner: how long Trash should keep files before a person may purge them (proposal: 30 days
-minimum), and whether non-superuser administrators may delete orphans in their own organization (proposal: yes, with
-`storage.delete`).
+As built: Trash keeps files at least 30 days (`STORAGE_TRASH_MIN_DAYS`) and nothing is purged automatically. Deleting,
+restoring and purging are **superuser only**; Administrators (`storage.view`) can browse, preview, search, see the impact
+preview, Trash and the deletion log, but cannot change anything. Opening up deletion to Administrators would be a separate,
+deliberate decision.
+
+## Deployment (see `docs/operations/2026-10-30-rollout-plan.md` for the whole release)
+
+- Deploying this PR **is** applying migration 0096: `erpx_api` runs `alembic upgrade head` on every start. It adds two
+  tables and changes nothing else. The RBAC seed gives the Administrator role `storage.view` at the same start.
+- Needs `/opt/backups/offsite/status` on the host (the monitor writes `monitor_status.json` there); the API mounts it read-only.
+  Without the file the Server tab says so and the rest works.
+- Rollback: **first** `docker exec erpx_api alembic downgrade 0095` (drops the two tables; a file already in Trash stays in
+  the bucket under `.trash/`, only its record is lost), **then** recreate the API from the previous image. An image older than
+  this one cannot start while the database is at 0096.
+- `tests/integration/test_storage_manager_migration.py` proves upgrade, exact rollback with rows present, and a second upgrade,
+  on a throwaway database.
+
+## Production acceptance checklist (read-only first; nothing here deletes a real file)
+
+Run as a plain Administrator for A to D, and as a platform superuser for E and F. Tick each line; any failure means stop and roll back.
+
+**A. Deployed correctly**
+- [ ] `alembic_version` is `0096`; `storage_trash` and `storage_deletion_log` exist and are empty.
+- [ ] `/api/v1/health` is healthy; web, API, worker, beat, Postgres, Redis, MinIO and Caddy all show healthy.
+- [ ] Administrator sees **Storage Manager** under Administration. A non-admin role (trainer or student) does not, and a direct
+      call to `/api/v1/storage-manager/files` returns 403.
+
+**B. Browsing and search**
+- [ ] Overview shows total size and counts per source, and the totals are plausible against the MinIO console.
+- [ ] Files list pages, sorts by size and date, and filters by source, type, size range, date and status.
+- [ ] Search finds a known file by name and the matching count is right; the header checkbox selects only the deletable files on the page.
+- [ ] Only files of the Administrator's organization appear (spot-check one file from another organization is absent).
+
+**C. Previews**
+- [ ] An image, a PDF and a text/CSV file preview; a downloaded file matches its checksum.
+- [ ] An HTML file opens only in the sandbox (response header `Content-Security-Policy: sandbox; default-src 'none'`): no script runs and nothing is loaded from it.
+
+**D. Dependency checks (no deletion)**
+- [ ] Open a file that is in use: the details show what references it and it is marked **in use**.
+- [ ] Select an in-use file and press Delete: the impact preview lists the references and the confirm button stays disabled.
+- [ ] Duplicates tab lists groups with matching checksums; a copy that a record uses is never offered for deletion, only unreferenced copies can be removed (from the Files tab).
+
+**E. Trash and Restore (superuser, on one unreferenced file chosen together, ideally an upload made for the test)**
+- [ ] Upload a new unreferenced test file; it appears as an orphan.
+- [ ] Delete it, typing the confirmation phrase the dialog shows: it moves to Trash (`.trash/` in the bucket), disappears from Files, one deletion-log row is written.
+- [ ] Restore it: it returns to its original key with the same checksum, and a restore row is logged.
+- [ ] Trash shows the earliest purge date at least 30 days out; the purge button is disabled before then. **Do not purge.**
+- [ ] An Administrator who is not a superuser sees the Trash and log but cannot delete or restore (403).
+
+**F. Server inspector (superuser)**
+- [ ] Disk, memory, Docker volume sizes and the backup status match `df -h` and the monitor's last run on the host.
+- [ ] The tab is read-only: it offers no control that runs a command or deletes anything.
+
+**G. After**
+- [ ] Every other business page still opens (Dashboard, Students, Courses, Finance, Social Media, Email Studio).
+- [ ] No new errors in `docker logs erpx_api --since 30m`.
