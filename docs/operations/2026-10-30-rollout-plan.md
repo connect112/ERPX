@@ -33,7 +33,8 @@ Use **"Create a merge commit"** for every PR. #155 is stacked on #154 and carrie
 
 1. #151 audit fix, 2. #152 backup safeguards, 3. #153 off-server tooling and monitor (independent of each other).
 4. #154 Storage Manager backend. Then change #155's base to `master` (`gh pr edit 155 --base master`) and merge it.
-5. #156 (CI trigger and path) at any point; it touches only `.github/workflows/ci.yml`.
+5. #157 security dependency updates (PyJWT, FastAPI/Starlette 1.x, pypdf, lockfiles), after #155: it is verified together with #151 to #155 and ships in the same release.
+6. #156 (CI trigger and path) at any point; it touches only `.github/workflows/ci.yml`.
 
 Files that more than one PR edits: `docker-compose.prod.yml` and `apps/api/app/core/config.py` (#152 and #154, different lines; the trial
 merge is clean) and the Storage Manager files shared by #154/#155 (the stack). A trial merge of all five heads gave a single alembic
@@ -136,11 +137,13 @@ reasons found on 2026-10-30 from run 41011257023 of PR #156 and from local `pip-
   only through `python-jose`), `pypdf` 6.19.0 (fix 6.21.2) and `starlette` 0.38.6 (fix needs 1.x, so FastAPI 0.133+).
 - **Frontend `npm audit` gate**: `web` 24 findings (2 Critical, 12 High), each portal 15 (2 Critical, 8 High).
 
-Proposed fix, kept out of these five PRs as branch `srujan/security-dependency-updates`: replace `python-jose` with `PyJWT` (three
-HS256 call sites; also removes `ecdsa`), `pypdf` 6.21.2, `python-dotenv` 1.2.2, `fastapi` 0.162.0 with `starlette` 1.10.0 and
-`prometheus-fastapi-instrumentator` 8.1.0 (7.x requires Starlette below 1.0), and `npm audit fix` (lockfile only) in the four apps,
-which clears every in-range finding. It must pass the full backend suite before it is proposed for merge and is deployed on its own,
-never inside the Storage Manager release.
+Fix, PR #157 (`srujan/security-dependency-updates`), verified on a combined tree of `master` + #151 to #155 + #157: replace `python-jose`
+with `PyJWT` (three HS256 call sites; also removes `ecdsa`), `pypdf` 6.21.2, `python-dotenv` 1.2.2, `fastapi` 0.162.0 with `starlette` 1.10.0
+and `prometheus-fastapi-instrumentator` 8.1.0 (7.x requires Starlette below 1.0), and `npm audit fix` (lockfile only) in the four apps.
+Result: `pip-audit` gate 0 Critical/High (was 14); full backend suite 2050 passed and 2 load-dependent integration failures that pass alone;
+production image builds and imports; web type-check, 177 tests and build pass. It ships in the same release as #151 to #155 (one build per
+service, api first); its rollback is the same saved previous image. FastAPI now reads an empty form value as "not sent"; the one place
+ERPX relied on the old meaning (clearing a hackathon task's repository URL) is handled in the route.
 
 Still open after that, and **not** hidden by weakening the gate: `vitest` 3 to 5 (Critical, with `tinypool`), `vite` 5 to 8 (High) and `zod` 3
 to 4 (High) in all four apps. They are dev tooling except `zod`, and need a toolchain migration (Vite 8 wants Node 20.19+, `zod` 4 is
