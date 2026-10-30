@@ -177,6 +177,17 @@ celery_app.conf.beat_schedule = {
     },
 }
 
+
+def apply_backup_schedule_flag(schedule: dict, enabled: bool) -> dict:
+    """Drop the 02:00 UTC in-app database backup from the beat schedule when BACKUP_IN_APP_SCHEDULE_ENABLED is off
+    (the off-server backup replaces it). Everything else in the schedule is left alone."""
+    if not enabled:
+        schedule.pop("backups-trigger-daily", None)
+    return schedule
+
+
+apply_backup_schedule_flag(celery_app.conf.beat_schedule, settings.BACKUP_IN_APP_SCHEDULE_ENABLED)
+
 # Modules register their Celery task modules here as they are built, e.g.:
 # celery_app.autodiscover_tasks(["modules.notifications", "modules.accounting"])
 celery_app.autodiscover_tasks(

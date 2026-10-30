@@ -40,8 +40,9 @@ async def test_trigger_backup_produces_a_real_downloadable_dump(client, auth_hea
     async with httpx.AsyncClient() as raw_client:
         fetched = await raw_client.get(download_url)
         assert fetched.status_code == 200
-        # A real pg_dump text dump starts with a Postgres-generated header comment.
-        assert fetched.content.startswith(b"--")
+        # A plain pg_dump starts with a Postgres-generated header comment; the compressed (custom) format that
+        # BACKUP_FORMAT=custom produces starts with the PGDMP magic.
+        assert fetched.content.startswith((b"--", b"PGDMP"))
         import hashlib
         assert hashlib.sha256(fetched.content).hexdigest() == job["sha256"]
 

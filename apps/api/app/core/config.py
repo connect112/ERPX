@@ -48,6 +48,18 @@ class Settings(BaseSettings):
     # The plain-SQL dumps modules/backups/service.py produces (no -Fc) are
     # replayed with psql, not pg_restore — see apps/api/scripts/restore_backup.py.
     PSQL_PATH: str = "psql"
+    # Restores the compressed ("custom") dumps below; the API image ships pg_restore 17 with pg_dump 17.
+    PG_RESTORE_PATH: str = "pg_restore"
+    # "custom" = pg_dump -Fc, compressed, restored with pg_restore. "plain" = the older uncompressed SQL.
+    BACKUP_FORMAT: str = "custom"
+    # Whether Celery beat runs the 02:00 UTC in-app backup. On by default; the manual button works either way.
+    BACKUP_IN_APP_SCHEDULE_ENABLED: bool = True
+    # A backup needs room for its temp file and the copy in object storage, on the same disk as the database.
+    # It refuses to start unless free space >= database size * factor + reserve, so it can never fill the disk.
+    BACKUP_DISK_SAFETY_FACTOR: float = 2.5
+    BACKUP_MIN_FREE_BYTES: int = 2 * 1024**3
+    # Retention is opt-in and never scheduled: 0 keeps every backup. scripts/prune_backups.py is dry-run by default.
+    BACKUP_RETENTION_KEEP_LAST: int = 0
 
     # ---- Redis / Celery ----
     REDIS_URL: str = "redis://redis:6379/0"

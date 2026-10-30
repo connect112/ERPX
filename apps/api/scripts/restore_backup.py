@@ -15,6 +15,10 @@ Run from `apps/api/`:
         --database-url postgresql://erpx:...@target-host:5432/erpx \\
         --initiated-by "jane@gir-technologies.com"
 
+Both dump formats are accepted and detected from the file itself: the compressed archives BACKUP_FORMAT=custom
+produces (restored with pg_restore, which must be the same version as the pg_dump that made them or newer) and
+the older plain-SQL files (restored with psql).
+
 Add `--dry-run` first, always, to see exactly what the script would do
 without touching anything. See docs/operations/logging-runbook.md and
 docs/deployment/production-checklist.md's Disaster Recovery section for
@@ -177,6 +181,26 @@ def looks_like_pg_dump(path: str) -> bool:
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         head = f.read(4096)
     return PG_DUMP_HEADER in head
+
+
+PGDMP_MAGIC = b"PGDMP"  # first bytes of a pg_dump custom-format (-Fc, compressed) archive
+
+
+def detect_dump_format(path: str) -> str:
+    """"custom" for a compressed archive (restored with pg_restore), "plain" for SQL text (restored with psql),
+    "unknown" for anything else."""
+    with open(path, "rb") as f:
+        if f.read(len(PGDMP_MAGIC)) == PGDMP_MAGIC:
+            return "custom"
+    return "plain" if looks_like_pg_dump(path) else "unknown"
+
+
+def build_restore_command(dump_format: str, db: dict, file_path: str) -> list[str]:
+    """The restore tool's argument list for one dump format. Both stop at the first error."""
+    connection = ["-h", db["host"], "-p", str(db["port"]), "-U", db["user"], "-d", db["dbname"]]
+    if dump_format == "custom":
+        return [settings.PG_RESTORE_PATH, *connection, "--no-owner", "--no-privileges", "--exit-on-error", file_path]
+    return [settings.PSQL_PATH, *connection, "-v", "ON_ERROR_STOP=1", "-f", file_path]
 
 
 def confirm_target(dbname: str, reader=input) -> bool:
@@ -398,10 +422,10 @@ def verify_backup_integrity(resolved: ResolvedBackup, force: bool) -> None:
             sha256=actual_sha256,
         )
 
-    if not looks_like_pg_dump(resolved.local_path):
+    if detect_dump_format(resolved.local_path) == "unknown":
         msg = (
-            f"{resolved.local_path!r} does not look like a pg_dump plain-SQL file "
-            f"(missing {PG_DUMP_HEADER!r} header)."
+            f"{resolved.local_path!r} does not look like a pg_dump file (neither a compressed archive nor a "
+            f"plain-SQL file with the {PG_DUMP_HEADER!r} header)."
         )
         if force:
             logger.warning("restore_format_check_failed_but_forced", path=resolved.local_path)
@@ -528,33 +552,24 @@ def _progress_heartbeat(stop_event: threading.Event, label: str) -> None:
 
 
 async def run_psql_restore(target_url: str, sql_file: str) -> subprocess.CompletedProcess:
+    """Restore a dump with the tool that matches its format: pg_restore for a compressed archive, psql for SQL text."""
     db = parse_db_url(target_url)
     env = os.environ.copy()
     if db["password"]:
         env["PGPASSWORD"] = db["password"]
 
+    dump_format = detect_dump_format(sql_file)
     # Strip version-skew session-GUC directives a newer pg_dump may have written
     # that this (possibly older) target server would reject under ON_ERROR_STOP=1.
-    restore_file = sanitize_dump_for_restore(sql_file)
+    # (Only plain SQL has them; a compressed archive is restored as it is.)
+    restore_file = sanitize_dump_for_restore(sql_file) if dump_format == "plain" else sql_file
 
     stop_event = threading.Event()
     heartbeat = threading.Thread(target=_progress_heartbeat, args=(stop_event, "restore"), daemon=True)
     heartbeat.start()
-    logger.info("restore_psql_started", target=redact_url(target_url), sql_file=restore_file)
+    logger.info("restore_psql_started", target=redact_url(target_url), sql_file=restore_file, format=dump_format)
     try:
-        result = await asyncio.to_thread(
-            _run_subprocess,
-            [
-                settings.PSQL_PATH,
-                "-h", db["host"],
-                "-p", str(db["port"]),
-                "-U", db["user"],
-                "-d", db["dbname"],
-                "-v", "ON_ERROR_STOP=1",
-                "-f", restore_file,
-            ],
-            env,
-        )
+        result = await asyncio.to_thread(_run_subprocess, build_restore_command(dump_format, db, restore_file), env)
     finally:
         stop_event.set()
         heartbeat.join(timeout=1)
@@ -692,7 +707,7 @@ async def _async_main(args: argparse.Namespace) -> int:
 
         if result.returncode != 0:
             entry.status = "failed"
-            entry.error_message = f"psql exited {result.returncode}: {result.stderr[-2000:]}"
+            entry.error_message = f"restore tool (psql or pg_restore) exited {result.returncode}: {result.stderr[-2000:]}"
             entry.completed_at = datetime.now(timezone.utc)
             write_audit_entry(entry, args.audit_log_path)
             await record_restore_attempt(args.database_url, entry, resolved.backup_job_id)

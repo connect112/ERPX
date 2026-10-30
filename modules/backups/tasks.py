@@ -12,9 +12,14 @@ inventing a synthetic "system user" account). Wire into Celery beat, e.g.:
         "task": "backups.trigger_daily_backup",
         "schedule": crontab(hour=2, minute=0),
     }
+
+The schedule entry in app/core/celery_app.py is dropped when
+BACKUP_IN_APP_SCHEDULE_ENABLED is false, and this task checks the same flag, so a queued or hand-enqueued run does
+nothing either. The manual "Trigger backup" button (routes.py) is not affected.
 """
 
 from app.core.celery_app import celery_app
+from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
 from modules.backups.models import BackupStatus
@@ -32,5 +37,8 @@ async def _trigger_scheduled_backup() -> BackupStatus:
 
 @celery_app.task(name="backups.trigger_daily_backup")
 def trigger_daily_backup_task() -> None:
+    if not settings.BACKUP_IN_APP_SCHEDULE_ENABLED:
+        logger.info("scheduled_backup_skipped", reason="BACKUP_IN_APP_SCHEDULE_ENABLED is off")
+        return
     status = run_async(_trigger_scheduled_backup())
     logger.info("scheduled_backup_completed", status=status.value)

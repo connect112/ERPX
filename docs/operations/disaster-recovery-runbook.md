@@ -181,3 +181,15 @@ logged in full — every log line and console message uses a redacted
 downloaded/local dump file itself is deleted after a successful or failed
 run if it was fetched from object storage (not deleted if you passed
 `--backup-file` pointing at your own file — that one's yours to manage).
+
+## In-app backup settings and dump formats
+
+| Setting | Default | What it does |
+|---|---|---|
+| `BACKUP_FORMAT` | `custom` | `custom` writes a compressed `pg_dump -Fc` archive (`backups/<job>.dump`), restored with `pg_restore`. `plain` writes the older SQL text (`.sql`), restored with `psql`. `restore_backup.py` detects either from the file. |
+| `BACKUP_IN_APP_SCHEDULE_ENABLED` | `true` | Whether Celery beat runs the 02:00 UTC backup. Set to `false` once the off-server backup (`docs/operations/offsite-backup.md`) replaces it. The "Trigger backup" button keeps working. |
+| `BACKUP_DISK_SAFETY_FACTOR` / `BACKUP_MIN_FREE_BYTES` | `2.5` / `2 GiB` | A backup starts only if free disk >= database size x factor + reserve. Otherwise the job is recorded as failed with the numbers, and nothing is written. |
+| `BACKUP_RETENTION_KEEP_LAST` | `0` | `0` keeps everything. `python -m scripts.prune_backups --keep N` lists older backups (dry run); `--execute` removes them after a typed confirmation. Never scheduled. |
+
+A compressed archive must be restored with a `pg_restore` of the same version as the `pg_dump` that made it, or newer.
+The API image ships both at version 17.

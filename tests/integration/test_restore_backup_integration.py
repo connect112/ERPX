@@ -88,7 +88,7 @@ async def _seed_sample_data(url: str) -> None:
         await conn.close()
 
 
-async def _dump_database(url: str, dest_path: str) -> None:
+async def _dump_database(url: str, dest_path: str, compressed: bool = False) -> None:
     import subprocess
 
     from app.core.config import settings
@@ -107,6 +107,7 @@ async def _dump_database(url: str, dest_path: str) -> None:
             "-f", dest_path,
             "--no-owner",
             "--no-privileges",
+            *(["-Fc", "-Z", "6"] if compressed else []),
         ],
         env=env,
         capture_output=True,
@@ -155,6 +156,89 @@ class TestWipeTargetSchema:
         await wipe_target_schema(throwaway_db)
         has_tables = await check_target_preconditions(throwaway_db, allow_wipe=False)
         assert has_tables is False
+
+
+class TestCompressedBackupRestore:
+    """The compressed (pg_dump -Fc) archives BACKUP_FORMAT=custom produces restore with pg_restore."""
+
+    async def test_compressed_archive_restores_into_an_empty_database(self, throwaway_db, tmp_path):
+        source_dbname = f"erpx_restore_test_src_{uuid.uuid4().hex[:12]}"
+        admin_conn = await asyncpg.connect(dsn=_maintenance_url())
+        await admin_conn.execute(f'CREATE DATABASE "{source_dbname}"')
+        await admin_conn.close()
+        source_url = _throwaway_url(source_dbname)
+        try:
+            await _seed_sample_data(source_url)
+            dump_path = tmp_path / "backup.dump"
+            await _dump_database(source_url, str(dump_path), compressed=True)
+        finally:
+            admin_conn = await asyncpg.connect(dsn=_maintenance_url())
+            await admin_conn.execute(f'DROP DATABASE IF EXISTS "{source_dbname}"')
+            await admin_conn.close()
+        assert dump_path.read_bytes().startswith(b"PGDMP")
+
+        exit_code = await _run(
+            [
+                "--backup-file", str(dump_path),
+                "--database-url", throwaway_db,
+                "--force",
+                "--skip-safety-backup",
+                "--audit-log-path", str(tmp_path / "audit.log"),
+            ]
+        )
+        assert exit_code == ExitCode.SUCCESS
+
+        conn = await asyncpg.connect(dsn=throwaway_db)
+        try:
+            assert await conn.fetchval("SELECT count(*) FROM widgets") == 3
+            assert sorted(r["name"] for r in await conn.fetch("SELECT name FROM widgets")) == ["alpha", "beta", "gamma"]
+        finally:
+            await conn.close()
+
+    async def test_compressed_archive_replaces_an_existing_schema_when_asked(self, throwaway_db, tmp_path):
+        await _seed_sample_data(throwaway_db)
+        dump_path = tmp_path / "backup.dump"
+        await _dump_database(throwaway_db, str(dump_path), compressed=True)
+        conn = await asyncpg.connect(dsn=throwaway_db)
+        await conn.execute("DELETE FROM widgets WHERE name = 'beta'")
+        await conn.close()
+
+        exit_code = await _run(
+            [
+                "--backup-file", str(dump_path),
+                "--database-url", throwaway_db,
+                "--force",
+                "--yes-wipe-existing-schema",
+                "--skip-safety-backup",
+                "--audit-log-path", str(tmp_path / "audit.log"),
+            ]
+        )
+        assert exit_code == ExitCode.SUCCESS
+        conn = await asyncpg.connect(dsn=throwaway_db)
+        try:
+            assert await conn.fetchval("SELECT count(*) FROM widgets") == 3   # 'beta' is back
+        finally:
+            await conn.close()
+
+    async def test_a_truncated_archive_fails_and_is_reported(self, throwaway_db, tmp_path):
+        await _seed_sample_data(throwaway_db)
+        dump_path = tmp_path / "backup.dump"
+        await _dump_database(throwaway_db, str(dump_path), compressed=True)
+        data = dump_path.read_bytes()
+        broken = tmp_path / "broken.dump"
+        broken.write_bytes(data[: len(data) // 2])   # keeps the PGDMP header, loses the rest
+
+        exit_code = await _run(
+            [
+                "--backup-file", str(broken),
+                "--database-url", throwaway_db,
+                "--force",
+                "--yes-wipe-existing-schema",
+                "--skip-safety-backup",
+                "--audit-log-path", str(tmp_path / "audit.log"),
+            ]
+        )
+        assert exit_code == ExitCode.RESTORE_FAILED
 
 
 class TestFullRestoreFlow:
