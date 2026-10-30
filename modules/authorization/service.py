@@ -283,6 +283,7 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
     ("communication.view", "communication", "View the outbound email/SMS/WhatsApp communication log"),
     ("communication.manage", "communication", "Send email/SMS/WhatsApp communications"),
     ("events.manage", "events", "Create, update, and delete org-wide calendar events"),
+    ("storage.view", "storage", "View the organization's stored files and storage usage"),
     ("backups.view", "backups", "View database backup job history"),
     ("backups.manage", "backups", "Trigger and download full database backups"),
     ("integrations.view", "integrations", "View configured third-party integrations"),

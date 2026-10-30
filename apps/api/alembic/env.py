@@ -101,6 +101,7 @@ from modules.notifications.models import Notification  # noqa: E402,F401
 from modules.communication.models import CommunicationLog  # noqa: E402,F401
 from modules.events.models import Event  # noqa: E402,F401
 from modules.backups.models import BackupJob  # noqa: E402,F401
+from modules.storage_manager.models import StorageDeletionLog, StorageTrash  # noqa: E402,F401
 from modules.integrations.models import Integration  # noqa: E402,F401
 
 # Additional modules are imported below as they are built, e.g.:

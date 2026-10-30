@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     # storage server and send it `Host: <MINIO_ENDPOINT>`, which is what the signature was made for.
     # Empty = URLs are returned as they are (storage reachable from the browser, e.g. local development).
     STORAGE_PUBLIC_PREFIX: str = ""
+    # Storage Manager: files moved to Trash stay there at least this long before a superuser may purge them by hand.
+    # Nothing purges automatically.
+    STORAGE_TRASH_MIN_DAYS: int = 30
+    # JSON written by the host's monitor (ops/offsite-backup/offsite_monitor.py), mounted read-only for the inspector.
+    STORAGE_HOST_STATUS_PATH: str = "/host-status/monitor_status.json"
 
     # ---- Search ----
     ELASTICSEARCH_URL: str = "http://elasticsearch:9200"
