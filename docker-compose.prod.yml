@@ -20,6 +20,10 @@ x-backend-env: &backend-env
   MINIO_SECURE: "false"
   # Browsers reach storage through /_files on whichever site they are on (see infrastructure/aws-single-host/Caddyfile).
   STORAGE_PUBLIC_PREFIX: /_files
+  # In-app database backup (modules/backups). Only variables listed here reach the containers, so these must be
+  # named for a value in /opt/erpx/.env to take effect. Both default to the code's own defaults.
+  BACKUP_IN_APP_SCHEDULE_ENABLED: ${BACKUP_IN_APP_SCHEDULE_ENABLED:-true}
+  BACKUP_FORMAT: ${BACKUP_FORMAT:-custom}
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   # lms.pentrix.in / staff.pentrix.in / trainer.pentrix.in don't strictly
   # need to be here — every portal's own API calls are same-origin
