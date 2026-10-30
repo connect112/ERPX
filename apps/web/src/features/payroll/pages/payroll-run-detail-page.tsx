@@ -44,6 +44,7 @@ import {
   useSalaryComponents,
 } from "@/features/payroll/api/payroll-hooks";
 import { PayrollRunStatusBadge } from "@/features/payroll/components/payroll-run-status-badge";
+import { BulkDownloadButton } from "@/features/bulk-downloads/components/bulk-download-button";
 
 const monthNames = [
   "January", "February", "March", "April", "May", "June",
@@ -154,6 +155,7 @@ export function PayrollRunDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <BulkDownloadButton source="payslips" scopeId={run.id} label="Download payslips" />
           {run.status === "draft" && (
             <>
               <Button variant="outline" onClick={() => setFinalizeOpen(true)}>

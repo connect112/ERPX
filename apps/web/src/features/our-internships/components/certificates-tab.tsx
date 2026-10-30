@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { BulkDownloadButton } from "@/features/bulk-downloads/components/bulk-download-button";
 import { errorMessage } from "@/features/institutions/lib/format";
 import {
   type CertificateInfo,
@@ -186,6 +187,7 @@ export function CertificatesTab({ internshipId, canManage }: { internshipId: str
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold">Who gets which certificate</h2>
+          <BulkDownloadButton source="internship_certificates" scopeId={internshipId} label="Download issued certificates" />
           {canManage && (
             <Button
               disabled={eligibleTotal === 0}
