@@ -28,7 +28,9 @@ Two facts about this deployment that shape everything:
 1. The first scheduled off-server backup (03:30 UTC) is green: `SHA256SUMS` present, three files, manifest, timer active.
 2. `restore_verify.sh` has passed on a machine that is not production.
 3. Disk room for building images. A build can need 1 to 2 GB while the old image is still kept (images are not deleted).
-   With about 5 GB free, approve the four-dump cleanup (about 4.5 GB) first, or deploy while there is clearly more than 4 GB free.
+   With about 4 GB free, do the four-dump cleanup (about 4.45 GB) first, using `ops/offsite-backup/ssm/pentrix-op-delete-old-dumps.json`:
+   registered by the account owner, run once with `Mode=verify`, and only then with `Mode=delete` after the owner's separate approval.
+   See `ops/offsite-backup/ssm/README.md` for its gates, how records are handled, and the recovery assessment.
 4. Record the running image IDs (the read-only health document can print them) so every rollback below is a known target.
 5. Build one service at a time, `docker compose up -d --no-deps <service>`, and `docker builder prune -af` before each build,
    as in every earlier deploy on this host.
@@ -36,9 +38,10 @@ Two facts about this deployment that shape everything:
 ## Order
 
 **Step 1, #153 on the host (no application restart).** Copy the files to `/opt/backups/offsite/`, the four unit files to
-`/etc/systemd/system/`, `mkdir -p /opt/backups/offsite/status`, create `monitor.conf` (`ALERT_TO`), `systemctl daemon-reload`,
+`/etc/systemd/system/`, `mkdir -p /opt/backups/offsite/status`, create `monitor.conf` (`ALERT_TO=support@pentrix.in`), `systemctl daemon-reload`,
 enable `offsite-monitor.timer`, and replace `offsite_backup.sh` (adds the manifest step) with the new copy.
-Verify: run the monitor once and receive a test alert; the next 03:30 UTC run writes `manifest.json`.
+Verify: run the monitor once and receive a test alert at that address (check spam too: `pentrix.in`'s SPF record only lists
+GoDaddy while ERPX sends through Gmail, and its DMARC policy is `quarantine`, so alerts could be filtered); the next 03:30 UTC run writes `manifest.json`.
 Rollback: `systemctl disable --now offsite-monitor.timer` and put back the previous `offsite_backup.sh`.
 
 **Step 2, #151 + #152 together (one backend deploy, no migration).** Build and recreate `celery_worker`, then `celery_beat`,

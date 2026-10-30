@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "2.2",
+  "description": "READ-ONLY: off-server backup timer and last run, disk, container health, migration versions, audit_logs count. Changes nothing.",
+  "mainSteps": [
+    {
+      "action": "aws:runShellScript",
+      "name": "readOnlyChecks",
+      "inputs": {
+        "runCommand": [
+          "set -u",
+          "echo '== disk and memory =='; df -h / | tail -1; free -m | sed -n 2p",
+          "echo '== off-server backup timer =='; systemctl is-active offsite-backup.timer; systemctl list-timers offsite-backup.timer --no-pager | head -3",
+          "echo '== last runs of the backup service =='; systemctl show offsite-backup.service -p Result -p ExecMainStatus -p ExecMainExitTimestamp; journalctl -u offsite-backup.service --no-pager -n 12 | cut -c1-170",
+          "echo '== last_status.json =='; cat /opt/backups/offsite/last_status.json",
+          "echo '== containers =='; docker ps --format '{{.Names}} {{.Status}}' | sort",
+          "echo '== migration versions and row counts for the audit comparison =='",
+          "docker exec shared_postgres psql -U postgres -d erpx -tA -c \"select 'erpx ' || version_num || ' audit_logs=' || (select count(*) from audit_logs) from alembic_version\"",
+          "docker exec shared_postgres psql -U postgres -d pentrix -tA -c \"select 'pentrix ' || version_num from alembic_version\"",
+          "echo '== in-app backup jobs, newest first =='",
+          "docker exec shared_postgres psql -U postgres -d erpx -tA -F ' | ' -c \"select started_at, status, size_bytes from backup_jobs order by started_at desc limit 5\""
+        ],
+        "timeoutSeconds": "1800"
+      }
+    }
+  ]
+}

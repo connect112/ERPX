@@ -1,0 +1,74 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadOnlyOnTheBackupBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetBucketLocation",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketVersioning",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPolicyStatus"
+      ],
+      "Resource": "arn:aws:s3:::pentrix-erpx-backups-373384939117"
+    },
+    {
+      "Sid": "ReadBackupObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::pentrix-erpx-backups-373384939117/*"
+    },
+    {
+      "Sid": "ReadTheOneSharedRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::373384939117:role/pentrix-erpx-ec2-ssm-role"
+    },
+    {
+      "Sid": "SimulateAPolicyWithoutChangingAnything",
+      "Effect": "Allow",
+      "Action": "iam:SimulateCustomPolicy",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadEc2Facts",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstances",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeIamInstanceProfileAssociations"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadOwnAttachments",
+      "Effect": "Allow",
+      "Action": "iam:ListAttachedUserPolicies",
+      "Resource": "arn:aws:iam::373384939117:user/pentrix-ops-readonly"
+    },
+    {
+      "Sid": "DropShellAccessWhenDone",
+      "Effect": "Allow",
+      "Action": "iam:DetachUserPolicy",
+      "Resource": "arn:aws:iam::373384939117:user/pentrix-ops-readonly",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::373384939117:policy/pentrix-ro-ssm-fixed-documents"
+        }
+      }
+    }
+  ]
+}

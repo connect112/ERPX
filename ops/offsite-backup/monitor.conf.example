@@ -1,5 +1,5 @@
 # Copy to /opt/backups/offsite/monitor.conf (not committed). No secrets belong here.
-ALERT_TO=ops@example.com
+ALERT_TO=support@pentrix.in
 DISK_WARN_PCT=80
 DISK_CRIT_PCT=90
 DISK_MIN_FREE_GB=2
