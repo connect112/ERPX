@@ -56,10 +56,6 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
    in the adapter, manual refunds confirmed by finance; never delete payments.
 3. **G (rest)** completion and payment-confirmation emails, bulk exports (CSV of the board/payments), Bulk Download
    source for onboarding documents (reuse `modules/bulk_exports`).
-2b. (old plan) **F** (numbering, PDF, private storage, email, idempotent), refunds (ledger + Cashfree refund API),
-   cancellations.
-3. **G** reminders (7/3/1 days, configurable, deduplicated), bulk actions, automatic LMS grant on eligibility (reuse
-   `OnboardingService.grant`), completion email.
 4. **H** E2E in the browser, release and rollback scripts for the approved merge commit (`0098`/`0099` downgrade).
 
 ## Blockers and owner decisions
