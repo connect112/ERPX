@@ -525,7 +525,19 @@ class RefundService(PaymentService):
         return refund
 
     async def _confirm(self, refund: PaymentTransaction, application: OnboardingApplication, user_id: uuid.UUID | None) -> None:
+        """A refund finance agreed to also lowers what the student owes, except the part that only returns an overpayment;
+        otherwise the student would be asked to pay the refunded money again."""
+        internship = await self.db.get(OurInternship, application.internship_id)
+        before = await self._totals(application, internship)
+        overpaid = max(Decimal("0"), before.paid - before.refunded - before.payable)
+        adjustment = fee_maths.q(max(Decimal("0"), refund.amount - overpaid))
         refund.status, refund.verified_at, refund.verified_by_user_id = "confirmed", now(), user_id
+        if adjustment > 0:
+            self.db.add(PaymentTransaction(
+                organization_id=refund.organization_id, application_id=refund.application_id, kind="waiver", amount=adjustment,
+                currency=refund.currency, status="confirmed", note="refund_adjustment", refund_of_id=refund.refund_of_id,
+                created_by_user_id=user_id,
+            ))  # fmt: skip
         await self.db.flush()
         await event(self.db, application, "refund_completed", actor="staff" if user_id else "system", user_id=user_id, amount=str(refund.amount))
         await issue_safely(self.db, refund)

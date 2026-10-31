@@ -109,10 +109,10 @@ def payment_status(f: Facts) -> str:
             return "refunded"
         return "not_required"
     net = f.paid - f.refunded
+    if net >= f.payable:
+        return "partially_refunded" if f.refunded > 0 else "paid"
     if f.refunded > 0:
         return "refunded" if net <= 0 else "partially_refunded"
-    if net >= f.payable:
-        return "paid"
     if f.awaiting_manual:
         return "awaiting_manual_verification"
     if net > 0:
@@ -125,7 +125,12 @@ def payment_status(f: Facts) -> str:
 
 
 def payment_satisfied(f: Facts) -> bool:
-    return payment_status(f) in ("paid", "not_required")
+    """What is owed is covered by what was received and kept (a refund agreed by finance also lowers what is owed)."""
+    if f.manual_payment == "paid" and f.paid == 0:
+        return True
+    if not f.require_payment or f.payable <= 0:
+        return True
+    return f.paid - f.refunded >= f.payable
 
 
 def payment_open(f: Facts) -> bool:

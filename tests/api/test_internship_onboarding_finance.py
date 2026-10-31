@@ -94,6 +94,9 @@ async def test_a_manual_refund_waits_for_the_transfer_and_issues_a_credit_note(c
     assert original.status == "confirmed" and original.amount == Decimal("5000.00")  # the payment itself is never changed
     view = (await client.get(PUBLIC, headers=tok(token))).json()
     assert view["statuses"]["payment"] == "partially_refunded" and len(view["financial_documents"]) == 2
+    # an agreed refund lowers what is owed: the student is not asked to pay it again
+    assert view["payment"]["balance"] == "0.00" and view["payment"]["open"] is False
+    assert view["payment"]["payable"] == "3000.00" and view["statuses"]["overall"] != "awaiting_payment"
 
 
 async def test_an_online_refund_goes_through_the_gateway_and_confirms_on_its_notification(client, auth_headers, db_session, organization, storage, gateway):

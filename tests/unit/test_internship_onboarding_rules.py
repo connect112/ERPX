@@ -154,6 +154,9 @@ def test_payment_is_paid_only_when_the_confirmed_total_covers_what_is_payable():
     assert state.payment_status(facts(**base, paid=Decimal("5000"), refunded=Decimal("1000"))) == "partially_refunded"
     assert state.payment_status(facts(**base, last_attempt_failed=True)) == "failed"
     assert state.payment_status(facts(require_payment=False)) == "not_required"
+    # a refund that also lowered what is owed (payable 4000 after a 1000 adjustment) still covers it
+    agreed = facts(require_payment=True, payable=Decimal("4000"), paid=Decimal("5000"), refunded=Decimal("1000"))
+    assert state.payment_status(agreed) == "partially_refunded" and state.payment_satisfied(agreed)
 
 
 def test_completed_needs_acceptance_documents_and_payment():
