@@ -8,6 +8,7 @@ import { onboardingFlowApi } from "@/features/internship-onboarding/api";
 import { PaymentsQueue } from "@/features/internship-onboarding/components/payments-queue";
 import { SettingsEditor } from "@/features/internship-onboarding/components/settings-editor";
 import { StudentsBoard } from "@/features/internship-onboarding/components/students-board";
+import { TemplatesManager } from "@/features/internship-onboarding/components/templates-manager";
 
 /** Automated onboarding, above the existing manual tools (which keep working whatever is chosen here). */
 export function OnboardingFlowPanel({ internshipId, canManage }: { internshipId: string; canManage: boolean }) {
@@ -34,6 +35,7 @@ export function OnboardingFlowPanel({ internshipId, canManage }: { internshipId:
               <TabsTrigger value="students">Students</TabsTrigger>
               <TabsTrigger value="payments">Payment checks</TabsTrigger>
               {canManage && <TabsTrigger value="settings">Settings</TabsTrigger>}
+              {canManage && <TabsTrigger value="templates">Templates</TabsTrigger>}
             </TabsList>
             <TabsContent value="students">
               <StudentsBoard internshipId={internshipId} timezone={config.data.settings.deadlines.timezone} canManage={canManage && !manual} />
@@ -41,6 +43,11 @@ export function OnboardingFlowPanel({ internshipId, canManage }: { internshipId:
             <TabsContent value="payments">
               <PaymentsQueue internshipId={internshipId} />
             </TabsContent>
+            {canManage && (
+              <TabsContent value="templates">
+                <TemplatesManager />
+              </TabsContent>
+            )}
             {canManage && (
               <TabsContent value="settings">
                 <SettingsEditor internshipId={internshipId} view={config.data} />
