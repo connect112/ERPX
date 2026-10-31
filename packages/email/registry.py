@@ -262,6 +262,52 @@ TEMPLATES: tuple[TemplateDef, ...] = (
         required=("onboarding_link",),
     ),
     TemplateDef(
+        key="internship_onboarding_receipt",
+        name="Internship payment receipt",
+        category="Internships",
+        description="Carries the receipt, tax invoice or credit note (attached as a PDF) for an internship payment or refund.",
+        when_sent="When a payment or refund is confirmed and invoice emails are on for the internship.",
+        subject="{{document_title}} {{document_number}} - {{internship_name}}",
+        body=(
+            "# Hello {{student_name}}\n\n"
+            "Your {{document_title}} {{document_number}} for {{amount}} is attached "
+            "(application {{application_reference}}).\n\n"
+            "> Keep it for your records."
+        ),
+        variables=(
+            _NAME,
+            Variable("student_name", "The student's full name", "Asha Rao"),
+            Variable("internship_name", "The internship programme", "Pentrix Cyber Internship"),
+            Variable("document_title", "Payment Receipt, Tax Invoice or Credit Note", "Payment Receipt"),
+            Variable("document_number", "The document number", "RCPT-2026-000001"),
+            Variable("amount", "The amount", "INR 5,900.00"),
+            Variable("application_reference", "The student's application reference", "ERPX-INT-2026-000001"),
+        ),
+        has_attachment=True,
+    ),
+    TemplateDef(
+        key="internship_onboarding_completed",
+        name="Internship onboarding complete",
+        category="Internships",
+        description="Congratulates a student whose onboarding is complete and tells them what happens next.",
+        when_sent="Once, when every onboarding requirement of a student is met.",
+        subject="You're onboarded - {{internship_name}}",
+        body=(
+            "# Congratulations, {{student_name}}!\n\n"
+            "Your onboarding for {{internship_name}} is complete (application {{application_reference}}).\n\n"
+            "{{next_steps}}\n\n"
+            "[See your onboarding page]({{onboarding_link}})"
+        ),
+        variables=(
+            _NAME,
+            Variable("student_name", "The student's full name", "Asha Rao"),
+            Variable("internship_name", "The internship programme", "Pentrix Cyber Internship"),
+            Variable("application_reference", "The student's application reference", "ERPX-INT-2026-000001"),
+            Variable("next_steps", "The next steps written in the onboarding settings", "Orientation is on Monday at 10 AM."),
+            Variable("onboarding_link", "A fresh link to the student's onboarding page", "https://erp.example.com/internship-onboarding#t=..."),
+        ),
+    ),
+    TemplateDef(
         key="internship_welcome",
         name="Internship welcome (LMS access)",
         category="Internships",
