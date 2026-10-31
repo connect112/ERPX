@@ -39,7 +39,7 @@ Not present anywhere: student-facing onboarding, onboarding links, per-internshi
 | 13 | Reminders, bulk actions, completion page, WhatsApp, auto LMS | bulk status update, LMS grant | scheduled reminders, eligibility automation | Celery beat, `OnboardingService.grant` | new tasks | spam, duplicate grants | P2 |
 | 14 | Templates (reusable onboarding setups) | none | versioned templates applied to internships | config schema | new | silent changes to accepted terms | P1 |
 | 15 | Installments | none | schedule + balance | ledger | later | partial = paid mistakes | P3 (off by default) |
-| 16 | Malware scanning | none anywhere | scanner service | | needs ClamAV container (owner) | infected uploads | P2 (owner decision) |
+| 16 | Malware scanning | none anywhere | scanner service | | optional clamd client built, off by default (`CLAMAV_ENABLED`); needs a ClamAV service (owner) | infected uploads | P2 (owner decision) |
 
 ## 3. Architecture
 
@@ -84,8 +84,14 @@ Aadhaar is **not** a default requirement (configurable, with an "alternative ID 
 hooks with document bytes never stored in rows; payment-account details editable only with finance permission; gateway
 secrets only from the environment (`CASHFREE_*`), never in the database, API responses or logs.
 
-Owner decisions: malware scanning service (ClamAV), whether internship fees post into the accounting ledger, GST/tax
-registration details for invoices, refund policy text, data-retention periods for identity documents.
+Decided by the owner: INR 2,000 default fee; GIR Technologies as the default issuer (no GSTIN or tax details assumed,
+so receipts, not tax invoices); document approval by authorized administrators; payment timing and LMS access per
+internship; Cashfree off until merchant configuration and sandbox acceptance.
+
+Still open (configurable, nothing assumed): refund policy wording (`policies.refund_policy`), identity-document
+retention (`policies.identity_document_retention_days`, display only), GST details, running a ClamAV service, posting
+fees into the accounting ledger. Manual shortcuts that set "paid"/"verified" need the finance/reviewer permission once
+an internship uses self-service onboarding. Readiness matrix: `docs/INTERN_ONBOARDING_PROGRESS.md`.
 
 ## 5. Phases and status
 
@@ -97,7 +103,8 @@ registration details for invoices, refund policy text, data-retention periods fo
 | D | Review queue, reopen, dashboard, events, permissions | done |
 | E | Ledger, bank/UPI, Cashfree adapter, late fees | done; Cashfree not yet sandbox-verified (blocked host) |
 | F | Receipts/invoices/credit notes, refunds, cancellation | done |
-| G | Reminders, CSV/bulk exports, completion email, WhatsApp, automatic LMS, templates UI | done (installments: off, not built) |
+| G | Reminders, CSV/bulk exports, completion email, WhatsApp, automatic LMS, templates UI | done (installments: deferred, not built) |
+| Hardening | Owner defaults, refund/claim race guards, manual-shortcut permissions, policies, optional ClamAV | done; see readiness matrix |
 | H | Release and rollback scripts, browser E2E | done locally; sandbox E2E pending |
 
 Each PR states what was verified and what was not.
