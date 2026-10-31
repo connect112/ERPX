@@ -60,6 +60,20 @@ def enqueue_letter_emails(letter_ids: list[uuid.UUID]) -> None:
         send_letter_task.apply_async(args=[str(letter_id)], countdown=position * _STAGGER_SECONDS)
 
 
+async def _onboarding_values(db, internship: OurInternship, selection: InternshipSelection | None) -> dict[str, str]:
+    """The onboarding link and fee placeholders (a fresh link per email). A problem there never stops the letter."""
+    from modules.internship_onboarding.emails import EMPTY, onboarding_values
+
+    if selection is None:
+        return dict(EMPTY)
+    try:
+        async with db.begin_nested():
+            return await onboarding_values(db, internship, selection)
+    except Exception:  # noqa: BLE001 - the letter is still sent, without a link
+        logger.warning("offer_letter_onboarding_values_failed", selection_id=str(selection.id), exc_info=True)
+        return dict(EMPTY)
+
+
 async def _send_letter(letter_id: uuid.UUID) -> bool:
     """Email one released letter. True when there is nothing more to do (sent, or no longer wanted); False to try again."""
     async with get_db_context() as db:
@@ -84,6 +98,7 @@ async def _send_letter(letter_id: uuid.UUID) -> bool:
                 if institution is not None:
                     facts = facts_of(student, institution)
             values = service.email_values(loaded.config, facts, internship.title, letter.reference, letter.generated_at)
+            values.update(await _onboarding_values(db, internship, selection))
             subject, text, html, note = await service.render_offer_email(internship, loaded.config, values)
             note.sent_by_user_id = letter.released_by_user_id
             set_send_meta(note)  # so the history shows the template and version that made this email

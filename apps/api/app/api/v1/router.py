@@ -26,6 +26,9 @@ from modules.authentication.routes import router as auth_router
 from modules.backups.routes import router as backups_router
 from modules.storage_manager.routes import router as storage_manager_router
 from modules.bulk_exports.routes import router as bulk_exports_router
+from modules.internship_onboarding.routes import public_router as internship_onboarding_public_router
+from modules.internship_onboarding.routes import router as internship_onboarding_router
+from modules.internship_onboarding.routes import templates_router as internship_onboarding_templates_router
 from modules.authorization.routes import router as authorization_router
 from modules.batches.routes import router as batches_router
 from modules.branches.routes import router as branches_router
@@ -126,6 +129,9 @@ api_router.include_router(audit_router, prefix="/audit", tags=["Audit"])
 api_router.include_router(backups_router, prefix="/backups", tags=["Backups"])
 api_router.include_router(storage_manager_router, prefix="/storage-manager", tags=["Storage Manager"])
 api_router.include_router(bulk_exports_router, prefix="/bulk-exports", tags=["Bulk downloads"])
+api_router.include_router(internship_onboarding_router, prefix="/our-internships", tags=["Internship onboarding"])
+api_router.include_router(internship_onboarding_templates_router, prefix="/internship-onboarding-templates", tags=["Internship onboarding"])
+api_router.include_router(internship_onboarding_public_router, prefix="/public", tags=["Internship onboarding (public)"])
 api_router.include_router(integrations_router, prefix="/integrations", tags=["Integrations"])
 api_router.include_router(documents_router, prefix="/documents", tags=["Documents"])
 api_router.include_router(trainers_router, prefix="/trainers", tags=["Trainers"])

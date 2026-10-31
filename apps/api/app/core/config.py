@@ -102,6 +102,24 @@ class Settings(BaseSettings):
     BULK_EXPORT_MAX_ACTIVE_PER_USER: int = 3
     # A job stops cleanly after this long, well before Celery's 30-minute hard limit would kill it mid-way.
     BULK_EXPORT_MAX_SECONDS: int = 20 * 60
+    # Internship onboarding payments through Cashfree (modules/internship_onboarding/providers). Off unless enabled.
+    # Credentials come from the environment only; they are never stored in the database or returned by the API.
+    # Production needs CASHFREE_ALLOW_PRODUCTION as well, so a sandbox setup can never take real money by mistake.
+    CASHFREE_ENABLED: bool = False
+    CASHFREE_ENV: str = "sandbox"
+    CASHFREE_ALLOW_PRODUCTION: bool = False
+    CASHFREE_APP_ID: str = ""
+    CASHFREE_SECRET_KEY: str = ""
+    CASHFREE_API_VERSION: str = "2023-08-01"
+    CASHFREE_ORDER_MINUTES: int = 30
+    # Notifications older than this (by their signed timestamp) are refused; retries within it are deduplicated.
+    CASHFREE_WEBHOOK_MAX_AGE_HOURS: int = 72
+    # Optional virus scanning of onboarding uploads through a ClamAV daemon (clamd). Off unless enabled; when on, an
+    # unreachable scanner refuses uploads instead of storing unscanned files. No ClamAV service is part of the stack yet.
+    CLAMAV_ENABLED: bool = False
+    CLAMAV_HOST: str = "clamav"
+    CLAMAV_PORT: int = 3310
+    CLAMAV_TIMEOUT_SECONDS: int = 30
 
     # ---- Search ----
     ELASTICSEARCH_URL: str = "http://elasticsearch:9200"

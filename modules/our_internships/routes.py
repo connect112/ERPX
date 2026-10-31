@@ -408,9 +408,13 @@ async def update_onboarding(
     db: AsyncSession = Depends(get_db),
 ):
     """Record the student's answer to the offer, the result of verification, or that payment was received."""
+    from modules.internship_onboarding.service import guard_manual_override
+
     service = OurInternshipService(db)
     internship = await service.get(internship_id, organization_id)
-    await OnboardingService(db).update_one(internship, student_id, user.id, payload.model_dump(exclude_unset=True))
+    fields = payload.model_dump(exclude_unset=True)
+    await guard_manual_override(db, internship, user, fields)
+    await OnboardingService(db).update_one(internship, student_id, user.id, fields)
     return await _one(service, internship, student_id)
 
 
@@ -427,6 +431,9 @@ async def update_onboarding_bulk(
     internship = await service.get(internship_id, organization_id)
     fields = payload.model_dump(exclude_unset=True, exclude={"student_ids"})
     fields = {k: v for k, v in fields.items() if v is not None}
+    from modules.internship_onboarding.service import guard_manual_override
+
+    await guard_manual_override(db, internship, user, fields)
     changed, problems = await OnboardingService(db).update_many(internship, payload.student_ids, user.id, fields)
     return BulkOnboardingResponse(changed=changed, problems=problems)
 

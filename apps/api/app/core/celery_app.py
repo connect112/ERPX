@@ -180,6 +180,16 @@ celery_app.conf.beat_schedule = {
         "task": "bulk_exports.cleanup",
         "schedule": crontab(minute="*/30"),
     },
+    # Internship onboarding: ask Cashfree about orders still open (a notification may have been lost). No-op unless enabled.
+    # Internship onboarding: completions missed, automatic LMS grants to retry, and deadline reminders (each once).
+    "internship-onboarding-sweep": {
+        "task": "internship_onboarding.sweep",
+        "schedule": crontab(minute="7,37"),
+    },
+    "internship-onboarding-reconcile-payments": {
+        "task": "internship_onboarding.reconcile_payments",
+        "schedule": crontab(minute="*/15"),
+    },
 }
 
 
@@ -211,5 +221,6 @@ celery_app.autodiscover_tasks(
         "modules.pentrix_ops",
         "modules.social_media",
         "modules.bulk_exports",
+        "modules.internship_onboarding",
     ]
 )

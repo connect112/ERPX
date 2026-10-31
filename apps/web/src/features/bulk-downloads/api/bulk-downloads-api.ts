@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/api/client";
 
 /** The kinds of documents the server can bulk-download (modules/bulk_exports/sources). */
-export type BulkSource = "exam_certificates" | "internship_certificates" | "offer_letters" | "payslips" | "documents";
+export type BulkSource = "exam_certificates" | "internship_certificates" | "offer_letters" | "payslips" | "documents" | "onboarding_documents";
 
 export interface Placeholder {
   key: string;
