@@ -78,8 +78,9 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
 
 ## Tests run (latest)
 
-- Backend: onboarding rule tests 41, API tests 16 (core) + 15 (payments, completion, reminders) + 8 (finance, bulk
-  download source); with offer letters, our internships, email templates/Studio and bulk exports: all pass.
+- Backend: onboarding rule tests 40, API tests 13 (core) + 15 (payments, completion, reminders) + 8 (finance, bulk
+  download source) = 76 passed; regression (bulk exports, offer letters, our internships, internship offers, email
+  templates and Studio, RBAC, bulk filenames) 169 passed.
 - Migrations `0098`-`0100`: upgrade, downgrade to `0097`, re-upgrade; no drift against the models; rollback with data
   keeps Storage Manager and Bulk Download rows byte-identical.
 - Web: `tsc -b`, `eslint`, `vitest` 193 passed.
