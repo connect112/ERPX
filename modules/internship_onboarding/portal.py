@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from modules.institutions.models import Institution, InstitutionStudent
 from modules.internship_onboarding import fees as fee_maths
+from modules.internship_onboarding.scan import scan
 from modules.internship_onboarding import forms, ledger, state
 from modules.internship_onboarding.config import OnboardingConfig
 from modules.internship_onboarding.models import OnboardingApplication, OnboardingDocument
@@ -168,9 +169,10 @@ class PortalService:
                 }
                 for r in cfg.documents
             ] if cfg.modes.require_documents else [],
+            "identity_document_retention_days": cfg.policies.identity_document_retention_days,
             "acceptance": {
                 "declaration": cfg.declaration.text, "terms_version": cfg.declaration.terms_version,
-                "terms_url": cfg.declaration.terms_url,
+                "terms_url": cfg.declaration.terms_url, "refund_policy": cfg.policies.refund_policy or None,
                 "fees": app.fee_snapshot or (fee_maths.snapshot(cfg.fees) if cfg.modes.require_payment else None),
                 "accepted_at": app.accepted_at, "declined_at": app.declined_at,
             },
@@ -179,7 +181,8 @@ class PortalService:
                 "open": payment_open,
                 "payable": str(totals.payable), "paid": str(totals.paid - totals.refunded), "balance": str(totals.balance),
                 "currency": cfg.fees.currency,
-                "methods": cfg.fees.methods if payment_open else [],
+                # Cashfree is offered only while it is enabled for the installation, never as a button that cannot work.
+                "methods": [m for m in cfg.fees.methods if m != "cashfree" or settings.CASHFREE_ENABLED] if payment_open else [],
                 "bank": cfg.payment_accounts.bank.model_dump() if payment_open and cfg.payment_accounts.bank and "bank_transfer" in cfg.fees.methods else None,
                 "upi": cfg.payment_accounts.upi.model_dump() if payment_open and cfg.payment_accounts.upi and "upi" in cfg.fees.methods else None,
                 "deadline": pay_until,
@@ -266,6 +269,7 @@ class PortalService:
         if kind is None or kind not in requirement.types:
             allowed = ", ".join(t.upper() for t in requirement.types)
             raise ValidationError(f"Upload a {allowed} file. The file's contents do not match an allowed type.")
+        scanned = await scan(data, "document")
         await self.db.execute(select(OnboardingApplication.id).where(OnboardingApplication.id == ctx.application.id).with_for_update())
         versions = (
             await self.db.execute(
@@ -288,6 +292,7 @@ class PortalService:
             organization_id=ctx.application.organization_id, application_id=ctx.application.id, requirement_key=key,
             version=version, filename=name[:160], content_type=CONTENT_TYPES[kind], size_bytes=len(data),
             sha256=hashlib.sha256(data).hexdigest(), storage_key=storage_key, status="submitted",
+            scan_status=scanned,
         )
         self.db.add(document)
         self._touch(ctx, "documents")
@@ -319,7 +324,8 @@ class PortalService:
         ctx.selection.offer_response_at = t
         app.accepted_at, app.declined_at, app.decline_reason = t, None, None
         app.terms_version = cfg.declaration.terms_version
-        app.declaration_text = cfg.declaration.text
+        # what the student agreed to, word for word: the declaration and the refund policy shown with it
+        app.declaration_text = cfg.declaration.text + (f"\n\nRefund policy:\n{cfg.policies.refund_policy}" if cfg.policies.refund_policy else "")
         app.config_version = record.version if record else 0
         app.fee_snapshot = snapshot
         # enough to recognise the device later, without keeping the raw address

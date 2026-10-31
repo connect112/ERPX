@@ -82,8 +82,9 @@ async def test_a_manual_refund_waits_for_the_transfer_and_issues_a_credit_note(c
     r = await client.post(url, json={"amount": "2000", "reason": "Partial withdrawal"}, headers=auth_headers)
     assert r.status_code == 201 and r.json()["status"] == "awaiting_verification"
     refund_id = r.json()["id"]
-    # what is still being refunded counts: only 3000 more can be asked for
-    assert (await client.post(url, json={"amount": "3500", "reason": "again"}, headers=auth_headers)).status_code in (400, 422)
+    # one refund of a payment at a time: a repeated or second request waits until this one is confirmed or cancelled
+    again = await client.post(url, json={"amount": "500", "reason": "again"}, headers=auth_headers)
+    assert again.status_code == 409 and "in progress" in again.json()["error"]["message"]
     decide = f"{BASE}/{internship.id}/onboarding-flow/refunds/{refund_id}/decide"
     assert (await client.post(decide, json={"approve": True}, headers=auth_headers)).status_code in (400, 422)  # needs the transfer reference
     assert (await client.post(decide, json={"approve": True, "reference": "NEFT-REF-1"}, headers=auth_headers)).json()["status"] == "confirmed"
@@ -97,6 +98,8 @@ async def test_a_manual_refund_waits_for_the_transfer_and_issues_a_credit_note(c
     # an agreed refund lowers what is owed: the student is not asked to pay it again
     assert view["payment"]["balance"] == "0.00" and view["payment"]["open"] is False
     assert view["payment"]["payable"] == "3000.00" and view["statuses"]["overall"] != "awaiting_payment"
+    # what was refunded counts: only 3000 more can be asked for
+    assert (await client.post(url, json={"amount": "3500", "reason": "again"}, headers=auth_headers)).status_code in (400, 422)
 
 
 async def test_an_online_refund_goes_through_the_gateway_and_confirms_on_its_notification(client, auth_headers, db_session, organization, storage, gateway):

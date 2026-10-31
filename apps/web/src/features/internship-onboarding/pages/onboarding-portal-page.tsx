@@ -243,6 +243,11 @@ export function OnboardingPortalPage() {
 
       {v.documents.length > 0 && (
         <Step title="3. Documents" done={v.statuses.documents === "verified"}>
+          {v.identity_document_retention_days && v.documents.some((d) => d.sensitive) && (
+            <p className="text-xs text-muted-foreground">
+              Identity documents are kept for {v.identity_document_retention_days} days after your onboarding ends.
+            </p>
+          )}
           {v.documents.map((d) => (
             <div key={d.key} className="space-y-1 rounded-md border p-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -307,8 +312,14 @@ export function OnboardingPortalPage() {
             {v.acceptance.terms_url && (
               <a className="text-sm underline" href={v.acceptance.terms_url} target="_blank" rel="noopener noreferrer">Read the full terms</a>
             )}
+            {v.acceptance.refund_policy && (
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Refund policy</p>
+                <p className="whitespace-pre-line rounded-md bg-muted p-3 text-sm">{v.acceptance.refund_policy}</p>
+              </div>
+            )}
             <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={declared} disabled={!editable} onChange={(e) => setDeclared(e.target.checked)} />I have read and agree to the declaration above.
+              <input type="checkbox" className="mt-1" checked={declared} disabled={!editable} onChange={(e) => setDeclared(e.target.checked)} />I have read and agree to the declaration{v.acceptance.refund_policy ? " and refund policy" : ""} above.
             </label>
             <div className="flex flex-wrap gap-2">
               <Button disabled={!declared || !editable || busy !== null} onClick={() => void run("accept", async () => {

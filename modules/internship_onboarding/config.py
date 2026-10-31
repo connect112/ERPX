@@ -75,7 +75,7 @@ class LateFee(_Strict):
 
 class Fees(_Strict):
     currency: Literal["INR"] = "INR"
-    base_amount: Money = Decimal("0")
+    base_amount: Money = Decimal("2000")  # owner decision: INR 2,000 unless set per internship
     description: str = Field(default="Internship programme fee", max_length=200)
     # none: no tax shown; inclusive: the base already includes it; exclusive: added on top.
     tax_mode: Literal["none", "inclusive", "exclusive"] = "none"
@@ -244,11 +244,22 @@ class PaymentAccounts(_Strict):
 class Issuer(_Strict):
     """Who issues receipts and invoices. A tax invoice needs a GSTIN; without one, documents are payment receipts."""
 
-    legal_name: str = Field(default="", max_length=200)
+    # Owner decision: GIR Technologies issues receipts unless set otherwise. No address, GSTIN or tax details are assumed.
+    legal_name: str = Field(default="GIR Technologies", max_length=200)
     address: str = Field(default="", max_length=500)
     gstin: str | None = Field(default=None, pattern=r"^[0-9]{2}[A-Z0-9]{10}[0-9A-Z]{3}$")
     receipt_prefix: str = Field(default="RCPT", pattern=r"^[A-Z][A-Z0-9-]{1,11}$")
     footer: str = Field(default="", max_length=500)
+
+
+class Policies(_Strict):
+    """Wording and periods the organization decides. Nothing is assumed: empty means not shown, None means not set."""
+
+    # Shown to the student before they accept, and kept with their acceptance.
+    refund_policy: str = Field(default="", max_length=4000)
+    # How long identity documents are kept after onboarding ends. Shown to students and staff; files are not deleted
+    # automatically (deleting is a staff decision until automatic removal is approved).
+    identity_document_retention_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class Communication(_Strict):
@@ -290,6 +301,7 @@ class OnboardingConfig(_Strict):
     payment_accounts: PaymentAccounts = PaymentAccounts()
     communication: Communication = Communication()
     issuer: Issuer = Issuer()
+    policies: Policies = Policies()
     reference_prefix: str = Field(default="ERPX-INT", pattern=r"^[A-Z][A-Z0-9-]{1,19}$")
 
     @model_validator(mode="after")

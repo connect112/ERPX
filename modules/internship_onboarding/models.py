@@ -163,6 +163,8 @@ class OnboardingDocument(TimestampedBase):
     reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # not_scanned (no virus scanner configured) | clean (ClamAV found nothing). Infected files are never stored.
+    scan_status: Mapped[str] = mapped_column(String(20), default="not_scanned", server_default="not_scanned", nullable=False)
 
 
 class OnboardingEvent(TimestampedBase):
@@ -247,6 +249,7 @@ class PaymentTransaction(TimestampedBase):
     proof_filename: Mapped[str | None] = mapped_column(String(160), nullable=True)
     proof_content_type: Mapped[str | None] = mapped_column(String(60), nullable=True)
     proof_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    proof_scan_status: Mapped[str | None] = mapped_column(String(20), nullable=True)  # as OnboardingDocument.scan_status
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

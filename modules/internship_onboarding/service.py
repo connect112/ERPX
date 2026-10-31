@@ -93,6 +93,23 @@ async def event(
     ))  # fmt: skip
 
 
+_MANUAL_PAYMENT_FIELDS = {"payment_status", "payment_amount", "payment_reference", "payment_received_on"}
+_MANUAL_VERIFICATION_FIELDS = {"verification_status", "verification_note"}
+
+
+async def guard_manual_override(db: AsyncSession, internship: OurInternship, user: User, fields: dict) -> None:
+    """The staff-only onboarding tools set payment and verification by hand. Once students onboard themselves, those
+    shortcuts need the same permission as the flow they bypass (finance for payment, reviewer for documents);
+    internships still onboarded by staff alone keep working exactly as before."""
+    _, config = await config_of(db, internship)
+    if not config.modes.self_service:
+        return
+    if fields.keys() & _MANUAL_PAYMENT_FIELDS:
+        await require(db, user, FINANCE_MANAGE)
+    if fields.keys() & _MANUAL_VERIFICATION_FIELDS:
+        await require(db, user, REVIEW)
+
+
 async def config_of(db: AsyncSession, internship: OurInternship) -> tuple[OnboardingConfigRecord | None, OnboardingConfig]:
     record = (
         await db.execute(select(OnboardingConfigRecord).where(OnboardingConfigRecord.internship_id == internship.id))
@@ -152,6 +169,7 @@ class ConfigService:
             "template_version": record.template_version if record else None,
             "can_edit_finance": await has(self.db, user, FINANCE_MANAGE),
             "fee_preview": fee_maths.snapshot(config.fees),
+            "cashfree_available": settings.CASHFREE_ENABLED,
         }
 
     async def save(
@@ -161,6 +179,8 @@ class ConfigService:
         record, current = await config_of(self.db, internship)
         new = parse_config(data)
         before, after = dump(current), dump(new)
+        if "cashfree" in new.fees.methods and "cashfree" not in current.fees.methods and not settings.CASHFREE_ENABLED:
+            raise ValidationError("Online payment (Cashfree) is not set up for this ERPX installation. Use bank transfer or UPI.")
         if any(before[s] != after[s] for s in FINANCE_SECTIONS) and not await has(self.db, user, FINANCE_MANAGE):
             raise AuthorizationError(
                 f"Changing fees or payment accounts requires the following permission(s): {FINANCE_MANAGE}"
@@ -493,6 +513,9 @@ class ApplicationService:
             ).scalars().all()
         sensitive = {d.key for d in config.documents if d.sensitive}
         can_review = await has(self.db, user, REVIEW)
+        ended = application.completed_at or application.declined_at or application.cancelled_at
+        days = config.policies.identity_document_retention_days
+        keep_until = ended + timedelta(days=days) if ended and days else None
         return {
             "student": {"id": student.id, "name": student.name, "email": student.email, "phone": student.phone, "details": student.details},
             "reference": application.reference,
@@ -520,7 +543,8 @@ class ApplicationService:
                     "id": d.id, "key": d.requirement_key, "version": d.version, "status": d.status,
                     "filename": d.filename if (can_review or d.requirement_key not in sensitive) else "(restricted)",
                     "size_bytes": d.size_bytes, "uploaded_at": d.created_at, "review_note": d.review_note,
-                    "reviewed_at": d.reviewed_at, "sensitive": d.requirement_key in sensitive,
+                    "reviewed_at": d.reviewed_at, "sensitive": d.requirement_key in sensitive, "scan_status": d.scan_status,
+                    "keep_until": keep_until if d.requirement_key in sensitive else None,
                 }
                 for d in docs
             ],

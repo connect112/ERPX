@@ -38,6 +38,7 @@ from modules.internship_onboarding.models import (
 from modules.internship_onboarding.financial import issue_safely
 from modules.internship_onboarding.portal import CONTENT_TYPES, Context, sniff
 from modules.internship_onboarding.providers import ProviderError, get_provider
+from modules.internship_onboarding.scan import scan
 from modules.internship_onboarding.service import (
     FINANCE_MANAGE,
     FINANCE_VIEW,
@@ -122,6 +123,8 @@ class PaymentService:
 
         if method not in ctx.config.fees.methods:
             raise ValidationError("That payment method is not available for this internship.")
+        # One claim at a time per student: a double submit (two tabs, two UTRs) waits here and then sees the first.
+        await self.db.execute(select(OnboardingApplication.id).where(OnboardingApplication.id == ctx.application.id).with_for_update())
         totals = await self._payable_now(ctx)
         amount = fee_maths.q(amount)
         if amount != totals.balance:
@@ -136,12 +139,13 @@ class PaymentService:
         kind = sniff(proof)
         if kind is None:
             raise ValidationError("Attach the receipt as a PDF, JPG or PNG file.")
+        scanned = await scan(proof, "payment proof")
         key = f"onboarding/{ctx.application.organization_id}/{ctx.application.id}/payments/{uuid.uuid4().hex}.{kind}"
         claim = PaymentTransaction(
             organization_id=ctx.application.organization_id, application_id=ctx.application.id, kind="payment", method=method,
             amount=amount, currency=ctx.config.fees.currency, status="awaiting_verification", reference=reference.strip()[:120],
             reference_normalized=normalized[:120], paid_on=paid_on, proof_storage_key=key, proof_filename=f"payment-proof.{kind}",
-            proof_content_type=CONTENT_TYPES[kind], proof_sha256=hashlib.sha256(proof).hexdigest(),
+            proof_content_type=CONTENT_TYPES[kind], proof_sha256=hashlib.sha256(proof).hexdigest(), proof_scan_status=scanned,
             remarks=(remarks or "").strip()[:1000] or None,
         )  # fmt: skip
         try:
@@ -498,6 +502,17 @@ class RefundService(PaymentService):
             raise ConflictError("Only a confirmed payment can be refunded.")
         if not reason.strip():
             raise ValidationError("Give the reason for the refund.")
+        # The payment row is locked (``_transaction``), so a repeated or concurrent request waits and then sees this one.
+        open_refund = (
+            await self.db.execute(
+                select(PaymentTransaction.id).where(
+                    PaymentTransaction.refund_of_id == payment.id, PaymentTransaction.kind == "refund",
+                    PaymentTransaction.status.in_(("pending", "awaiting_verification")),
+                ).limit(1)
+            )
+        ).scalar_one_or_none()  # fmt: skip
+        if open_refund is not None:
+            raise ConflictError("A refund of this payment is already in progress. Confirm or cancel it first.")
         amount = fee_maths.q(amount)
         if amount <= 0 or amount > await self.refundable(payment):
             raise ValidationError(f"At most {payment.currency} {await self.refundable(payment)} of this payment can be refunded.")

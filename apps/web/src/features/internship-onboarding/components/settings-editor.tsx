@@ -179,11 +179,17 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
         </div>
         <Input aria-label="Fee description" disabled={!finance} value={s.fees.description} onChange={(e) => set("fees", { description: e.target.value })} />
         <div className="flex flex-wrap gap-4">
-          <Check label="Online (Cashfree)" disabled={!finance} checked={s.fees.methods.includes("cashfree")} onChange={(v) => toggleMethod("cashfree", v)} />
+          <Check
+            label={view.cashfree_available ? "Online (Cashfree)" : "Online (Cashfree): not set up"}
+            disabled={!finance || (!view.cashfree_available && !s.fees.methods.includes("cashfree"))}
+            checked={s.fees.methods.includes("cashfree")}
+            onChange={(v) => toggleMethod("cashfree", v)}
+          />
           <Check label="Bank transfer" disabled={!finance} checked={s.fees.methods.includes("bank_transfer")} onChange={(v) => toggleMethod("bank_transfer", v)} />
           <Check label="UPI" disabled={!finance} checked={s.fees.methods.includes("upi")} onChange={(v) => toggleMethod("upi", v)} />
         </div>
         <p className="text-xs text-muted-foreground">Saved fee: {money(view.fee_preview.total)} payable (tax {money(view.fee_preview.tax)}).</p>
+        <p className="text-xs text-muted-foreground">Installment plans are not available yet: students pay the full amount due.</p>
       </Section>
 
       {finance && (
@@ -212,7 +218,7 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
       {finance && (
         <Section title="Receipts and invoices" hint="Without a GSTIN, students get payment receipts. A tax invoice is issued only when a GSTIN and a tax treatment are set.">
           <div className="grid gap-2 sm:grid-cols-2">
-            <Input aria-label="Legal name" placeholder="Legal name (defaults to the organization name)" value={s.issuer.legal_name} onChange={(e) => set("issuer", { legal_name: e.target.value })} />
+            <Input aria-label="Legal name" placeholder="Legal name" value={s.issuer.legal_name} onChange={(e) => set("issuer", { legal_name: e.target.value })} />
             <Input aria-label="GSTIN" placeholder="GSTIN (optional)" value={s.issuer.gstin ?? ""} onChange={(e) => set("issuer", { gstin: e.target.value.toUpperCase() || null })} />
             <Input aria-label="Address" placeholder="Address" value={s.issuer.address} onChange={(e) => set("issuer", { address: e.target.value })} />
             <Input aria-label="Receipt number prefix" placeholder="RCPT" value={s.issuer.receipt_prefix} onChange={(e) => set("issuer", { receipt_prefix: e.target.value.toUpperCase() })} />
@@ -315,6 +321,16 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
         <div className="grid gap-2 sm:grid-cols-2">
           <Input aria-label="Terms version" value={s.declaration.terms_version} onChange={(e) => set("declaration", { terms_version: e.target.value })} />
           <Input aria-label="Terms link" placeholder="Link to the full terms (optional)" value={s.declaration.terms_url ?? ""} onChange={(e) => set("declaration", { terms_url: e.target.value || null })} />
+        </div>
+      </Section>
+
+      <Section title="Policies" hint="Your organization's own wording and periods; nothing is filled in for you.">
+        <Textarea aria-label="Refund policy" rows={3} placeholder="Refund policy shown to students before they accept (optional)" value={s.policies.refund_policy} onChange={(e) => set("policies", { refund_policy: e.target.value })} />
+        <div className="space-y-1.5">
+          <Label htmlFor="pol-retention">Keep identity documents for (days after onboarding ends)</Label>
+          <Input id="pol-retention" type="number" min={1} placeholder="Not set" value={s.policies.identity_document_retention_days ?? ""}
+            onChange={(e) => set("policies", { identity_document_retention_days: e.target.value ? Number(e.target.value) : null })} />
+          <p className="text-xs text-muted-foreground">Shown to students and on each identity document. Files are not deleted automatically.</p>
         </div>
       </Section>
 

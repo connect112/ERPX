@@ -75,6 +75,7 @@ export interface OnboardingSettings {
     next_steps: string;
   };
   issuer: { legal_name: string; address: string; gstin: string | null; receipt_prefix: string; footer: string };
+  policies: { refund_policy: string; identity_document_retention_days: number | null };
   reference_prefix: string;
 }
 
@@ -97,6 +98,7 @@ export interface ConfigView {
   template_version: number | null;
   can_edit_finance: boolean;
   fee_preview: Record<string, string>;
+  cashfree_available: boolean;
 }
 
 export interface BoardRow {
@@ -142,7 +144,7 @@ export interface StudentDetail {
   form_responses: Record<string, unknown>;
   acceptance: { accepted_at: string | null; declined_at: string | null; decline_reason: string | null; terms_version: string | null; fee_snapshot: Record<string, string> | null };
   reopened: { at: string | null; reason: string | null; until: string | null };
-  documents: { id: string; key: string; version: number; status: string; filename: string; size_bytes: number; uploaded_at: string; review_note: string | null; sensitive: boolean }[];
+  documents: { id: string; key: string; version: number; status: string; filename: string; size_bytes: number; uploaded_at: string; review_note: string | null; sensitive: boolean; scan_status: "not_scanned" | "clean"; keep_until: string | null }[];
   payments: LedgerRow[] | null;
   events: { at: string; actor: string; event: string; detail: Record<string, unknown> }[];
 }
@@ -239,7 +241,8 @@ export interface PortalView {
   };
   form: { fields: FormFieldDef[]; answers: Record<string, unknown> };
   documents: (DocumentDef & { status: string; filename: string | null; note: string | null })[];
-  acceptance: { declaration: string; terms_version: string; terms_url: string | null; fees: Record<string, string> | null; accepted_at: string | null; declined_at: string | null };
+  identity_document_retention_days: number | null;
+  acceptance: { declaration: string; terms_version: string; terms_url: string | null; refund_policy: string | null; fees: Record<string, string> | null; accepted_at: string | null; declined_at: string | null };
   payment: {
     required: boolean;
     open: boolean;

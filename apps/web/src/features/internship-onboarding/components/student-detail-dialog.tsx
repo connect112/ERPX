@@ -130,11 +130,17 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
                     <span className="text-muted-foreground">v{doc.version} · {doc.filename}</span>
                     <Badge variant={statusTone(doc.status)}>{statusLabel(doc.status)}</Badge>
                     {doc.sensitive && <Badge variant="outline">sensitive</Badge>}
+                    <Badge variant="outline">{doc.scan_status === "clean" ? "virus scan: clean" : "not virus-scanned"}</Badge>
                     <Button size="sm" variant="ghost" onClick={() => void preview(doc.id)} aria-label={`Preview ${doc.key} version ${doc.version}`}>
                       <Eye className="h-4 w-4" />
                     </Button>
                   </div>
                   {doc.review_note && <p className="mt-1 text-xs text-muted-foreground">Note: {doc.review_note}</p>}
+                  {doc.keep_until && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Retention period ends {new Date(doc.keep_until).toLocaleDateString()}; remove it then (not deleted automatically).
+                    </p>
+                  )}
                   {(doc.status === "submitted" || doc.status === "verified") && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Input
