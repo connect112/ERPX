@@ -47,7 +47,7 @@ async def test_cashfree_cannot_be_offered_while_it_is_not_set_up(client, auth_he
     assert view["cashfree_available"] is False and view["settings"]["issuer"]["legal_name"] == "GIR Technologies"
 
 
-async def test_the_refund_policy_is_shown_before_acceptance_and_kept_with_it(client, auth_headers, db_session, organization, storage):
+async def test_the_refund_policy_is_shown_before_acceptance_and_kept_with_it(client, auth_headers, db_session, organization, storage, scanner):
     internship, (s0, s1) = await world(db_session, organization)
     policy = "Synthetic policy text for the test."
     await configure(client, auth_headers, internship, documents=ID_DOCS,
@@ -58,16 +58,76 @@ async def test_the_refund_policy_is_shown_before_acceptance_and_kept_with_it(cli
     application = (await db_session.execute(select(OnboardingApplication).where(OnboardingApplication.accepted_at.is_not(None)))).scalar_one()
     assert application.declaration_text.endswith(f"Refund policy:\n{policy}")
 
-    # a student who leaves: their identity document shows when its retention period ends (nothing is deleted)
+    # a student who leaves: their identity document shows when its retention period ends
     other = await link(client, auth_headers, internship, s1)
     up = await client.post(f"{PUBLIC}/documents/id_proof", files={"file": ("id.pdf", PDF, "application/pdf")}, headers=tok(other))
     assert up.status_code == 201
     await client.post(f"{PUBLIC}/decline", json={}, headers=tok(other))
-    detail = (await client.get(f"{BASE}/{internship.id}/onboarding-flow/students/{s1.id}", headers=auth_headers)).json()
+    student = f"{BASE}/{internship.id}/onboarding-flow/students/{s1.id}"
+    detail = (await client.get(student, headers=auth_headers)).json()
     doc = next(d for d in detail["documents"] if d["key"] == "id_proof")
     declined = detail["acceptance"]["declined_at"]
-    assert doc["scan_status"] == "not_scanned" and doc["keep_until"][:10] == _plus_days(declined, 180)
-    assert len(storage.objects) >= 1  # still there: removal is a staff decision
+    assert doc["scan_status"] == "clean" and doc["keep_until"][:10] == _plus_days(declined, 180) and doc["removed_at"] is None
+
+    # nothing is deleted automatically, and not before the period ends
+    remove = f"{BASE}/{internship.id}/onboarding-flow/documents/{doc['id']}/remove-file"
+    assert (await client.post(remove, headers=auth_headers)).status_code == 409
+    board = f"{BASE}/{internship.id}/onboarding-flow/dashboard"
+    assert (await client.get(board, headers=auth_headers)).json()["identity_documents_due_for_removal"] == 0
+
+    # once it has ended, the overdue file is counted (never silent) and a reviewer removes it; the record stays
+    app_row = (await db_session.execute(select(OnboardingApplication).where(OnboardingApplication.declined_at.is_not(None)))).scalar_one()
+    app_row.declined_at = app_row.declined_at - timedelta(days=181)
+    await db_session.flush()
+    assert (await client.get(board, headers=auth_headers)).json()["identity_documents_due_for_removal"] == 1
+    from tests.api.test_storage_manager import admin_headers
+
+    manager = await admin_headers(db_session, organization, permissions=("our_internships.view", "our_internships.manage"))
+    assert (await client.post(remove, headers=manager)).status_code == 403
+    stored = (await db_session.execute(select(OnboardingDocument).where(OnboardingDocument.id == doc["id"]))).scalar_one()
+    assert stored.storage_key in storage.objects
+    assert (await client.post(remove, headers=auth_headers)).status_code == 200
+    assert stored.storage_key not in storage.objects
+    assert (await client.post(remove, headers=auth_headers)).status_code == 409
+    preview = f"{BASE}/{internship.id}/onboarding-flow/documents/{doc['id']}/preview"
+    assert (await client.get(preview, headers=auth_headers)).status_code == 409
+    assert (await client.get(board, headers=auth_headers)).json()["identity_documents_due_for_removal"] == 0
+    detail = (await client.get(student, headers=auth_headers)).json()
+    assert next(d for d in detail["documents"] if d["key"] == "id_proof")["removed_at"]
+    assert any(e["event"] == "identity_document_removed" for e in detail["events"])
+
+
+async def test_identity_documents_and_paid_consent_cannot_rest_on_missing_safeguards(client, auth_headers, db_session, organization, storage, monkeypatch):
+    internship, (s0,) = await world(db_session, organization, n=1)
+    url = f"{BASE}/{internship.id}/onboarding-flow/config"
+
+    async def save(**over):
+        return await client.put(url, json={"settings": settings(**over)}, headers=auth_headers)
+
+    with_retention = {"refund_policy": "Synthetic refund policy for tests.", "identity_document_retention_days": 90}
+    # no virus scanner: identity documents cannot be requested at all
+    r = await save(documents=ID_DOCS, policies=with_retention)
+    assert r.status_code in (400, 422) and "virus scanning" in r.text
+    # an Aadhaar requirement must be marked sensitive (so it falls under the rule above)
+    r = await save(documents=[{"key": "aadhaar", "label": "Aadhaar card"}])
+    assert r.status_code in (400, 422) and "sensitive" in r.text
+    # paid self-service onboarding needs the refund policy the student agrees to
+    r = await save(policies={"refund_policy": ""})
+    assert r.status_code in (400, 422) and "refund policy" in r.text
+    # with a scanner: identity documents still need a retention period
+    monkeypatch.setattr(app_settings, "CLAMAV_ENABLED", True)
+    r = await save(documents=ID_DOCS)
+    assert r.status_code in (400, 422) and "kept" in r.text
+    assert (await save(documents=ID_DOCS, policies=with_retention)).status_code == 200
+
+    # if the scanner is switched off later, identity uploads stop rather than going in unscanned
+    monkeypatch.setattr(app_settings, "CLAMAV_ENABLED", False)
+    token = await link(client, auth_headers, internship, s0)
+    view = (await client.get(PUBLIC, headers=tok(token))).json()
+    assert {d["key"]: d["accepting"] for d in view["documents"]} == {"college_id": True, "id_proof": False}
+    r = await client.post(f"{PUBLIC}/documents/id_proof", files={"file": ("id.pdf", PDF, "application/pdf")}, headers=tok(token))
+    assert r.status_code == 503
+    assert (await db_session.execute(select(func.count(OnboardingDocument.id)))).scalar() == 0 and storage.objects == {}
 
 
 async def ready_to_pay_with(client, headers, internship, student) -> str:

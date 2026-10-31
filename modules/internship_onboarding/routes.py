@@ -247,6 +247,19 @@ async def preview_document(
     return {"url": url}
 
 
+@router.post("/{internship_id}/onboarding-flow/documents/{document_id}/remove-file")
+async def remove_identity_file(
+    internship_id: uuid.UUID,
+    document_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an identity document's file after its retention period (reviewers only; the record stays)."""
+    document = await ApplicationService(db).remove_identity_file(await _internship(db, internship_id, organization_id), document_id, user)
+    return {"id": document.id, "removed_at": document.removed_at}
+
+
 @router.post("/{internship_id}/onboarding-flow/documents/{document_id}/review")
 async def review_document(
     internship_id: uuid.UUID,

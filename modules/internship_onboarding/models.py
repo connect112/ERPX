@@ -165,6 +165,9 @@ class OnboardingDocument(TimestampedBase):
     review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # not_scanned (no virus scanner configured) | clean (ClamAV found nothing). Infected files are never stored.
     scan_status: Mapped[str] = mapped_column(String(20), default="not_scanned", server_default="not_scanned", nullable=False)
+    # Identity-document files are removed by a reviewer once their retention period ends; the row stays as the record.
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    removed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class OnboardingEvent(TimestampedBase):

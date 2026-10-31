@@ -258,7 +258,8 @@ export function OnboardingPortalPage() {
               {d.instructions && <p className="text-xs text-muted-foreground">{d.instructions}</p>}
               {d.note && <p className="text-sm text-destructive">Please upload again: {d.note}</p>}
               {d.filename && <p className="text-xs">Uploaded: {d.filename}</p>}
-              {v.open && !declined && d.status !== "verified" && (
+              {!d.accepting && <p className="text-xs text-muted-foreground">This document cannot be uploaded here yet. The internship team will tell you how to share it.</p>}
+              {v.open && !declined && d.accepting && d.status !== "verified" && (
                 <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-primary">
                   <Upload className="h-4 w-4" />
                   {d.filename ? "Replace file" : "Upload file"} ({(d.types ?? []).join(", ").toUpperCase()}, up to {d.max_mb} MB)

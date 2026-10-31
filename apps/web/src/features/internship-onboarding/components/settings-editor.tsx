@@ -242,7 +242,9 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
         <Input aria-label="Time zone" value={s.deadlines.timezone} onChange={(e) => set("deadlines", { timezone: e.target.value })} />
       </Section>
 
-      <Section title="Documents" hint="Aadhaar is not requested by default. Mark identity documents as sensitive: only reviewers can open them.">
+      <Section title="Documents" hint={view.virus_scanning_available
+        ? "Aadhaar is not requested by default. Mark identity documents as sensitive: only reviewers can open them, and set their retention under Policies."
+        : "Identity documents (sensitive, e.g. Aadhaar) cannot be collected here until virus scanning is set up for this installation."}>
         {s.documents.map((d, i) => (
           <div key={i} className="grid gap-2 rounded-md border p-2 sm:grid-cols-[1fr_auto]">
             <div className="space-y-2">
@@ -250,7 +252,7 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
               <Input aria-label="Instructions" placeholder="Instructions for the student" value={d.instructions ?? ""} onChange={(e) => setDoc(i, { instructions: e.target.value })} />
               <div className="flex flex-wrap gap-3">
                 <Check label="Required" checked={d.required ?? true} onChange={(v) => setDoc(i, { required: v })} />
-                <Check label="Sensitive" checked={d.sensitive ?? false} onChange={(v) => setDoc(i, { sensitive: v })} />
+                <Check label="Sensitive" disabled={!view.virus_scanning_available && !d.sensitive} checked={d.sensitive ?? false} onChange={(v) => setDoc(i, { sensitive: v })} />
                 {(["pdf", "jpg", "png"] as const).map((t) => (
                   <Check key={t} label={t.toUpperCase()} checked={(d.types ?? ["pdf", "jpg", "png"]).includes(t)}
                     onChange={(v) => setDoc(i, { types: v ? [...new Set([...(d.types ?? []), t])] : (d.types ?? ["pdf", "jpg", "png"]).filter((x) => x !== t) })} />
@@ -325,12 +327,12 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
       </Section>
 
       <Section title="Policies" hint="Your organization's own wording and periods; nothing is filled in for you.">
-        <Textarea aria-label="Refund policy" rows={3} placeholder="Refund policy shown to students before they accept (optional)" value={s.policies.refund_policy} onChange={(e) => set("policies", { refund_policy: e.target.value })} />
+        <Textarea aria-label="Refund policy" rows={3} placeholder="Refund policy shown to students before they accept (required when students pay through their link)" value={s.policies.refund_policy} onChange={(e) => set("policies", { refund_policy: e.target.value })} />
         <div className="space-y-1.5">
           <Label htmlFor="pol-retention">Keep identity documents for (days after onboarding ends)</Label>
           <Input id="pol-retention" type="number" min={1} placeholder="Not set" value={s.policies.identity_document_retention_days ?? ""}
             onChange={(e) => set("policies", { identity_document_retention_days: e.target.value ? Number(e.target.value) : null })} />
-          <p className="text-xs text-muted-foreground">Shown to students and on each identity document. Files are not deleted automatically.</p>
+          <p className="text-xs text-muted-foreground">Required when identity documents are requested. Shown to students; a reviewer removes each file once its period ends (nothing is deleted automatically).</p>
         </div>
       </Section>
 

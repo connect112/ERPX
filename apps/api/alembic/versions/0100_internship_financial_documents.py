@@ -31,6 +31,10 @@ def upgrade() -> None:
     # Optional virus scanning (ClamAV, off by default): what was recorded for each upload.
     op.add_column("internship_onboarding_documents", sa.Column("scan_status", sa.String(20), nullable=False, server_default="not_scanned"))
     op.add_column("internship_payment_transactions", sa.Column("proof_scan_status", sa.String(20), nullable=True))
+    # identity documents: the file is removed by a reviewer after the retention period; the row stays
+    op.add_column("internship_onboarding_documents", sa.Column("removed_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column("internship_onboarding_documents", sa.Column(
+        "removed_by_user_id", _UUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True))
     op.create_index("ix_internship_payment_transactions_refund_of_id", "internship_payment_transactions", ["refund_of_id"])
 
     op.create_table(
@@ -63,6 +67,8 @@ def downgrade() -> None:
     op.drop_table("internship_financial_documents")
     op.drop_index("ix_internship_payment_transactions_refund_of_id", "internship_payment_transactions")
     op.drop_column("internship_payment_transactions", "proof_scan_status")
+    op.drop_column("internship_onboarding_documents", "removed_by_user_id")
+    op.drop_column("internship_onboarding_documents", "removed_at")
     op.drop_column("internship_onboarding_documents", "scan_status")
     op.drop_column("internship_payment_transactions", "provider_refund_id")
     op.drop_column("internship_payment_transactions", "refund_of_id")

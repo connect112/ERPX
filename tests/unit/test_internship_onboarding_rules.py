@@ -20,6 +20,7 @@ def cfg(**over) -> dict:
         "fees": {"base_amount": "5000", "methods": ["bank_transfer"]},
         "deadlines": {"opens_at": "2026-11-01T00:00:00+05:30", "closes_at": "2026-11-15T23:59:00+05:30"},
         "payment_accounts": {"bank": BANK},
+        "policies": {"refund_policy": "Synthetic refund policy for tests."},
     }
     for k, v in over.items():
         base[k] = {**base.get(k, {}), **v} if isinstance(v, dict) else v

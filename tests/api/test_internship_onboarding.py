@@ -32,6 +32,9 @@ class FakeStorage:
     async def upload_bytes(self, key, data, content_type="application/octet-stream"):
         self.objects[key] = data
 
+    async def delete_object(self, key):
+        self.objects.pop(key, None)
+
     def presigned_download_url(self, key, expires=None, download_name=None):
         return f"https://files.example.test/{key}?sig=1&exp={int(expires.total_seconds()) if expires else 0}"
 
@@ -53,6 +56,7 @@ def settings(**over) -> dict:
         "fees": {"base_amount": "5000", "methods": ["bank_transfer"], "late_fee": {"mode": "fixed", "value": "500"}},
         "deadlines": {"opens_at": iso(-1), "closes_at": iso(10)},
         "payment_accounts": {"bank": BANK},
+        "policies": {"refund_policy": "Synthetic refund policy for tests."},
         "form": [
             {"key": "tshirt", "label": "T-shirt size", "type": "dropdown", "options": ["S", "M", "L"], "required": True},
             {"key": "laptop", "label": "Do you have a laptop?", "type": "checkbox"},
@@ -300,12 +304,21 @@ async def test_late_fees_need_the_finance_permission(client, auth_headers, db_se
 # ------------------------------------------------------------------ review
 
 
-async def test_document_review_drives_verification_and_needs_the_reviewer_permission(client, auth_headers, db_session, organization, storage):
+async def test_document_review_drives_verification_and_needs_the_reviewer_permission(client, auth_headers, db_session, organization, storage, monkeypatch):
+    from app.core.config import settings as app_settings
+    from modules.internship_onboarding import scan
+
+    async def clean(*args):
+        return "stream: OK"
+
+    # identity documents are only collected with a virus scanner (a fake clamd here) and a retention period
+    monkeypatch.setattr(app_settings, "CLAMAV_ENABLED", True)
+    monkeypatch.setattr(scan, "clamd_instream", clean)
     internship, (s0, _) = await world(db_session, organization)
     await configure(client, auth_headers, internship, documents=[
         {"key": "college_id", "label": "College ID card"},
         {"key": "govt_id", "label": "Government ID (Aadhaar or alternative)", "sensitive": True},
-    ])  # fmt: skip
+    ], policies={"refund_policy": "Synthetic refund policy for tests.", "identity_document_retention_days": 365})  # fmt: skip
     token = await link(client, auth_headers, internship, s0)
     for key in ("college_id", "govt_id"):
         await client.post(f"{PUBLIC}/documents/{key}", files={"file": (f"{key}.pdf", PDF, "application/pdf")}, headers=tok(token))

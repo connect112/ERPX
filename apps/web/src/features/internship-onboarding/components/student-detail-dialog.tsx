@@ -131,15 +131,23 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
                     <Badge variant={statusTone(doc.status)}>{statusLabel(doc.status)}</Badge>
                     {doc.sensitive && <Badge variant="outline">sensitive</Badge>}
                     <Badge variant="outline">{doc.scan_status === "clean" ? "virus scan: clean" : "not virus-scanned"}</Badge>
-                    <Button size="sm" variant="ghost" onClick={() => void preview(doc.id)} aria-label={`Preview ${doc.key} version ${doc.version}`}>
+                    {doc.removed_at && <Badge variant="secondary">file removed</Badge>}
+                    <Button size="sm" variant="ghost" disabled={!!doc.removed_at} onClick={() => void preview(doc.id)} aria-label={`Preview ${doc.key} version ${doc.version}`}>
                       <Eye className="h-4 w-4" />
                     </Button>
                   </div>
                   {doc.review_note && <p className="mt-1 text-xs text-muted-foreground">Note: {doc.review_note}</p>}
-                  {doc.keep_until && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Retention period ends {new Date(doc.keep_until).toLocaleDateString()}; remove it then (not deleted automatically).
-                    </p>
+                  {doc.removed_at ? (
+                    <p className="mt-1 text-xs text-muted-foreground">File removed {new Date(doc.removed_at).toLocaleDateString()} after its retention period.</p>
+                  ) : doc.keep_until && (
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>Retention period ends {new Date(doc.keep_until).toLocaleDateString()} (not deleted automatically).</span>
+                      {new Date(doc.keep_until) <= new Date() && (
+                        <Button size="sm" variant="outline" onClick={() => act.mutate(() => onboardingFlowApi.removeIdentityFile(internshipId, doc.id))}>
+                          Remove file
+                        </Button>
+                      )}
+                    </div>
                   )}
                   {(doc.status === "submitted" || doc.status === "verified") && (
                     <div className="mt-2 flex flex-wrap gap-2">

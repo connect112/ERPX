@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import ConflictError, NotFoundError, ValidationError
+from app.core.exceptions import ConflictError, NotFoundError, ServiceUnavailableError, ValidationError
 from modules.institutions.models import Institution, InstitutionStudent
 from modules.internship_onboarding import fees as fee_maths
 from modules.internship_onboarding.scan import scan
@@ -162,7 +162,7 @@ class PortalService:
             "documents": [
                 {
                     "key": r.key, "label": r.label, "instructions": r.instructions, "required": r.required, "types": r.types,
-                    "max_mb": r.max_mb, "sensitive": r.sensitive,
+                    "max_mb": r.max_mb, "sensitive": r.sensitive, "accepting": not r.sensitive or settings.CLAMAV_ENABLED,
                     "status": latest[r.key].status if r.key in latest else "not_submitted",
                     "filename": latest[r.key].filename if r.key in latest else None,
                     "note": latest[r.key].review_note if r.key in latest and latest[r.key].status == "rejected" else None,
@@ -261,6 +261,9 @@ class PortalService:
         requirement = next((r for r in cfg.documents if r.key == key), None)
         if requirement is None or not cfg.modes.require_documents:
             raise NotFoundError("Document requirement", key)
+        if requirement.sensitive and not settings.CLAMAV_ENABLED:
+            # identity documents are never accepted unscanned; staff collect them another way until scanning is set up
+            raise ServiceUnavailableError(f"{requirement.label} cannot be uploaded here yet. Contact the internship team.")
         if not data:
             raise ValidationError("The file is empty.")
         if len(data) > requirement.max_mb * 1024 * 1024:

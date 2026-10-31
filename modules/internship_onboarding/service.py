@@ -170,6 +170,7 @@ class ConfigService:
             "can_edit_finance": await has(self.db, user, FINANCE_MANAGE),
             "fee_preview": fee_maths.snapshot(config.fees),
             "cashfree_available": settings.CASHFREE_ENABLED,
+            "virus_scanning_available": settings.CLAMAV_ENABLED,
         }
 
     async def save(
@@ -181,6 +182,11 @@ class ConfigService:
         before, after = dump(current), dump(new)
         if "cashfree" in new.fees.methods and "cashfree" not in current.fees.methods and not settings.CASHFREE_ENABLED:
             raise ValidationError("Online payment (Cashfree) is not set up for this ERPX installation. Use bank transfer or UPI.")
+        if any(d.sensitive for d in new.documents) and not settings.CLAMAV_ENABLED:
+            raise ValidationError(
+                "Identity documents (marked sensitive, e.g. Aadhaar) can only be collected once virus scanning is set up. "
+                "Remove them or ask for them outside the portal."
+            )
         if any(before[s] != after[s] for s in FINANCE_SECTIONS) and not await has(self.db, user, FINANCE_MANAGE):
             raise AuthorizationError(
                 f"Changing fees or payment accounts requires the following permission(s): {FINANCE_MANAGE}"
@@ -490,7 +496,50 @@ class ApplicationService:
                 money["received"] += Decimal(row["received"])
                 money["outstanding"] += Decimal(row["outstanding"])
         return {"rows": rows, "metrics": metrics, "money": {k: str(fee_maths.q(v)) for k, v in money.items()},
-                "currency": config.fees.currency, "mode": config.modes.mode}  # fmt: skip
+                "currency": config.fees.currency, "mode": config.modes.mode,
+                "identity_documents_due_for_removal": await self.due_for_removal(internship, config)}  # fmt: skip
+
+    # ---------------------------------------------------------------- identity-document retention
+
+    def keep_until(self, application: OnboardingApplication, config: OnboardingConfig) -> datetime | None:
+        """When an identity document's retention period ends: the configured days after onboarding ended."""
+        ended = application.completed_at or application.declined_at or application.cancelled_at
+        days = config.policies.identity_document_retention_days
+        return ended + timedelta(days=days) if ended and days else None
+
+    async def due_for_removal(self, internship: OurInternship, config: OnboardingConfig) -> int:
+        """Identity-document files still stored after their retention period, so the overdue ones are never silent."""
+        sensitive = [d.key for d in config.documents if d.sensitive]
+        if not sensitive or config.policies.identity_document_retention_days is None:
+            return 0
+        rows = await self.db.execute(
+            select(OnboardingApplication).join(OnboardingDocument, OnboardingDocument.application_id == OnboardingApplication.id)
+            .where(OnboardingApplication.internship_id == internship.id, OnboardingDocument.requirement_key.in_(sensitive),
+                   OnboardingDocument.removed_at.is_(None))
+        )  # fmt: skip
+        t = datetime.now(timezone.utc)
+        return sum(1 for a in rows.scalars().all() if (until := self.keep_until(a, config)) and until <= t)
+
+    async def remove_identity_file(self, internship: OurInternship, document_id: uuid.UUID, user: User) -> OnboardingDocument:
+        """A reviewer deletes an identity document's file once its retention period has ended. The row stays (who, when,
+        checksum) so the record of what was submitted and reviewed survives; nothing is deleted automatically."""
+        from packages.storage.client import get_storage_client
+
+        await require(self.db, user, REVIEW)
+        _, config = await config_of(self.db, internship)
+        document, application = await self.document(internship, document_id)
+        if document.requirement_key not in {d.key for d in config.documents if d.sensitive}:
+            raise ConflictError("Only identity documents are removed this way.")
+        if document.removed_at is not None:
+            raise ConflictError("This file has already been removed.")
+        until = self.keep_until(application, config)
+        if until is None or until > datetime.now(timezone.utc):
+            raise ConflictError("The retention period of this document has not ended.")
+        await get_storage_client().delete_object(document.storage_key)
+        document.removed_at, document.removed_by_user_id = datetime.now(timezone.utc), user.id
+        await self.db.flush()
+        await event(self.db, application, "identity_document_removed", user_id=user.id, document=document.requirement_key, version=document.version)
+        return document
 
     async def detail(self, internship: OurInternship, student_id: uuid.UUID, user: User) -> dict:
         _, config = await config_of(self.db, internship)
@@ -513,9 +562,7 @@ class ApplicationService:
             ).scalars().all()
         sensitive = {d.key for d in config.documents if d.sensitive}
         can_review = await has(self.db, user, REVIEW)
-        ended = application.completed_at or application.declined_at or application.cancelled_at
-        days = config.policies.identity_document_retention_days
-        keep_until = ended + timedelta(days=days) if ended and days else None
+        keep_until = self.keep_until(application, config)
         return {
             "student": {"id": student.id, "name": student.name, "email": student.email, "phone": student.phone, "details": student.details},
             "reference": application.reference,
@@ -544,7 +591,7 @@ class ApplicationService:
                     "filename": d.filename if (can_review or d.requirement_key not in sensitive) else "(restricted)",
                     "size_bytes": d.size_bytes, "uploaded_at": d.created_at, "review_note": d.review_note,
                     "reviewed_at": d.reviewed_at, "sensitive": d.requirement_key in sensitive, "scan_status": d.scan_status,
-                    "keep_until": keep_until if d.requirement_key in sensitive else None,
+                    "keep_until": keep_until if d.requirement_key in sensitive else None, "removed_at": d.removed_at,
                 }
                 for d in docs
             ],
@@ -643,6 +690,8 @@ class ApplicationService:
 
         await require(self.db, user, REVIEW)
         document, application = await self.document(internship, document_id)
+        if document.removed_at is not None:
+            raise ConflictError("This file was removed after its retention period.")
         await event(self.db, application, "document_viewed", user_id=user.id, document=document.requirement_key, version=document.version)
         await self.db.flush()
         return get_storage_client().presigned_download_url(

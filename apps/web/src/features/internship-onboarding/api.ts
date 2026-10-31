@@ -99,6 +99,7 @@ export interface ConfigView {
   can_edit_finance: boolean;
   fee_preview: Record<string, string>;
   cashfree_available: boolean;
+  virus_scanning_available: boolean;
 }
 
 export interface BoardRow {
@@ -127,6 +128,7 @@ export interface Board {
   money: { payable: string; received: string; outstanding: string };
   currency: string;
   mode: string;
+  identity_documents_due_for_removal: number;
 }
 
 export interface StudentDetail {
@@ -144,7 +146,7 @@ export interface StudentDetail {
   form_responses: Record<string, unknown>;
   acceptance: { accepted_at: string | null; declined_at: string | null; decline_reason: string | null; terms_version: string | null; fee_snapshot: Record<string, string> | null };
   reopened: { at: string | null; reason: string | null; until: string | null };
-  documents: { id: string; key: string; version: number; status: string; filename: string; size_bytes: number; uploaded_at: string; review_note: string | null; sensitive: boolean; scan_status: "not_scanned" | "clean"; keep_until: string | null }[];
+  documents: { id: string; key: string; version: number; status: string; filename: string; size_bytes: number; uploaded_at: string; review_note: string | null; sensitive: boolean; scan_status: "not_scanned" | "clean"; keep_until: string | null; removed_at: string | null }[];
   payments: LedgerRow[] | null;
   events: { at: string; actor: string; event: string; detail: Record<string, unknown> }[];
 }
@@ -198,6 +200,7 @@ export const onboardingFlowApi = {
     apiClient.post(`${flow(id)}/students/${studentId}/info-review`, { approve }).then((r) => r.data),
   previewDocument: (id: string, documentId: string) =>
     apiClient.get<{ url: string }>(`${flow(id)}/documents/${documentId}/preview`).then((r) => r.data.url),
+  removeIdentityFile: (id: string, documentId: string) => apiClient.post(`${flow(id)}/documents/${documentId}/remove-file`).then((r) => r.data),
   reviewDocument: (id: string, documentId: string, approve: boolean, note?: string) =>
     apiClient.post(`${flow(id)}/documents/${documentId}/review`, { approve, note }).then((r) => r.data),
   payments: (id: string, status?: string) =>
@@ -240,7 +243,7 @@ export interface PortalView {
     editable: boolean;
   };
   form: { fields: FormFieldDef[]; answers: Record<string, unknown> };
-  documents: (DocumentDef & { status: string; filename: string | null; note: string | null })[];
+  documents: (DocumentDef & { status: string; filename: string | null; note: string | null; accepting: boolean })[];
   identity_document_retention_days: number | null;
   acceptance: { declaration: string; terms_version: string; terms_url: string | null; refund_policy: string | null; fees: Record<string, string> | null; accepted_at: string | null; declined_at: string | null };
   payment: {

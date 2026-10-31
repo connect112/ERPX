@@ -72,6 +72,7 @@ class OnboardingDocumentsSource(DocumentSource):
                 OnboardingApplication.internship_id == scope.id,
                 OnboardingDocument.organization_id == scope.organization_id,
                 OnboardingDocument.status != "superseded",
+                OnboardingDocument.removed_at.is_(None),
             )
             .order_by(InstitutionStudent.name, OnboardingDocument.requirement_key)
         )  # fmt: skip

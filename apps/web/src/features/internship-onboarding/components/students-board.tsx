@@ -106,6 +106,11 @@ export function StudentsBoard({ internshipId, timezone, canManage }: { internshi
           {money(board.data.money.outstanding)}
         </p>
       )}
+      {(board.data?.identity_documents_due_for_removal ?? 0) > 0 && (
+        <p className="text-sm text-destructive">
+          {board.data?.identity_documents_due_for_removal} identity document file(s) are past their retention period. Open the student to remove them.
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[200px] flex-1">

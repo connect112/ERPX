@@ -121,3 +121,36 @@ async def test_a_scanner_error_or_an_unreachable_scanner_refuses_the_upload(clam
     monkeypatch.setattr(app_settings, "CLAMAV_PORT", 1)  # nothing listens there
     with pytest.raises(ServiceUnavailableError):
         await scan.scan(b"%PDF-1.4", "document")
+
+
+# ---------------------------------------------------------------- consent and retention safeguards
+
+
+def _paid_self_service(**over) -> dict:
+    base = {
+        "modes": {"mode": "hybrid", "require_payment": True},
+        "fees": {"methods": ["upi"]},
+        "deadlines": {"closes_at": "2026-11-15T23:59:00+05:30"},
+        "payment_accounts": {"upi": {"vpa": "test@bank", "beneficiary": "Test"}},
+        "policies": {"refund_policy": "Synthetic refund policy."},
+    }
+    base.update(over)
+    return base
+
+
+def test_students_cannot_pay_through_their_link_without_a_refund_policy():
+    OnboardingConfig.model_validate(_paid_self_service())
+    with pytest.raises(SettingsError, match="refund policy"):
+        OnboardingConfig.model_validate(_paid_self_service(policies={"refund_policy": "   "}))
+    # staff-only onboarding and free internships collect no money through the link
+    OnboardingConfig.model_validate(_paid_self_service(modes={"mode": "manual", "require_payment": True}, deadlines={}, policies={}))
+
+
+def test_identity_documents_need_a_retention_period_and_aadhaar_must_be_sensitive():
+    sensitive = [{"key": "id_proof", "label": "Government ID", "sensitive": True}]
+    with pytest.raises(SettingsError, match="kept"):
+        OnboardingConfig.model_validate(_paid_self_service(documents=sensitive))
+    OnboardingConfig.model_validate(_paid_self_service(documents=sensitive, policies={"refund_policy": "x" * 5, "identity_document_retention_days": 365}))
+    for doc in ({"key": "aadhaar", "label": "ID"}, {"key": "id_card", "label": "Aadhar card"}):
+        with pytest.raises(SettingsError, match="sensitive"):
+            OnboardingConfig.model_validate(_paid_self_service(documents=[doc]))

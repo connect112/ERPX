@@ -21,6 +21,7 @@ FieldType = Literal["short_text", "long_text", "email", "phone", "number", "date
 _KEY = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 MAX_DOCUMENT_MB = 15
 WHATSAPP_PREFIX = "https://chat.whatsapp.com/"
+AADHAAR = re.compile(r"aadh?aa?r", re.IGNORECASE)
 
 
 class _Strict(BaseModel):
@@ -162,6 +163,12 @@ class DocumentRequirement(_Strict):
         if not _KEY.match(v):
             raise ValueError("Keys use lower-case letters, digits and underscores, starting with a letter.")
         return v
+
+    @model_validator(mode="after")
+    def _identity(self) -> "DocumentRequirement":
+        if AADHAAR.search(f"{self.key} {self.label}") and not self.sensitive:
+            raise ValueError(f'"{self.label}" is an Aadhaar document: mark it as sensitive.')
+        return self
 
 
 class VisibleIf(_Strict):
@@ -335,6 +342,11 @@ class OnboardingConfig(_Strict):
             raise ValueError("Students onboard themselves: set the onboarding closing date.")
         if self.issuer.gstin and self.fees.tax_mode == "none":
             raise ValueError("A GSTIN is set: choose the tax treatment of the fee.")
+        # Consent and retention must never rest on wording that is missing.
+        if m.self_service and m.require_payment and not self.policies.refund_policy.strip():
+            raise ValueError("Students pay through their link: enter the refund policy they agree to (Policies).")
+        if any(d.sensitive for d in self.documents) and self.policies.identity_document_retention_days is None:
+            raise ValueError("Identity documents are requested: set how long they are kept (Policies).")
         if m.lms_access == "automatic" and m.mode == "manual":
             raise ValueError("Automatic LMS access needs automated or hybrid onboarding.")
         return self
