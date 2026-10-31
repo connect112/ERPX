@@ -109,6 +109,19 @@ New, off by default or empty until configured:
 - Columns `internship_onboarding_documents.scan_status` and `internship_payment_transactions.proof_scan_status` added
   to the unmerged migration `0100` (no new migration; release scripts unchanged).
 
+## Release preparation (final corrections)
+
+- **Identity documents need virus scanning**: a document marked sensitive cannot be saved in the settings, and cannot
+  be uploaded, while `CLAMAV_ENABLED` is off (settings saved earlier stop accepting uploads too; the student is told the
+  team will collect it another way). A requirement named Aadhaar must be marked sensitive. Nothing unscanned is stored.
+- **No consent without the refund policy**: settings where students pay through their link are refused until the
+  refund policy wording is entered; it is shown above the agreement and stored with the acceptance.
+- **No silent indefinite retention**: requesting identity documents requires a retention period; the board counts files
+  past it; a reviewer removes each file (storage object deleted, record kept with who and when, excluded from previews
+  and Bulk Download). Automatic deletion stays off. Columns `removed_at`, `removed_by_user_id` added to unmerged `0100`.
+- Release checkpoint C1 also prints `virus scanning enabled` (expect False) and the three document safety columns.
+- Deployment checklist: `ops/release-internship-onboarding/CHECKLIST.md`.
+
 ## Production readiness matrix
 
 | Capability | Status | Notes |
@@ -121,14 +134,16 @@ New, off by default or empty until configured:
 | Payment receipts issued by GIR Technologies | Requires configuration | address and footer optional; legal name can be changed |
 | GST tax invoices | Requires configuration | only after a GSTIN, tax treatment and rate are entered by finance; no tax details assumed |
 | Refunds (bank/UPI) with credit notes | Verified | one open refund per payment; finance only |
-| Refund policy wording | Requires configuration | empty until the organization supplies it |
-| Identity-document retention period | Requires configuration | display only; automatic deletion **deferred** (owner approval: it destroys data) |
+| Refund policy wording | Requires configuration (enforced) | settings where students pay through their link are refused without it; shown before acceptance and stored with it |
+| Identity documents (Aadhaar, other government ID) | Blocked until ClamAV | refused (settings and upload) while `CLAMAV_ENABLED` is off; Aadhaar must be marked sensitive |
+| Identity-document retention | Requires configuration (enforced) | required whenever identity documents are requested; overdue files counted on the board; a reviewer removes each file (record kept); automatic deletion **deferred** |
 | Reminders, completion email, automatic LMS access, CSV exports, Bulk Download source | Verified | beat entries `:07`/`:37` and every 15 min need the worker and beat deployed |
-| Virus scanning (ClamAV) | Requires configuration | code ready, off; needs a clamd service before `CLAMAV_ENABLED=true` |
+| Virus scanning (ClamAV) | Requires configuration | code ready, off; release prerequisite for identity documents only; needs a clamd service before `CLAMAV_ENABLED=true` |
 | Cashfree online payments and refunds | Blocked | sandbox acceptance not done (network policy, credentials); keep `CASHFREE_ENABLED=false` |
 | Installment plans | Deferred | not built; students pay the full amount due (shown in Settings) |
 | Posting fees into `modules/accounting` | Deferred | needs customer and account mapping (owner decision) |
-| Release scripts and rollback (0097 -> 0100 -> 0097) | Verified locally | production run is the owner's |
+| Release scripts and rollback (0097 -> 0100 -> 0097) | Verified locally | production run is the owner's: `ops/release-internship-onboarding/CHECKLIST.md` |
+| Real MinIO (uploads, previews, receipts, Bulk Download ZIP) | Requires acceptance | tested on an S3 stand-in only; step 4 of the checklist |
 
 ## Cashfree sandbox validation (to do later, with authorization)
 
@@ -165,20 +180,22 @@ Nothing below has been run; the mocked tests (`tests/api/test_internship_onboard
 
 ## Tests run (latest)
 
-- Backend: onboarding rule tests 40 + hardening unit tests 9 (defaults, fake clamd: clean, infected, error,
-  unreachable) + API tests 13 (core) + 15 (payments, completion, reminders) + 8 (finance) + 5 (hardening: Cashfree not
-  offerable, refund policy and retention, scanning of documents and payment proofs, manual-shortcut permissions)
-  = 90 passed; regression (bulk exports, offer letters, our internships, internship offers, email templates and Studio,
+- Backend: onboarding rule tests 40 + hardening unit tests 11 + API tests 13 (core) + 15 (payments, completion,
+  reminders) + 8 (finance) + 6 (hardening: Cashfree not offerable, refund policy and retention with reviewer removal,
+  identity-document and consent safeguards, scanning of documents and payment proofs, manual-shortcut permissions)
+  = 93 passed; regression (bulk exports, offer letters, our internships, internship offers, email templates and Studio,
   RBAC, bulk filenames) 192 passed.
-- Migrations `0098`-`0100`: upgrade, downgrade to `0097`, re-upgrade; no drift between the onboarding models and the
-  migrated schema; earlier rollback with data kept Storage Manager and Bulk Download rows byte-identical.
-- Web: `tsc -b` clean, `eslint src` 0 errors (2 existing warnings), `vitest` 193 passed.
-- Browser (plain Administrator `Administrator` role, not Super Admin, + student on a 390 px screen, synthetic data):
-  default fee 2,000.00; issuer GIR Technologies; Cashfree "not set up" and disabled (save refused with 422);
-  installments marked unavailable; policies editable; student sees the retention note and the refund policy above the
-  agreement; staff see "not virus-scanned"; no console errors. Earlier round: full flow through payment, receipt and
-  partial refund.
-- Not run: anything against the real Cashfree sandbox (blocked network, no credentials); a real clamd.
+- Migrations `0098`-`0100`: downgrade to `0097` and re-upgrade after the column additions; no drift between the
+  onboarding models and the migrated schema; earlier rollback with data kept Storage Manager and Bulk Download rows
+  byte-identical.
+- Web: `tsc -b` clean, `eslint` 0 errors, `vitest` 193 passed.
+- Browser (plain `Administrator` role, not Super Admin, + student on a 390 px screen, synthetic data, scanning off):
+  identity documents refused in settings (422) and not uploadable by the student while ordinary documents upload;
+  board shows a file past retention; reviewer removed it (object gone from the S3 stand-in, record kept); settings
+  explain the scanning requirement; refund policy above the agreement; INR 2,000; no console errors. Earlier rounds:
+  full flow through payment, receipt and partial refund; defaults, Cashfree "not set up", installments unavailable.
+- Not run: the real Cashfree sandbox (blocked network, no credentials); a real clamd (a local fake answered the
+  protocol); real MinIO (acceptance step 4 of the checklist).
 
 ## How to continue
 

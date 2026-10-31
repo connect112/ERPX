@@ -64,6 +64,8 @@ docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'onboarding 
 docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'bulk_export_jobs kept: ' || count(*) from information_schema.tables where table_name='bulk_export_jobs'"
 docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'storage tables kept: ' || count(*) from information_schema.tables where table_name in ('storage_trash','storage_deletion_log')"
 docker exec erpx_api python -c "from app.core.config import settings as s; print('cashfree enabled:', s.CASHFREE_ENABLED, 'env:', s.CASHFREE_ENV, 'production allowed:', s.CASHFREE_ALLOW_PRODUCTION)"   # expect False / sandbox / False unless the owner authorised otherwise
+docker exec erpx_api python -c "from app.core.config import settings as s; print('virus scanning enabled:', s.CLAMAV_ENABLED)"   # expect False until a ClamAV service exists (identity documents stay unavailable)
+docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'document safety columns: ' || count(*) from information_schema.columns where table_name='internship_onboarding_documents' and column_name in ('scan_status','removed_at','removed_by_user_id')"   # expect 3
 docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'onboarding permissions: ' || count(*) from permissions where code in ('our_internships.onboarding.review','our_internships.finance.view','our_internships.finance.manage')"   # expect 3
 $COMPOSE ps --format 'table {{.Name}}\t{{.Status}}' | head -20
 echo "api logs (errors in the last 3 minutes):"; docker logs --since 3m erpx_api 2>&1 | grep -iE 'error|traceback' | head -5 || true
