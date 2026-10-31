@@ -91,13 +91,13 @@ registration details for invoices, refund policy text, data-retention periods fo
 
 | Milestone | Scope | Status on this branch |
 |---|---|---|
-| A | Audit, gap matrix, architecture | this document |
-| B | Config + versions, templates, references, links, deadlines/extensions | see PR |
-| C | Student API: open, info, form drafts, documents, accept/decline | see PR |
-| D | Review queue, reopen, dashboard API, events, permissions | see PR |
-| E | Ledger, bank/UPI, Cashfree adapter (unverified against live docs), late fees | see PR |
-| F | Receipts/invoices, refunds | later PR |
-| G | Reminders, bulk, completion, WhatsApp, automatic LMS | later PR |
-| H | E2E sandbox acceptance, deploy and rollback scripts for the approved commit | later |
+| A | Audit, gap matrix, architecture | done |
+| B | Config + versions, templates, references, links, deadlines/extensions | done |
+| C | Student API and page: open, info, form drafts, documents, accept/decline | done |
+| D | Review queue, reopen, dashboard, events, permissions | done |
+| E | Ledger, bank/UPI, Cashfree adapter, late fees | done; Cashfree not yet sandbox-verified (blocked host) |
+| F | Receipts/invoices/credit notes, refunds, cancellation | done |
+| G | Reminders, CSV/bulk exports, completion email, WhatsApp, automatic LMS, templates UI | done (installments: off, not built) |
+| H | Release and rollback scripts, browser E2E | done locally; sandbox E2E pending |
 
 Each PR states what was verified and what was not.

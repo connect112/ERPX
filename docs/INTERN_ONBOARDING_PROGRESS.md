@@ -7,8 +7,8 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
 |---|---|
 | Branch | `claude/internship-onboarding` |
 | Base | `master` at `958d346` (Bulk Download #160 merged; migration head `0097`) |
-| Next migration numbers | `0098` (onboarding core), `0099` (payments); re-check `master` before merging |
-| Draft PR | see the PR for this branch |
+| Migrations on this branch | `0098` (onboarding core), `0099` (payments), `0100` (receipts, refunds); re-check `master` before merging |
+| Draft PR | https://github.com/connect112/ERPX/pull/161 |
 
 ## Done (backend, database-backed, tested)
 
@@ -43,20 +43,29 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
   catches up missed completions, retries LMS grants (a waiting reason is noted once, not every run) and sends deadline
   reminders once per student and configured day (not to declined, cancelled, completed or link-less students).
 
-## Next (in order)
+- **F** receipts (or a Tax Invoice only with an issuer GSTIN and a tax treatment; tax split from the accepted fee),
+  credit notes; one per confirmed transaction, numbered per organization/series/year, immutable PDF in private storage,
+  emailed with retries (never touching the payment), student and staff download, staff resend. Refunds: finance only,
+  never above what is left of the payment; bank/UPI refunds confirmed with the transfer reference; Cashfree refunds
+  through the adapter (refund API + refund notification + status check); a confirmed refund lowers what is owed
+  (except returned overpayment). Cancellation/withdrawal by staff. Migration `0100`.
+- **G (rest)** completion email once; status and payments CSV exports (formula-safe, money only for finance); Bulk
+  Download source for onboarding documents (reviewers); Templates tab (preview, rename, duplicate, archive).
+- **H** release scripts `ops/release-internship-onboarding/` (from the proven bulk-download set: 0097 -> 0100,
+  rollback to 0097 only, backup-window guard, own rollback-target file). Rollback verified locally with data: Storage
+  Manager and Bulk Download rows byte-identical, onboarding tables gone, re-upgrade works.
 
-1. (done) Frontend: admin settings editor (modes, fees, deadlines, documents, form builder, accounts), dashboard, student
-   detail, document review, payment verification; public student page `/internship-onboarding#t=...` with the steps
-   and Cashfree hosted checkout (`sdk.cashfree.com/js/v3`).
-2. **F** receipts/invoices: new table (next migration after `0099`) with per-organization numbering, issued once per
-   confirmed payment (unique on the transaction), PDF via reportlab (pattern: `modules/workshop_exams/certificate_pdf.py`),
-   private storage, email via a new registry template, student download from the portal, staff resend. Tax lines only
-   from the fee snapshot; no GST number is invented (organization tax details are an owner decision).
-   Refunds: `refund` ledger rows with approval (`our_internships.finance.manage`), Cashfree `POST /orders/{id}/refunds`
-   in the adapter, manual refunds confirmed by finance; never delete payments.
-3. **G (rest)** completion and payment-confirmation emails, bulk exports (CSV of the board/payments), Bulk Download
-   source for onboarding documents (reuse `modules/bulk_exports`).
-4. **H** E2E in the browser, release and rollback scripts for the approved merge commit (`0098`/`0099` downgrade).
+## Remaining
+
+1. **Cashfree sandbox acceptance** (blocked): allow `www.cashfree.com` and `sandbox.cashfree.com` under Network access,
+   provide sandbox keys as environment secrets (never in chat or the repo), then: verify the adapter against the current
+   docs (API version, order/payment/refund fields, webhook signature), run order -> pay -> webhook -> receipt -> refund in
+   the sandbox, and record the results here.
+2. Owner decisions below; installments (designed in the ledger, switched off; not built as a schedule UI).
+3. Release: owner approves the exact merge commit, then `ops/release-internship-onboarding/` 01 -> 02a (C1) -> 02b (C2)
+   -> 03 (C3), outside 01:45-04:30 UTC. Acceptance as a plain Administrator: configure one internship in hybrid mode with
+   bank/UPI only (Cashfree off), send one test student their link, complete the flow, confirm the payment, check the
+   receipt PDF opens and the email arrives, check the Storage Manager still lists `backups/` as protected.
 
 ## Blockers and owner decisions
 
@@ -67,18 +76,22 @@ System" (all sections 0-33 apply). Design and gap matrix: `docs/internship-onboa
 - Whether internship fees post into `modules/accounting` (needs customer and account mapping); GST registration details
   for invoices; refund policy text; retention period for identity documents.
 
-## Tests run
+## Tests run (latest)
 
-- `tests/unit/test_internship_onboarding_rules.py` 40 passed; `tests/api/test_internship_onboarding.py` 13 passed;
-  `tests/api/test_internship_onboarding_payments.py` 13 passed (Cashfree with mocked HTTP and real HMAC signatures).
-- Web: `tsc -b`, `eslint`, `vitest` (193 passed; 6 onboarding helper tests).
-- After G: onboarding + our internships + email templates suites: 98 passed.
-- Regression for touched shared code: offer letters, our internships, internship offers, email templates and Studio,
-  RBAC: pass. Migrations `0098`/`0099`: upgrade, downgrade to `0097`, re-upgrade: pass; no drift against the models.
+- Backend: onboarding rule tests 41, API tests 16 (core) + 15 (payments, completion, reminders) + 8 (finance, bulk
+  download source); with offer letters, our internships, email templates/Studio and bulk exports: all pass.
+- Migrations `0098`-`0100`: upgrade, downgrade to `0097`, re-upgrade; no drift against the models; rollback with data
+  keeps Storage Manager and Bulk Download rows byte-identical.
+- Web: `tsc -b`, `eslint`, `vitest` 193 passed.
+- Browser (plain Administrator + student on a 390 px screen, synthetic data): configure, link, save/resume, uploads,
+  accept, bank claim, finance confirmation, verification, completion with WhatsApp link, receipt download, partial refund
+  with credit note; no console errors. Found and fixed: deadlines in the browser's zone, zeros while loading, refunded
+  amount asked again.
+- Not run: anything against the real Cashfree sandbox (blocked network).
 
 ## How to continue
 
 ```bash
 git fetch origin && git checkout claude/internship-onboarding && git pull
 ```
-Then pick up the first unchecked item under "In progress / next". Local test setup: `docs/CLOUD_HANDOFF.md` section 11.
+Then pick up the first item under "Remaining". Local test setup: `docs/CLOUD_HANDOFF.md` section 11.
