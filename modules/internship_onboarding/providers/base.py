@@ -27,10 +27,19 @@ class ProviderPayment:
 
 
 @dataclass(frozen=True)
+class ProviderRefund:
+    refund_id: str
+    status: str  # success | failed | pending
+    amount: Decimal
+    provider_refund_id: str | None = None
+
+
+@dataclass(frozen=True)
 class WebhookEvent:
     event_type: str
     merchant_order_id: str
     payment: ProviderPayment | None
+    refund: ProviderRefund | None = None
 
 
 class PaymentProvider(ABC):
@@ -45,6 +54,12 @@ class PaymentProvider(ABC):
 
     @abstractmethod
     async def order_payments(self, merchant_order_id: str) -> list[ProviderPayment]: ...
+
+    @abstractmethod
+    async def create_refund(self, merchant_order_id: str, refund_id: str, amount: Decimal, note: str) -> ProviderRefund: ...
+
+    @abstractmethod
+    async def refund_status(self, merchant_order_id: str, refund_id: str) -> ProviderRefund: ...
 
     @abstractmethod
     def verify_webhook(self, raw_body: bytes, headers: dict[str, str]) -> bool: ...

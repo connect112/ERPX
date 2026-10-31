@@ -191,7 +191,19 @@ class PortalService:
                 "lms_status": ctx.selection.lms_status.value,
             },
             "contact": {"email": comms.contact_email, "phone": comms.contact_phone},
+            "financial_documents": [
+                {"id": d.id, "kind": d.kind, "number": d.number, "amount": str(d.amount), "currency": d.currency, "issued_at": d.issued_at}
+                for d in await self._financial(app.id)
+            ],
         }  # fmt: skip
+
+    async def _financial(self, application_id):
+        from modules.internship_onboarding.models import FinancialDocument
+
+        rows = await self.db.execute(
+            select(FinancialDocument).where(FinancialDocument.application_id == application_id).order_by(FinancialDocument.issued_at)
+        )
+        return list(rows.scalars())
 
     # ---------------------------------------------------------------- drafts
 

@@ -35,7 +35,10 @@ from modules.internship_onboarding.schemas import (
     DeclineRequest,
     DraftRequest,
     LinkOut,
+    CancelRequest,
     RecordPaymentRequest,
+    RefundDecisionRequest,
+    RefundRequest,
     ReopenRequest,
     ReviewRequest,
     StudentIdsRequest,
@@ -315,6 +318,189 @@ async def record_payment(
     return {"id": row.id, "status": row.status}
 
 
+@router.post("/{internship_id}/onboarding-flow/payments/{transaction_id}/refund", status_code=status.HTTP_201_CREATED)
+async def refund_payment(
+    internship_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    payload: RefundRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return money from a confirmed payment (finance). Online payments are refunded through the gateway; bank/UPI
+    refunds wait for finance to confirm the transfer."""
+    from modules.internship_onboarding.payments import RefundService
+
+    refund = await RefundService(db).request(await _internship(db, internship_id, organization_id), transaction_id, payload.amount, payload.reason, user)
+    return {"id": refund.id, "status": refund.status, "amount": str(refund.amount)}
+
+
+@router.post("/{internship_id}/onboarding-flow/refunds/{transaction_id}/decide")
+async def decide_refund(
+    internship_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    payload: RefundDecisionRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from modules.internship_onboarding.payments import RefundService
+
+    refund = await RefundService(db).decide(
+        await _internship(db, internship_id, organization_id), transaction_id, payload.approve, payload.reference, payload.note, user
+    )
+    return {"id": refund.id, "status": refund.status}
+
+
+@router.post("/{internship_id}/onboarding-flow/students/{student_id}/cancel")
+async def cancel_onboarding(
+    internship_id: uuid.UUID,
+    student_id: uuid.UUID,
+    payload: CancelRequest,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    from modules.internship_onboarding.payments import cancel_application
+
+    await cancel_application(db, await _internship(db, internship_id, organization_id), student_id, payload.reason, user)
+    return {"message": "Onboarding cancelled. Any refund is made separately."}
+
+
+async def _financial(db: AsyncSession, internship: OurInternship, document_id: uuid.UUID, user: User):
+    from sqlalchemy import select
+
+    from modules.internship_onboarding.models import FinancialDocument, OnboardingApplication
+    from modules.internship_onboarding.payments import _has_any
+    from modules.internship_onboarding.service import FINANCE_VIEW, require
+
+    if not await _has_any(db, user):
+        await require(db, user, FINANCE_VIEW)
+    row = (
+        await db.execute(
+            select(FinancialDocument).join(OnboardingApplication, OnboardingApplication.id == FinancialDocument.application_id)
+            .where(FinancialDocument.id == document_id, OnboardingApplication.internship_id == internship.id,
+                   FinancialDocument.organization_id == internship.organization_id)
+        )
+    ).scalar_one_or_none()  # fmt: skip
+    if row is None:
+        raise NotFoundError("Financial document", document_id)
+    return row
+
+
+@router.get("/{internship_id}/onboarding-flow/financial-documents")
+async def list_financial_documents(
+    internship_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select
+
+    from modules.internship_onboarding.models import FinancialDocument, OnboardingApplication
+    from modules.internship_onboarding.payments import _has_any
+    from modules.internship_onboarding.service import FINANCE_VIEW, require
+
+    internship = await _internship(db, internship_id, organization_id)
+    if not await _has_any(db, user):
+        await require(db, user, FINANCE_VIEW)
+    rows = (
+        await db.execute(
+            select(FinancialDocument, OnboardingApplication.reference).join(OnboardingApplication, OnboardingApplication.id == FinancialDocument.application_id)
+            .where(OnboardingApplication.internship_id == internship.id).order_by(FinancialDocument.issued_at.desc())
+        )
+    ).all()  # fmt: skip
+    return [
+        {"id": d.id, "kind": d.kind, "number": d.number, "amount": str(d.amount), "currency": d.currency, "application": ref,
+         "student": d.details["student"]["name"], "issued_at": d.issued_at, "email_status": d.email_status}
+        for d, ref in rows
+    ]  # fmt: skip
+
+
+@router.get("/{internship_id}/onboarding-flow/financial-documents/{document_id}/download")
+async def download_financial_document(
+    internship_id: uuid.UUID,
+    document_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from modules.internship_onboarding.financial import download_url
+
+    return {"url": download_url(await _financial(db, await _internship(db, internship_id, organization_id), document_id, user))}
+
+
+@router.post("/{internship_id}/onboarding-flow/financial-documents/{document_id}/resend", status_code=status.HTTP_202_ACCEPTED)
+async def resend_financial_document(
+    internship_id: uuid.UUID,
+    document_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from modules.internship_onboarding.financial import enqueue_email
+    from modules.internship_onboarding.payments import _has_any
+
+    document = await _financial(db, await _internship(db, internship_id, organization_id), document_id, user)
+    if not await _has_any(db, user):
+        raise NotFoundError("Financial document", document_id)
+    document.email_status = "pending"
+    await db.commit()
+    enqueue_email(document.id)
+    return {"message": "The email is on its way."}
+
+
+def _csv(rows: list[list[object]], filename: str):
+    import csv
+    import io
+
+    from fastapi import Response
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    for row in rows:
+        # a cell starting with = + - @ would run as a formula in a spreadsheet
+        writer.writerow(["'" + str(c) if isinstance(c, str) and c[:1] in ("=", "+", "-", "@") else c for c in row])
+    return Response(out.getvalue(), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
+
+
+@router.get("/{internship_id}/onboarding-flow/export.csv")
+async def export_board(
+    internship_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    from modules.internship_onboarding.payments import _has_any
+
+    board = await ApplicationService(db).dashboard(await _internship(db, internship_id, organization_id))
+    money = await _has_any(db, user)
+    head = ["Reference", "Name", "Email", "Offer", "Documents", "Payment", "Overall", "LMS", "Deadline"] + (["Payable", "Received", "Outstanding"] if money else [])
+    rows = [head] + [
+        [r["reference"] or "", r["name"], r["email"], r["offer_status"], r["document_status"], r["payment_status"], r["overall_status"],
+         r["lms_status"], r["deadline"].isoformat() if r["deadline"] else ""] + ([r["payable"], r["received"], r["outstanding"]] if money else [])
+        for r in board["rows"]
+    ]  # fmt: skip
+    return _csv(rows, "onboarding-status.csv")
+
+
+@router.get("/{internship_id}/onboarding-flow/payments.csv")
+async def export_payments(
+    internship_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    entries = await PaymentService(db).list_for_internship(await _internship(db, internship_id, organization_id), user, None)
+    head = ["Application", "Kind", "Method", "Amount", "Currency", "Status", "Reference", "Paid on", "Created", "Verified"]
+    rows = [head] + [
+        [e["reference_number"], e["kind"], e["method"] or "", e["amount"], e["currency"], e["status"], e["transaction_reference"] or "",
+         e["paid_on"].isoformat() if e["paid_on"] else "", e["created_at"].isoformat(), e["verified_at"].isoformat() if e["verified_at"] else ""]
+        for e in entries
+    ]  # fmt: skip
+    return _csv(rows, "onboarding-payments.csv")
+
+
 # ------------------------------------------------------------------ templates
 
 
@@ -477,6 +663,22 @@ async def portal_refresh(request: Request, x_onboarding_token: str | None = Head
     ctx = await _context(db, x_onboarding_token)
     outcome = await PaymentService(db).refresh_for_student(ctx)
     return {"outcome": outcome, **(await PortalService(db).view(ctx))}
+
+
+@public_router.get("/internship-onboarding/financial-documents/{document_id}")
+@limiter.limit("30/minute")
+async def portal_financial_document(
+    request: Request, document_id: uuid.UUID, x_onboarding_token: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+):
+    """A short-lived link to one of the student's own receipts (also after their deadline)."""
+    from modules.internship_onboarding.financial import download_url
+    from modules.internship_onboarding.models import FinancialDocument
+
+    ctx = await _context(db, x_onboarding_token)
+    document = await db.get(FinancialDocument, document_id)
+    if document is None or document.application_id != ctx.application.id:
+        raise NotFoundError("Financial document", document_id)
+    return {"url": download_url(document)}
 
 
 @public_router.post("/payments/cashfree/webhook", include_in_schema=False)

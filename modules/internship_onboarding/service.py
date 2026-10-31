@@ -112,6 +112,26 @@ def payment_deadline(application: OnboardingApplication, config: OnboardingConfi
     return base + timedelta(hours=d.payment_grace_hours) if base else None
 
 
+async def next_number(db: AsyncSession, organization_id: uuid.UUID, series: str, year: int) -> int:
+    """The next number of a series in an organization and year, from a locked row: numbers never repeat or collide."""
+    from sqlalchemy.dialects.postgresql import insert
+
+    await db.execute(
+        insert(OnboardingCounter).values(organization_id=organization_id, series=series, year=year, last_value=0)
+        .on_conflict_do_nothing(constraint="uq_onboarding_counter_series")
+    )  # fmt: skip
+    counter = (
+        await db.execute(
+            select(OnboardingCounter).where(
+                OnboardingCounter.organization_id == organization_id, OnboardingCounter.series == series, OnboardingCounter.year == year,
+            ).with_for_update()
+        )
+    ).scalar_one()  # fmt: skip
+    counter.last_value += 1
+    await db.flush()
+    return counter.last_value
+
+
 # ------------------------------------------------------------------ settings
 
 
@@ -278,20 +298,7 @@ class ApplicationService:
 
     async def _next_reference(self, organization_id: uuid.UUID, prefix: str) -> str:
         year = now().year
-        from sqlalchemy.dialects.postgresql import insert
-
-        await self.db.execute(
-            insert(OnboardingCounter).values(organization_id=organization_id, year=year, last_value=0)
-            .on_conflict_do_nothing(constraint="uq_onboarding_counter")
-        )  # fmt: skip
-        counter = (
-            await self.db.execute(
-                select(OnboardingCounter).where(OnboardingCounter.organization_id == organization_id, OnboardingCounter.year == year).with_for_update()
-            )
-        ).scalar_one()
-        counter.last_value += 1
-        await self.db.flush()
-        return f"{prefix}-{year}-{counter.last_value:06d}"
+        return f"{prefix}-{year}-{await next_number(self.db, organization_id, 'application', year):06d}"
 
     async def get_for_selection(self, selection_id: uuid.UUID) -> OnboardingApplication | None:
         return (

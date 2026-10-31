@@ -60,6 +60,7 @@ async def follow_up(db: AsyncSession, application_id: uuid.UUID) -> str:
     if internship is None or selection is None:
         return "missing"
     _, config = await config_of(db, internship)
+    await _completion_email(db, internship, selection, application, config)
     if config.modes.lms_access != "automatic":
         return "manual LMS"
     if selection.lms_status == LmsStatus.GRANTED:
@@ -90,6 +91,36 @@ async def follow_up(db: AsyncSession, application_id: uuid.UUID) -> str:
     await db.flush()
     await notify_access(outcome)
     return "granted"
+
+
+async def _completion_email(db: AsyncSession, internship, selection, application: OnboardingApplication, config) -> None:
+    """Once per student: the congratulations email (a fresh link to their page). Best effort; recorded when sent."""
+    from modules.email_templates.render import render_email_full
+    from modules.institutions.models import InstitutionStudent
+    from modules.internship_onboarding.emails import onboarding_values
+    from packages.email.history import set_send_meta
+    from packages.email.service import email_service
+
+    sent = (
+        await db.execute(select(OnboardingEvent.id).where(OnboardingEvent.application_id == application.id, OnboardingEvent.event == "completion_email_sent"))
+    ).first()
+    student = await db.get(InstitutionStudent, selection.student_id)
+    if sent is not None or student is None or not student.email or not config.modes.self_service:
+        return
+    try:
+        values = await onboarding_values(db, internship, selection, config)
+        subject, text, html, meta = await render_email_full(
+            db, "internship_onboarding_completed",
+            {"full_name": student.name, "student_name": student.name, "internship_name": internship.title,
+             "application_reference": application.reference, "next_steps": config.communication.next_steps,
+             "onboarding_link": values["onboarding_link"]},
+            organization_id=internship.organization_id, recipient_email=student.email,
+        )  # fmt: skip
+        set_send_meta(meta)
+        if await email_service.send(student.email, subject, text, html):
+            await event(db, application, "completion_email_sent", actor="system")
+    except Exception:  # noqa: BLE001 - tried again on the next sweep
+        logger.warning("onboarding_completion_email_failed", application_id=str(application.id), exc_info=True)
 
 
 async def _already(db: AsyncSession, application_id: uuid.UUID, name: str, days: int) -> bool:
@@ -148,4 +179,11 @@ async def sweep(db: AsyncSession) -> dict[str, int]:
             logger.warning("onboarding_follow_up_failed", application_id=str(application_id), exc_info=True)
     if to_remind:
         enqueue_invitations(to_remind)
-    return {"completed": completed, "reminders": reminders, "followed_up": len(to_follow)}
+    from modules.internship_onboarding.financial import issue_safely, missing
+
+    issued = 0
+    for transaction in await missing(db):
+        await issue_safely(db, transaction)
+        issued += 1
+    await db.commit()
+    return {"completed": completed, "reminders": reminders, "followed_up": len(to_follow), "documents": issued}

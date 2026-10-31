@@ -107,3 +107,18 @@ class RecordPaymentRequest(BaseModel):
     paid_on: date
     amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     note: str = Field(min_length=1, max_length=1000)
+
+
+class RefundRequest(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class RefundDecisionRequest(BaseModel):
+    approve: bool
+    reference: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class CancelRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)

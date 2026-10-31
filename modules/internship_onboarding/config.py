@@ -241,6 +241,16 @@ class PaymentAccounts(_Strict):
     upi: UpiAccount | None = None
 
 
+class Issuer(_Strict):
+    """Who issues receipts and invoices. A tax invoice needs a GSTIN; without one, documents are payment receipts."""
+
+    legal_name: str = Field(default="", max_length=200)
+    address: str = Field(default="", max_length=500)
+    gstin: str | None = Field(default=None, pattern=r"^[0-9]{2}[A-Z0-9]{10}[0-9A-Z]{3}$")
+    receipt_prefix: str = Field(default="RCPT", pattern=r"^[A-Z][A-Z0-9-]{1,11}$")
+    footer: str = Field(default="", max_length=500)
+
+
 class Communication(_Strict):
     contact_email: str | None = Field(default=None, max_length=255)
     contact_phone: str | None = Field(default=None, max_length=30)
@@ -279,6 +289,7 @@ class OnboardingConfig(_Strict):
     declaration: Declaration = Declaration()
     payment_accounts: PaymentAccounts = PaymentAccounts()
     communication: Communication = Communication()
+    issuer: Issuer = Issuer()
     reference_prefix: str = Field(default="ERPX-INT", pattern=r"^[A-Z][A-Z0-9-]{1,19}$")
 
     @model_validator(mode="after")
@@ -310,12 +321,14 @@ class OnboardingConfig(_Strict):
             raise ValueError("UPI is enabled: enter the UPI ID.")
         if m.self_service and self.deadlines.closes_at is None:
             raise ValueError("Students onboard themselves: set the onboarding closing date.")
+        if self.issuer.gstin and self.fees.tax_mode == "none":
+            raise ValueError("A GSTIN is set: choose the tax treatment of the fee.")
         if m.lms_access == "automatic" and m.mode == "manual":
             raise ValueError("Automatic LMS access needs automated or hybrid onboarding.")
         return self
 
 
-FINANCE_SECTIONS = ("fees", "payment_accounts")
+FINANCE_SECTIONS = ("fees", "payment_accounts", "issuer")
 
 
 def masked_accounts(accounts: dict) -> dict:

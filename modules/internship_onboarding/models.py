@@ -82,10 +82,12 @@ class OnboardingCounter(TimestampedBase):
     """The last application number handed out per organization and year (locked row, so numbers never repeat)."""
 
     __tablename__ = "internship_onboarding_counters"
-    __table_args__ = (UniqueConstraint("organization_id", "year", name="uq_onboarding_counter"),)
+    __table_args__ = (UniqueConstraint("organization_id", "series", "year", name="uq_onboarding_counter_series"),)
     __audit_skip__ = True
 
     organization_id: Mapped[uuid.UUID] = _org()
+    # "application" for references; "receipt" and "credit_note" for financial documents (migration 0100)
+    series: Mapped[str] = mapped_column(String(20), default="application", server_default="application", nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     last_value: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
@@ -248,6 +250,11 @@ class PaymentTransaction(TimestampedBase):
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # a refund points at the payment it returns money from (migration 0100)
+    refund_of_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("internship_payment_transactions.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    provider_refund_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     verified_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -267,3 +274,32 @@ class PaymentWebhookEvent(TimestampedBase):
     merchant_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     outcome: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class FinancialDocument(TimestampedBase):
+    """A receipt (or tax invoice) for a confirmed payment, or a credit note for a confirmed refund. Issued once per
+    transaction, never edited: the numbers, amounts and parties are fixed in ``details`` and in the stored PDF."""
+
+    __tablename__ = "internship_financial_documents"
+    __table_args__ = (UniqueConstraint("organization_id", "number", name="uq_financial_document_number"),)
+    __audit_exclude_fields__ = {"email_attempts", "updated_at"}
+
+    organization_id: Mapped[uuid.UUID] = _org()
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("internship_onboarding_applications.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    transaction_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("internship_payment_transactions.id", ondelete="RESTRICT"), nullable=False, unique=True
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)  # receipt | tax_invoice | credit_note
+    number: Mapped[str] = mapped_column(String(40), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(300), nullable=False, unique=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # none (emails off) | pending | sent | failed
+    email_status: Mapped[str] = mapped_column(String(10), default="pending", server_default="pending", nullable=False)
+    email_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

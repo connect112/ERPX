@@ -35,6 +35,7 @@ from modules.internship_onboarding.models import (
     PaymentTransaction,
     PaymentWebhookEvent,
 )
+from modules.internship_onboarding.financial import issue_safely
 from modules.internship_onboarding.portal import CONTENT_TYPES, Context, sniff
 from modules.internship_onboarding.providers import ProviderError, get_provider
 from modules.internship_onboarding.service import (
@@ -186,6 +187,7 @@ class PaymentService:
             claim.status = "confirmed"
             await event(self.db, application, "payment_verified", user_id=user.id, amount=str(received), method=claim.method)
             await self.db.flush()
+            await issue_safely(self.db, claim)
             await self.settle(application, user.id, claim.reference)
         else:
             if not (note or "").strip():
@@ -218,6 +220,7 @@ class PaymentService:
         except IntegrityError:
             raise ConflictError("This transaction reference is already recorded.") from None
         await event(self.db, application, "payment_recorded", user_id=user.id, amount=str(row.amount), method=method)
+        await issue_safely(self.db, row)
         await self.settle(application, user.id, row.reference)
         return row
 
@@ -340,6 +343,7 @@ class PaymentService:
             order.status, order.paid_at = "paid", payment.paid_at or now()
             await self.db.flush()
             await event(self.db, application, "payment_confirmed", actor="system", amount=str(payment.amount), source=source)
+            await issue_safely(self.db, existing)
             await self.settle(application, None, payment.provider_payment_id)
             return "confirmed"
         if payment.status == "failed":
@@ -356,6 +360,30 @@ class PaymentService:
             await event(self.db, application, "payment_failed", actor="system", source=source)
             return "failed"
         return "pending"
+
+    async def apply_gateway_refund(self, order: PaymentOrder, update, source: str) -> str:
+        """Record what the gateway reports about one of our refunds (idempotent; amount must match)."""
+        pending = (
+            await self.db.execute(
+                select(PaymentTransaction).where(PaymentTransaction.kind == "refund", PaymentTransaction.order_id == order.id,
+                                                 PaymentTransaction.status == "pending").with_for_update()
+            )
+        ).scalars().all()  # fmt: skip
+        match = next((r for r in pending if f"RF{r.id.hex[:30]}" == update.refund_id), None)
+        if match is None:
+            return "unknown refund"
+        if update.amount != match.amount:
+            return "refund amount mismatch: left for staff"
+        application = await self.db.get(OnboardingApplication, match.application_id)
+        if update.status == "success":
+            await RefundService(self.db)._confirm(match, application, None)
+            return "refund confirmed"
+        if update.status == "failed":
+            match.status, match.rejection_reason = "failed", f"The gateway reported the refund failed ({source})."
+            await self.db.flush()
+            await event(self.db, application, "refund_failed", actor="system")
+            return "refund failed"
+        return "refund pending"
 
     async def handle_webhook(self, raw_body: bytes, headers: dict[str, str]) -> tuple[int, str]:
         """(HTTP status, outcome). Bad signatures are refused and not processed; repeats are acknowledged and ignored."""
@@ -386,7 +414,10 @@ class PaymentService:
             await self.db.flush()
             return 200, "unknown order"
         record.organization_id = order.organization_id
-        outcome = await self.apply_gateway_payment(order, parsed.payment, "webhook") if parsed.payment else "no payment"
+        if parsed.refund is not None:
+            outcome = await self.apply_gateway_refund(order, parsed.refund, "webhook")
+        else:
+            outcome = await self.apply_gateway_payment(order, parsed.payment, "webhook") if parsed.payment else "no payment"
         record.outcome, record.processed_at = outcome[:200], now()
         await self.db.flush()
         return 200, outcome
@@ -439,3 +470,103 @@ async def _has_any(db: AsyncSession, user: User) -> bool:
     from modules.internship_onboarding.service import has
 
     return await has(db, user, FINANCE_VIEW) or await has(db, user, FINANCE_MANAGE)
+
+
+# ------------------------------------------------------------------ refunds
+
+
+class RefundService(PaymentService):
+    """Money going back. Only finance staff ask for it; a refund never exceeds what is left of the payment it returns,
+    original payments are never edited or deleted, and each confirmed refund gets a credit note."""
+
+    async def refundable(self, payment: PaymentTransaction) -> Decimal:
+        rows = (
+            await self.db.execute(
+                select(PaymentTransaction.amount).where(
+                    PaymentTransaction.refund_of_id == payment.id, PaymentTransaction.status.in_(("pending", "awaiting_verification", "confirmed"))
+                )
+            )
+        ).scalars().all()
+        return fee_maths.q(payment.amount - sum(rows, Decimal("0")))
+
+    async def request(
+        self, internship: OurInternship, payment_id: uuid.UUID, amount: Decimal, reason: str, user: User,
+    ) -> PaymentTransaction:  # fmt: skip
+        await require(self.db, user, FINANCE_MANAGE)
+        payment, application = await self._transaction(internship, payment_id)
+        if payment.kind != "payment" or payment.status != "confirmed":
+            raise ConflictError("Only a confirmed payment can be refunded.")
+        if not reason.strip():
+            raise ValidationError("Give the reason for the refund.")
+        amount = fee_maths.q(amount)
+        if amount <= 0 or amount > await self.refundable(payment):
+            raise ValidationError(f"At most {payment.currency} {await self.refundable(payment)} of this payment can be refunded.")
+        refund = PaymentTransaction(
+            organization_id=payment.organization_id, application_id=payment.application_id, order_id=payment.order_id,
+            kind="refund", method=payment.method, amount=amount, currency=payment.currency, refund_of_id=payment.id,
+            status="awaiting_verification", note=reason.strip()[:1000], created_by_user_id=user.id,
+        )  # fmt: skip
+        self.db.add(refund)
+        await self.db.flush()
+        if payment.method == "cashfree" and payment.order_id:
+            order = await self.db.get(PaymentOrder, payment.order_id)
+            try:
+                result = await get_provider("cashfree").create_refund(order.merchant_order_id, f"RF{refund.id.hex[:30]}", amount, reason.strip())
+            except ProviderError as exc:
+                refund.status, refund.rejection_reason = "failed", str(exc)[:500]
+                await self.db.flush()
+                raise ServiceUnavailableError(str(exc)) from None
+            refund.provider, refund.provider_refund_id = "cashfree", result.provider_refund_id
+            refund.status = "pending"
+            await self.db.flush()
+            if result.status == "success":
+                await self._confirm(refund, application, None)
+        await event(self.db, application, "refund_requested", user_id=user.id, amount=str(amount), reason=reason.strip()[:200])
+        return refund
+
+    async def _confirm(self, refund: PaymentTransaction, application: OnboardingApplication, user_id: uuid.UUID | None) -> None:
+        refund.status, refund.verified_at, refund.verified_by_user_id = "confirmed", now(), user_id
+        await self.db.flush()
+        await event(self.db, application, "refund_completed", actor="staff" if user_id else "system", user_id=user_id, amount=str(refund.amount))
+        await issue_safely(self.db, refund)
+
+    async def decide(
+        self, internship: OurInternship, refund_id: uuid.UUID, approve: bool, reference: str | None, note: str | None, user: User,
+    ) -> PaymentTransaction:  # fmt: skip
+        """For a refund made by bank transfer/UPI: confirm once the money has been sent (with its reference), or cancel."""
+        await require(self.db, user, FINANCE_MANAGE)
+        refund, application = await self._transaction(internship, refund_id)
+        if refund.kind != "refund" or refund.status != "awaiting_verification":
+            raise ConflictError("This refund is not waiting for confirmation.")
+        if approve:
+            if not (reference or "").strip():
+                raise ValidationError("Enter the reference of the transfer that returned the money.")
+            refund.reference = reference.strip()[:120]
+            refund.paid_on = date.today()
+            await self._confirm(refund, application, user.id)
+        else:
+            if not (note or "").strip():
+                raise ValidationError("Give the reason for cancelling the refund.")
+            refund.status, refund.rejection_reason = "rejected", note.strip()[:1000]
+            refund.verified_at, refund.verified_by_user_id = now(), user.id
+            await self.db.flush()
+            await event(self.db, application, "refund_cancelled", user_id=user.id, reason=refund.rejection_reason)
+        return refund
+
+
+
+
+async def cancel_application(db: AsyncSession, internship: OurInternship, student_id: uuid.UUID, reason: str, user: User) -> None:
+    """Withdrawal or cancellation by staff. The link stops working; payments stay and are refunded separately if due."""
+    if not reason.strip():
+        raise ValidationError("Give the reason for cancelling.")
+    apps = ApplicationService(db)
+    selection, _ = await apps.one(internship, student_id)
+    application = await apps.ensure(internship, selection)
+    if application.cancelled_at is not None:
+        raise ConflictError("This onboarding is already cancelled.")
+    application.cancelled_at, application.cancel_reason = now(), reason.strip()[:1000]
+    application.token_hash, application.token_revoked_at = None, now()
+    await db.flush()
+    await event(db, application, "onboarding_cancelled", user_id=user.id, reason=application.cancel_reason)
+

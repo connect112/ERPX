@@ -28,12 +28,14 @@ from modules.internship_onboarding.providers.base import (
     PaymentProvider,
     ProviderError,
     ProviderPayment,
+    ProviderRefund,
     WebhookEvent,
 )
 
 logger = get_logger(__name__)
 
 BASE_URLS = {"sandbox": "https://sandbox.cashfree.com/pg", "production": "https://api.cashfree.com/pg"}
+REFUND_STATUS = {"SUCCESS": "success", "CANCELLED": "failed", "FAILED": "failed"}
 STATUS = {"SUCCESS": "success", "FAILED": "failed", "USER_DROPPED": "failed", "CANCELLED": "failed", "VOID": "failed"}
 TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
@@ -156,6 +158,28 @@ class CashfreeProvider(PaymentProvider):
             paid_at=paid_at,
         )
 
+    @staticmethod
+    def _refund(r: dict) -> ProviderRefund:
+        return ProviderRefund(
+            refund_id=str(r.get("refund_id", "")),
+            status=REFUND_STATUS.get(str(r.get("refund_status", "")).upper(), "pending"),
+            amount=_amount(r.get("refund_amount")),
+            provider_refund_id=str(r["cf_refund_id"]) if r.get("cf_refund_id") is not None else None,
+        )
+
+    async def create_refund(self, merchant_order_id: str, refund_id: str, amount: Decimal, note: str) -> ProviderRefund:
+        data = await self._request(
+            "POST", f"/orders/{merchant_order_id}/refunds", {"refund_amount": float(amount), "refund_id": refund_id, "refund_note": note[:100]}
+        )
+        refund = self._refund(data if isinstance(data, dict) else {})
+        if refund.refund_id != refund_id or refund.amount != amount:
+            raise ProviderError("The payment gateway returned an unexpected refund.")
+        return refund
+
+    async def refund_status(self, merchant_order_id: str, refund_id: str) -> ProviderRefund:
+        data = await self._request("GET", f"/orders/{merchant_order_id}/refunds/{refund_id}")
+        return self._refund(data if isinstance(data, dict) else {})
+
     def verify_webhook(self, raw_body: bytes, headers: dict[str, str]) -> bool:
         lowered = {k.lower(): v for k, v in headers.items()}
         signature, timestamp = lowered.get("x-webhook-signature", ""), lowered.get("x-webhook-timestamp", "")
@@ -175,7 +199,8 @@ class CashfreeProvider(PaymentProvider):
         try:
             body = json.loads(raw_body)
             data = body["data"]
-            order_id = str(data["order"]["order_id"])
+            refund = data.get("refund") if isinstance(data.get("refund"), dict) else None
+            order_id = str(refund["order_id"] if refund else data["order"]["order_id"])
         except (ValueError, KeyError, TypeError):
             raise ProviderError("Unreadable notification.") from None
         payment = data.get("payment")
@@ -183,4 +208,5 @@ class CashfreeProvider(PaymentProvider):
             event_type=str(body.get("type", ""))[:60],
             merchant_order_id=order_id,
             payment=self._payment(payment) if isinstance(payment, dict) and payment.get("cf_payment_id") is not None else None,
+            refund=self._refund(refund) if refund else None,
         )

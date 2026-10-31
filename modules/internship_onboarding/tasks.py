@@ -4,6 +4,7 @@ from app.core.celery_app import celery_app
 from app.core.logging_config import get_logger
 from app.db.session import get_db_context, run_async
 from modules.internship_onboarding.emails import send_invitation_task  # noqa: F401
+from modules.internship_onboarding.financial import send_document_task  # noqa: F401
 
 logger = get_logger(__name__)
 
@@ -33,6 +34,24 @@ async def _reconcile() -> dict[str, int]:
                 continue
             checked += 1
             confirmed += outcome == "confirmed"
+    # refunds still pending at the gateway
+    async with get_db_context() as db:
+        from sqlalchemy import select
+
+        from modules.internship_onboarding.models import PaymentOrder, PaymentTransaction
+        from modules.internship_onboarding.providers import get_provider
+
+        pending = (await db.execute(select(PaymentTransaction).where(PaymentTransaction.kind == "refund", PaymentTransaction.status == "pending",
+                                                                      PaymentTransaction.provider == "cashfree").limit(100))).scalars().all()  # fmt: skip
+        for refund in pending:
+            order = await db.get(PaymentOrder, refund.order_id) if refund.order_id else None
+            if order is None:
+                continue
+            try:
+                update = await get_provider("cashfree").refund_status(order.merchant_order_id, f"RF{refund.id.hex[:30]}")
+                await PaymentService(db).apply_gateway_refund(order, update, "status check")
+            except ProviderError:
+                logger.warning("onboarding_refund_check_failed", refund_id=str(refund.id))
     return {"checked": checked, "confirmed": confirmed}
 
 
