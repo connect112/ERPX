@@ -114,6 +114,12 @@ class Settings(BaseSettings):
     CASHFREE_ORDER_MINUTES: int = 30
     # Notifications older than this (by their signed timestamp) are refused; retries within it are deduplicated.
     CASHFREE_WEBHOOK_MAX_AGE_HOURS: int = 72
+    # Optional virus scanning of onboarding uploads through a ClamAV daemon (clamd). Off unless enabled; when on, an
+    # unreachable scanner refuses uploads instead of storing unscanned files. No ClamAV service is part of the stack yet.
+    CLAMAV_ENABLED: bool = False
+    CLAMAV_HOST: str = "clamav"
+    CLAMAV_PORT: int = 3310
+    CLAMAV_TIMEOUT_SECONDS: int = 30
 
     # ---- Search ----
     ELASTICSEARCH_URL: str = "http://elasticsearch:9200"
