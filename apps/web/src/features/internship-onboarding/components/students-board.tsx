@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Mail, Search } from "lucide-react";
+import { CalendarClock, Download, Mail, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +68,19 @@ export function StudentsBoard({ internshipId, timezone, canManage }: { internshi
     onError: (e) => setNotice({ ok: false, text: errorMessage(e, "Could not reopen.") }),
   });
 
+  const download = async (which: "export" | "payments", filename: string) => {
+    try {
+      const blob = await onboardingFlowApi.exportCsv(internshipId, which);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setNotice({ ok: false, text: errorMessage(e, "The export needs the right permission.") });
+    }
+  };
   const toggle = (id: string, on: boolean) => {
     const next = new Set(picked);
     if (on) next.add(id);
@@ -106,6 +119,14 @@ export function StudentsBoard({ internshipId, timezone, canManage }: { internshi
             </option>
           ))}
         </select>
+        <Button size="sm" variant="ghost" onClick={() => void download("export", "onboarding-status.csv")}>
+          <Download className="h-4 w-4" />
+          Status CSV
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void download("payments", "onboarding-payments.csv")}>
+          <Download className="h-4 w-4" />
+          Payments CSV
+        </Button>
         {canManage && (
           <>
             <Button size="sm" variant="outline" disabled={picked.size === 0} onClick={() => setConfirm("invite")}>

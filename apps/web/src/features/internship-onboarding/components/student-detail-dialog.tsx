@@ -36,6 +36,15 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
     onError: fail,
   });
   const info = useMutation({ mutationFn: (approve: boolean) => onboardingFlowApi.reviewInfo(internshipId, studentId, approve), onSuccess: refresh, onError: fail });
+  const [refundForm, setRefundForm] = useState<Record<string, { amount: string; text: string }>>({});
+  const [cancelReason, setCancelReason] = useState("");
+  const docs = useQuery({
+    queryKey: ["onboarding-flow", internshipId, "financial"],
+    queryFn: () => onboardingFlowApi.financialDocuments(internshipId),
+    enabled: !!detail.data?.payments,
+    retry: false,
+  });
+  const act = useMutation({ mutationFn: (action: () => Promise<unknown>) => action(), onSuccess: () => (setError(null), refresh()), onError: fail });
   const preview = async (id: string) => {
     try {
       window.open(await onboardingFlowApi.previewDocument(internshipId, id), "_blank", "noopener,noreferrer");
@@ -163,18 +172,65 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
             </section>
 
             {d.payments && (
-              <section className="space-y-1">
+              <section className="space-y-2">
                 <h3 className="font-semibold">Ledger</h3>
                 {d.payments.length === 0 && <p className="text-muted-foreground">No entries.</p>}
                 {d.payments.map((p) => (
-                  <div key={p.id} className="flex flex-wrap gap-2">
-                    <span>{p.kind}</span>
-                    <span>{money(p.amount, p.currency)}</span>
-                    <Badge variant={statusTone(p.status)}>{statusLabel(p.status)}</Badge>
-                    <span className="text-muted-foreground">{p.method ?? ""} {p.reference ?? ""} {p.note ?? ""}</span>
+                  <div key={p.id} className="space-y-1 rounded-md border p-2">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="font-medium">{p.kind}</span>
+                      <span>{money(p.amount, p.currency)}</span>
+                      <Badge variant={statusTone(p.status)}>{statusLabel(p.status)}</Badge>
+                      <span className="text-muted-foreground">{p.method ?? ""} {p.reference ?? ""} {p.note ?? ""}</span>
+                    </div>
+                    {p.kind === "payment" && p.status === "confirmed" && (
+                      <div className="flex flex-wrap gap-2">
+                        <Input className="w-28" inputMode="decimal" placeholder="Amount" value={refundForm[p.id]?.amount ?? ""} onChange={(e) => setRefundForm({ ...refundForm, [p.id]: { ...(refundForm[p.id] ?? { amount: "", text: "" }), amount: e.target.value } })} />
+                        <Input className="max-w-xs" placeholder="Reason for the refund" value={refundForm[p.id]?.text ?? ""} onChange={(e) => setRefundForm({ ...refundForm, [p.id]: { ...(refundForm[p.id] ?? { amount: "", text: "" }), text: e.target.value } })} />
+                        <Button size="sm" variant="outline" disabled={!refundForm[p.id]?.amount || !refundForm[p.id]?.text || act.isPending}
+                          onClick={() => window.confirm(`Refund ${refundForm[p.id]?.amount} to ${d.student.name}?`) && act.mutate(() => onboardingFlowApi.refund(internshipId, p.id, refundForm[p.id].amount, refundForm[p.id].text))}>
+                          Refund
+                        </Button>
+                      </div>
+                    )}
+                    {p.kind === "refund" && p.status === "awaiting_verification" && (
+                      <div className="flex flex-wrap gap-2">
+                        <Input className="max-w-xs" placeholder="Transfer reference, or reason to cancel" value={refundForm[p.id]?.text ?? ""} onChange={(e) => setRefundForm({ ...refundForm, [p.id]: { amount: "", text: e.target.value } })} />
+                        <Button size="sm" disabled={!refundForm[p.id]?.text || act.isPending} onClick={() => act.mutate(() => onboardingFlowApi.decideRefund(internshipId, p.id, { approve: true, reference: refundForm[p.id].text }))}>
+                          Money sent
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={!refundForm[p.id]?.text || act.isPending} onClick={() => act.mutate(() => onboardingFlowApi.decideRefund(internshipId, p.id, { approve: false, note: refundForm[p.id].text }))}>
+                          Cancel refund
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {(docs.data ?? []).filter((f) => f.application === d.reference).map((f) => (
+                  <div key={f.id} className="flex flex-wrap items-center gap-2">
+                    <span>{f.kind.replace("_", " ")} {f.number} · {money(f.amount, f.currency)} · email {f.email_status}</span>
+                    <Button size="sm" variant="ghost" onClick={() => void onboardingFlowApi.financialUrl(internshipId, f.id).then((u) => window.open(u, "_blank", "noopener,noreferrer")).catch(fail)}>
+                      Download
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => act.mutate(() => onboardingFlowApi.resendFinancial(internshipId, f.id))}>
+                      Resend
+                    </Button>
                   </div>
                 ))}
               </section>
+            )}
+
+            {canManage && d.statuses.overall !== "cancelled" && (
+              <details className="text-sm">
+                <summary className="cursor-pointer text-muted-foreground">Cancel this student's onboarding (withdrawal)</summary>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Input className="max-w-sm" placeholder="Reason" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+                  <Button size="sm" variant="destructive" disabled={!cancelReason.trim() || act.isPending}
+                    onClick={() => window.confirm("Cancel this onboarding? The link stops working; refunds are made separately.") && act.mutate(() => onboardingFlowApi.cancel(internshipId, studentId, cancelReason))}>
+                    Cancel onboarding
+                  </Button>
+                </div>
+              </details>
             )}
 
             <section className="space-y-1">

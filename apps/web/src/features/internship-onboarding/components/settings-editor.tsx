@@ -209,6 +209,18 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
         </Section>
       )}
 
+      {finance && (
+        <Section title="Receipts and invoices" hint="Without a GSTIN, students get payment receipts. A tax invoice is issued only when a GSTIN and a tax treatment are set.">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input aria-label="Legal name" placeholder="Legal name (defaults to the organization name)" value={s.issuer.legal_name} onChange={(e) => set("issuer", { legal_name: e.target.value })} />
+            <Input aria-label="GSTIN" placeholder="GSTIN (optional)" value={s.issuer.gstin ?? ""} onChange={(e) => set("issuer", { gstin: e.target.value.toUpperCase() || null })} />
+            <Input aria-label="Address" placeholder="Address" value={s.issuer.address} onChange={(e) => set("issuer", { address: e.target.value })} />
+            <Input aria-label="Receipt number prefix" placeholder="RCPT" value={s.issuer.receipt_prefix} onChange={(e) => set("issuer", { receipt_prefix: e.target.value.toUpperCase() })} />
+            <Input aria-label="Footer" placeholder="Footer line (optional)" value={s.issuer.footer} onChange={(e) => set("issuer", { footer: e.target.value })} />
+          </div>
+        </Section>
+      )}
+
       <Section title="Deadlines" hint={`Times are saved exactly and shown to students in ${s.deadlines.timezone}.`}>
         <div className="grid gap-3 sm:grid-cols-3">
           {dt("opens_at", "Opens")}

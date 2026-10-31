@@ -331,6 +331,26 @@ export function OnboardingPortalPage() {
         )}
       </Step>
 
+      {v.financial_documents.length > 0 && (
+        <Step title="Receipts" done>
+          <ul className="space-y-1 text-sm">
+            {v.financial_documents.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {d.kind === "credit_note" ? "Credit note" : d.kind === "tax_invoice" ? "Tax invoice" : "Receipt"} {d.number} ·{" "}
+                  {money(d.amount, d.currency)}
+                </span>
+                <Button size="sm" variant="outline" onClick={() => void run("receipt", async () => {
+                  window.open(await portalApi.financialUrl(token, d.id), "_blank", "noopener,noreferrer");
+                })}>
+                  Download
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Step>
+      )}
+
       {v.payment.required && accepted && (
         <Step title="5. Payment" done={v.statuses.payment === "paid"}>
           <p className="text-sm">

@@ -74,7 +74,20 @@ export interface OnboardingSettings {
     reminder_days: number[];
     next_steps: string;
   };
+  issuer: { legal_name: string; address: string; gstin: string | null; receipt_prefix: string; footer: string };
   reference_prefix: string;
+}
+
+export interface FinancialDoc {
+  id: string;
+  kind: "receipt" | "tax_invoice" | "credit_note";
+  number: string;
+  amount: string;
+  currency: string;
+  issued_at: string;
+  application?: string;
+  student?: string;
+  email_status?: string;
 }
 
 export interface ConfigView {
@@ -190,6 +203,18 @@ export const onboardingFlowApi = {
   proof: (id: string, txId: string) => apiClient.get<{ url: string }>(`${flow(id)}/payments/${txId}/proof`).then((r) => r.data.url),
   verifyPayment: (id: string, txId: string, body: { approve: boolean; amount_received?: string; note?: string }) =>
     apiClient.post(`${flow(id)}/payments/${txId}/verify`, body).then((r) => r.data),
+  financialDocuments: (id: string) => apiClient.get<FinancialDoc[]>(`${flow(id)}/financial-documents`).then((r) => r.data),
+  financialUrl: (id: string, docId: string) =>
+    apiClient.get<{ url: string }>(`${flow(id)}/financial-documents/${docId}/download`).then((r) => r.data.url),
+  resendFinancial: (id: string, docId: string) => apiClient.post(`${flow(id)}/financial-documents/${docId}/resend`).then((r) => r.data),
+  refund: (id: string, txId: string, amount: string, reason: string) =>
+    apiClient.post<{ id: string; status: string }>(`${flow(id)}/payments/${txId}/refund`, { amount, reason }).then((r) => r.data),
+  decideRefund: (id: string, txId: string, body: { approve: boolean; reference?: string; note?: string }) =>
+    apiClient.post(`${flow(id)}/refunds/${txId}/decide`, body).then((r) => r.data),
+  cancel: (id: string, studentId: string, reason: string) =>
+    apiClient.post(`${flow(id)}/students/${studentId}/cancel`, { reason }).then((r) => r.data),
+  exportCsv: (id: string, which: "export" | "payments") =>
+    apiClient.get<Blob>(`${flow(id)}/${which}.csv`, { responseType: "blob" }).then((r) => r.data),
   templates: () => apiClient.get<TemplateRow[]>("/internship-onboarding-templates").then((r) => r.data),
   saveAsTemplate: (name: string, fromInternshipId: string) =>
     apiClient.post<TemplateRow>("/internship-onboarding-templates", { name, from_internship_id: fromInternshipId }).then((r) => r.data),
@@ -229,6 +254,7 @@ export interface PortalView {
   };
   completion: { completed: boolean; next_steps: string; whatsapp_link: string | null; lms_status: string };
   contact: { email: string | null; phone: string | null };
+  financial_documents: FinancialDoc[];
 }
 
 const P = "/public/internship-onboarding";
@@ -262,5 +288,7 @@ export const portalApi = {
   },
   checkout: (t: string) =>
     apiClient.post<{ payment_session_id: string; environment: "sandbox" | "production"; order_id: string }>(`${P}/payments/checkout`, {}, h(t)).then((r) => r.data),
+  financialUrl: (t: string, docId: string) =>
+    apiClient.get<{ url: string }>(`${P}/financial-documents/${docId}`, h(t)).then((r) => r.data.url),
   refresh: (t: string) => apiClient.post<PortalView & { outcome: string }>(`${P}/payments/refresh`, {}, h(t)).then((r) => r.data),
 };
