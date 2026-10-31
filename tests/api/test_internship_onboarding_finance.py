@@ -182,3 +182,22 @@ async def test_the_completion_email_goes_once(client, auth_headers, db_session, 
     await follow_up(db_session, application.id)
     completion = [s for s in sent if "onboarded" in s[1]]
     assert len(completion) == 1 and completion[0][0] == s0.email
+
+
+async def test_reviewers_can_bulk_download_the_current_onboarding_documents(client, auth_headers, db_session, organization, storage):
+    from modules.bulk_exports.sources import SOURCES
+
+    internship, (s0, s1) = await world(db_session, organization)
+    await configure(client, auth_headers, internship)
+    token = await ready_to_pay(client, auth_headers, internship, s0)
+    from tests.api.test_internship_onboarding import PNG
+
+    await client.post(f"{PUBLIC}/documents/college_id", files={"file": ("id.png", PNG, "image/png")}, headers=tok(token))  # v2 replaces v1
+    info = await client.get("/api/v1/bulk-exports/sources/onboarding_documents/items", params={"scope_id": str(internship.id)}, headers=auth_headers)
+    assert info.status_code == 200, info.text
+    items = info.json()["items"]
+    college = [i for i in items if "College ID" in i["title"]]
+    assert len(items) == 2 and len(college) == 1 and college[0]["subtitle"].endswith("v2")  # only the current version
+    manager = await admin_headers(db_session, organization, permissions=("our_internships.view", "our_internships.manage"))
+    assert (await client.get("/api/v1/bulk-exports/sources/onboarding_documents", params={"scope_id": str(internship.id)}, headers=manager)).status_code == 403
+    assert SOURCES["onboarding_documents"].extension is None  # each file keeps its own type

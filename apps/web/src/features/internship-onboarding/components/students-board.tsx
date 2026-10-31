@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { BulkDownloadButton } from "@/features/bulk-downloads/components/bulk-download-button";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { onboardingFlowApi } from "@/features/internship-onboarding/api";
 import { StudentDetailDialog } from "@/features/internship-onboarding/components/student-detail-dialog";
@@ -119,6 +120,7 @@ export function StudentsBoard({ internshipId, timezone, canManage }: { internshi
             </option>
           ))}
         </select>
+        <BulkDownloadButton source="onboarding_documents" scopeId={internshipId} size="sm" variant="ghost" label="Documents ZIP" />
         <Button size="sm" variant="ghost" onClick={() => void download("export", "onboarding-status.csv")}>
           <Download className="h-4 w-4" />
           Status CSV

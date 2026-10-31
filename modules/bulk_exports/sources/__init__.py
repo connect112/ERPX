@@ -7,6 +7,7 @@ from modules.bulk_exports.sources.base import DocumentSource
 from modules.bulk_exports.sources.certificates import ExamCertificatesSource, InternshipCertificatesSource
 from modules.bulk_exports.sources.documents import DocumentsSource
 from modules.bulk_exports.sources.offer_letters import OfferLettersSource
+from modules.bulk_exports.sources.onboarding import OnboardingDocumentsSource
 from modules.bulk_exports.sources.payslips import PayslipsSource
 
 SOURCES: dict[str, DocumentSource] = {
@@ -17,6 +18,7 @@ SOURCES: dict[str, DocumentSource] = {
         OfferLettersSource(),
         PayslipsSource(),
         DocumentsSource(),
+        OnboardingDocumentsSource(),
     )
 }
 
