@@ -110,7 +110,8 @@ class Settings(BaseSettings):
     CASHFREE_ALLOW_PRODUCTION: bool = False
     CASHFREE_APP_ID: str = ""
     CASHFREE_SECRET_KEY: str = ""
-    CASHFREE_API_VERSION: str = "2023-08-01"
+    # Cashfree's current documented default for the PG API; pick the same version for webhooks in the dashboard.
+    CASHFREE_API_VERSION: str = "2025-01-01"
     CASHFREE_ORDER_MINUTES: int = 30
     # Notifications older than this (by their signed timestamp) are refused; retries within it are deduplicated.
     CASHFREE_WEBHOOK_MAX_AGE_HOURS: int = 72
