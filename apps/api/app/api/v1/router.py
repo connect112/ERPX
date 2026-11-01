@@ -29,6 +29,7 @@ from modules.bulk_exports.routes import router as bulk_exports_router
 from modules.internship_onboarding.routes import public_router as internship_onboarding_public_router
 from modules.internship_onboarding.routes import router as internship_onboarding_router
 from modules.internship_onboarding.routes import templates_router as internship_onboarding_templates_router
+from modules.internship_onboarding.routes import accounts_router as internship_onboarding_accounts_router
 from modules.authorization.routes import router as authorization_router
 from modules.batches.routes import router as batches_router
 from modules.branches.routes import router as branches_router
@@ -131,6 +132,7 @@ api_router.include_router(storage_manager_router, prefix="/storage-manager", tag
 api_router.include_router(bulk_exports_router, prefix="/bulk-exports", tags=["Bulk downloads"])
 api_router.include_router(internship_onboarding_router, prefix="/our-internships", tags=["Internship onboarding"])
 api_router.include_router(internship_onboarding_templates_router, prefix="/internship-onboarding-templates", tags=["Internship onboarding"])
+api_router.include_router(internship_onboarding_accounts_router, prefix="/internship-onboarding-payment-accounts", tags=["Internship onboarding"])
 api_router.include_router(internship_onboarding_public_router, prefix="/public", tags=["Internship onboarding (public)"])
 api_router.include_router(integrations_router, prefix="/integrations", tags=["Integrations"])
 api_router.include_router(documents_router, prefix="/documents", tags=["Documents"])
