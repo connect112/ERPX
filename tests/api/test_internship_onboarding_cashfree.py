@@ -72,3 +72,30 @@ async def test_nothing_is_paid_receipted_or_completed_before_the_gateway_confirm
     assert (await client.post(HOOK, content=raw, headers=headers)).json()["outcome"] == "confirmed"
     assert not await nothing_yet()
     assert (await db_session.execute(select(func.count(FinancialDocument.id)))).scalar() == 1
+
+
+async def test_a_refund_cashfree_makes_by_itself_is_reported_to_staff_and_never_changes_the_ledger(client, auth_headers, db_session, organization, storage, gateway):
+    from modules.internship_onboarding.models import OnboardingEvent, PaymentTransaction
+
+    internship, (s0, _) = await world(db_session, organization)
+    await configure(client, auth_headers, internship, fees={"methods": ["cashfree"]}, payment_accounts={"bank": None})
+    token = await ready_to_pay(client, auth_headers, internship, s0)
+    order_id = (await client.post(f"{PUBLIC}/payments/checkout", headers=tok(token))).json()["order_id"]
+    raw, headers = signed(payment_event(order_id, payment_id=9))
+    assert (await client.post(HOOK, content=raw, headers=headers)).json()["outcome"] == "confirmed"
+
+    # AUTO_REFUND_STATUS_WEBHOOK has no order block: it used to be refused as unreadable (and retried by Cashfree forever)
+    auto = {"type": "AUTO_REFUND_STATUS_WEBHOOK", "data": {"refund": {"cf_payment_id": "9", "refund_amount": 5000, "refund_status": "SUCCESS"}}}
+    raw, headers = signed(auto)
+    r = await client.post(HOOK, content=raw, headers=headers)
+    assert r.status_code == 200 and r.json()["outcome"] == "auto refund: reported to staff"
+    noted = (await db_session.execute(select(OnboardingEvent).where(OnboardingEvent.event == "gateway_auto_refund"))).scalar_one()
+    assert noted.detail["amount"] == "5000" and noted.actor == "system"
+    kinds = (await db_session.execute(select(PaymentTransaction.kind))).scalars().all()
+    assert "refund" not in kinds  # finance confirms and records it; nothing is assumed
+
+    raw, headers = signed({"type": "AUTO_REFUND_STATUS_WEBHOOK", "data": {"refund": {"cf_payment_id": "unknown"}}})
+    r = await client.post(HOOK, content=raw, headers=headers)
+    assert r.status_code == 200 and r.json()["outcome"] == "auto refund: no matching payment"
+    forged, h2 = signed(auto, secret="attacker-guess")
+    assert (await client.post(HOOK, content=forged, headers=h2)).status_code == 401

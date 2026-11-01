@@ -413,6 +413,11 @@ class PaymentService:
         record.event_type, record.merchant_order_id = parsed.event_type, parsed.merchant_order_id[:64]
         if seen is None:
             self.db.add(record)
+        if parsed.event_type.startswith("AUTO_REFUND"):
+            outcome = await self.report_auto_refund(parsed)
+            record.outcome, record.processed_at = outcome, now()
+            await self.db.flush()
+            return 200, outcome
         if order is None:
             record.outcome, record.processed_at = "unknown order", now()
             await self.db.flush()
@@ -425,6 +430,25 @@ class PaymentService:
         record.outcome, record.processed_at = outcome[:200], now()
         await self.db.flush()
         return 200, outcome
+
+    async def report_auto_refund(self, parsed) -> str:
+        """Cashfree returned money by itself. The ledger is not changed (staff confirm what happened and record it); the
+        student's timeline says so, so the refund is never silent."""
+        payment = None
+        if parsed.auto_refund_payment_id:
+            payment = (
+                await self.db.execute(
+                    select(PaymentTransaction).where(PaymentTransaction.provider == "cashfree",
+                                                     PaymentTransaction.provider_payment_id == parsed.auto_refund_payment_id)
+                )
+            ).scalar_one_or_none()  # fmt: skip
+        if payment is None:
+            logger.warning("cashfree_auto_refund_unmatched")
+            return "auto refund: no matching payment"
+        application = await self.db.get(OnboardingApplication, payment.application_id)
+        await event(self.db, application, "gateway_auto_refund", actor="system", amount=parsed.auto_refund_amount,
+                    payment=parsed.auto_refund_payment_id, note="Cashfree refunded this payment itself; finance to check and record.")  # fmt: skip
+        return "auto refund: reported to staff"
 
     async def refresh_order(self, order: PaymentOrder) -> str:
         """Ask the gateway directly (the student pressed "check payment", or the reconciliation task)."""

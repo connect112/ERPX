@@ -205,6 +205,16 @@ class CashfreeProvider(PaymentProvider):
         try:
             body = json.loads(raw_body)
             data = body["data"]
+            event_type = str(body.get("type", ""))[:60]
+            if event_type.startswith("AUTO_REFUND"):
+                # Cashfree's own refunds (AUTO_REFUND_STATUS_WEBHOOK) do not carry the usual order block; read what is there.
+                found = data.get("refund") if isinstance(data.get("refund"), dict) else data
+                payment_id = found.get("cf_payment_id") if isinstance(found, dict) else None
+                return WebhookEvent(
+                    event_type=event_type, merchant_order_id=str(found.get("order_id") or "")[:64], payment=None,
+                    auto_refund_payment_id=str(payment_id) if payment_id is not None else None,
+                    auto_refund_amount=str(found.get("refund_amount")) if found.get("refund_amount") is not None else None,
+                )  # fmt: skip
             refund = data.get("refund") if isinstance(data.get("refund"), dict) else None
             order_id = str(refund["order_id"] if refund else data["order"]["order_id"])
         except (ValueError, KeyError, TypeError):
