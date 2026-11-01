@@ -103,6 +103,9 @@ const WorkshopExamDetailPage = lazy(() => import("@/features/workshop-exams/page
 const PrivacyPolicyPage = lazy(() => import("@/features/legal/pages/legal-page").then((m) => ({ default: m.PrivacyPolicyPage })));
 const DataDeletionPage = lazy(() => import("@/features/legal/pages/legal-page").then((m) => ({ default: m.DataDeletionPage })));
 const PublicRegisterPage = lazy(() => import("@/features/workshop-exams/pages/public-register-page").then((m) => ({ default: m.PublicRegisterPage })));
+const OnboardingPortalPage = lazy(() =>
+  import("@/features/internship-onboarding/pages/onboarding-portal-page").then((m) => ({ default: m.OnboardingPortalPage }))
+);
 const PublicExamPage = lazy(() => import("@/features/workshop-exams/pages/public-exam-page").then((m) => ({ default: m.PublicExamPage })));
 const VerifyWorkshopCertificatePage = lazy(() => import("@/features/workshop-exams/pages/verify-certificate-page").then((m) => ({ default: m.VerifyWorkshopCertificatePage })));
 const WorkshopsListPage = lazy(() => import("@/features/workshops/pages/workshops-list-page").then((m) => ({ default: m.WorkshopsListPage })));
@@ -360,6 +363,15 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <PublicRegisterPage />
+      </Suspense>
+    ),
+  },
+  // A selected student's onboarding: no sign-in; the personal token is in the link's #fragment, never in the path.
+  {
+    path: "/internship-onboarding",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <OnboardingPortalPage />
       </Suspense>
     ),
   },

@@ -16,6 +16,7 @@ import {
   ourInternshipsKeys,
 } from "@/features/our-internships/api/our-internships-api";
 import { StudentOnboardingDialog } from "@/features/our-internships/components/student-onboarding-dialog";
+import { OnboardingFlowPanel } from "@/features/internship-onboarding/components/flow-panel";
 import {
   LMS_LABELS,
   OFFER_RESPONSE_LABELS,
@@ -35,7 +36,7 @@ const GRANT_BATCH = 25;
  * After the offers: see every selected student's stage at a glance, mark verification and payment (one at a time from their
  * profile, or many at once), and grant LMS access. The LMS course is chosen here, once, for the whole internship.
  */
-export function OnboardingTab({ internship }: { internship: OurInternship }) {
+export function OnboardingTab({ internship, isAdmin = false }: { internship: OurInternship; isAdmin?: boolean }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -86,6 +87,7 @@ export function OnboardingTab({ internship }: { internship: OurInternship }) {
 
   return (
     <div className="space-y-6">
+      <OnboardingFlowPanel internshipId={internship.id} canManage={isAdmin} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">LMS course</CardTitle>

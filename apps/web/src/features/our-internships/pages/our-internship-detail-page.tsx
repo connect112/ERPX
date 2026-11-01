@@ -234,7 +234,7 @@ export function OurInternshipDetailPage() {
           </TabsContent>
         )}
         <TabsContent value="onboarding">
-          <OnboardingTab internship={i} />
+          <OnboardingTab internship={i} isAdmin={isAdmin} />
         </TabsContent>
         <TabsContent value="exams">
           <ExamsTab internshipId={internshipId} canManage />

@@ -103,6 +103,10 @@ from modules.events.models import Event  # noqa: E402,F401
 from modules.backups.models import BackupJob  # noqa: E402,F401
 from modules.storage_manager.models import StorageDeletionLog, StorageTrash  # noqa: E402,F401
 from modules.bulk_exports.models import BulkExportJob  # noqa: E402,F401
+from modules.internship_onboarding.models import (  # noqa: E402,F401
+    OnboardingApplication, OnboardingConfigRecord, OnboardingConfigVersion, OnboardingCounter, OnboardingDocument,
+    OnboardingEvent, OnboardingTemplate, OnboardingTemplateVersion, PaymentOrder, PaymentTransaction, PaymentWebhookEvent,
+)
 from modules.integrations.models import Integration  # noqa: E402,F401
 
 # Additional modules are imported below as they are built, e.g.:

@@ -254,6 +254,21 @@ DEFAULT_PERMISSIONS: list[tuple[str, str, str]] = [
         "our_internships",
         "Create internship programmes and select or remove students on them",
     ),
+    (
+        "our_internships.onboarding.review",
+        "our_internships",
+        "Review students' onboarding documents: view them, verify them or ask for corrections",
+    ),
+    (
+        "our_internships.finance.view",
+        "our_internships",
+        "See internship fees, payment accounts and students' payment records",
+    ),
+    (
+        "our_internships.finance.manage",
+        "our_internships",
+        "Set internship fees and payment accounts, verify bank and UPI payments, apply late fees and waivers, issue refunds",
+    ),
     ("placements.view", "placements", "View companies, job postings, and applications"),
     ("placements.manage", "placements", "Create, update, delete companies/postings and manage applications"),
     ("social_media.view", "social_media", "View the social media dashboard, drafts and settings"),
