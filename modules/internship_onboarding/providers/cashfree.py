@@ -1,10 +1,16 @@
 """
-Cashfree Payment Gateway adapter (PG API, hosted checkout).
+Cashfree Payment Gateway adapter (PG API, hosted checkout through the JS SDK v3).
 
-STATUS: written against Cashfree's documented contract (``x-api-version`` 2023-08-01 or later: ``POST /pg/orders``,
-``GET /pg/orders/{order_id}/payments``, webhook signature = base64(HMAC-SHA256(timestamp + raw body, secret key))).
-It has NOT yet been checked against the current documentation or run against the sandbox, because cashfree.com was not
-reachable from the development environment. Do that before enabling it (docs/INTERN_ONBOARDING_PROGRESS.md).
+Contract used (``x-api-version`` 2025-01-01 by default, configurable): ``POST /pg/orders`` (``order_id`` 3-45 chars of
+letters, digits, ``-`` and ``_``; ``customer_details``; ``order_meta.return_url``; returns ``payment_session_id``),
+``GET /pg/orders/{order_id}/payments``, ``POST /pg/orders/{order_id}/refunds`` (``refund_id``, ``refund_amount``,
+``refund_note``), ``GET /pg/orders/{order_id}/refunds/{refund_id}``; webhook signature =
+base64(HMAC-SHA256(``x-webhook-timestamp`` + raw body, client secret)); notifications may arrive more than once and out
+of order (FAILED, PENDING, SUCCESS), so only a SUCCESS for the order's exact amount and currency confirms anything.
+
+STATUS: cross-checked against Cashfree's published documentation (search excerpts, November 2026); NOT yet run against
+the sandbox, because sandbox.cashfree.com is not reachable from the development environment. The opt-in tests in
+tests/sandbox/ do that once the host is allowed and sandbox keys are set as environment secrets.
 
 Rules that hold whatever the gateway says: the secret never leaves this process (not logged, not returned), production
 needs CASHFREE_ALLOW_PRODUCTION, and nothing here marks anything paid; the payment service does that only after it has
