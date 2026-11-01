@@ -139,6 +139,10 @@ class OnboardingApplication(TimestampedBase):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Refund terms as accepted (requests offered or not, policy version and checksum); never rewritten by later settings.
+    refund_terms: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # The student's refund request, when their accepted terms offered one: open | refund_started | declined.
+    refund_request: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class OnboardingDocument(TimestampedBase):
@@ -280,6 +284,23 @@ class PaymentWebhookEvent(TimestampedBase):
     merchant_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     outcome: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class PaymentAccount(TimestampedBase):
+    """A bank account or UPI ID the organization collects internship fees into, reusable across internships. Finance
+    staff create, edit, verify and switch it off; students only ever see an enabled, verified account."""
+
+    __tablename__ = "internship_payment_accounts"
+    __table_args__ = (UniqueConstraint("organization_id", "label", name="uq_internship_payment_account_label"),)
+
+    organization_id: Mapped[uuid.UUID] = _org()
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)  # bank | upi
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False)  # config.BankAccount / config.UpiAccount
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class FinancialDocument(TimestampedBase):

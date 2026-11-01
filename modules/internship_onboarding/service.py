@@ -182,6 +182,9 @@ class ConfigService:
         before, after = dump(current), dump(new)
         if "cashfree" in new.fees.methods and "cashfree" not in current.fees.methods and not settings.CASHFREE_ENABLED:
             raise ValidationError("Online payment (Cashfree) is not set up for this ERPX installation. Use bank transfer or UPI.")
+        from modules.internship_onboarding.accounts import PaymentAccountService
+
+        await PaymentAccountService(self.db).check_references(internship.organization_id, new)
         if any(d.sensitive for d in new.documents) and not settings.CLAMAV_ENABLED:
             raise ValidationError(
                 "Identity documents (marked sensitive, e.g. Aadhaar) can only be collected once virus scanning is set up. "
@@ -497,7 +500,17 @@ class ApplicationService:
                 money["outstanding"] += Decimal(row["outstanding"])
         return {"rows": rows, "metrics": metrics, "money": {k: str(fee_maths.q(v)) for k, v in money.items()},
                 "currency": config.fees.currency, "mode": config.modes.mode,
-                "identity_documents_due_for_removal": await self.due_for_removal(internship, config)}  # fmt: skip
+                "identity_documents_due_for_removal": await self.due_for_removal(internship, config),
+                "refund_requests_open": await self.open_refund_requests(internship)}  # fmt: skip
+
+    async def open_refund_requests(self, internship: OurInternship) -> int:
+        return (
+            await self.db.execute(
+                select(func.count(OnboardingApplication.id)).where(
+                    OnboardingApplication.internship_id == internship.id, OnboardingApplication.refund_request["status"].astext == "open"
+                )
+            )
+        ).scalar_one()  # fmt: skip
 
     # ---------------------------------------------------------------- identity-document retention
 
@@ -583,7 +596,9 @@ class ApplicationService:
                 "accepted_at": application.accepted_at, "declined_at": application.declined_at,
                 "decline_reason": application.decline_reason, "terms_version": application.terms_version,
                 "fee_snapshot": application.fee_snapshot, "config_version": application.config_version,
+                "refund_terms": application.refund_terms,
             },
+            "refund_request": application.refund_request,
             "reopened": {"at": application.reopened_at, "reason": application.reopen_reason, "until": application.deadline_override_at},
             "documents": [
                 {

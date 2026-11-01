@@ -36,7 +36,7 @@ from modules.internship_onboarding.models import (
     PaymentWebhookEvent,
 )
 from modules.internship_onboarding.financial import issue_safely
-from modules.internship_onboarding.portal import CONTENT_TYPES, Context, sniff
+from modules.internship_onboarding.portal import CONTENT_TYPES, Context, PortalService, sniff
 from modules.internship_onboarding.providers import ProviderError, get_provider
 from modules.internship_onboarding.scan import scan
 from modules.internship_onboarding.service import (
@@ -121,7 +121,7 @@ class PaymentService:
     ) -> PaymentTransaction:  # fmt: skip
         from packages.storage.client import get_storage_client
 
-        if method not in ctx.config.fees.methods:
+        if method == "cashfree" or method not in (await PortalService(self.db).offered(ctx))[0]:
             raise ValidationError("That payment method is not available for this internship.")
         # One claim at a time per student: a double submit (two tabs, two UTRs) waits here and then sees the first.
         await self.db.execute(select(OnboardingApplication.id).where(OnboardingApplication.id == ctx.application.id).with_for_update())
@@ -523,6 +523,11 @@ class RefundService(PaymentService):
         )  # fmt: skip
         self.db.add(refund)
         await self.db.flush()
+        if (application.refund_request or {}).get("status") == "open":
+            # finance is acting on the student's request: link it to the refund instead of leaving it open
+            application.refund_request = {**application.refund_request, "status": "refund_started", "refund_id": str(refund.id),
+                                          "decided_at": now().isoformat()}  # fmt: skip
+            await self.db.flush()
         if payment.method == "cashfree" and payment.order_id:
             order = await self.db.get(PaymentOrder, payment.order_id)
             try:
@@ -581,6 +586,23 @@ class RefundService(PaymentService):
         return refund
 
 
+
+
+async def decline_refund_request(db: AsyncSession, internship: OurInternship, student_id: uuid.UUID, note: str, user: User) -> None:
+    """Finance answers a student's refund request with no (the reason is shown to the student). Paying a refund instead
+    goes through RefundService.request, which links the request."""
+    await require(db, user, FINANCE_MANAGE)
+    if not note.strip():
+        raise ValidationError("Give the reason, so the student knows why.")
+    apps = ApplicationService(db)
+    selection, _ = await apps.one(internship, student_id)
+    application = await apps.ensure(internship, selection)
+    if (application.refund_request or {}).get("status") != "open":
+        raise ConflictError("There is no open refund request.")
+    application.refund_request = {**application.refund_request, "status": "declined", "note": note.strip()[:1000],
+                                  "decided_at": now().isoformat()}  # fmt: skip
+    await db.flush()
+    await event(db, application, "refund_request_declined", user_id=user.id, reason=note.strip()[:200])
 
 
 async def cancel_application(db: AsyncSession, internship: OurInternship, student_id: uuid.UUID, reason: str, user: User) -> None:

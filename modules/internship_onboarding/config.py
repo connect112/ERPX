@@ -6,6 +6,7 @@ act on, so nothing inconsistent is ever stored. Money is ``Decimal`` throughout;
 """
 
 import re
+import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
@@ -239,13 +240,28 @@ class BankAccount(_Strict):
 
 class UpiAccount(_Strict):
     vpa: str = Field(pattern=r"^[A-Za-z0-9.\-_]{2,256}@[A-Za-z]{2,64}$")
-    beneficiary: str = Field(min_length=1, max_length=120)
+    beneficiary: str = Field(min_length=1, max_length=120)  # the payee name shown in UPI apps
     instructions: str = Field(default="", max_length=1000)
+    # A QR code is generated for each student from this UPI ID and the amount they owe; uploaded QR images are not
+    # accepted because nothing could check that they pay this account.
+    show_qr: bool = True
 
 
 class PaymentAccounts(_Strict):
+    """Entered here for this internship, or one of the organization's saved accounts (by id), never both."""
+
     bank: BankAccount | None = None
     upi: UpiAccount | None = None
+    bank_account_id: uuid.UUID | None = None
+    upi_account_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _one_source(self) -> "PaymentAccounts":
+        if self.bank and self.bank_account_id:
+            raise ValueError("Use either the bank details entered here or a saved bank account, not both.")
+        if self.upi and self.upi_account_id:
+            raise ValueError("Use either the UPI details entered here or a saved UPI account, not both.")
+        return self
 
 
 class Issuer(_Strict):
@@ -262,8 +278,14 @@ class Issuer(_Strict):
 class Policies(_Strict):
     """Wording and periods the organization decides. Nothing is assumed: empty means not shown, None means not set."""
 
-    # Shown to the student before they accept, and kept with their acceptance.
+    # Off: no refund-request option and no refund policy to accept; students see a neutral notice that keeps any refund
+    # they are entitled to by law. Staff refunds and corrections work either way.
+    allow_refund_requests: bool = False
+    # On: shown to the student before they accept, and kept (text and version) with their acceptance.
     refund_policy: str = Field(default="", max_length=4000)
+    refund_policy_version: str = Field(default="1", min_length=1, max_length=20)
+    # Eligibility: requests are accepted up to this many days after the payment was confirmed (None: no time limit).
+    refund_request_days: int | None = Field(default=None, ge=1, le=365)
     # How long identity documents are kept after onboarding ends. Shown to students and staff; files are not deleted
     # automatically (deleting is a staff decision until automatic removal is approved).
     identity_document_retention_days: int | None = Field(default=None, ge=1, le=3650)
@@ -334,17 +356,21 @@ class OnboardingConfig(_Strict):
                 raise ValueError("Payment is required: enable at least one payment method.")
         if m.payment_order == "after_document_approval" and m.require_payment and not m.require_documents:
             raise ValueError("Payment after document approval needs document verification switched on.")
-        if "bank_transfer" in fees.methods and self.payment_accounts.bank is None:
-            raise ValueError("Bank transfer is enabled: enter the bank account details.")
-        if "upi" in fees.methods and self.payment_accounts.upi is None:
-            raise ValueError("UPI is enabled: enter the UPI ID.")
+        accounts = self.payment_accounts
+        if "bank_transfer" in fees.methods and accounts.bank is None and accounts.bank_account_id is None:
+            raise ValueError("Bank transfer is enabled: enter the bank account details or choose a saved account.")
+        if "upi" in fees.methods and accounts.upi is None and accounts.upi_account_id is None:
+            raise ValueError("UPI is enabled: enter the UPI ID or choose a saved UPI account.")
         if m.self_service and self.deadlines.closes_at is None:
             raise ValueError("Students onboard themselves: set the onboarding closing date.")
         if self.issuer.gstin and self.fees.tax_mode == "none":
             raise ValueError("A GSTIN is set: choose the tax treatment of the fee.")
         # Consent and retention must never rest on wording that is missing.
-        if m.self_service and m.require_payment and not self.policies.refund_policy.strip():
-            raise ValueError("Students pay through their link: enter the refund policy they agree to (Policies).")
+        if self.policies.allow_refund_requests:
+            if not (m.self_service and m.require_payment):
+                raise ValueError("Refund requests need students to pay through their link (payment on, automated or hybrid).")
+            if not self.policies.refund_policy.strip():
+                raise ValueError("Refund requests are on: enter the refund policy students agree to (Policies).")
         if any(d.sensitive for d in self.documents) and self.policies.identity_document_retention_days is None:
             raise ValueError("Identity documents are requested: set how long they are kept (Policies).")
         if m.lms_access == "automatic" and m.mode == "manual":

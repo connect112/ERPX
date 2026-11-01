@@ -62,6 +62,7 @@ export function OnboardingPortalPage() {
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [pay, setPay] = useState({ method: "", reference: "", paid_on: "", amount: "", remarks: "" });
   const [proof, setProof] = useState<File | null>(null);
+  const [refundReason, setRefundReason] = useState("");
   const [saved, setSaved] = useState<string | null>(null);
 
   useEffect(() => {
@@ -315,8 +316,14 @@ export function OnboardingPortalPage() {
             )}
             {v.acceptance.refund_policy && (
               <div className="space-y-1">
-                <p className="text-sm font-medium">Refund policy</p>
+                <p className="text-sm font-medium">Refund policy (version {v.acceptance.refund_policy_version})</p>
                 <p className="whitespace-pre-line rounded-md bg-muted p-3 text-sm">{v.acceptance.refund_policy}</p>
+              </div>
+            )}
+            {v.acceptance.payment_terms_notice && (
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Payment terms</p>
+                <p className="rounded-md bg-muted p-3 text-sm">{v.acceptance.payment_terms_notice}</p>
               </div>
             )}
             <label className="flex items-start gap-2 text-sm">
@@ -325,7 +332,7 @@ export function OnboardingPortalPage() {
             <div className="flex flex-wrap gap-2">
               <Button disabled={!declared || !editable || busy !== null} onClick={() => void run("accept", async () => {
                 await portalApi.save(token, { answers, step: "acceptance" });
-                return portalApi.accept(token, v.acceptance.terms_version);
+                return portalApi.accept(token, v.acceptance.terms_version, v.acceptance.refund_policy_version);
               })}>
                 {busy === "accept" ? "Accepting…" : "Accept the offer"}
               </Button>
@@ -342,6 +349,31 @@ export function OnboardingPortalPage() {
           </>
         )}
       </Step>
+
+      {v.refund.requests_offered && (
+        <Step title="Refund request" done={v.refund.request?.status === "refund_started"}>
+          {v.refund.request && (
+            <p className="text-sm">
+              Your request of {inZone(v.refund.request.requested_at, v.timezone)}:{" "}
+              <strong>{v.refund.request.status === "open" ? "with the internship team" : v.refund.request.status === "declined" ? "declined" : "refund started"}</strong>
+              {v.refund.request.note && <> — {v.refund.request.note}</>}
+            </p>
+          )}
+          {v.refund.can_request ? (
+            <div className="space-y-2">
+              <Textarea aria-label="Reason for the refund request" placeholder="Why are you asking for a refund?" value={refundReason} onChange={(e) => setRefundReason(e.target.value)} />
+              <p className="text-xs text-muted-foreground">
+                Under the refund policy you accepted{v.refund.until ? `, until ${inZone(v.refund.until, v.timezone)}` : ""}. The internship team decides; nothing is refunded automatically.
+              </p>
+              <Button variant="outline" disabled={!refundReason.trim() || busy !== null} onClick={() => void run("refund", () => portalApi.refundRequest(token, refundReason))}>
+                {busy === "refund" ? "Sending…" : "Ask for a refund"}
+              </Button>
+            </div>
+          ) : (
+            !v.refund.request && <p className="text-sm text-muted-foreground">A refund can be requested once a payment has been confirmed, within the period in the policy you accepted.</p>
+          )}
+        </Step>
+      )}
 
       {v.financial_documents.length > 0 && (
         <Step title="Receipts" done>
@@ -405,7 +437,16 @@ export function OnboardingPortalPage() {
                     </dl>
                   )}
                   {v.payment.upi && (
-                    <p>UPI ID: <span className="font-mono">{v.payment.upi.vpa}</span> <CopyButton text={v.payment.upi.vpa} /> ({v.payment.upi.beneficiary})</p>
+                    <div className="space-y-2">
+                      <p>UPI ID: <span className="font-mono">{v.payment.upi.vpa}</span> <CopyButton text={v.payment.upi.vpa} /> ({v.payment.upi.beneficiary})</p>
+                      {v.payment.upi.qr && (
+                        <img src={v.payment.upi.qr} alt={`UPI QR code for ${money(v.payment.balance, v.payment.currency)} to ${v.payment.upi.beneficiary}`} className="h-44 w-44 rounded border bg-white" />
+                      )}
+                      {v.payment.upi.link && (
+                        <a className="inline-block text-sm text-primary underline" href={v.payment.upi.link}>Pay {money(v.payment.balance, v.payment.currency)} with a UPI app</a>
+                      )}
+                      <p className="text-xs text-muted-foreground">Then enter the UPI transaction reference below. Your payment counts once the internship team confirms it arrived.</p>
+                    </div>
                   )}
                   {(v.payment.bank?.instructions || v.payment.upi?.instructions) && <p className="text-muted-foreground">{v.payment.bank?.instructions} {v.payment.upi?.instructions}</p>}
                   <div className="grid gap-2 sm:grid-cols-2">

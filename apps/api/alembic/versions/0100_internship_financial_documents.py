@@ -62,8 +62,33 @@ def upgrade() -> None:
     op.create_index("ix_internship_financial_documents_organization_id", "internship_financial_documents", ["organization_id"])
     op.create_index("ix_internship_financial_documents_application_id", "internship_financial_documents", ["application_id"])
 
+    # the organization's saved bank/UPI accounts (finance only; students see an account once it is verified and enabled)
+    op.create_table(
+        "internship_payment_accounts",
+        sa.Column("id", _UUID, primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("organization_id", _UUID, sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("kind", sa.String(10), nullable=False),
+        sa.Column("label", sa.String(80), nullable=False),
+        sa.Column("details", postgresql.JSONB, nullable=False),
+        sa.Column("enabled", sa.Boolean, nullable=False, server_default=sa.true()),
+        sa.Column("verified_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("verified_by_user_id", _UUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("updated_by_user_id", _UUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+        sa.UniqueConstraint("organization_id", "label", name="uq_internship_payment_account_label"),
+        sa.CheckConstraint("kind IN ('bank', 'upi')", name="ck_internship_payment_account_kind"),
+    )
+    op.create_index("ix_internship_payment_accounts_organization_id", "internship_payment_accounts", ["organization_id"])
+    # what the student agreed to about refunds at acceptance, and their refund request (if requests were offered)
+    op.add_column("internship_onboarding_applications", sa.Column("refund_terms", postgresql.JSONB, nullable=True))
+    op.add_column("internship_onboarding_applications", sa.Column("refund_request", postgresql.JSONB, nullable=True))
+
 
 def downgrade() -> None:
+    op.drop_column("internship_onboarding_applications", "refund_request")
+    op.drop_column("internship_onboarding_applications", "refund_terms")
+    op.drop_table("internship_payment_accounts")
     op.drop_table("internship_financial_documents")
     op.drop_index("ix_internship_payment_transactions_refund_of_id", "internship_payment_transactions")
     op.drop_column("internship_payment_transactions", "proof_scan_status")

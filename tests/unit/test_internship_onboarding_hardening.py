@@ -138,12 +138,31 @@ def _paid_self_service(**over) -> dict:
     return base
 
 
-def test_students_cannot_pay_through_their_link_without_a_refund_policy():
-    OnboardingConfig.model_validate(_paid_self_service())
+def test_refund_requests_are_off_by_default_and_need_no_policy_then():
+    c = OnboardingConfig.model_validate(_paid_self_service(policies={}))
+    assert c.policies.allow_refund_requests is False and c.policies.refund_policy == ""
+
+
+def test_refund_requests_cannot_be_switched_on_without_the_policy_or_without_paying_through_the_link():
+    on = {"allow_refund_requests": True, "refund_policy": "Synthetic refund policy.", "refund_request_days": 7}
+    c = OnboardingConfig.model_validate(_paid_self_service(policies=on))
+    assert c.policies.refund_policy_version == "1" and c.policies.refund_request_days == 7
     with pytest.raises(SettingsError, match="refund policy"):
-        OnboardingConfig.model_validate(_paid_self_service(policies={"refund_policy": "   "}))
-    # staff-only onboarding and free internships collect no money through the link
-    OnboardingConfig.model_validate(_paid_self_service(modes={"mode": "manual", "require_payment": True}, deadlines={}, policies={}))
+        OnboardingConfig.model_validate(_paid_self_service(policies={**on, "refund_policy": "   "}))
+    with pytest.raises(SettingsError, match="pay through their link"):
+        OnboardingConfig.model_validate(_paid_self_service(modes={"mode": "hybrid", "require_payment": False}, fees={"methods": []}, policies=on))
+
+
+def test_payment_details_come_from_one_place_and_the_upi_request_carries_the_amount_owed():
+    from modules.internship_onboarding.accounts import upi_link
+
+    both = {"upi": {"vpa": "test@bank", "beneficiary": "Test"}, "upi_account_id": "00000000-0000-0000-0000-000000000001"}
+    with pytest.raises(SettingsError, match="not both"):
+        OnboardingConfig.model_validate(_paid_self_service(payment_accounts=both))
+    saved = OnboardingConfig.model_validate(_paid_self_service(payment_accounts={"upi_account_id": "00000000-0000-0000-0000-000000000001"}))
+    assert saved.payment_accounts.upi is None
+    link = upi_link({"vpa": "gir.tech@bank", "beneficiary": "GIR Technologies"}, Decimal("2000"), "ERPX-INT-2026-000001")
+    assert link == "upi://pay?pa=gir.tech@bank&pn=GIR%20Technologies&am=2000.00&cu=INR&tn=ERPX-INT-2026-000001"
 
 
 def test_identity_documents_need_a_retention_period_and_aadhaar_must_be_sensitive():

@@ -15,6 +15,7 @@ import {
   type OnboardingSettings,
   type PaymentMethod,
   onboardingFlowApi,
+  paymentAccountsApi,
 } from "@/features/internship-onboarding/api";
 import { fromLocalInput, money, slugKey, toLocalInput } from "@/features/internship-onboarding/lib/format";
 
@@ -60,6 +61,7 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
   const [templateName, setTemplateName] = useState("");
   useEffect(() => setS(view.settings), [view]);
   const finance = view.can_edit_finance;
+  const saved = useQuery({ queryKey: ["onboarding-payment-accounts"], queryFn: paymentAccountsApi.list, enabled: finance });
   const templates = useQuery({ queryKey: ["onboarding-templates"], queryFn: onboardingFlowApi.templates });
 
   const after = (text: string) => {
@@ -193,8 +195,35 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
       </Section>
 
       {finance && (
-        <Section title="Payment accounts" hint="Shown only to students whose payment is open. Changes are logged.">
-          <Check label="Bank transfer details" checked={s.payment_accounts.bank !== null} onChange={(v) => set("payment_accounts", { bank: v ? { holder: "", bank: "", account_number: "", ifsc: "", branch: "", instructions: "" } : null })} />
+        <Section title="Payment accounts" hint="Shown only to students whose payment is open, and a saved account only once it is verified and switched on. Changes are logged.">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="pa-bank">Bank transfer details</Label>
+              <select id="pa-bank" className={selectClass} value={s.payment_accounts.bank_account_id ?? (s.payment_accounts.bank ? "inline" : "")}
+                onChange={(e) => set("payment_accounts", e.target.value === "inline"
+                  ? { bank: { holder: "", bank: "", account_number: "", ifsc: "", branch: "", instructions: "" }, bank_account_id: null }
+                  : { bank: null, bank_account_id: e.target.value || null })}>
+                <option value="">None</option>
+                <option value="inline">Enter for this internship</option>
+                {(saved.data ?? []).filter((a) => a.kind === "bank" && (a.enabled || a.id === s.payment_accounts.bank_account_id)).map((a) => (
+                  <option key={a.id} value={a.id}>Saved: {a.label}{a.verified ? "" : " (not verified yet)"}{a.enabled ? "" : " (switched off)"}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pa-upi">UPI details</Label>
+              <select id="pa-upi" className={selectClass} value={s.payment_accounts.upi_account_id ?? (s.payment_accounts.upi ? "inline" : "")}
+                onChange={(e) => set("payment_accounts", e.target.value === "inline"
+                  ? { upi: { vpa: "", beneficiary: "", instructions: "", show_qr: true }, upi_account_id: null }
+                  : { upi: null, upi_account_id: e.target.value || null })}>
+                <option value="">None</option>
+                <option value="inline">Enter for this internship</option>
+                {(saved.data ?? []).filter((a) => a.kind === "upi" && (a.enabled || a.id === s.payment_accounts.upi_account_id)).map((a) => (
+                  <option key={a.id} value={a.id}>Saved: {a.label}{a.verified ? "" : " (not verified yet)"}{a.enabled ? "" : " (switched off)"}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           {s.payment_accounts.bank && (
             <div className="grid gap-2 sm:grid-cols-3">
               {(["holder", "bank", "account_number", "ifsc", "branch", "instructions"] as const).map((k) => (
@@ -203,15 +232,16 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
               ))}
             </div>
           )}
-          <Check label="UPI details" checked={s.payment_accounts.upi !== null} onChange={(v) => set("payment_accounts", { upi: v ? { vpa: "", beneficiary: "", instructions: "" } : null })} />
           {s.payment_accounts.upi && (
             <div className="grid gap-2 sm:grid-cols-3">
               {(["vpa", "beneficiary", "instructions"] as const).map((k) => (
-                <Input key={k} aria-label={k} placeholder={k === "vpa" ? "UPI ID (name@bank)" : k} value={s.payment_accounts.upi?.[k] ?? ""}
-                  onChange={(e) => set("payment_accounts", { upi: { ...s.payment_accounts.upi!, [k]: e.target.value } })} />
+                <Input key={k} aria-label={k === "beneficiary" ? "Payee name" : k} placeholder={k === "vpa" ? "UPI ID (name@bank)" : k === "beneficiary" ? "Payee name" : k}
+                  value={s.payment_accounts.upi?.[k] ?? ""} onChange={(e) => set("payment_accounts", { upi: { ...s.payment_accounts.upi!, [k]: e.target.value } })} />
               ))}
+              <Check label="Show a QR code for the amount owed" checked={s.payment_accounts.upi.show_qr ?? true} onChange={(v) => set("payment_accounts", { upi: { ...s.payment_accounts.upi!, show_qr: v } })} />
             </div>
           )}
+          <p className="text-xs text-muted-foreground">Saved accounts are managed in the Payment accounts tab. Uploaded QR images are not used: the QR code is made from the UPI ID and each student's amount.</p>
         </Section>
       )}
 
@@ -327,7 +357,26 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
       </Section>
 
       <Section title="Policies" hint="Your organization's own wording and periods; nothing is filled in for you.">
-        <Textarea aria-label="Refund policy" rows={3} placeholder="Refund policy shown to students before they accept (required when students pay through their link)" value={s.policies.refund_policy} onChange={(e) => set("policies", { refund_policy: e.target.value })} />
+        <Check label="Allow refund requests" checked={s.policies.allow_refund_requests} onChange={(v) => set("policies", { allow_refund_requests: v })} />
+        {s.policies.allow_refund_requests ? (
+          <div className="space-y-2">
+            <Textarea aria-label="Refund policy" rows={3} placeholder="Refund policy students accept before paying (required)" value={s.policies.refund_policy} onChange={(e) => set("policies", { refund_policy: e.target.value })} />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="pol-version">Refund policy version</Label>
+                <Input id="pol-version" value={s.policies.refund_policy_version} onChange={(e) => set("policies", { refund_policy_version: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pol-days">Requests accepted for (days after payment)</Label>
+                <Input id="pol-days" type="number" min={1} placeholder="No limit" value={s.policies.refund_request_days ?? ""}
+                  onChange={(e) => set("policies", { refund_request_days: e.target.value ? Number(e.target.value) : null })} />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Raise the version whenever the wording changes. Each student keeps the policy and version they accepted; finance decides every request.</p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">Off: students see no refund-request option and a notice that this does not affect any refund they are entitled to by law. Staff refunds and corrections still work.</p>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="pol-retention">Keep identity documents for (days after onboarding ends)</Label>
           <Input id="pol-retention" type="number" min={1} placeholder="Not set" value={s.policies.identity_document_retention_days ?? ""}

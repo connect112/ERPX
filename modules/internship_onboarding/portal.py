@@ -9,9 +9,9 @@ offer stays possible until the payment deadline), but nothing new can be submitt
 import hashlib
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -19,9 +19,10 @@ from app.core.exceptions import ConflictError, NotFoundError, ServiceUnavailable
 from modules.institutions.models import Institution, InstitutionStudent
 from modules.internship_onboarding import fees as fee_maths
 from modules.internship_onboarding.scan import scan
+from modules.internship_onboarding.accounts import PaymentAccountService, qr_png_data_url, upi_link
 from modules.internship_onboarding import forms, ledger, state
 from modules.internship_onboarding.config import OnboardingConfig
-from modules.internship_onboarding.models import OnboardingApplication, OnboardingDocument
+from modules.internship_onboarding.models import OnboardingApplication, OnboardingDocument, PaymentTransaction
 from modules.internship_onboarding.service import (
     ApplicationService,
     config_of,
@@ -65,6 +66,23 @@ def sniff(data: bytes) -> str | None:
         if any(data.startswith(p) for p in prefixes):
             return kind
     return None
+
+
+NO_REFUND_REQUESTS_NOTICE = (
+    "Refund requests are not taken through this page. This does not affect any refund you are entitled to by law; for any "
+    "question about your payment, contact the internship team."
+)
+
+
+def refund_terms_of(cfg: OnboardingConfig) -> dict:
+    """The refund terms a student accepting now agrees to (stored with the acceptance)."""
+    p = cfg.policies
+    if p.allow_refund_requests:
+        return {
+            "allow_refund_requests": True, "policy_version": p.refund_policy_version,
+            "policy_sha256": hashlib.sha256(p.refund_policy.encode()).hexdigest(), "request_days": p.refund_request_days,
+        }  # fmt: skip
+    return {"allow_refund_requests": False, "notice": NO_REFUND_REQUESTS_NOTICE if cfg.modes.require_payment else None}
 
 
 class PortalService:
@@ -115,6 +133,56 @@ class PortalService:
             "details": dict(ctx.student.details or {}),
         }
 
+    # ---------------------------------------------------------------- payment methods and refund terms
+
+    async def offered(self, ctx: Context) -> tuple[list[str], dict[str, dict | None]]:
+        """The payment methods a student can use now and their details: Cashfree only while the installation has it on,
+        bank/UPI only with details from the settings or an enabled, verified saved account."""
+        details = await PaymentAccountService(self.db).for_students(ctx.internship.organization_id, ctx.config)
+        usable = {"cashfree": settings.CASHFREE_ENABLED, "bank_transfer": details["bank"] is not None, "upi": details["upi"] is not None}
+        return [m for m in ctx.config.fees.methods if usable[m]], details
+
+    async def refund_window(self, app: OnboardingApplication, totals) -> tuple[bool, datetime | None]:
+        """Whether the student may ask for a refund now, under the terms they accepted (never today's settings)."""
+        terms = app.refund_terms or {}
+        if not terms.get("allow_refund_requests") or totals.paid - totals.refunded <= 0:
+            return False, None
+        if (app.refund_request or {}).get("status") == "open":
+            return False, None
+        last = (
+            await self.db.execute(
+                select(func.max(PaymentTransaction.verified_at)).where(
+                    PaymentTransaction.application_id == app.id, PaymentTransaction.kind == "payment", PaymentTransaction.status == "confirmed"
+                )
+            )
+        ).scalar_one_or_none()  # fmt: skip
+        until = last + timedelta(days=terms["request_days"]) if last and terms.get("request_days") else None
+        return (until is None or now() <= until), until
+
+    async def request_refund(self, ctx: Context, reason: str) -> None:
+        """Ask for a refund. Nothing is refunded here: finance staff decide, and pay any refund through the usual route."""
+        app = ctx.application
+        if not (app.refund_terms or {}).get("allow_refund_requests"):
+            raise ConflictError("Refund requests are not part of the terms you accepted. Contact the internship team about your payment.")
+        if not reason.strip():
+            raise ValidationError("Tell us why you are asking for a refund.")
+        await self.db.execute(select(OnboardingApplication.id).where(OnboardingApplication.id == app.id).with_for_update())
+        totals = await ledger.totals(self.db, app, fee_maths.total_of(fee_maths.snapshot(ctx.config.fees)))
+        allowed, until = await self.refund_window(app, totals)
+        if not allowed:
+            if (app.refund_request or {}).get("status") == "open":
+                raise ConflictError("Your refund request is already with the internship team.")
+            if totals.paid - totals.refunded <= 0:
+                raise ConflictError("There is no payment to refund.")
+            raise ConflictError("The period for refund requests under your accepted terms has ended.")
+        app.refund_request = {
+            "status": "open", "reason": reason.strip()[:1000], "requested_at": now().isoformat(),
+            "policy_version": (app.refund_terms or {}).get("policy_version"),
+        }  # fmt: skip
+        self._touch(ctx)
+        await self.db.flush()
+        await event(self.db, app, "refund_request_submitted", actor="student", reason=reason.strip()[:200])
+
     # ---------------------------------------------------------------- reading
 
     async def view(self, ctx: Context) -> dict:
@@ -138,6 +206,14 @@ class PortalService:
         show_whatsapp = bool(comms.whatsapp_link) and (completed or (accepted and comms.whatsapp_visibility == "after_acceptance"))
         pay_until = payment_deadline(app, cfg)
         payment_open = state.payment_open(f) and (pay_until is None or now() <= pay_until)
+        methods, details = await self.offered(ctx) if payment_open else ([], {"bank": None, "upi": None})
+        upi = details["upi"] if "upi" in methods else None
+        if upi and totals.balance > 0:
+            # a payment-specific UPI request: this account, exactly what is owed, the student's reference as the note
+            link = upi_link(upi, totals.balance, app.reference)
+            upi = {**upi, "link": link, "qr": qr_png_data_url(link) if upi.get("show_qr", True) else None}
+        can_request_refund, refund_until = await self.refund_window(app, totals)
+        policies = cfg.policies
         return {
             "organization": org.name if org else "",
             "internship": {"title": ctx.internship.title, "description": ctx.internship.description},
@@ -172,7 +248,11 @@ class PortalService:
             "identity_document_retention_days": cfg.policies.identity_document_retention_days,
             "acceptance": {
                 "declaration": cfg.declaration.text, "terms_version": cfg.declaration.terms_version,
-                "terms_url": cfg.declaration.terms_url, "refund_policy": cfg.policies.refund_policy or None,
+                "terms_url": cfg.declaration.terms_url,
+                "refund_policy": policies.refund_policy if policies.allow_refund_requests else None,
+                "refund_policy_version": policies.refund_policy_version if policies.allow_refund_requests else None,
+                "payment_terms_notice": refund_terms_of(cfg).get("notice"),
+                "refund_terms": app.refund_terms,
                 "fees": app.fee_snapshot or (fee_maths.snapshot(cfg.fees) if cfg.modes.require_payment else None),
                 "accepted_at": app.accepted_at, "declined_at": app.declined_at,
             },
@@ -181,11 +261,15 @@ class PortalService:
                 "open": payment_open,
                 "payable": str(totals.payable), "paid": str(totals.paid - totals.refunded), "balance": str(totals.balance),
                 "currency": cfg.fees.currency,
-                # Cashfree is offered only while it is enabled for the installation, never as a button that cannot work.
-                "methods": [m for m in cfg.fees.methods if m != "cashfree" or settings.CASHFREE_ENABLED] if payment_open else [],
-                "bank": cfg.payment_accounts.bank.model_dump() if payment_open and cfg.payment_accounts.bank and "bank_transfer" in cfg.fees.methods else None,
-                "upi": cfg.payment_accounts.upi.model_dump() if payment_open and cfg.payment_accounts.upi and "upi" in cfg.fees.methods else None,
+                "methods": methods,
+                "bank": details["bank"] if "bank_transfer" in methods else None,
+                "upi": upi,
                 "deadline": pay_until,
+            },
+            "refund": {
+                "requests_offered": bool((app.refund_terms or {}).get("allow_refund_requests")),
+                "can_request": can_request_refund, "until": refund_until,
+                "request": {k: v for k, v in (app.refund_request or {}).items() if k != "decided_by"} or None,
             },
             "completion": {
                 "completed": completed,
@@ -305,7 +389,10 @@ class PortalService:
 
     # ---------------------------------------------------------------- the decision
 
-    async def accept(self, ctx: Context, confirmed: bool, terms_version: str, ip: str | None, user_agent: str | None) -> None:
+    async def accept(
+        self, ctx: Context, confirmed: bool, terms_version: str, ip: str | None, user_agent: str | None,
+        refund_policy_version: str | None = None,
+    ) -> None:  # fmt: skip
         self._require_open(ctx)
         cfg, app = ctx.config, ctx.application
         if ctx.selection.offer_response == OfferResponse.ACCEPTED:
@@ -317,6 +404,8 @@ class PortalService:
             raise ValidationError("Tick the declaration to accept the offer.")
         if terms_version != cfg.declaration.terms_version:
             raise ConflictError("The terms have changed since you opened this page. Reload and read them again.")
+        if cfg.policies.allow_refund_requests and refund_policy_version != cfg.policies.refund_policy_version:
+            raise ConflictError("The refund policy has changed since you opened this page. Reload and read it again.")
         _, errors = forms.clean(cfg.form, app.form_responses, complete=True)
         if errors:
             raise ValidationError("Complete the form before accepting: " + ", ".join(sorted(errors)))
@@ -327,8 +416,14 @@ class PortalService:
         ctx.selection.offer_response_at = t
         app.accepted_at, app.declined_at, app.decline_reason = t, None, None
         app.terms_version = cfg.declaration.terms_version
-        # what the student agreed to, word for word: the declaration and the refund policy shown with it
-        app.declaration_text = cfg.declaration.text + (f"\n\nRefund policy:\n{cfg.policies.refund_policy}" if cfg.policies.refund_policy else "")
+        # what the student agreed to, word for word, and the refund terms as a snapshot later settings never rewrite
+        terms = refund_terms_of(cfg)
+        if terms["allow_refund_requests"]:
+            extra = f"\n\nRefund policy (version {cfg.policies.refund_policy_version}):\n{cfg.policies.refund_policy}"
+        else:
+            extra = f"\n\nPayment terms:\n{terms['notice']}" if terms.get("notice") else ""
+        app.declaration_text = cfg.declaration.text + extra
+        app.refund_terms = terms
         app.config_version = record.version if record else 0
         app.fee_snapshot = snapshot
         # enough to recognise the device later, without keeping the raw address

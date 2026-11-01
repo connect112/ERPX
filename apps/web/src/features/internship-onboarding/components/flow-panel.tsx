@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { onboardingFlowApi } from "@/features/internship-onboarding/api";
+import { PaymentAccountsManager } from "@/features/internship-onboarding/components/payment-accounts-manager";
 import { PaymentsQueue } from "@/features/internship-onboarding/components/payments-queue";
 import { SettingsEditor } from "@/features/internship-onboarding/components/settings-editor";
 import { StudentsBoard } from "@/features/internship-onboarding/components/students-board";
@@ -36,6 +37,7 @@ export function OnboardingFlowPanel({ internshipId, canManage }: { internshipId:
               <TabsTrigger value="payments">Payment checks</TabsTrigger>
               {canManage && <TabsTrigger value="settings">Settings</TabsTrigger>}
               {canManage && <TabsTrigger value="templates">Templates</TabsTrigger>}
+              {config.data.can_edit_finance && <TabsTrigger value="accounts">Payment accounts</TabsTrigger>}
             </TabsList>
             <TabsContent value="students">
               <StudentsBoard internshipId={internshipId} timezone={config.data.settings.deadlines.timezone} canManage={canManage && !manual} />
@@ -43,6 +45,11 @@ export function OnboardingFlowPanel({ internshipId, canManage }: { internshipId:
             <TabsContent value="payments">
               <PaymentsQueue internshipId={internshipId} />
             </TabsContent>
+            {config.data.can_edit_finance && (
+              <TabsContent value="accounts">
+                <PaymentAccountsManager />
+              </TabsContent>
+            )}
             {canManage && (
               <TabsContent value="templates">
                 <TemplatesManager />

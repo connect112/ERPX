@@ -38,6 +38,7 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
   const info = useMutation({ mutationFn: (approve: boolean) => onboardingFlowApi.reviewInfo(internshipId, studentId, approve), onSuccess: refresh, onError: fail });
   const [refundForm, setRefundForm] = useState<Record<string, { amount: string; text: string }>>({});
   const [cancelReason, setCancelReason] = useState("");
+  const [declineNote, setDeclineNote] = useState("");
   const docs = useQuery({
     queryKey: ["onboarding-flow", internshipId, "financial"],
     queryFn: () => onboardingFlowApi.financialDocuments(internshipId),
@@ -183,7 +184,38 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
               ) : (
                 <p className="text-muted-foreground">No decision yet.</p>
               )}
+              {d.acceptance.refund_terms && (
+                <p className="text-xs text-muted-foreground">
+                  {d.acceptance.refund_terms.allow_refund_requests
+                    ? `Refund requests offered under refund policy v${d.acceptance.refund_terms.policy_version}${d.acceptance.refund_terms.request_days ? `, within ${d.acceptance.refund_terms.request_days} days of payment` : ""}.`
+                    : "Refund requests were not offered (payment-terms notice shown)."}
+                </p>
+              )}
             </section>
+
+            {d.refund_request && (
+              <section className="space-y-2">
+                <h3 className="font-semibold">Refund request</h3>
+                <p>
+                  {inZone(d.refund_request.requested_at, timezone)}: {d.refund_request.reason}{" "}
+                  <Badge variant={d.refund_request.status === "open" ? "destructive" : "secondary"}>
+                    {d.refund_request.status === "open" ? "waiting for finance" : d.refund_request.status === "declined" ? "declined" : "refund started"}
+                  </Badge>
+                </p>
+                {d.refund_request.note && <p className="text-xs text-muted-foreground">Answer: {d.refund_request.note}</p>}
+                {d.refund_request.status === "open" && d.payments && (
+                  <div className="flex flex-wrap gap-2">
+                    <Input className="max-w-sm" aria-label="Reason for declining the refund request" placeholder="Reason for declining (shown to the student)"
+                      value={declineNote} onChange={(e) => setDeclineNote(e.target.value)} />
+                    <Button size="sm" variant="outline" disabled={!declineNote.trim()}
+                      onClick={() => act.mutate(() => onboardingFlowApi.declineRefundRequest(internshipId, studentId, declineNote))}>
+                      Decline request
+                    </Button>
+                    <span className="text-xs text-muted-foreground">To agree, refund the payment in the ledger below.</span>
+                  </div>
+                )}
+              </section>
+            )}
 
             {d.payments && (
               <section className="space-y-2">

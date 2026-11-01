@@ -23,12 +23,17 @@ from app.core.limiter import limiter
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.internship_onboarding.accounts import PaymentAccountService
 from modules.internship_onboarding.config import OnboardingConfig
 from modules.internship_onboarding.emails import enqueue_invitations
 from modules.internship_onboarding.payments import MAX_PROOF_BYTES, PaymentService
 from modules.internship_onboarding.portal import GONE, PortalService
 from modules.internship_onboarding.schemas import (
     AcceptRequest,
+    PaymentAccountCreate,
+    PaymentAccountUpdate,
+    RefundRequestDecline,
+    StudentRefundRequest,
     ApplyTemplateRequest,
     ConfigSaveRequest,
     DecisionRequest,
@@ -56,6 +61,7 @@ from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
 templates_router = APIRouter()
+accounts_router = APIRouter()
 public_router = APIRouter()
 
 
@@ -331,6 +337,22 @@ async def record_payment(
     return {"id": row.id, "status": row.status}
 
 
+@router.post("/{internship_id}/onboarding-flow/students/{student_id}/refund-request/decline")
+async def decline_refund_request(
+    internship_id: uuid.UUID,
+    student_id: uuid.UUID,
+    payload: RefundRequestDecline,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Finance says no to a student's refund request (the reason is shown to the student)."""
+    from modules.internship_onboarding.payments import decline_refund_request as decline
+
+    await decline(db, await _internship(db, internship_id, organization_id), student_id, payload.note, user)
+    return {"message": "Refund request declined."}
+
+
 @router.post("/{internship_id}/onboarding-flow/payments/{transaction_id}/refund", status_code=status.HTTP_201_CREATED)
 async def refund_payment(
     internship_id: uuid.UUID,
@@ -514,6 +536,50 @@ async def export_payments(
     return _csv(rows, "onboarding-payments.csv")
 
 
+# ------------------------------------------------------------------ saved payment accounts (finance)
+
+
+@accounts_router.get("")
+async def list_payment_accounts(
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await PaymentAccountService(db).list(organization_id, user)
+
+
+@accounts_router.post("", status_code=status.HTTP_201_CREATED)
+async def create_payment_account(
+    payload: PaymentAccountCreate,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await PaymentAccountService(db).create(organization_id, user, payload.kind, payload.label, payload.details, payload.enabled)
+
+
+@accounts_router.patch("/{account_id}")
+async def update_payment_account(
+    account_id: uuid.UUID,
+    payload: PaymentAccountUpdate,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await PaymentAccountService(db).update(organization_id, account_id, user, payload.label, payload.details, payload.enabled)
+
+
+@accounts_router.post("/{account_id}/verify")
+async def verify_payment_account(
+    account_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(require_permissions("our_internships.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """A finance user confirms the details belong to the organization; only then are they shown to students."""
+    return await PaymentAccountService(db).verify(organization_id, account_id, user)
+
+
 # ------------------------------------------------------------------ templates
 
 
@@ -624,7 +690,20 @@ async def portal_accept(
 ):
     service = PortalService(db)
     ctx = await _context(db, x_onboarding_token)
-    await service.accept(ctx, payload.confirmed, payload.terms_version, request.client.host if request.client else None, request.headers.get("User-Agent"))
+    await service.accept(ctx, payload.confirmed, payload.terms_version, request.client.host if request.client else None, request.headers.get("User-Agent"),
+                         payload.refund_policy_version)  # fmt: skip
+    return await service.view(ctx)
+
+
+@public_router.post("/internship-onboarding/refund-request")
+@limiter.limit("5/minute")
+async def portal_refund_request(
+    request: Request, payload: StudentRefundRequest, x_onboarding_token: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+):
+    """Only when the terms the student accepted offered refund requests. Records the request; finance decides."""
+    service = PortalService(db)
+    ctx = await _context(db, x_onboarding_token)
+    await service.request_refund(ctx, payload.reason)
     return await service.view(ctx)
 
 
@@ -704,4 +783,4 @@ async def cashfree_webhook(request: Request, db: AsyncSession = Depends(get_db))
     return JSONResponse({"ok": code == 200, "outcome": outcome}, status_code=code)
 
 
-__all__ = ["router", "templates_router", "public_router", "GONE"]
+__all__ = ["router", "templates_router", "accounts_router", "public_router", "GONE"]

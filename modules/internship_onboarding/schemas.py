@@ -81,6 +81,28 @@ class DraftRequest(BaseModel):
 class AcceptRequest(BaseModel):
     confirmed: bool
     terms_version: str = Field(max_length=20)
+    refund_policy_version: str | None = Field(default=None, max_length=20)  # needed when refund requests are offered
+
+
+class StudentRefundRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class RefundRequestDecline(BaseModel):
+    note: str = Field(min_length=1, max_length=1000)
+
+
+class PaymentAccountCreate(BaseModel):
+    kind: Literal["bank", "upi"]
+    label: str = Field(min_length=1, max_length=80)
+    details: dict
+    enabled: bool = True
+
+
+class PaymentAccountUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=80)
+    details: dict | None = None
+    enabled: bool | None = None
 
 
 class DeclineRequest(BaseModel):

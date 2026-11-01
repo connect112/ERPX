@@ -106,6 +106,9 @@ export function StudentsBoard({ internshipId, timezone, canManage }: { internshi
           {money(board.data.money.outstanding)}
         </p>
       )}
+      {(board.data?.refund_requests_open ?? 0) > 0 && (
+        <p className="text-sm text-destructive">{board.data?.refund_requests_open} refund request(s) are waiting for finance. Open the student to answer.</p>
+      )}
       {(board.data?.identity_documents_due_for_removal ?? 0) > 0 && (
         <p className="text-sm text-destructive">
           {board.data?.identity_documents_due_for_removal} identity document file(s) are past their retention period. Open the student to remove them.

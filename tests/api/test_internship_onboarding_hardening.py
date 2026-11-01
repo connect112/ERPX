@@ -51,12 +51,12 @@ async def test_the_refund_policy_is_shown_before_acceptance_and_kept_with_it(cli
     internship, (s0, s1) = await world(db_session, organization)
     policy = "Synthetic policy text for the test."
     await configure(client, auth_headers, internship, documents=ID_DOCS,
-                    policies={"refund_policy": policy, "identity_document_retention_days": 180})  # fmt: skip
+                    policies={"allow_refund_requests": True, "refund_policy": policy, "identity_document_retention_days": 180})  # fmt: skip
     token = await ready_to_pay_with(client, auth_headers, internship, s0)
     view = (await client.get(PUBLIC, headers=tok(token))).json()
     assert view["acceptance"]["refund_policy"] == policy and view["identity_document_retention_days"] == 180
     application = (await db_session.execute(select(OnboardingApplication).where(OnboardingApplication.accepted_at.is_not(None)))).scalar_one()
-    assert application.declaration_text.endswith(f"Refund policy:\n{policy}")
+    assert application.declaration_text.endswith(f"Refund policy (version 1):\n{policy}")
 
     # a student who leaves: their identity document shows when its retention period ends
     other = await link(client, auth_headers, internship, s1)
@@ -111,9 +111,10 @@ async def test_identity_documents_and_paid_consent_cannot_rest_on_missing_safegu
     # an Aadhaar requirement must be marked sensitive (so it falls under the rule above)
     r = await save(documents=[{"key": "aadhaar", "label": "Aadhaar card"}])
     assert r.status_code in (400, 422) and "sensitive" in r.text
-    # paid self-service onboarding needs the refund policy the student agrees to
-    r = await save(policies={"refund_policy": ""})
+    # refund requests can only be switched on with the refund policy students agree to; off, none is needed
+    r = await save(policies={"allow_refund_requests": True, "refund_policy": ""})
     assert r.status_code in (400, 422) and "refund policy" in r.text
+    assert (await save(policies={"refund_policy": ""})).status_code == 200
     # with a scanner: identity documents still need a retention period
     monkeypatch.setattr(app_settings, "CLAMAV_ENABLED", True)
     r = await save(documents=ID_DOCS)
@@ -135,7 +136,7 @@ async def ready_to_pay_with(client, headers, internship, student) -> str:
     await client.put(f"{PUBLIC}/draft", json={"answers": {"tshirt": "M"}}, headers=tok(token))
     r = await client.post(f"{PUBLIC}/documents/college_id", files={"file": ("id.pdf", PDF, "application/pdf")}, headers=tok(token))
     assert r.status_code == 201, r.text
-    r = await client.post(f"{PUBLIC}/accept", json={"confirmed": True, "terms_version": "1"}, headers=tok(token))
+    r = await client.post(f"{PUBLIC}/accept", json={"confirmed": True, "terms_version": "1", "refund_policy_version": "1"}, headers=tok(token))
     assert r.status_code == 200, r.text
     return token
 

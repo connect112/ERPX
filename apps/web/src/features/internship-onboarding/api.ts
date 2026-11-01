@@ -64,7 +64,9 @@ export interface OnboardingSettings {
   declaration: { text: string; terms_version: string; terms_url: string | null };
   payment_accounts: {
     bank: { holder: string; bank: string; account_number: string; ifsc: string; branch: string; instructions: string } | null;
-    upi: { vpa: string; beneficiary: string; instructions: string } | null;
+    upi: { vpa: string; beneficiary: string; instructions: string; show_qr: boolean } | null;
+    bank_account_id: string | null;
+    upi_account_id: string | null;
   };
   communication: {
     contact_email: string | null;
@@ -75,7 +77,13 @@ export interface OnboardingSettings {
     next_steps: string;
   };
   issuer: { legal_name: string; address: string; gstin: string | null; receipt_prefix: string; footer: string };
-  policies: { refund_policy: string; identity_document_retention_days: number | null };
+  policies: {
+    allow_refund_requests: boolean;
+    refund_policy: string;
+    refund_policy_version: string;
+    refund_request_days: number | null;
+    identity_document_retention_days: number | null;
+  };
   reference_prefix: string;
 }
 
@@ -129,6 +137,7 @@ export interface Board {
   currency: string;
   mode: string;
   identity_documents_due_for_removal: number;
+  refund_requests_open: number;
 }
 
 export interface StudentDetail {
@@ -144,7 +153,8 @@ export interface StudentDetail {
   info_proposed: { name?: string; phone?: string; details?: Record<string, string> };
   info_review_status: string;
   form_responses: Record<string, unknown>;
-  acceptance: { accepted_at: string | null; declined_at: string | null; decline_reason: string | null; terms_version: string | null; fee_snapshot: Record<string, string> | null };
+  acceptance: { accepted_at: string | null; declined_at: string | null; decline_reason: string | null; terms_version: string | null; fee_snapshot: Record<string, string> | null; refund_terms: RefundTerms | null };
+  refund_request: RefundRequestRecord | null;
   reopened: { at: string | null; reason: string | null; until: string | null };
   documents: { id: string; key: string; version: number; status: string; filename: string; size_bytes: number; uploaded_at: string; review_note: string | null; sensitive: boolean; scan_status: "not_scanned" | "clean"; keep_until: string | null; removed_at: string | null }[];
   payments: LedgerRow[] | null;
@@ -200,6 +210,8 @@ export const onboardingFlowApi = {
     apiClient.post(`${flow(id)}/students/${studentId}/info-review`, { approve }).then((r) => r.data),
   previewDocument: (id: string, documentId: string) =>
     apiClient.get<{ url: string }>(`${flow(id)}/documents/${documentId}/preview`).then((r) => r.data.url),
+  declineRefundRequest: (id: string, studentId: string, note: string) =>
+    apiClient.post(`${flow(id)}/students/${studentId}/refund-request/decline`, { note }).then((r) => r.data),
   removeIdentityFile: (id: string, documentId: string) => apiClient.post(`${flow(id)}/documents/${documentId}/remove-file`).then((r) => r.data),
   reviewDocument: (id: string, documentId: string, approve: boolean, note?: string) =>
     apiClient.post(`${flow(id)}/documents/${documentId}/review`, { approve, note }).then((r) => r.data),
@@ -245,7 +257,15 @@ export interface PortalView {
   form: { fields: FormFieldDef[]; answers: Record<string, unknown> };
   documents: (DocumentDef & { status: string; filename: string | null; note: string | null; accepting: boolean })[];
   identity_document_retention_days: number | null;
-  acceptance: { declaration: string; terms_version: string; terms_url: string | null; refund_policy: string | null; fees: Record<string, string> | null; accepted_at: string | null; declined_at: string | null };
+  acceptance: {
+    declaration: string;
+    terms_version: string;
+    terms_url: string | null;
+    refund_policy: string | null;
+    refund_policy_version: string | null;
+    payment_terms_notice: string | null;
+    refund_terms: RefundTerms | null;
+    fees: Record<string, string> | null; accepted_at: string | null; declined_at: string | null };
   payment: {
     required: boolean;
     open: boolean;
@@ -255,13 +275,53 @@ export interface PortalView {
     currency: string;
     methods: PaymentMethod[];
     bank: { holder: string; bank: string; account_number: string; ifsc: string; branch: string; instructions: string } | null;
-    upi: { vpa: string; beneficiary: string; instructions: string } | null;
+    upi: { vpa: string; beneficiary: string; instructions: string; link?: string; qr?: string | null } | null;
     deadline: string | null;
   };
+  refund: { requests_offered: boolean; can_request: boolean; until: string | null; request: RefundRequestRecord | null };
   completion: { completed: boolean; next_steps: string; whatsapp_link: string | null; lms_status: string };
   contact: { email: string | null; phone: string | null };
   financial_documents: FinancialDoc[];
 }
+
+export interface RefundTerms {
+  allow_refund_requests: boolean;
+  policy_version?: string;
+  policy_sha256?: string;
+  request_days?: number | null;
+  notice?: string | null;
+}
+
+export interface RefundRequestRecord {
+  status: "open" | "refund_started" | "declined";
+  reason: string;
+  requested_at: string;
+  policy_version?: string | null;
+  note?: string;
+  refund_id?: string;
+  decided_at?: string;
+}
+
+export interface SavedAccount {
+  id: string;
+  kind: "bank" | "upi";
+  label: string;
+  details: Record<string, string | boolean>;
+  enabled: boolean;
+  verified: boolean;
+  verified_at: string | null;
+  updated_at: string;
+}
+
+const A = "/internship-onboarding-payment-accounts";
+export const paymentAccountsApi = {
+  list: () => apiClient.get<SavedAccount[]>(A).then((r) => r.data),
+  create: (body: { kind: "bank" | "upi"; label: string; details: Record<string, unknown>; enabled?: boolean }) =>
+    apiClient.post<SavedAccount>(A, body).then((r) => r.data),
+  update: (id: string, body: { label?: string; details?: Record<string, unknown>; enabled?: boolean }) =>
+    apiClient.patch<SavedAccount>(`${A}/${id}`, body).then((r) => r.data),
+  verify: (id: string) => apiClient.post<SavedAccount>(`${A}/${id}/verify`).then((r) => r.data),
+};
 
 const P = "/public/internship-onboarding";
 const h = (token: string) => ({ headers: { "X-Onboarding-Token": token } });
@@ -281,8 +341,9 @@ export const portalApi = {
       })
       .then((r) => r.data);
   },
-  accept: (t: string, terms_version: string) =>
-    apiClient.post<PortalView>(`${P}/accept`, { confirmed: true, terms_version }, h(t)).then((r) => r.data),
+  accept: (t: string, terms_version: string, refund_policy_version: string | null) =>
+    apiClient.post<PortalView>(`${P}/accept`, { confirmed: true, terms_version, refund_policy_version }, h(t)).then((r) => r.data),
+  refundRequest: (t: string, reason: string) => apiClient.post<PortalView>(`${P}/refund-request`, { reason }, h(t)).then((r) => r.data),
   decline: (t: string, reason: string) => apiClient.post<PortalView>(`${P}/decline`, { reason }, h(t)).then((r) => r.data),
   manualPayment: (t: string, body: { method: string; reference: string; paid_on: string; amount: string; remarks?: string }, proof: File) => {
     const data = new FormData();
