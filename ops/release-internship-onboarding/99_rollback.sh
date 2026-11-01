@@ -4,7 +4,7 @@
 #   MODE=web      put the previous web image back.
 #   MODE=workers  put the previous celery_worker and celery_beat images back.
 #   MODE=api      downgrade the database 0100 -> 0097 FIRST (drops only the internship onboarding tables: settings, templates,
-#                 applications, documents, events, payment orders/ledger/notifications, receipts; bulk_export_jobs and the
+#                 applications, documents, events, payment orders/ledger/notifications, saved payment accounts, receipts; bulk_export_jobs and the
 #                 Storage Manager tables stay). Uploaded onboarding files and receipts stay in the bucket under onboarding/.
 #                 Export the payment ledger (payments.csv) BEFORE rolling back if any real payment was taken. Then put the
 #                 previous api image back. An image older than 0100 cannot start while the database is at 0100.

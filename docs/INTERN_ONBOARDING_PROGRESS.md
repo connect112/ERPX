@@ -122,6 +122,33 @@ New, off by default or empty until configured:
 - Release checkpoint C1 also prints `virus scanning enabled` (expect False) and the three document safety columns.
 - Deployment checklist: `ops/release-internship-onboarding/CHECKLIST.md`.
 
+## Refund switch and manual payment configuration
+
+- **Allow refund requests** (`policies.allow_refund_requests`, per internship, default off).
+  - Off: no refund-request option, no refund-policy section and no wording required. Students see a fixed, neutral
+    notice ("Refund requests are not taken through this page. This does not affect any refund you are entitled to by
+    law; ...") instead of anything implying refunds are waived. Staff refunds, corrections and credit notes work as before.
+  - On: the refund policy wording is required (saving is refused otherwise) and is shown, with its version
+    (`refund_policy_version`), before acceptance; accepting needs that exact version. Optional eligibility window
+    (`refund_request_days` after the payment was confirmed).
+  - Each acceptance stores `refund_terms` (offered or not, policy version and SHA-256, window, or the notice) and the
+    words in `declaration_text`; later changes to the switch or wording never alter them. Request eligibility follows
+    the student's own accepted terms.
+  - Student refund request: only when their accepted terms offered it, after a confirmed payment, within the window,
+    one open request at a time. It moves no money: finance declines it with a reason (shown to the student) or refunds
+    through the existing refund route, which links the request. Board shows open requests.
+- **Saved payment accounts** (`internship_payment_accounts`, new table in unmerged `0100`): bank (holder, bank name,
+  account number, IFSC, optional branch, instructions) or UPI (UPI ID, payee name, instructions); enable/disable; a
+  finance user marks each verified; editing the details clears the verification. Finance permission for everything
+  (finance.view sees masked account numbers); every change audited. An internship uses entered details or a saved
+  account per method, never both; settings can only reference this organization's enabled accounts.
+- **Students** see only the methods whose details are usable (entered in the settings, or a saved account that is
+  enabled and verified); a claim for any other method is refused. UPI shows a QR code and an app link
+  (`upi://pay?...&am=<amount owed>&tn=<application reference>`) generated from the configured fee; uploaded QR images
+  are not accepted because nothing could check they pay this account. Claims still need a UTR and proof and are
+  confirmed only by finance (never paid on submission).
+- Release checkpoint C1 now expects 13 onboarding tables.
+
 ## Production readiness matrix
 
 | Capability | Status | Notes |
@@ -134,7 +161,11 @@ New, off by default or empty until configured:
 | Payment receipts issued by GIR Technologies | Requires configuration | address and footer optional; legal name can be changed |
 | GST tax invoices | Requires configuration | only after a GSTIN, tax treatment and rate are entered by finance; no tax details assumed |
 | Refunds (bank/UPI) with credit notes | Verified | one open refund per payment; finance only |
-| Refund policy wording | Requires configuration (enforced) | settings where students pay through their link are refused without it; shown before acceptance and stored with it |
+| Refund requests switch (per internship, default off) | Verified | off: neutral payment-terms notice, no request option, no wording needed; on: wording required, shown with its version before acceptance; each acceptance keeps its own refund-terms snapshot |
+| Student refund requests (only when the accepted terms offered them) | Verified | request only; finance declines with a reason or refunds through the usual route; window from the accepted terms |
+| Refund policy wording | Requires configuration (when refund requests are switched on) | owner's text; nothing assumed |
+| Saved bank/UPI accounts (organization level) | Verified | finance only; audited; shown to students only when enabled and verified; editing clears verification |
+| UPI QR code and app link | Verified | generated per student from the UPI ID and the amount owed; uploaded QR images not used |
 | Identity documents (Aadhaar, other government ID) | Blocked until ClamAV | refused (settings and upload) while `CLAMAV_ENABLED` is off; Aadhaar must be marked sensitive |
 | Identity-document retention | Requires configuration (enforced) | required whenever identity documents are requested; overdue files counted on the board; a reviewer removes each file (record kept); automatic deletion **deferred** |
 | Reminders, completion email, automatic LMS access, CSV exports, Bulk Download source | Verified | beat entries `:07`/`:37` and every 15 min need the worker and beat deployed |
@@ -176,12 +207,19 @@ Full guide: `docs/CASHFREE_SANDBOX.md` (contract review, dashboard steps, settin
   reminders) + 8 (finance) + 6 (hardening: Cashfree not offerable, refund policy and retention with reviewer removal,
   identity-document and consent safeguards, scanning of documents and payment proofs, manual-shortcut permissions)
   + 2 (Cashfree: order amount from the configured, accepted fee; nothing before authoritative confirmation)
-  = 95 passed; sandbox tests 6 skipped (opt-in); regression (bulk exports, offer letters, our internships, internship offers, email templates and Studio,
-  RBAC, bulk filenames) 192 passed.
+  + 5 (refund switch off/on, accepted-terms snapshots, request window and finance decisions, saved accounts
+  permissions/verification/audit, UPI QR amount) and 2 more unit tests = 102 passed; sandbox tests 6 skipped (opt-in); regression (bulk exports, offer letters, our internships, internship offers, email templates and Studio,
+  RBAC, bulk filenames, audit) 200 passed.
 - Migrations `0098`-`0100`: downgrade to `0097` and re-upgrade after the column additions; no drift between the
   onboarding models and the migrated schema; earlier rollback with data kept Storage Manager and Bulk Download rows
   byte-identical.
 - Web: `tsc -b` clean, `eslint` 0 errors, `vitest` 193 passed.
+- Browser, refund switch and payment accounts (plain `Administrator`, students on a 390 px screen, synthetic data):
+  saved UPI account added, shown "not verified", marked verified, chosen in Settings; refund requests off by default
+  with the staff hint; student sees the payment-terms notice (legal rights unaffected), no refund policy and no request
+  option, a QR code and UPI app link for exactly ₹2,000.00; switching refund requests on without wording refused, then
+  saved with wording; the next student sees "Refund policy (version 1)"; the first student's accepted terms unchanged;
+  no console errors (18 checks).
 - Browser (plain `Administrator` role, not Super Admin, + student on a 390 px screen, synthetic data, scanning off):
   identity documents refused in settings (422) and not uploadable by the student while ordinary documents upload;
   board shows a file past retention; reviewer removed it (object gone from the S3 stand-in, record kept); settings

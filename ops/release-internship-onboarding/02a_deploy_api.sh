@@ -60,7 +60,7 @@ echo "== CHECKPOINT C1"
 echo "alembic: $(docker exec erpx_api alembic current 2>&1 | tail -1)   (expect 0100 (head))"
 docker exec erpx_api python -c "import urllib.request;print('health:',urllib.request.urlopen('http://localhost:8000/api/v1/health').read().decode()[:120])"
 docker exec erpx_api python -c "from app.core.config import settings as s; print('BACKUP_FORMAT', s.BACKUP_FORMAT, 'BACKUP_IN_APP_SCHEDULE_ENABLED', s.BACKUP_IN_APP_SCHEDULE_ENABLED)"
-docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'onboarding tables: ' || count(*) from information_schema.tables where table_name like 'internship_onboarding_%' or table_name like 'internship_payment_%' or table_name = 'internship_financial_documents'"   # expect 12
+docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'onboarding tables: ' || count(*) from information_schema.tables where table_name like 'internship_onboarding_%' or table_name like 'internship_payment_%' or table_name = 'internship_financial_documents'"   # expect 13
 docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'bulk_export_jobs kept: ' || count(*) from information_schema.tables where table_name='bulk_export_jobs'"
 docker exec shared_postgres psql -U postgres -d erpx -tA -c "select 'storage tables kept: ' || count(*) from information_schema.tables where table_name in ('storage_trash','storage_deletion_log')"
 docker exec erpx_api python -c "from app.core.config import settings as s; print('cashfree enabled:', s.CASHFREE_ENABLED, 'env:', s.CASHFREE_ENV, 'production allowed:', s.CASHFREE_ALLOW_PRODUCTION, 'api version:', s.CASHFREE_API_VERSION)"   # expect False / sandbox / False unless the owner authorised otherwise

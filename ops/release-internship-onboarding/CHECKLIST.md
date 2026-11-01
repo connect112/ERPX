@@ -26,7 +26,7 @@ Then rebuilds only `api`; starting it runs `alembic upgrade head`: `0097 -> 0098
 
 C1, all must hold:
 - [ ] api healthy; `alembic: 0100 (head)`; health endpoint answers.
-- [ ] `onboarding tables: 12`; `bulk_export_jobs kept: 1`; `storage tables kept: 2`.
+- [ ] `onboarding tables: 13`; `bulk_export_jobs kept: 1`; `storage tables kept: 2`.
 - [ ] `onboarding permissions: 3`; `document safety columns: 3`.
 - [ ] `cashfree enabled: False env: sandbox production allowed: False`; `virus scanning enabled: False`.
 - [ ] `BACKUP_FORMAT` and `BACKUP_IN_APP_SCHEDULE_ENABLED` as before; no new errors in the api log.
@@ -47,13 +47,17 @@ C1, all must hold:
 ## 4. Acceptance on real MinIO (plain Administrator, not Super Admin; one test student with a mailbox you control)
 
 - [ ] Existing internships unchanged: Our Internships > Onboarding shows "Off" (manual) until configured.
-- [ ] Configure one internship: hybrid; bank transfer and/or UPI only (Cashfree shows "not set up"); fee (defaults to
-      INR 2,000); the refund policy wording; documents without identity documents (they are refused until ClamAV
-      exists); closing date; issuer legal name/address as decided. Save succeeds.
+- [ ] Payment accounts tab (finance): add the organization's bank account and/or UPI ID, check them against the bank
+      letter / UPI app, mark verified. An unverified or switched-off account is never shown to students.
+- [ ] Configure one internship: hybrid; bank transfer and/or UPI only (Cashfree shows "not set up"), using the saved
+      account(s); fee (defaults to INR 2,000); "Allow refund requests" as decided (off needs no wording; on needs the
+      refund policy); documents without identity documents (they are refused until ClamAV exists); closing date;
+      issuer legal name/address as decided. Save succeeds.
 - [ ] Send the test student their link; the email arrives; the link opens on a phone; the token disappears from the
       address bar.
 - [ ] Student: save and resume, upload a PDF and a JPG/PNG, accept (the refund policy is shown above the agreement),
-      submit a bank/UPI claim with a proof image.
+      submit a bank/UPI claim with a proof image (UPI: the QR code and app link ask for exactly the fee owed). The
+      claim stays "being checked" until finance confirms the money arrived.
 - [ ] MinIO: the uploads exist under `onboarding/<org>/<application>/` in the production bucket; staff preview opens
       through a short-lived link and expires; the payment proof opens from Payment checks.
 - [ ] Finance user confirms the claim -> the student shows paid; a receipt PDF (`RCPT-...`, issuer as configured, no
@@ -86,9 +90,10 @@ clamd; the setting must not be switched on without the service).
 
 | Item | Needed before | Default if not given |
 |---|---|---|
-| Refund policy wording | any internship where students pay through their link | saving such settings is refused |
+| Allow refund requests (per internship, default off) | sending links | off: students see a neutral payment-terms notice (legal refund rights unaffected); staff refunds still work |
+| Refund policy wording and version, request window | switching refund requests on | switching on is refused without wording |
 | Issuer address / footer (legal name defaults to GIR Technologies) | first receipt | receipt shows the legal name only |
-| Bank account and/or UPI ID per internship | collecting payments | payment methods cannot be enabled |
+| Bank account and/or UPI ID (saved and verified, or entered per internship) | collecting payments | payment methods cannot be enabled; unverified saved accounts are not shown |
 | Fee per internship if not INR 2,000 | sending links | INR 2,000 |
 | GSTIN, tax treatment and rate (verified) | any tax invoice | receipts only, no tax shown |
 | ClamAV service (host, port) | collecting identity documents | identity documents refused |
