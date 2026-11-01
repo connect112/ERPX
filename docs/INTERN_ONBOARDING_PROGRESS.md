@@ -139,34 +139,26 @@ New, off by default or empty until configured:
 | Identity-document retention | Requires configuration (enforced) | required whenever identity documents are requested; overdue files counted on the board; a reviewer removes each file (record kept); automatic deletion **deferred** |
 | Reminders, completion email, automatic LMS access, CSV exports, Bulk Download source | Verified | beat entries `:07`/`:37` and every 15 min need the worker and beat deployed |
 | Virus scanning (ClamAV) | Requires configuration | code ready, off; release prerequisite for identity documents only; needs a clamd service before `CLAMAV_ENABLED=true` |
-| Cashfree online payments and refunds | Blocked | sandbox acceptance not done (network policy, credentials); keep `CASHFREE_ENABLED=false` |
+| Cashfree online payments and refunds | Blocked | adapter reviewed against the docs; sandbox run not done (network policy, sandbox keys, public webhook host); keep `CASHFREE_ENABLED=false` (`docs/CASHFREE_SANDBOX.md`) |
 | Installment plans | Deferred | not built; students pay the full amount due (shown in Settings) |
 | Posting fees into `modules/accounting` | Deferred | needs customer and account mapping (owner decision) |
 | Release scripts and rollback (0097 -> 0100 -> 0097) | Verified locally | production run is the owner's: `ops/release-internship-onboarding/CHECKLIST.md` |
 | Real MinIO (uploads, previews, receipts, Bulk Download ZIP) | Requires acceptance | tested on an S3 stand-in only; step 4 of the checklist |
 
-## Cashfree sandbox validation (to do later, with authorization)
+## Cashfree (merchant account activated; sandbox validation pending)
 
-Nothing below has been run; the mocked tests (`tests/api/test_internship_onboarding_payments.py`) are not a substitute.
+Full guide: `docs/CASHFREE_SANDBOX.md` (contract review, dashboard steps, settings, validation run).
 
-1. Network access for the session/environment: `www.cashfree.com` (documentation), `sandbox.cashfree.com` (sandbox
-   API). Later, production only with owner approval: `api.cashfree.com`. Students' browsers load
-   `https://sdk.cashfree.com/js/v3/cashfree.js`; if the production proxy sets a Content-Security-Policy, allow it there.
-2. Official documentation to re-check against the adapter (`providers/cashfree.py`), under `https://www.cashfree.com/docs/`:
-   Payment Gateway API reference for Create Order (`POST /pg/orders`), Get Payments for an Order
-   (`GET /pg/orders/{order_id}/payments`), Create Refund (`POST /pg/orders/{order_id}/refunds`), Get Refund
-   (`GET /pg/orders/{order_id}/refunds/{refund_id}`); the current `x-api-version` (adapter default `2023-08-01`,
-   configurable through `CASHFREE_API_VERSION`); webhook payloads and signature verification (`x-webhook-signature`,
-   `x-webhook-timestamp`); payment and refund webhook event types; sandbox test cards/UPI IDs.
-3. Credentials: sandbox App ID and Secret Key from the Cashfree merchant dashboard (test mode), set only as environment
-   secrets `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` with `CASHFREE_ENABLED=true`, `CASHFREE_ENV=sandbox`; never in
-   chat, the repository or the database.
-4. Webhook: register `https://<api host>/api/v1/public/payments/cashfree/webhook` for payment success/failure and
-   refund status in the dashboard. It must be a public HTTPS URL, so the webhook leg needs a staging server; a cloud
-   session can only verify the status-fetch path (`refresh`, reconciliation task).
-5. Acceptance run (sandbox money only): order -> pay with a test instrument -> webhook (and replay of the same webhook)
-   -> receipt -> partial refund -> refund webhook -> credit note; failed payment; amount/currency mismatch refused;
-   record the results here. Production stays off until the owner authorizes `CASHFREE_ALLOW_PRODUCTION`.
+- Adapter cross-checked against Cashfree's published documentation (search excerpts; the pages themselves are blocked
+  from this environment): hosts, headers, order fields and limits, hosted checkout (JS SDK v3), payment statuses,
+  webhook signature and delivery rules, refunds. Only change needed: default `CASHFREE_API_VERSION` `2023-08-01` ->
+  `2025-01-01` (Cashfree's current default). Refund webhook payload and the order-expiry minimum are unconfirmed.
+- New API tests: the order is for the configured fee the student accepted (staff changing the fee later does not change
+  it); nothing is paid, receipted or completed on pending/failed/dropped/forged events, only on a signed SUCCESS.
+- New opt-in sandbox tests `tests/sandbox/` (skipped unless `CASHFREE_SANDBOX_TESTS=1` and sandbox keys; sandbox host
+  only). Not run: with dummy keys they stop at "gateway could not be reached" (network policy).
+- Blockers: `sandbox.cashfree.com` / `www.cashfree.com` not allowed here; sandbox keys not provided as environment
+  secrets; a public HTTPS host for sandbox webhooks (staging, or production in sandbox mode with authorization).
 
 ## Remaining
 
@@ -183,7 +175,8 @@ Nothing below has been run; the mocked tests (`tests/api/test_internship_onboard
 - Backend: onboarding rule tests 40 + hardening unit tests 11 + API tests 13 (core) + 15 (payments, completion,
   reminders) + 8 (finance) + 6 (hardening: Cashfree not offerable, refund policy and retention with reviewer removal,
   identity-document and consent safeguards, scanning of documents and payment proofs, manual-shortcut permissions)
-  = 93 passed; regression (bulk exports, offer letters, our internships, internship offers, email templates and Studio,
+  + 2 (Cashfree: order amount from the configured, accepted fee; nothing before authoritative confirmation)
+  = 95 passed; sandbox tests 6 skipped (opt-in); regression (bulk exports, offer letters, our internships, internship offers, email templates and Studio,
   RBAC, bulk filenames) 192 passed.
 - Migrations `0098`-`0100`: downgrade to `0097` and re-upgrade after the column additions; no drift between the
   onboarding models and the migrated schema; earlier rollback with data kept Storage Manager and Bulk Download rows
@@ -194,7 +187,7 @@ Nothing below has been run; the mocked tests (`tests/api/test_internship_onboard
   board shows a file past retention; reviewer removed it (object gone from the S3 stand-in, record kept); settings
   explain the scanning requirement; refund policy above the agreement; INR 2,000; no console errors. Earlier rounds:
   full flow through payment, receipt and partial refund; defaults, Cashfree "not set up", installments unavailable.
-- Not run: the real Cashfree sandbox (blocked network, no credentials); a real clamd (a local fake answered the
+- Not run: the real Cashfree sandbox (blocked network, no sandbox keys, no public webhook host); a real clamd (a local fake answered the
   protocol); real MinIO (acceptance step 4 of the checklist).
 
 ## How to continue
