@@ -13,14 +13,15 @@ environment: `www.cashfree.com` is blocked there). Every row still needs the san
 |---|---|---|---|
 | Hosts | sandbox `https://sandbox.cashfree.com/pg`, production `https://api.cashfree.com/pg` | same | matches |
 | Auth headers | `x-client-id`, `x-client-secret`, `x-api-version` | same; secret never logged or returned | matches |
-| API version | `2025-01-01` is the current default for Create Order | default changed from `2023-08-01` to `2025-01-01`; `CASHFREE_API_VERSION` overrides | updated |
+| API version | latest is `2026-01-01` (v6); `2025-01-01` is listed as a previous version and still published. 2026-01-01 adds fields to Create Order / Order Pay and warns that code reading the old response shape can break | pinned to `2025-01-01` (the contract reviewed here); `CASHFREE_API_VERSION` overrides | validate 2025-01-01 in the sandbox first, then 2026-01-01 as a separate step before choosing it for production |
 | Create order | `POST /orders`; `order_id` unique, 3-45 chars, letters/digits/`-`/`_`; `customer_details.customer_id` letters/digits/`-`/`_`; `return_url`; returns `payment_session_id` | `ERPXI` + 24 hex chars; customer id = application reference (`ERPX-INT-2026-000001`); amount and currency echoed back are checked | matches |
 | Hosted checkout | JS SDK `https://sdk.cashfree.com/js/v3/cashfree.js`, `Cashfree({mode})`, `checkout({paymentSessionId, redirectTarget})`; load from Cashfree's CDN; domain whitelisting | loaded from the CDN on demand; `mode` from the server's environment; `redirectTarget: "_self"`; the return page proves nothing (status is fetched server-side) | matches |
 | Payment status | `GET /orders/{order_id}/payments`; statuses SUCCESS, FAILED, USER_DROPPED, PENDING... | SUCCESS confirms (exact amount and currency only); FAILED/USER_DROPPED/CANCELLED/VOID failed; anything else pending | matches |
 | Webhook signature | base64(HMAC-SHA256(`x-webhook-timestamp` + raw body, client secret)); use the raw, unparsed body | same, constant-time compare, raw body, 72 h age limit (`CASHFREE_WEBHOOK_MAX_AGE_HOURS`), 401 when invalid so Cashfree retries | matches |
 | Webhook delivery | may repeat; may arrive FAILED, PENDING, SUCCESS; update only on SUCCESS; dedupe by `cf_payment_id` | each body stored by hash (exact repeats ignored); one ledger row per `cf_payment_id` (unique index); a late FAILED never overrides SUCCESS | matches |
 | Webhook payload | `type`, `data.order.order_id`, `data.payment.cf_payment_id` (string in newer versions), `payment_status`, `payment_amount`; header `x-webhook-version` | parsed the same way; `cf_payment_id` read as text | matches |
-| Refunds | `POST /orders/{order_id}/refunds` (`refund_id`, `refund_amount`, `refund_note`); `GET /orders/{order_id}/refunds/{refund_id}`; statuses SUCCESS, PENDING, CANCELLED, ONHOLD, FAILED; within 6 months of payment | same; refund id derived from the ERPX refund row (`RF` + 30 hex), so a retry carries the same id; amount echoed back is checked | matches; refund webhook payload (`data.refund`) not confirmed by the excerpts: check in the sandbox |
+| Refunds | `POST /orders/{order_id}/refunds` (`refund_id`, `refund_amount`, `refund_note`); `GET /orders/{order_id}/refunds/{refund_id}`; statuses SUCCESS, PENDING, CANCELLED, ONHOLD, FAILED; within 6 months of payment | same; refund id derived from the ERPX refund row (`RF` + 30 hex), so a retry carries the same id; amount echoed back is checked | matches; the refund webhook (`REFUND_STATUS_WEBHOOK`, `data.refund` with `cf_refund_id`, `refund_status`) matches the parser |
+| Auto refunds | `AUTO_REFUND_STATUS_WEBHOOK`: Cashfree's own refunds, without the usual order fields | was refused as unreadable (400, so retried by Cashfree); now acknowledged, matched by `cf_payment_id`, shown on the student's timeline for finance; the ledger is not changed automatically | fixed (tested with a signed notification); payload field names to confirm in the sandbox |
 | Order expiry | `order_expiry_time` ISO 8601 | now + `CASHFREE_ORDER_MINUTES` (30, at least 15) in UTC | matches; minimum not confirmed |
 
 What the code guarantees whatever the gateway says (tested with mocked HTTP and real signatures):
@@ -37,7 +38,7 @@ What the code guarantees whatever the gateway says (tested with mocked HTTP and 
    them to ERPX only as environment secrets (section 3), never by chat or email.
 3. **Developers > Webhooks**: add the endpoint
    `https://<test host>/api/v1/public/payments/cashfree/webhook`, webhook **version 2025-01-01** (same as
-   `CASHFREE_API_VERSION`), events: payment success, payment failed, payment user dropped, refund status.
+   `CASHFREE_API_VERSION`), events: payment success, payment failed, payment user dropped, refund status (and auto refund status, if offered).
    It must be a public HTTPS address (see section 4 for which host).
 4. **Developers > Whitelisting** (domain): add the domain where students open checkout (the test host now;
    `erp.pentrix.in` for production later).
@@ -68,26 +69,30 @@ Network: the server calls `sandbox.cashfree.com` (later `api.cashfree.com`); stu
 those. For a Claude Code cloud session: allow `sandbox.cashfree.com` and `www.cashfree.com` under the environment's
 Network access, and add `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` (sandbox keys) as environment secrets.
 
-## 4. Where the sandbox run happens (decision needed)
+## 4. Readiness (assessed 2026-11-01)
 
-Webhooks need a public HTTPS address, so a cloud session can test order creation and status checks but not webhook
-delivery. Options:
-- **A staging copy of ERPX** with its own public host (recommended): set the sandbox variables there and register its
-  webhook URL.
-- **Production in sandbox mode**: possible but it is a production configuration change; only with your explicit
-  authorization, in a quiet window, and switched off afterwards.
+| Item | Status |
+|---|---|
+| Adapter, webhook, reconciliation and refund code | reviewed against the current docs; mocked tests with real signatures pass; one fix (auto refunds) |
+| `sandbox.cashfree.com`, `sdk.cashfree.com`, `www.cashfree.com`, `api.cashfree.com` from the Claude Code cloud session | **blocked** (the session's proxy refuses them) |
+| Sandbox keys | **not provided** (no `CASHFREE_*` secrets in the environment; they must never be pasted in chat) |
+| Staging environment | **none defined**: the repository describes staging only as a process (Compose path); no staging host, stack or DNS name exists in the repo, and AWS could not be inspected (no valid credentials in the session) |
+| Public HTTPS webhook endpoint | **not available** until a staging stack runs (section 5) |
+| Production | untouched; Cashfree stays off there (`CASHFREE_ENABLED` unset) and is never used for sandbox tests |
 
-## 5. Validation run (record results in `docs/INTERN_ONBOARDING_PROGRESS.md`)
+## 5. Where the sandbox run happens
 
-1. Cloud session or staging shell, sandbox keys present: `CASHFREE_SANDBOX_TESTS=1 pytest tests/sandbox -q`
-   (order for the configured INR 2,000 with a payment session; order id reuse refused; unpaid refund refused; wrong keys
-   refused without the secret appearing). These tests can only reach the sandbox host.
-2. On the test host, as a plain Administrator: configure an internship with "Online (Cashfree)", the refund policy and
-   a closing date; send a test student their link; accept; pay with a sandbox test instrument.
-3. Expect: the webhook arrives -> payment confirmed once, receipt issued and emailed, student shown as paid;
-   Cashfree's "resend webhook" -> acknowledged as a duplicate; nothing changes.
-4. A failed / dropped payment -> no receipt, the student can retry; a new order is created.
-5. Stop webhooks briefly (or pay and close the tab) -> "Check payment" or the 15-minute reconciliation confirms it.
-6. Staff refund 1.00 -> Cashfree refund -> refund webhook -> credit note; then
-   `CASHFREE_SANDBOX_PAID_ORDER_ID=<order> CASHFREE_SANDBOX_REFUND=1 pytest tests/sandbox -q`.
-7. Only then: owner decision on production.
+An isolated staging stack, never production: `ops/staging-cashfree/` (own Postgres, Redis and MinIO, Mailpit for all
+email, synthetic data only, sandbox keys only, a preflight that refuses production keys, flags or domains). Options:
+- **A. A spare computer with Docker + a Cloudflare quick tunnel** (free, no AWS, no DNS change): recommended for the
+  validation run.
+- **B. A separate small EC2 instance** (roughly US$15-20 per month while running) with a staging host name: needs the
+  owner's approval for paid resources and a DNS record.
+
+## 6. Validation run
+
+The step-by-step run (INR 2,000 payment with `testsuccess@gocash`, failure with `testfailure@gocash`, cancellation,
+duplicate webhook, lost webhook recovered by the status check, refund with credit note, optional 2026-01-01 pass) is in
+`ops/staging-cashfree/README.md`. Record each result in `docs/INTERN_ONBOARDING_PROGRESS.md`. Mocked tests are not a
+substitute: sandbox acceptance is claimed only after that run. Then the owner decides on production keys and
+`CASHFREE_ALLOW_PRODUCTION`.

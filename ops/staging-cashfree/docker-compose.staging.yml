@@ -1,0 +1,44 @@
+# Isolated Cashfree SANDBOX staging, layered on the repository's docker-compose.yml:
+#   docker compose -p erpx-staging -f docker-compose.yml -f ops/staging-cashfree/docker-compose.staging.yml \
+#     --env-file ops/staging-cashfree/staging.env up -d
+# Own Postgres, Redis and MinIO volumes (nothing shared with production), all mail caught by Mailpit (no real email),
+# one public HTTPS origin (nginx on port 80, exposed by a Cloudflare quick tunnel: see README). Never run this on the production host:
+# docker-compose.yml uses fixed container names (erpx_api, ...) that would collide with production's.
+x-sandbox-env: &sandbox-env
+  ENVIRONMENT: staging
+  CASHFREE_ENABLED: "true"
+  CASHFREE_ENV: sandbox
+  CASHFREE_ALLOW_PRODUCTION: "false"
+  CASHFREE_APP_ID: ${CASHFREE_APP_ID:?set the SANDBOX App ID in staging.env}
+  CASHFREE_SECRET_KEY: ${CASHFREE_SECRET_KEY:?set the SANDBOX Secret Key in staging.env}
+  CASHFREE_API_VERSION: ${CASHFREE_API_VERSION:-2025-01-01}
+  FRONTEND_URL: ${STAGING_PUBLIC_URL:?set STAGING_PUBLIC_URL (https://...) in staging.env}
+  CORS_ORIGINS: ${STAGING_PUBLIC_URL}
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  SMTP_USER: ""
+  SMTP_PASSWORD: ""
+  CLAMAV_ENABLED: "false"
+
+services:
+  api:
+    environment:
+      <<: *sandbox-env
+  celery_worker:
+    environment:
+      <<: *sandbox-env
+  celery_beat:
+    environment:
+      <<: *sandbox-env
+  web:
+    environment:
+      # same origin as the API through nginx, and the tunnel's host name accepted by the dev server
+      VITE_API_BASE_URL: /api/v1
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: .trycloudflare.com
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: erpx_staging_mailpit
+    ports:
+      - "127.0.0.1:8025:8025"   # mail viewer, local only
+    networks:
+      - erpx_network
