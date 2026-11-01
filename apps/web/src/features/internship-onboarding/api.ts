@@ -105,6 +105,8 @@ export interface ConfigView {
   template_id: string | null;
   template_version: number | null;
   can_edit_finance: boolean;
+  can_view_finance: boolean;
+  can_review: boolean;
   fee_preview: Record<string, string>;
   cashfree_available: boolean;
   virus_scanning_available: boolean;

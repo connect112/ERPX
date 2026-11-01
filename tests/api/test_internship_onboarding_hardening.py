@@ -200,3 +200,18 @@ async def test_manual_shortcuts_need_finance_or_reviewer_permission_once_student
     assert (await patch(staff_only, t0, {"payment_status": "paid"})).status_code == 200
     # an Administrator holds both permissions
     assert (await client.patch(f"{BASE}/{selfserve.id}/selected/{s0.id}/onboarding", json={"payment_status": "paid"}, headers=auth_headers)).status_code == 200
+
+
+async def test_the_settings_view_tells_the_screens_what_this_user_may_do(client, auth_headers, db_session, organization):
+    from tests.api.test_storage_manager import admin_headers
+
+    internship, _ = await world(db_session, organization, n=1)
+    url = f"{BASE}/{internship.id}/onboarding-flow/config"
+    full = (await client.get(url, headers=auth_headers)).json()
+    assert (full["can_view_finance"], full["can_edit_finance"], full["can_review"]) == (True, True, True)
+    manager = await admin_headers(db_session, organization, permissions=("our_internships.view", "our_internships.manage"))
+    plain = (await client.get(url, headers=manager)).json()
+    assert (plain["can_view_finance"], plain["can_edit_finance"], plain["can_review"]) == (False, False, False)
+    viewer = await admin_headers(db_session, organization, permissions=("our_internships.view", "our_internships.finance.view"))
+    finance = (await client.get(url, headers=viewer)).json()
+    assert (finance["can_view_finance"], finance["can_edit_finance"]) == (True, False)
