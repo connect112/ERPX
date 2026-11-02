@@ -1,0 +1,172 @@
+# Isolated Cashfree SANDBOX staging (self-contained; does not use the repository's docker-compose.yml).
+# Always run it through ./staging.sh, which runs preflight.sh first. Nothing here is shared with any other stack:
+# - project "erpx-cf-staging": container, network and volume names are prefixed with it (no fixed container names);
+# - its own Postgres, Redis, MinIO and Mailpit, none of which publishes a port;
+# - only the gateway (the app + API + webhook + file links) and the Mailpit viewer are published, on 127.0.0.1 only;
+# - the Cloudflare quick tunnel (profile "tunnel") reaches the gateway over the internal network and nothing else.
+# Images are multi-arch (linux/amd64 + linux/arm64); the two ERPX images are built locally for the host's platform.
+name: erpx-cf-staging
+
+x-backend-env: &backend-env
+  ENVIRONMENT: staging
+  DATABASE_URL: postgresql+asyncpg://erpx:${POSTGRES_PASSWORD:?run ./staging.sh init}@postgres:5432/erpx_staging
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?run ./staging.sh init}
+  MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?run ./staging.sh init}
+  MINIO_SECURE: "false"
+  MINIO_BUCKET: erpx-staging
+  # browsers reach storage through /_files on the gateway (same as production's Caddy), signatures stay valid
+  STORAGE_PUBLIC_PREFIX: /_files
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?run ./staging.sh init}
+  FRONTEND_URL: ${STAGING_PUBLIC_URL:-http://127.0.0.1:8080}
+  STUDENT_PORTAL_URL: ${STAGING_PUBLIC_URL:-http://127.0.0.1:8080}
+  CORS_ORIGINS: ${STAGING_PUBLIC_URL:-http://127.0.0.1:8080}
+  # every email goes to Mailpit; nothing leaves this computer
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  SMTP_USER: ""
+  SMTP_PASSWORD: ""
+  SMTP_FROM_EMAIL: erpx-staging@example.com
+  SMTP_FROM_NAME: ERPX staging
+  # Cashfree: sandbox only, production refused by the adapter itself
+  CASHFREE_ENABLED: "true"
+  CASHFREE_ENV: sandbox
+  CASHFREE_ALLOW_PRODUCTION: "false"
+  CASHFREE_APP_ID: ${CASHFREE_APP_ID:-}
+  CASHFREE_SECRET_KEY: ${CASHFREE_SECRET_KEY:-}
+  CASHFREE_API_VERSION: ${CASHFREE_API_VERSION:-2025-01-01}
+  # off for this test stack
+  CLAMAV_ENABLED: "false"
+  BACKUP_IN_APP_SCHEDULE_ENABLED: "false"
+  ELASTICSEARCH_URL: http://search-disabled.invalid:9200
+  AI_API_KEY: ""
+  WHATSAPP_API_KEY: ""
+  SMS_PROVIDER_API_KEY: ""
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: erpx
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./staging.sh init}
+      POSTGRES_DB: erpx_staging
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erpx -d erpx_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    # MinIO stopped publishing community images in October 2025 (minio/minio can no longer be pulled). This is the
+    # maintained community build (multi-arch, pinned); STAGING_MINIO_IMAGE can point at another S3-compatible MinIO
+    # image (e.g. cgr.dev/chainguard/minio). No health check: the image's tools vary; ./staging.sh up waits on the
+    # API's readiness check instead and then creates the bucket.
+    image: ${STAGING_MINIO_IMAGE:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}
+    restart: unless-stopped
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?run ./staging.sh init}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?run ./staging.sh init}
+    volumes:
+      - miniodata:/data
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${STAGING_MAIL_PORT:-8025}:8025"   # mail viewer, this computer only
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: erpx-cf-staging/api:local
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "true"   # migrations + RBAC + bootstrap account, on this database only
+      SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL:?run ./staging.sh init}
+      SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:?run ./staging.sh init}
+    volumes:
+      - ./seed_synthetic.py:/app/staging_seed_synthetic.py:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_started }
+
+  celery_worker:
+    image: erpx-cf-staging/api:local
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    command: ["python", "-m", "celery", "-A", "app.core.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_app inspect ping -d celery@$$(hostname)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    depends_on:
+      api: { condition: service_healthy }
+
+  celery_beat:
+    image: erpx-cf-staging/api:local
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    command: ["python", "-m", "celery", "-A", "app.core.celery_app", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+    healthcheck:
+      disable: true
+    depends_on:
+      api: { condition: service_healthy }
+
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: /api/v1
+    image: erpx-cf-staging/web:local
+    restart: unless-stopped
+
+  gateway:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:${STAGING_HTTP_PORT:-8080}:80"   # this computer only; the tunnel reaches it inside Docker
+    depends_on:
+      api: { condition: service_healthy }
+      web: { condition: service_started }
+      minio: { condition: service_started }
+
+  tunnel:
+    image: cloudflare/cloudflared:2025.4.0
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    # a temporary https://<random>.trycloudflare.com address that forwards to the gateway only
+    command: ["tunnel", "--no-autoupdate", "--url", "http://gateway:80"]
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

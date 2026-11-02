@@ -82,10 +82,12 @@ Network access, and add `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` (sandbox keys) 
 
 ## 5. Where the sandbox run happens
 
-An isolated staging stack, never production: `ops/staging-cashfree/` (own Postgres, Redis and MinIO, Mailpit for all
-email, synthetic data only, sandbox keys only, a preflight that refuses production keys, flags or domains). Options:
-- **A. A spare computer with Docker + a Cloudflare quick tunnel** (free, no AWS, no DNS change): recommended for the
-  validation run.
+An isolated staging stack, never production: `ops/staging-cashfree/` (self-contained `compose.yml`, project
+`erpx-cf-staging`: own Postgres, Redis and MinIO, no published ports except the gateway and Mailpit viewer on
+127.0.0.1, Mailpit for all email, synthetic data only, sandbox keys only, a preflight that refuses production keys,
+hosts, unsafe ports and leaked secrets; `./staging.sh` drives it). Options:
+- **A. The owner's Mac (Apple Silicon) with Docker Desktop + a Cloudflare quick tunnel** (free, no AWS, no DNS
+  change): chosen for the validation run; step-by-step in `ops/staging-cashfree/README.md`.
 - **B. A separate small EC2 instance** (roughly US$15-20 per month while running) with a staging host name: needs the
   owner's approval for paid resources and a DNS record.
 
