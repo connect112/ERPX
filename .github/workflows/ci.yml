@@ -48,6 +48,36 @@ jobs:
         working-directory: apps/api
         run: pip install -r requirements.txt
 
+      # The test database is `postgres:16` (production's server is 16 too). The runner image (Ubuntu 26.04) ships PostgreSQL 18
+      # client tools, and Ubuntu's own archive has only `postgresql-client-18`. A `pg_restore` 17 or newer sends
+      # `SET transaction_timeout = 0;` when it restores straight into a 16 server, which 16 rejects, so the compressed-archive
+      # restore tests failed (and `pg_restore` 16 cannot read archives made by `pg_dump` 17 or newer). Version 16 of the tools
+      # therefore comes from the PostgreSQL project's apt repository (PGDG) through its official setup script, and goes first
+      # on PATH so the tests' bare `pg_dump`/`pg_restore`/`psql` are the 16 ones. Any failure here fails the job; nothing is skipped.
+      - name: Use PostgreSQL 16 client tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          apt-cache policy postgresql-client-16
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client-16
+          test -x /usr/lib/postgresql/16/bin/pg_restore
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+
+      # Permanent diagnostic: which client tools the tests will run and which server they talk to. The check fails the job if
+      # the tools are not version 16, so the setup above cannot silently stop working.
+      - name: Show PostgreSQL client and server versions
+        env:
+          PGPASSWORD: erpx_secret
+        run: |
+          set -euo pipefail
+          for tool in pg_dump pg_restore psql; do echo "$tool -> $(command -v "$tool"): $("$tool" --version)"; done
+          echo "server: $(psql -h 127.0.0.1 -U erpx -d erpx_test -Atc 'show server_version')"
+          pg_dump --version | grep -q 'PostgreSQL) 16\.'
+          pg_restore --version | grep -q 'PostgreSQL) 16\.'
+          psql --version | grep -q 'PostgreSQL) 16\.'
+
       # A service container cannot be given the `server /data` command MinIO needs, so it is started here. MinIO no longer
       # publishes community images (minio/minio cannot be pulled); this is the maintained community build the Mac staging kit
       # also uses, pinned by the digest of its multi-arch image index (checked against the registry's manifest) so a re-pushed
