@@ -16,8 +16,14 @@ Run from `apps/api/`:
         --initiated-by "jane@gir-technologies.com"
 
 Both dump formats are accepted and detected from the file itself: the compressed archives BACKUP_FORMAT=custom
-produces (restored with pg_restore, which must be the same version as the pg_dump that made them or newer) and
-the older plain-SQL files (restored with psql).
+produces and the older plain-SQL files. Both are restored the same way (see scripts/restore_stream.py): the SQL is streamed
+into psql inside ONE transaction that also contains the optional schema wipe, and COMMIT is sent only after the whole
+script has been read successfully. A failed restore is therefore rolled back and the target database is left as it was.
+For a compressed archive the script comes from `pg_restore -f -`, which works against any server version but has its own
+rules, checked BEFORE anything is changed: the restore client must be at least as new as the pg_dump that made the archive
+(an older pg_restore cannot read it), the archive must not come from a newer server than the target, and the archive is
+read through once (`--skip-archive-scan` turns that off). Combinations outside what the test-suite covers (PostgreSQL 16
+server, clients 16 to 18) are logged as untested; combinations that cannot work are refused.
 
 Add `--dry-run` first, always, to see exactly what the script would do
 without touching anything. See docs/operations/logging-runbook.md and
@@ -71,6 +77,17 @@ import asyncpg
 
 from app.core.config import settings
 from app.core.logging_config import configure_logging, get_logger
+from scripts.restore_stream import (
+    ArchiveInfo,
+    ArchiveUnreadable,
+    StreamResult,
+    ToolError,
+    inspect_archive,
+    iter_restore_script,
+    scan_archive,
+    stream_restore,
+    tool_version,
+)
 
 configure_logging(service_name="erpx-restore-script")
 logger = get_logger(__name__)
@@ -78,43 +95,22 @@ logger = get_logger(__name__)
 PG_DUMP_HEADER = "-- PostgreSQL database dump"
 DEFAULT_AUDIT_LOG_PATH = "restore_backup_audit.log"
 
-# Session GUCs that a NEWER pg_dump writes into the dump header but an OLDER
-# target server doesn't recognize — replaying them under ON_ERROR_STOP=1 aborts
-# the whole restore. They are session-tuning knobs (all emitted as `= 0`, i.e.
-# disabled) that have no bearing on the restored *data*, so stripping them is
-# safe and lets a dump taken by a newer client restore into an older server.
-#   - transaction_timeout: added in PostgreSQL 17; unknown to <=16. The image
-#     ships pg_dump 17 (Debian trixie) while the shipped server is postgres 16,
-#     so every dump this platform produces contains it — see apps/api/Dockerfile.
-# Match the header form pg_dump emits: `SET <name> = <value>;` on its own line.
-_INCOMPATIBLE_SESSION_GUCS = ("transaction_timeout",)
-_INCOMPATIBLE_SET_RE = re.compile(
-    r"^\s*SET\s+(?:" + "|".join(_INCOMPATIBLE_SESSION_GUCS) + r")\s*=", re.IGNORECASE
-)
-
-
 def sanitize_dump_for_restore(sql_file: str) -> str:
-    """Return a path to a restore-ready copy of ``sql_file`` with version-skew
-    session-GUC directives (see ``_INCOMPATIBLE_SESSION_GUCS``) stripped. If the
-    dump contains none, the original path is returned unchanged (no copy made)."""
-    with open(sql_file, "r", encoding="utf-8", errors="replace") as f:
-        lines = f.readlines()
-
-    kept = [ln for ln in lines if not _INCOMPATIBLE_SET_RE.match(ln)]
-    stripped = len(lines) - len(kept)
-    if stripped == 0:
-        return sql_file
-
+    """Return a path to a copy of ``sql_file`` without the one header line a newer pg_dump writes that an older server rejects
+    (``SET transaction_timeout = 0;``, PostgreSQL 17+). If the header has no such line the original path is returned and no copy
+    is made. Only the verified SQL header is touched (see ``iter_restore_script``): application data, such as a COPY row or a
+    string literal that happens to contain the same text, is never altered, and the file is streamed, not loaded into memory.
+    The restore itself no longer needs this function (it filters the stream); it remains for callers that want a cleaned file."""
     sanitized_path = f"{sql_file}.sanitized.sql"
-    with open(sanitized_path, "w", encoding="utf-8") as f:
-        f.writelines(kept)
-    logger.info(
-        "restore_dump_sanitized",
-        source=sql_file,
-        sanitized=sanitized_path,
-        lines_removed=stripped,
-        gucs=list(_INCOMPATIBLE_SESSION_GUCS),
-    )
+    original_size = os.path.getsize(sql_file)
+    with open(sql_file, "rb") as src, open(sanitized_path, "wb") as dst:
+        for chunk in iter_restore_script(src):
+            dst.write(chunk)
+    removed = original_size - os.path.getsize(sanitized_path)
+    if removed == 0:
+        os.remove(sanitized_path)
+        return sql_file
+    logger.info("restore_dump_sanitized", source=sql_file, sanitized=sanitized_path, bytes_removed=removed)
     return sanitized_path
 
 
@@ -127,6 +123,7 @@ class ExitCode(IntEnum):
     SAFETY_BACKUP_FAILED = 5
     RESTORE_FAILED = 6
     INTERNAL_ERROR = 7
+    PREFLIGHT_FAILED = 8  # the restore tools or the archive cannot work together; nothing was changed
 
 
 class RestoreError(Exception):
@@ -551,30 +548,150 @@ def _progress_heartbeat(stop_event: threading.Event, label: str) -> None:
         print(f"  ... {label} still running ({elapsed}s elapsed)", file=sys.stderr, flush=True)
 
 
-async def run_psql_restore(target_url: str, sql_file: str) -> subprocess.CompletedProcess:
-    """Restore a dump with the tool that matches its format: pg_restore for a compressed archive, psql for SQL text."""
+# Combinations the automated tests cover: PostgreSQL 16 server restored with client tools 16, 17 and 18. Anything else is allowed
+# when it can work, but logged as untested; because the restore is one transaction, an unsupported combination fails safely.
+TESTED_SERVER_MAJORS = {16}
+TESTED_CLIENT_MAJORS = {16, 17, 18}
+
+
+@dataclass
+class RestorePlan:
+    dump_format: str
+    target_server_major: int
+    restore_client: tuple[int, int] | None = None
+    psql_client: tuple[int, int] | None = None
+    archive: ArchiveInfo | None = None
+    archive_scanned: bool = False
+    untested: bool = False
+
+    def describe(self) -> list[str]:
+        if self.dump_format == "plain":
+            return [f"plain SQL streamed through psql {self.psql_client[0]}.{self.psql_client[1]} in one transaction"]
+        lines = [
+            f"compressed archive: pg_restore {self.restore_client[0]}.{self.restore_client[1]} -> filter -> psql "
+            f"{self.psql_client[0]}.{self.psql_client[1]}, one transaction (wipe, if any, included)",
+            f"target server: PostgreSQL {self.target_server_major}; archive made by pg_dump "
+            f"{_fmt(self.archive.dumped_by)} from server {_fmt(self.archive.dumped_from)} ({self.archive.toc_entries} objects)",
+            "full read-through of the archive: " + ("done, no errors" if self.archive_scanned else "SKIPPED (--skip-archive-scan)"),
+        ]
+        if self.untested:
+            lines.append("NOTE: this client/server combination is outside what the automated tests cover; it is protected by the "
+                         "transaction, not by test coverage")
+        return lines
+
+    def audit(self) -> dict:
+        return {
+            "restore_dump_format": self.dump_format,
+            "restore_target_server_major": self.target_server_major,
+            "restore_client_version": _fmt(self.restore_client),
+            "restore_psql_version": _fmt(self.psql_client),
+            "restore_archive_dumped_by": _fmt(self.archive.dumped_by) if self.archive else None,
+            "restore_archive_dumped_from": _fmt(self.archive.dumped_from) if self.archive else None,
+            "restore_archive_scanned": self.archive_scanned,
+            "restore_combination_tested": not self.untested,
+        }
+
+
+def _fmt(version) -> str:
+    return f"{version[0]}.{version[1]}" if version else "unknown"
+
+
+async def build_restore_plan(target_url: str, local_path: str, dump_format: str, scan_archive_first: bool) -> RestorePlan:
+    """Everything that can be checked WITHOUT changing the target is checked here. Raises RestoreError before any change."""
+    try:
+        psql_v = await asyncio.to_thread(tool_version, settings.PSQL_PATH)
+    except ToolError as exc:
+        raise RestoreError(f"Cannot restore: {exc}", ExitCode.PREFLIGHT_FAILED) from exc
+
+    conn = await asyncpg.connect(dsn=target_url.replace("+asyncpg", ""), timeout=10)
+    try:
+        server_major = int(await conn.fetchval("SHOW server_version_num")) // 10000
+    finally:
+        await conn.close()
+
+    if dump_format == "plain":
+        return RestorePlan("plain", server_major, psql_client=psql_v, untested=server_major not in TESTED_SERVER_MAJORS)
+
+    try:
+        restore_v = await asyncio.to_thread(tool_version, settings.PG_RESTORE_PATH)
+    except ToolError as exc:
+        raise RestoreError(f"Cannot restore: {exc}", ExitCode.PREFLIGHT_FAILED) from exc
+    if restore_v[0] != psql_v[0]:
+        raise RestoreError(
+            f"pg_restore is version {restore_v[0]} but psql is version {psql_v[0]}. The SQL one writes is replayed by the other, "
+            "so they must come from the same PostgreSQL release. Point PG_RESTORE_PATH and PSQL_PATH at the same client package.",
+            ExitCode.PREFLIGHT_FAILED,
+        )
+    try:
+        info = await asyncio.to_thread(inspect_archive, settings.PG_RESTORE_PATH, local_path)
+    except ArchiveUnreadable as exc:
+        if exc.too_new_for_client:
+            raise RestoreError(
+                f"This restore client (PostgreSQL {restore_v[0]}) cannot read the archive: it was made by a newer pg_dump. "
+                f"Use a restore client of that version or newer. Nothing was changed. ({exc})",
+                ExitCode.PREFLIGHT_FAILED,
+            ) from exc
+        raise RestoreError(f"The archive is not readable: {exc}. Nothing was changed.", ExitCode.BACKUP_NOT_FOUND_OR_INVALID) from exc
+    except ToolError as exc:
+        raise RestoreError(f"Cannot restore: {exc}", ExitCode.PREFLIGHT_FAILED) from exc
+
+    if info.dumped_by and info.dumped_by[0] > restore_v[0]:
+        raise RestoreError(
+            f"The archive was made by pg_dump {_fmt(info.dumped_by)}, newer than the restore client "
+            f"({_fmt(restore_v)}). Use a restore client of version {info.dumped_by[0]} or newer. Nothing was changed.",
+            ExitCode.PREFLIGHT_FAILED,
+        )
+    if info.dumped_from and info.dumped_from[0] > server_major:
+        raise RestoreError(
+            f"The archive comes from a PostgreSQL {info.dumped_from[0]} server but the target is PostgreSQL {server_major}. "
+            "Restoring from a newer server into an older one is not supported. Nothing was changed.",
+            ExitCode.PREFLIGHT_FAILED,
+        )
+
+    if scan_archive_first:
+        try:
+            await asyncio.to_thread(scan_archive, settings.PG_RESTORE_PATH, local_path)
+        except ArchiveUnreadable as exc:
+            raise RestoreError(f"{exc}. Nothing was changed.", ExitCode.BACKUP_NOT_FOUND_OR_INVALID) from exc
+
+    untested = server_major not in TESTED_SERVER_MAJORS or restore_v[0] not in TESTED_CLIENT_MAJORS
+    if untested:
+        logger.warning("restore_untested_combination", server_major=server_major, restore_client=_fmt(restore_v))
+    return RestorePlan("custom", server_major, restore_client=restore_v, psql_client=psql_v, archive=info,
+                       archive_scanned=scan_archive_first, untested=untested)
+
+
+async def count_public_tables(target_url: str) -> int:
+    conn = await asyncpg.connect(dsn=target_url.replace("+asyncpg", ""), timeout=10)
+    try:
+        return int(await conn.fetchval("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'"))
+    finally:
+        await conn.close()
+
+
+async def run_streaming_restore(target_url: str, local_path: str, dump_format: str, wipe_schema: bool) -> StreamResult:
+    """Restore as ONE transaction (wipe included): see scripts/restore_stream.py. Plain SQL is read from the file, a compressed
+    archive from `pg_restore -f -`; ownership and privileges are skipped exactly as before (--no-owner --no-privileges)."""
     db = parse_db_url(target_url)
     env = os.environ.copy()
     if db["password"]:
         env["PGPASSWORD"] = db["password"]
-
-    dump_format = detect_dump_format(sql_file)
-    # Strip version-skew session-GUC directives a newer pg_dump may have written
-    # that this (possibly older) target server would reject under ON_ERROR_STOP=1.
-    # (Only plain SQL has them; a compressed archive is restored as it is.)
-    restore_file = sanitize_dump_for_restore(sql_file) if dump_format == "plain" else sql_file
+    psql_cmd = [settings.PSQL_PATH, "-h", db["host"], "-p", str(db["port"]), "-U", db["user"], "-d", db["dbname"],
+                "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", "-"]
+    kwargs = (
+        {"producer_cmd": [settings.PG_RESTORE_PATH, "--no-owner", "--no-privileges", "-f", "-", local_path]}
+        if dump_format == "custom" else {"source_file": local_path}
+    )
 
     stop_event = threading.Event()
     heartbeat = threading.Thread(target=_progress_heartbeat, args=(stop_event, "restore"), daemon=True)
     heartbeat.start()
-    logger.info("restore_psql_started", target=redact_url(target_url), sql_file=restore_file, format=dump_format)
+    logger.info("restore_stream_started", target=redact_url(target_url), source=local_path, format=dump_format, wipe=wipe_schema)
     try:
-        result = await asyncio.to_thread(_run_subprocess, build_restore_command(dump_format, db, restore_file), env)
+        return await asyncio.to_thread(stream_restore, psql_cmd, wipe_schema=wipe_schema, env=env, **kwargs)
     finally:
         stop_event.set()
         heartbeat.join(timeout=1)
-
-    return result
 
 
 async def verify_restore(target_url: str) -> int:
@@ -621,6 +738,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Validate everything and print the plan; make no changes.")
     parser.add_argument("--yes-wipe-existing-schema", action="store_true", help="Required if the target database already has tables.")
     parser.add_argument("--skip-safety-backup", action="store_true", help="Skip taking a pre-restore pg_dump of the target's current state.")
+    parser.add_argument("--skip-archive-scan", action="store_true",
+                        help="Do not read a compressed archive through once before restoring (faster; a damaged archive is then "
+                             "found during the restore and rolled back instead of being refused up front).")
     parser.add_argument("--work-dir", type=str, default=None, help="Directory for downloaded/temporary files. Defaults to a fresh temp dir.")
     parser.add_argument("--audit-log-path", type=str, default=DEFAULT_AUDIT_LOG_PATH, help="Local audit log file path.")
     return parser
@@ -657,10 +777,18 @@ async def _async_main(args: argparse.Namespace) -> int:
             check_api_not_running(args.api_health_url)
         print(f"      -> reachable; existing tables: {target_has_tables}")
 
+        print("      Checking the restore tools and the archive (nothing is changed)...")
+        dump_format = detect_dump_format(resolved.local_path)
+        plan = await build_restore_plan(args.database_url, resolved.local_path, dump_format, not args.skip_archive_scan)
+        entry.extra.update(plan.audit())
+        tables_before = await count_public_tables(args.database_url)
+
         print("[4/7] Restore plan:")
         print(f"      Target:          {target_display}")
         print(f"      Backup source:   {resolved.source_description}")
-        print(f"      Will wipe first: {target_has_tables}")
+        for line in plan.describe():
+            print(f"      Method:          {line}")
+        print(f"      Will wipe first: {target_has_tables} (inside the same transaction as the restore)")
         print(f"      Safety backup:   {'skipped (--skip-safety-backup)' if args.skip_safety_backup else 'yes'}")
 
         if args.dry_run:
@@ -699,23 +827,36 @@ async def _async_main(args: argparse.Namespace) -> int:
         else:
             print("[6/7] --skip-safety-backup: no safety backup taken.")
 
-        if target_has_tables:
-            await wipe_target_schema(args.database_url)
+        print("[7/7] Restoring in one transaction (this can take a while for a large database)...")
+        result = await run_streaming_restore(args.database_url, resolved.local_path, dump_format, target_has_tables)
 
-        print("[7/7] Restoring (this can take a while for a large database)...")
-        result = await run_psql_restore(args.database_url, resolved.local_path)
-
-        if result.returncode != 0:
+        if not result.ok:
+            tail = (result.consumer_stderr or result.producer_stderr)[-2000:]
             entry.status = "failed"
-            entry.error_message = f"restore tool (psql or pg_restore) exited {result.returncode}: {result.stderr[-2000:]}"
+            entry.error_message = (
+                f"restore failed: {result.failure or 'unknown'}; psql exit {result.consumer_returncode}, "
+                f"pg_restore exit {result.producer_returncode}: {tail}"
+            )
             entry.completed_at = datetime.now(timezone.utc)
+            tables_after = None
+            try:
+                tables_after = await count_public_tables(args.database_url)
+            except Exception:  # noqa: BLE001 - the report below says so; the failure itself is what matters
+                pass
+            unchanged = tables_after == tables_before
+            entry.extra["restore_rolled_back"] = unchanged
             write_audit_entry(entry, args.audit_log_path)
             await record_restore_attempt(args.database_url, entry, resolved.backup_job_id)
-            print("RESTORE FAILED. The target database is now in a partially-restored, "
-                  "likely inconsistent state.")
+            print(f"RESTORE FAILED: {result.failure}")
+            if unchanged:
+                print(f"The restore ran inside one transaction and was rolled back: the target database was not changed "
+                      f"({tables_before} table(s) in the public schema before and after).")
+            else:
+                print(f"WARNING: could not confirm the target is unchanged (public tables before: {tables_before}, after: "
+                      f"{tables_after}). Check it before using it.")
             if safety_backup_path:
-                print(f"Rollback: restore again using the pre-restore safety backup at {safety_backup_path}")
-            print(f"psql stderr (tail):\n{result.stderr[-2000:]}", file=sys.stderr)
+                print(f"A safety backup of the previous state is at {safety_backup_path}")
+            print(f"tool output (tail):\n{tail}", file=sys.stderr)
             return ExitCode.RESTORE_FAILED
 
         table_count = await verify_restore(args.database_url)
