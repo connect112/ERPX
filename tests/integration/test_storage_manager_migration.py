@@ -77,7 +77,8 @@ def test_0096_upgrades_rolls_back_exactly_and_upgrades_again(scratch_database):
     before = _shape(conn)
     assert not NEW_TABLES & {c[0] for c in before["columns"]}
 
-    log = _alembic(scratch_database, "upgrade", "head")
+    # Upgrade to 0096 itself, not to head: later migrations exist (and more will), and this test is about 0095 -> 0096 only.
+    log = _alembic(scratch_database, "upgrade", "0096")
     assert re.findall(r"Running upgrade (\w+) -> (\w+)", log) == [("0095", "0096")]
     added = {c[0] for c in _shape(conn)["columns"]} - {c[0] for c in before["columns"]}
     assert added == NEW_TABLES
@@ -102,7 +103,7 @@ def test_0096_upgrades_rolls_back_exactly_and_upgrades_again(scratch_database):
         cur.execute("select count(*) from organizations where slug = 'rollback-org'")
         assert cur.fetchone()[0] == 1, "only the two new tables may be dropped; business rows stay"
 
-    _alembic(scratch_database, "upgrade", "head")
+    _alembic(scratch_database, "upgrade", "0096")
     with conn.cursor() as cur:
         cur.execute("select version_num from alembic_version")
         assert cur.fetchone()[0] == "0096"
