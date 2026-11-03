@@ -99,12 +99,14 @@ this repository.
 | 4b | Refund idempotency: one open refund per payment (second request 409); one gateway call with an id derived from the refund row; refund-webhook replays (exact and re-wrapped) change nothing; one credit note, emailed once | passed | Test |
 | 5 | Failed payment (`testfailure@gocash`) -> no receipt, student can retry with a new order | passed: the student stayed unpaid, no receipt was issued, and a successful retry created a new order | Mac; Test |
 | 6 | Checkout closed / user dropped -> no receipt, stays unpaid, retry possible | passed **on manual checks only**: the student stayed unpaid, got no receipt and could retry; no evidence figures or timeline entry were reviewed for this case, and it is not known whether Cashfree sent a "user dropped" notification | Mac (manual); Test |
+| 6a | Cashfree sends `PAYMENT_USER_DROPPED_WEBHOOK` for a payment the student abandons after choosing a method (OTP/PIN step left unfinished) | **NOT OBSERVED: not passed.** Cashfree documents the event, but nothing found says the sandbox emits it, and Cashfree's own notes say a checkout closed before any method is chosen creates no payment attempt and so no notification (secondary sources; see 4a-v). The ERPX handler is covered by automated tests with **synthetic** payloads only; no real Cashfree notification of this type has been seen | Test (synthetic) |
 | 7 | Lost webhook (gateway returned HTTP 503 to Cashfree while the sandbox payment succeeded) -> ERPX confirms the payment on its own, exactly once | passed: ERPX confirmed the payment and issued receipt `RCPT-2026-000004` **without the manual "I have paid: check status" button being used**; the receipt appeared exactly once in Mailpit. Most likely path: the portal's automatic status check on the return page; **likely, not proven** (see 4a-ii) | Mac; Test |
 | 7a | Webhooks delivered after the endpoint was restored: Cashfree delivered two payment-success notifications for payment `1471038895188844032`, both acknowledged HTTP 200 | passed: nothing was added (per the code, a success for a payment already confirmed returns 200 and adds nothing to the ledger, and an identical body is answered "duplicate"); owner's evidence: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0 refund-adjustment mismatches, 0 unexpected accounting entries. Which of the two answers each delivery received comes from the webhook table in the snapshot, which was not reviewed | Mac; Test |
 | 7b | Manual "I have paid: check status" button, used on its own for a lost webhook (isolated with `./staging.sh gate on`) | **passed, with qualifications.** Student E (`ERPX-INT-2026-000008`), ₹2,000, Cashfree payment `1471061513720561664`: with the gate on (from 2026-11-03T08:25:33Z) the webhook was refused (four 503s in the cumulative gate log, not attributed per student), one Cashfree return-page request was blocked, Celery Beat was stopped, and the payment changed to Paid after the student pressed "I have paid: check status" (owner's observation). Receipt `RCPT-2026-000006` issued once; its email appears once in Mailpit. Gateway log: two `POST /payments/refresh` answered 200, at 08:29:00 and 08:33:55 UTC; the second aligns with the click, the **first is not attributed to Student E**. Owner-reported evidence `20261103T083944Z`: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0 refund-adjustment mismatches, 0 unexpected accounting entries. Restored: `gate off` completed, `gate status` OFF, Celery Beat running, `verify` passed (unsigned webhook refused with 401). Not reported: the timeline's "source" for the confirmation, and a retried webhook after `gate off`. See 4a-iii for the criteria | Mac (owner-reported; snapshot and gate log not reviewed); Test |
 | 7c | Second lost-webhook run: Student D (`ERPX-INT-2026-000007`), ₹2,000 sandbox payment with the webhook blocked (HTTP 503). Cashfree redirected the browser to `/internship-onboarding?order=...`, and ERPX confirmed the payment automatically; receipt `RCPT-2026-000005` issued once, its email appears once in Mailpit | passed as an **automatic-recovery** test, **not** a manual-button pass: the button could not be tested because the return page confirmed first. After the nginx change was reverted `./staging.sh verify` passed; evidence `20261103T075929Z`: zero problems across all five integrity checks | Mac (owner-reported; snapshot not reviewed) |
 | 8 | First checkout stayed on Cashfree's return page, second returned | not reproduced in code; see 4b below | Mac |
 | 9 | **Automatic reconciliation by the scheduled task** when the webhook, the return-page check and every student status check are unavailable and nobody presses anything | **PASSED** (owner-reported, one real run). Student F (`ERPX-INT-2026-000009`), Cashfree payment `1471080942373399040`, receipt `RCPT-2026-000007`. With `./staging.sh recon` on from 09:49:43Z: three Cashfree webhook calls refused with 503 and none reached ERPX, the return page blocked, no student status check, Beat and the worker running throughout. Order created 09:50:22Z, payment succeeded 09:50:28Z, ERPX confirmed it at 10:15:00Z during the scheduled run (worker finished about 10:15:01Z, result `{'checked': 1, 'confirmed': 1}`). One confirmed payment, one receipt, one `payment_confirmed` event, one email in Mailpit, all five integrity checks 0; automatic rollback reported. Evidence `ops/staging-cashfree/evidence/recon-20261103T101529Z` is on the Mac (git-ignored) and was **not inspected by the author**. Not reported to the author: the report's printed PASS/FAIL lines, the confirmation's timeline "source", and the Cashfree request line in the worker log. See 4a-iv for the timeline and criteria | Mac (owner-reported); Test |
+| 10 | A payment succeeds on the same Cashfree order after a failed or dropped attempt, its notification is lost, and the scheduled task recovers it with nobody pressing anything | **NOT YET VERIFIED in the sandbox.** A gap was found and fixed (4a-v); automated tests against PostgreSQL pass; the fix has not been exercised against real Cashfree. Student F's run (row 9) was a single attempt on an `active` order and did **not** cover this | Test |
 
 ### 4a-i. Completed and untested, at a glance
 
@@ -124,7 +126,8 @@ refund-adjustment mismatches, 0 unexpected accounting entries; each receipt once
 - the mechanism that recovered `RCPT-2026-000004` is a likely explanation, not a proven one (4a-ii): the return page's
   automatic status check (the second run, row 7c, behaved the same way). The scheduled reconciliation has now been seen confirming a
 payment on its own (row 9), but that run had the return page and status checks blocked; it does not show who recovered rows 7 and 7c;
-- Cashfree actually sending a "payment user dropped" notification for a closed checkout (row 6 is a manual observation);
+- Cashfree actually sending a "payment user dropped" notification: **not observed** (row 6a). The manual cancelled-checkout check (row 6) most likely closed the page before any method was chosen, which creates no attempt and no notification;
+- the reconciliation fix for a lost success after a failed or dropped attempt (row 10, 4a-v): automated tests only, not yet run against real Cashfree;
 - an auto-refund notification (`AUTO_REFUND_STATUS_WEBHOOK`): tests only, with a mocked body;
 - API version `2026-01-01` (production stays on the pinned `2025-01-01`);
 - the stuck return page (row 8) is still unexplained;
@@ -228,7 +231,7 @@ covers the server side. None of these is a sandbox run.
 - `internship_onboarding.reconcile_payments` is on the Beat schedule every 15 minutes (`crontab(minute="*/15")`, UTC), is registered
   by the worker (`modules.internship_onboarding` is in the Celery include list, no queue routing), and the staging compose file
   runs Beat and a worker with `--loglevel=info` and `CASHFREE_ENABLED=true`.
-- `_reconcile()` takes the open Cashfree orders (`status=active`) that are **older than 10 minutes** and were not checked in the
+- `_reconcile()` takes the open Cashfree orders (`status=active`, and since the fix in 4a-v also `failed` orders and recently `expired` ones) that are **older than 10 minutes** and were not checked in the
   last 10 minutes, asks Cashfree for each order's payments (`refresh_order`), and confirms a successful payment of the exact
   amount through the same function the webhook uses. It returns `{'checked': n, 'confirmed': m}`, which Celery logs when the task
   succeeds. Only two things call `refresh_order`: this task and the student's `POST /payments/refresh` (button and return page).
@@ -343,6 +346,63 @@ webhook change nothing; disabled Cashfree is a no-op), checks the Beat entry and
 cases, fake Docker) covers the commands, the readiness check, timestamp parsing (Docker's timestamp first, Celery's as fallback, UTC), the
 report's verdicts, mutual exclusion and every rollback path.
 
+### 4a-v. Several payment attempts on one Cashfree order: a reconciliation gap, found and fixed (2026-11-03)
+
+**What was found.** While investigating the USER_DROPPED notification (row 6a), probe tests against PostgreSQL showed this chain: a FAILED or
+USER_DROPPED attempt sets the local order to `failed`; a Cashfree order keeps taking new attempts until it expires, so the student can
+pay successfully on the same order; if that success notification is lost, the scheduled task, which looked only at `active` orders,
+checked nothing (`{'checked': 0, 'confirmed': 0}`) and the payment stayed unrecorded until the student pressed the status button or came
+back to the return page. No money was lost (Cashfree held it), but ERPX showed the student as unpaid and they could have paid again.
+This applies to any failed attempt, not only USER_DROPPED. **Student F's run (row 9) did not cover it:** that run was a single attempt on
+an `active` order. Nothing about row 9 changes.
+
+**Why the status model was kept.** The local `failed` status is not just a label: the student-facing state is derived from it (an
+`active` order shows "pending"; a `failed` one shows "failed" and lets the student start a fresh order, which Student A's accepted
+sandbox result relies on). Folding attempt failures back into `active` would change what students see and how retries work. The real
+mismatch is narrower: ERPX treats a failed attempt as the end of its order, but the Cashfree order can still be paid. So `failed` now
+documents what it means ("the latest attempt failed or was dropped; the Cashfree order may still take another") and reconciliation
+honours that. No schema change, no new status.
+
+**The correction (`payments.py`, `tasks.py`; no webhook, refund, ledger or provider-mapping change):**
+- Scheduled reconciliation now covers `active` orders as before, and `failed` and `expired` orders until `RECONCILE_GRACE` (60 minutes)
+  after their expiry. After that an order is final and Cashfree is not asked again. `paid`, `created` and `cancelled` orders are never asked about.
+- The task still waits at least 10 minutes after creation and 10 minutes between checks of one order, and runs on the 15-minute tick, so an
+  abandoned order costs about six requests in its life at most (checks while open, then the grace period). The 200-orders-per-run limit is unchanged.
+- The student's own status check now also covers `expired` orders inside the grace period (it already covered `failed`).
+- Why a grace period: an attempt started before expiry (UPI, net banking) can still be PENDING after it, and Cashfree documents that a
+  pending payment can later reach a final state. The 60 minutes is a judgement, not a Cashfree figure; it is the named constant `RECONCILE_GRACE`.
+- Confirmation is unchanged: only a verified SUCCESS for the order's exact amount and currency confirms; FAILED, USER_DROPPED, CANCELLED,
+  VOID, PENDING and NOT_ATTEMPTED never do; a SUCCESS for another amount or currency is left for staff with a `payment_mismatch` event.
+
+**Expected behaviour with several attempts on one Cashfree order**
+
+| Situation | What ERPX does |
+|---|---|
+| Checkout closed before any method is chosen | Cashfree has no attempt and sends nothing. The order stays `active` until its expiry, then becomes `expired`; no ledger row, no event, no email. Student unpaid, can start a new order |
+| An attempt fails or is dropped (notification arrives) | `200`, a failed attempt row and one `payment_failed` event; order `failed`; student unpaid and free to retry; no receipt, no email. The same notification again: `duplicate`; a re-wrapped copy: `already recorded` |
+| A later attempt on the same order succeeds, notification arrives | Order `paid`; one confirmed payment, one receipt, one `payment_confirmed` event, one email |
+| ...and that notification is lost | The scheduled task confirms it at the next eligible tick (before this fix: not until the student pressed the button) |
+| A late FAILED / USER_DROPPED notification after a success | Recorded as a failed attempt (and a `payment_failed` timeline entry, cosmetic); the order stays `paid`, no second receipt or email; the same payment id is `already recorded` |
+| An attempt still PENDING at expiry | The order is marked `expired` and kept under check for the grace period; a SUCCESS inside it is confirmed once; after it the task stops asking (a signed notification can still record the payment) |
+| Repeated scheduled runs | Nothing is added and nothing is asked twice within 10 minutes; a paid order is never asked about again |
+
+**Not changed, and worth knowing:** a student who starts a *fresh* order while the old Cashfree order is still payable could pay on both;
+the existing overpayment handling applies. A late failed notification for an earlier attempt adds a "payment failed" line to the timeline of
+an already paid student. An `active` order is always checked at least once, even beyond its window, so that it can be finalised.
+
+**Tests (permanent, none is a sandbox run):** `tests/api/test_internship_onboarding_cashfree_attempts.py` (18 cases, real PostgreSQL, the real
+`_reconcile()` task body and the real webhook handler): USER_DROPPED alone; USER_DROPPED then SUCCESS; SUCCESS then a late USER_DROPPED or
+FAILED, for another attempt and for the same payment id; a lost SUCCESS after a FAILED or a USER_DROPPED attempt recovered by the scheduled task;
+a checkout closed before a method is chosen; repeated runs; the spacing and the grace bound; a PENDING attempt settling after expiry;
+every non-SUCCESS status; a wrong amount or currency; the student's own check. Against the original code 13 of the 18 fail (the 5 that
+pass guard behaviour that must not change); weakening the grace bound, dropping `expired`, or treating USER_DROPPED as success fails tests.
+
+**What still needs a real sandbox run (row 10).** The fix is verified only against Cashfree's documented behaviour and a mock. The README
+describes a run with `./staging.sh recon`: an attempt with `testfailure@gocash`, the scheduled task recording it (order `failed`), a second
+attempt with `testsuccess@gocash` on the same Cashfree order, and the next scheduled tick confirming it. Whether the sandbox lets the
+student retry on the same order is part of what it would show. A genuine USER_DROPPED notification cannot be produced on demand; the
+FAILED attempt follows the same code path (both map to "failed") and is documented test data.
+
 ### 4b. The stuck return page (first checkout)
 
 ERPX never relies on the return page for money: payments are confirmed only by a signed webhook or a server-side status
@@ -360,7 +420,7 @@ not affect what ERPX records. No code change was made for it.
 
 1. Sandbox scenarios 5, 6, 7 and 9 are done on the Mac (4a; evidence checks at 0, one email per receipt). The manual button on its own
    (7b) passed with qualifications (4a-iii) and the scheduled reconciliation passed once (row 9, 4a-iv), both owner-reported. Still open,
-   owner's call on whether they are needed before a controlled start: a real "user dropped" notification (row 6), an auto-refund
+   owner's call on whether they are needed before a controlled start: the fix for a lost success after a failed or dropped attempt (row 10, 4a-v: found and corrected in this PR, awaiting one real sandbox run), a real "user dropped" notification (row 6a, not observed), an auto-refund
    notification (mocked body only), API version `2026-01-01`, and the unexplained stuck return page (row 8).
 2. Review and merge PR #163 (owner).
 3. Production prerequisites (owner): production App ID / Secret Key as server secrets only; webhook

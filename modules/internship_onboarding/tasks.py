@@ -12,7 +12,7 @@ logger = get_logger(__name__)
 async def _reconcile() -> dict[str, int]:
     """Ask the gateway about orders still open after a while, in case a notification never arrived."""
     from app.core.config import settings
-    from modules.internship_onboarding.payments import PaymentService
+    from modules.internship_onboarding.payments import RECONCILABLE_STATUSES, PaymentService
     from modules.internship_onboarding.providers import ProviderError
 
     if not settings.CASHFREE_ENABLED:
@@ -25,7 +25,7 @@ async def _reconcile() -> dict[str, int]:
             from modules.internship_onboarding.models import PaymentOrder
 
             order = await db.get(PaymentOrder, order_id, with_for_update=True)
-            if order is None or order.status != "active":
+            if order is None or order.status not in RECONCILABLE_STATUSES:  # paid / cancelled / created orders are left alone
                 continue
             try:
                 outcome = await PaymentService(db).refresh_order(order)

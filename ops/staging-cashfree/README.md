@@ -190,6 +190,18 @@ checks), saves it in `evidence/recon-<time>/`, and rolls everything back when it
 `recon status`, `recon report <application ref>`, `recon off`. `recon off` is always safe to run and restores the webhook,
 the return page, the status-check endpoint, Beat and the worker. Details: `docs/CASHFREE_SANDBOX.md` section 4a-iv.
 
+## Verifying the retry-after-a-failed-attempt reconciliation (`recon`, one run)
+
+This checks the fix described in `docs/CASHFREE_SANDBOX.md` section 4a-v (row 10): a payment that succeeds on the same Cashfree order after
+a failed attempt, with no notification and no status check, is confirmed by the scheduled task. It needs good timing, because with the webhook
+refused the order only becomes `failed` when the scheduled task itself records the failed attempt.
+
+1. Make a synthetic student ready to pay. Start `caffeinate -i ./staging.sh recon run ERPX-INT-2026-0000NN 60` a few minutes before a quarter hour (:00, :15, :30, :45 UTC).
+2. Press Pay **1 to 4 minutes after a quarter hour** (so the order is 10 minutes old at the next one) and pay with the failing UPI `testfailure@gocash`. Do not press any status button.
+3. At the next quarter hour the task records the failed attempt. Check with `./staging.sh recon status` in another terminal: the order should read `failed` (and the worker line shows `{'checked': 1, 'confirmed': 0}`).
+4. Before the order expires (30 minutes after you pressed Pay), go back to the same Cashfree checkout page and pay again with `testsuccess@gocash`. If the sandbox does not let you retry on the same order, stop and note that; it is a finding.
+5. At the following quarter hour (10 or more minutes after the previous check) the task should confirm the payment: `recon run` prints its report and rolls everything back. Read the ledger in `./staging.sh evidence`: one failed row (the first attempt) and one confirmed row, one receipt, one email. Before the fix this payment would have stayed unrecorded.
+
 ## Evidence (before any change to the running stack)
 
 ```bash
