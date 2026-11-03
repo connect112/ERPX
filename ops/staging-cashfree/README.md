@@ -345,6 +345,12 @@ its source; the final proof is `./staging.sh network-check` and `./staging.sh re
   address), Cashfree sends the browser to an address that no longer exists. The payment itself is still confirmed by
   the webhook or the status check; open the student's link again. Avoid restarting the tunnel during a test.
 
+- `celery_worker` and `celery_beat` restart in a loop (`docker compose ... ps` shows "Restarting") while the API is healthy, and the worker log ends with
+  `kombu.exceptions.VersionMismatch: Redis transport requires redis-py versions 6.1.0 or later. You have 5.0.8`: the image has a Kombu that does not fit its
+  redis-py. It happened when `requirements.txt` did not pin kombu and a rebuild picked up kombu 5.7.0. Now the whole Celery stack is pinned and the image
+  build runs `scripts/check_dependency_compat.py`, so a mismatch fails the build instead. Rebuild with `./staging.sh up` (data is untouched). To check an
+  image against the real broker before starting anything:
+  `docker compose --project-directory . -f compose.yml --env-file staging.env run --rm --no-deps celery_worker python scripts/check_dependency_compat.py --broker redis://redis:6379/1`.
 - 502 from the gateway after the API was restarted by hand: nginx looks up `api` only when it loads its configuration, so
   `docker compose ... exec gateway nginx -s reload` (or `./staging.sh refresh-app`, which does it) fixes it.
 - "network erpx-cf-staging_default declared as external, but could not be found" (running `docker compose` directly):
