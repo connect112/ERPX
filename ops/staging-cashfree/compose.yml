@@ -179,11 +179,14 @@ services:
     command: ["tunnel", "--no-autoupdate", "--url", "http://gateway:80"]
 
 networks:
-  # this project's own network on a dedicated subnet (checked by preflight against every other Docker network)
+  # This project's own network on a dedicated subnet, created and removed by ./staging.sh (STAGING_SUBNET), NOT by
+  # Compose. Why: Compose (2.40 and newer) stores a hash of the network definition on the network and, when a later
+  # `up` finds a different hash, stops the services it was asked to start and tries to remove the network. On a
+  # running stack that fails ("active endpoints") and leaves the service stopped. Declared external, Compose only
+  # looks the network up: it never compares, recreates or removes it, so `up --force-recreate api` is always safe.
   default:
-    ipam:
-      config:
-        - subnet: ${STAGING_SUBNET:-10.213.47.0/24}
+    name: erpx-cf-staging_default
+    external: true
 
 volumes:
   pgdata:

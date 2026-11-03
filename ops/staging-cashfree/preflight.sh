@@ -129,10 +129,13 @@ if ! echo "$SUBNET" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}/(1[6-9]|2[0-8])$'; 
 elif ! { overlaps "$SUBNET" 10.0.0.0/8 || overlaps "$SUBNET" 172.16.0.0/12 || overlaps "$SUBNET" 192.168.0.0/16; }; then
   fail "STAGING_SUBNET must be a private range (10.x, 172.16-31.x, 192.168.x)"
 else
-  OWN="$(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null | tr '\n' ' ')"
+  # this stack's network, by its exact name (compose.yml declares it external; ./staging.sh creates it)
+  OWNNET="${PROJECT}_default"
+  OWN="$(docker network inspect "$OWNNET" --format '{{.Name}}' 2>/dev/null | head -1)"
   CLASH=""
   for net in $(docker network ls -q 2>/dev/null); do
-    case " $OWN " in *" $net "*) continue ;; esac
+    # ids from `network ls` are short, so compare names: this stack's own network is not a clash with itself
+    [ -n "$OWN" ] && [ "$(docker network inspect "$net" --format '{{.Name}}' 2>/dev/null)" = "$OWNNET" ] && continue
     for other in $(docker network inspect "$net" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null); do
       case "$other" in *:*) continue ;; esac   # IPv6
       overlaps "$SUBNET" "$other" && CLASH="$CLASH $(docker network inspect "$net" --format '{{.Name}}')($other)"
@@ -145,8 +148,10 @@ else
   if [ -n "$CLASH" ]; then fail "STAGING_SUBNET $SUBNET overlaps:$CLASH; set STAGING_SUBNET to a private range that overlaps none of these"
   else ok "dedicated subnet $SUBNET overlaps no other Docker network, host address or Docker Desktop range"; fi
   if [ -n "$OWN" ]; then
-    CURRENT="$(docker network inspect $OWN --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null | head -1)"
-    [ -z "$CURRENT" ] || [ "$CURRENT" = "$SUBNET" ] || fail "this stack's network uses $CURRENT, not $SUBNET: run ./staging.sh recreate-network (keeps all data)"
+    CURRENT="$(docker network inspect "$OWN" --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null | head -1)"
+    if [ -z "$CURRENT" ] || [ "$CURRENT" = "$SUBNET" ]; then ok "existing network ${PROJECT}_default is on $SUBNET and is kept as it is (no recreation)"
+    else fail "this stack's network uses $CURRENT, not $SUBNET: set STAGING_SUBNET=$CURRENT in staging.env to keep it, or run ./staging.sh recreate-network (keeps all data)"; fi
+  else ok "network ${PROJECT}_default does not exist yet: ./staging.sh creates it on $SUBNET"
   fi
 fi
 
@@ -165,6 +170,12 @@ CFG="$(docker compose --project-directory "$DIR" -f "$DIR/compose.yml" --env-fil
 if [ -n "$CFG" ]; then
   echo "$CFG" | grep -q "^name: $PROJECT$" && ok "project name $PROJECT (all names prefixed, no fixed container names)" || fail "unexpected project name"
   echo "$CFG" | grep -q "container_name:" && fail "a fixed container_name is set" || true
+  # The network must be external: otherwise Compose compares a hash of its definition with the one stored on the running
+  # network and, on a difference, stops services and tries to remove an occupied network (leaving the API down).
+  if echo "$CFG" | awk '/^networks:/ { n = 1; next } /^[A-Za-z]/ { n = 0 } n && /external: true/ { f = 1 } END { exit !f }' \
+     && echo "$CFG" | grep -q "name: ${PROJECT}_default$"; then ok "the network ${PROJECT}_default is external: Compose never recreates or removes it"
+  else fail "compose.yml must declare the default network external (name ${PROJECT}_default); otherwise an up can try to rebuild an occupied network"; fi
+  echo "$CFG" | awk '/^networks:/ { n = 1; next } /^[A-Za-z]/ { n = 0 } n && /ipam:/ { f = 1 } END { exit !f }' && fail "compose.yml must not define ipam (the subnet belongs to ./staging.sh)" || true
   PUB="$(echo "$CFG" | grep -c "published:")"; LOCAL="$(echo "$CFG" | grep -c "host_ip: 127.0.0.1")"
   [ "$PUB" -eq 2 ] && [ "$LOCAL" -eq "$PUB" ] && ok "only 2 ports published, both on 127.0.0.1 (gateway, Mailpit viewer)" || fail "unsafe port bindings: $PUB published, $LOCAL on 127.0.0.1"
   # (the rendered file also repeats the shared settings block once, so "at least 3")

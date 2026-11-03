@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # One entry point for the isolated Cashfree SANDBOX staging stack (project "erpx-cf-staging"). See README.md.
-#   init | preflight | tunnel | up | seed | verify | sandbox-tests | evidence | status | logs [service] | down
-#   | recreate-network | destroy
+#   init | preflight | tunnel | up | refresh-app | seed | verify | sandbox-tests | evidence | status | logs [service] | down
+#   | network-check | recreate-network | destroy
 # Every command acts only on this project's containers, network, volumes and images. Never prints a secret.
+# The Docker network is created and removed HERE, not by Compose (it is `external` in compose.yml), so no Compose
+# command can ever stop services to rebuild an occupied network.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$DIR/../.." && pwd)"
 ENVF="$DIR/staging.env"
 PROJECT="erpx-cf-staging"
+NET="${PROJECT}_default"   # the network compose.yml declares external
 
 getv() { awk -v k="$1" '{ sub(/\r$/, "") } index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$ENVF"; }
 setv() {  # replace or append KEY=value without printing it (portable: no sed -i)
@@ -18,11 +21,51 @@ setv() {  # replace or append KEY=value without printing it (portable: no sed -i
 }
 dc() { docker compose --project-directory "$DIR" -f "$DIR/compose.yml" --env-file "$ENVF" "$@"; }
 port() { getv STAGING_HTTP_PORT; }
+# --- the staging network (outside Compose's control; see the note in compose.yml)
+net_exists() { docker network inspect "$NET" >/dev/null 2>&1; }
+net_subnet() { docker network inspect "$NET" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i !~ /:/) { print $i; exit } }'; }
+net_members() { docker network inspect "$NET" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null; }
+# Creates the network on STAGING_SUBNET when it does not exist; an existing one is used exactly as it is (never changed,
+# never recreated), as long as it is on STAGING_SUBNET.
+ensure_network() {
+  local want have
+  want="$(getv STAGING_SUBNET)"
+  if net_exists; then
+    have="$(net_subnet)"
+    if [ -n "$want" ] && [ -n "$have" ] && [ "$have" != "$want" ]; then
+      echo "the network $NET is on $have but STAGING_SUBNET is $want."
+      echo "Either set STAGING_SUBNET=$have in staging.env (nothing else changes), or move the stack: ./staging.sh recreate-network"
+      return 1
+    fi
+    return 0
+  fi
+  [ -n "$want" ] || { echo "STAGING_SUBNET is not set in staging.env"; return 1; }
+  docker network create --driver bridge --subnet "$want" \
+    --label "com.docker.compose.project=$PROJECT" --label "com.erpx.staging=sandbox" "$NET" >/dev/null
+  echo "created the network $NET on $want"
+}
+# Removes the network only when it is this project's and nothing is attached (never disconnects anything).
+remove_network() {
+  net_exists || return 0
+  local owner members
+  owner="$(docker network inspect "$NET" --format '{{index .Labels "com.docker.compose.project"}}' 2>/dev/null)"
+  [ "$owner" = "$PROJECT" ] || { echo "not removing $NET: it does not belong to project $PROJECT"; return 1; }
+  members="$(net_members)"
+  if [ -n "${members// /}" ]; then echo "not removing $NET: still in use by: $members"; return 1; fi
+  docker network rm "$NET" >/dev/null && echo "removed the network $NET"
+}
+# True when compose.yml (as Compose renders it) declares the network external.
+net_is_external() { dc --profile tunnel config 2>/dev/null | awk '/^networks:/ { n = 1; next } /^[A-Za-z]/ { n = 0 } n && /external: true/ { f = 1 } END { exit !f }'; }
+
 need_env() {
   [ -f "$ENVF" ] || { echo "staging.env is missing: run ./staging.sh init"; exit 1; }
   # Windows line endings (from some editors or a paste) would end up inside the values Docker reads: drop them
   if grep -q "$(printf '\r')" "$ENVF"; then tr -d '\r' < "$ENVF" > "$ENVF.tmp" && mv "$ENVF.tmp" "$ENVF" && chmod 600 "$ENVF"; fi
 }
+
+# nginx resolves its upstream names (api, web, minio) when it loads its configuration, so a recreated container that
+# got a new address is unreachable (502) until it reloads. A reload is graceful: the gateway container keeps running.
+reload_gateway() { dc exec -T gateway nginx -s reload >/dev/null 2>&1 && echo "gateway reloaded (picks up the current addresses)" || echo "note: could not reload the gateway (not running yet?)"; }
 
 wait_ready() {
   echo "waiting for the API (migrations and seeding run on first start; the first build takes several minutes)..."
@@ -47,12 +90,14 @@ case "${1:-help}" in
     echo "next: open it in a text editor and fill CASHFREE_APP_ID and CASHFREE_SECRET_KEY with your Cashfree TEST-mode keys."
     ;;
   preflight)
-    bash "$DIR/preflight.sh" "${2:-}"
+    "${BASH:-bash}" "$DIR/preflight.sh" "${2:-}"
     ;;
   tunnel)
     need_env
-    bash "$DIR/preflight.sh" --before-tunnel
-    dc --profile tunnel up -d tunnel
+    "${BASH:-bash}" "$DIR/preflight.sh" --before-tunnel
+    ensure_network
+    # only the tunnel container: no dependencies are started or touched, and the (external) network is never changed
+    dc --profile tunnel up -d --no-deps tunnel
     url=""
     for _ in $(seq 1 30); do
       url="$(dc --profile tunnel logs tunnel 2>&1 | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1 || true)"
@@ -63,16 +108,48 @@ case "${1:-help}" in
     setv STAGING_PUBLIC_URL "$url"
     echo "public address: $url"
     echo "Cashfree webhook URL (Test mode > Developers > Webhooks): $url/api/v1/public/payments/cashfree/webhook"
-    echo "next: ./staging.sh up"
+    echo "next: ./staging.sh up (first start)  or  ./staging.sh refresh-app (stack already running: only api/worker/beat restart)"
     ;;
   up)
     need_env
-    bash "$DIR/preflight.sh"
+    "${BASH:-bash}" "$DIR/preflight.sh"
+    ensure_network
     dc up -d --build
+    reload_gateway
     wait_ready
     dc exec -T api python /app/staging_seed_synthetic.py bucket
     echo "local:  http://127.0.0.1:$(port)    mail viewer: http://127.0.0.1:$(getv STAGING_MAIL_PORT)"
     echo "public: $(getv STAGING_PUBLIC_URL)"
+    ;;
+  refresh-app)
+    # After a new tunnel address: restarts ONLY api, celery_worker and celery_beat so they pick up STAGING_PUBLIC_URL
+    # (FRONTEND_URL, CORS, student links, the Cashfree return URL). Postgres, Redis, MinIO, Mailpit, web, the gateway and
+    # the tunnel keep running, no image is built, and the network is not touched (it is external).
+    need_env
+    "${BASH:-bash}" "$DIR/preflight.sh"
+    ensure_network
+    echo "restarting api, celery_worker, celery_beat with STAGING_PUBLIC_URL=$(getv STAGING_PUBLIC_URL)"
+    dc up -d --no-deps --force-recreate api celery_worker celery_beat
+    reload_gateway
+    wait_ready
+    echo "the API now uses FRONTEND_URL=$(dc exec -T api printenv FRONTEND_URL)"
+    echo "Cashfree webhook URL: $(getv STAGING_PUBLIC_URL)/api/v1/public/payments/cashfree/webhook (must be this in the dashboard)"
+    ;;
+  network-check)
+    # read-only: nothing is created, changed or removed
+    need_env
+    bad=0
+    echo "network:  $NET (STAGING_SUBNET=$(getv STAGING_SUBNET))"
+    if net_exists; then
+      echo "exists:   yes, subnet $(net_subnet)"
+      echo "attached: $(net_members)"
+      [ "$(net_subnet)" = "$(getv STAGING_SUBNET)" ] && echo "OK    subnet matches STAGING_SUBNET" || { echo "FAIL  subnet differs from STAGING_SUBNET (set STAGING_SUBNET to the existing one, or ./staging.sh recreate-network)"; bad=1; }
+    else
+      echo "exists:   no (./staging.sh tunnel or up creates it on STAGING_SUBNET)"
+    fi
+    if net_is_external; then echo "OK    compose.yml declares the network external: Compose will never recreate or remove it"
+    else echo "FAIL  compose.yml does not declare the network external: an up could try to rebuild it"; bad=1; fi
+    exit "$bad"
     ;;
   seed)
     need_env
@@ -102,6 +179,7 @@ case "${1:-help}" in
     ;;
   sandbox-tests)
     need_env
+    ensure_network
     # the adapter against the real Cashfree sandbox (test money only); optional: PAID_ORDER=<order id> REFUND=1
     dc run --rm --no-deps --entrypoint python \
       -e CASHFREE_SANDBOX_TESTS=1 -e CASHFREE_SANDBOX_PAID_ORDER_ID="${PAID_ORDER:-}" -e CASHFREE_SANDBOX_REFUND="${REFUND:-}" \
@@ -127,11 +205,13 @@ case "${1:-help}" in
   recreate-network)
     need_env
     echo "Moves this stack onto STAGING_SUBNET: saves evidence first, then removes this project's containers and network."
+    echo "(Not needed just to keep the existing subnet: set STAGING_SUBNET to it instead. Not needed for a new tunnel address: ./staging.sh refresh-app.)"
     echo "Volumes (database, Redis, MinIO, Mailpit) are kept. The tunnel gets a new address afterwards."
     printf 'Type %s to continue: ' "$PROJECT"; read -r answer
     [ "$answer" = "$PROJECT" ] || { echo "cancelled"; exit 1; }
     "$0" evidence
     dc --profile tunnel down --remove-orphans
+    remove_network   # Compose leaves the external network alone; this removes it (only this project's, only if empty)
     echo "done (data kept). Next: ./staging.sh tunnel, ./staging.sh up, then update the webhook URL in the Cashfree dashboard."
     ;;
   status)
@@ -155,6 +235,7 @@ case "${1:-help}" in
     printf 'Type %s to continue: ' "$PROJECT"; read -r answer
     [ "$answer" = "$PROJECT" ] || { echo "cancelled"; exit 1; }
     dc --profile tunnel down --volumes --remove-orphans
+    remove_network
     docker image rm "$PROJECT/api:local" "$PROJECT/web:local" 2>/dev/null || true
     echo "removed. Delete ops/staging-cashfree/staging.env yourself if you are done, and remove the webhook in the Cashfree dashboard."
     ;;

@@ -3,9 +3,13 @@ The Cashfree staging scripts (ops/staging-cashfree) must run on macOS's /bin/bas
 
 1. A portability scan of preflight.sh and staging.sh: no `case` inside a command substitution (bash 3.2 mis-parses it:
    "command substitution: syntax error near unexpected token newline") and no bash-4-only features.
-2. The behavioural suite (ops/staging-cashfree/tests/preflight_test.sh: allowed and unexpected settings, CRLF, an
-   existing STAGING_SUBNET without network recreation, kept validations) under every bash available here. On a Mac
-   that includes /bin/bash 3.2; elsewhere set STAGING_TEST_BASH32=/path/to/bash-3.2 to add it.
+2. The behavioural suites under every bash available here. On a Mac that includes /bin/bash 3.2; elsewhere set
+   STAGING_TEST_BASH32=/path/to/bash-3.2 to add it.
+   - tests/preflight_test.sh: allowed and unexpected settings, CRLF, an existing STAGING_SUBNET without network
+     recreation, kept validations, the external-network requirement.
+   - tests/upgrade_test.sh: upgrading an already-running stack (occupied network with a stale Compose hash): refresh-app,
+     tunnel, up and network-check never create, change or remove the network; recreate-network removes only an empty one.
+3. The network declaration in compose.yml itself (static, and as the real `docker compose config` renders it).
 """
 
 import os
@@ -15,11 +19,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.unit
 
 KIT = Path(__file__).resolve().parents[2] / "ops" / "staging-cashfree"
-SCRIPTS = [KIT / "preflight.sh", KIT / "staging.sh"]
+SCRIPTS = [KIT / "preflight.sh", KIT / "staging.sh", KIT / "tests" / "fixture.sh", KIT / "tests" / "preflight_test.sh", KIT / "tests" / "upgrade_test.sh"]
 
 BASH4_ONLY = {
     r"\bdeclare\s+-[a-zA-Z]*A": "associative arrays (declare -A)",
@@ -78,8 +83,54 @@ def available_bashes() -> list[str]:
     return found
 
 
-@pytest.mark.skipif(shutil.which("git") is None, reason="the suite builds a throwaway git repository")
+@pytest.mark.skipif(shutil.which("git") is None, reason="the suites build a throwaway git repository")
+@pytest.mark.parametrize("suite", ["preflight_test.sh", "upgrade_test.sh"])
 @pytest.mark.parametrize("bash", available_bashes())
-def test_the_preflight_suite_passes_under_each_available_bash(bash):
-    result = subprocess.run([bash, str(KIT / "tests" / "preflight_test.sh")], capture_output=True, text=True, timeout=300)
+def test_the_staging_suites_pass_under_each_available_bash(bash, suite):
+    result = subprocess.run([bash, str(KIT / "tests" / suite)], capture_output=True, text=True, timeout=300)
     assert result.returncode == 0 and " 0 failed" in result.stdout, result.stdout[-4000:] + result.stderr[-2000:]
+
+
+# --- the network declaration (the Mac failure: Compose tried to rebuild an occupied network)
+
+
+def compose_file() -> dict:
+    return yaml.safe_load((KIT / "compose.yml").read_text())
+
+
+def test_the_staging_network_is_external_so_compose_never_rebuilds_it():
+    network = compose_file()["networks"]["default"]
+    assert network["external"] is True
+    assert network["name"] == "erpx-cf-staging_default"
+    assert "ipam" not in network  # the subnet belongs to ./staging.sh (STAGING_SUBNET)
+
+
+def test_every_service_uses_the_one_staging_network_and_no_fixed_container_name():
+    for name, service in compose_file()["services"].items():
+        assert "networks" not in service, f"{name} must stay on the default (staging) network"
+        assert "container_name" not in service, f"{name} has a fixed container name"
+        assert service.get("network_mode") is None, f"{name} uses network_mode"
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="needs the docker CLI (no daemon is used)")
+def test_the_real_docker_compose_renders_the_network_as_external(tmp_path):
+    env = tmp_path / "staging.env"
+    env.write_text(
+        (KIT / "staging.env.example").read_text()
+        + "\n".join(
+            f"{key}=dummy-{key.lower()}"
+            for key in (
+                "POSTGRES_PASSWORD", "MINIO_ROOT_PASSWORD", "JWT_SECRET_KEY", "SEED_SUPERADMIN_PASSWORD", "STAGING_ADMIN_PASSWORD",
+            )
+        )
+        + "\nSTAGING_PUBLIC_URL=https://example.trycloudflare.com\nSTAGING_SUBNET=10.253.247.0/24\n"
+    )
+    result = subprocess.run(
+        ["docker", "compose", "--project-directory", str(KIT), "-f", str(KIT / "compose.yml"), "--env-file", str(env), "--profile", "tunnel", "config"],
+        capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0 and "docker: 'compose' is not a docker command" in result.stderr:
+        pytest.skip("docker compose plugin is not installed")
+    assert result.returncode == 0, result.stderr[-2000:]
+    rendered = yaml.safe_load(result.stdout)
+    assert rendered["networks"]["default"] == {"name": "erpx-cf-staging_default", "external": True}

@@ -11,7 +11,7 @@ production server, and no real money can move.
 |---|---|
 | Names | Docker Compose project `erpx-cf-staging` (in `compose.yml`): every container, network and volume is prefixed with it; there are no fixed `container_name`s, so another ERPX stack (e.g. `erpx_api`) never collides |
 | Data | its own Postgres (`erpx_staging`), Redis and MinIO, each on its own volume; the database starts empty and is migrated from scratch |
-| Network | its own Docker network on a dedicated subnet (`STAGING_SUBNET`, default `10.213.47.0/24`); preflight refuses it if it overlaps any other Docker network on the Mac (other projects included), a LAN/VPN address of the Mac, or Docker Desktop's internal `192.168.65.0/24` |
+| Network | its own Docker network `erpx-cf-staging_default` on a dedicated subnet (`STAGING_SUBNET`, default `10.213.47.0/24`), created by `./staging.sh` and declared `external` in `compose.yml`, so Compose never compares, recreates or removes it (see "Why the network is external"); preflight refuses it if it overlaps any other Docker network on the Mac (other projects included), a LAN/VPN address of the Mac, or Docker Desktop's internal `192.168.65.0/24` |
 | Ports | only two, both on `127.0.0.1`: the gateway (`STAGING_HTTP_PORT`, default 8080) and the Mailpit viewer (`STAGING_MAIL_PORT`, default 8025). Postgres, Redis, MinIO, the API and Celery publish nothing |
 | Internet exposure | a Cloudflare quick tunnel (`https://<random>.trycloudflare.com`) forwards to the gateway only. The gateway serves the web app, `/api/` (staff screens, student page, Cashfree webhook) and `/_files/` (short-lived signed file links); it hides `/api/docs`, `/api/redoc`, `/api/openapi.json` and `/metrics` |
 | Email | all mail goes to Mailpit (viewer on `127.0.0.1` only); nothing is sent |
@@ -28,7 +28,8 @@ production server, and no real money can move.
 - weak or default secrets, or any secret found in tracked/staged files;
 - a public address that is not `https://`;
 - a port already used by another program or container;
-- a `STAGING_SUBNET` that is not a private /16-/28 range or overlaps another network, or this stack's network still on an older subnet;
+- a `STAGING_SUBNET` that is not a private /16-/28 range or overlaps another network, or this stack's existing network on a different subnet (an existing network on the same subnet is kept as it is);
+- a `compose.yml` that does not declare the network `external` (or defines `ipam`);
 - settings not documented in `staging.env.example` (the allowed list is read from that file, so a newly documented setting never trips it);
 - any published port not bound to `127.0.0.1`, a fixed container name, or Cashfree/ENVIRONMENT not sandbox/staging in every backend service.
 
@@ -149,18 +150,61 @@ also prints the checks that must all be 0: a Cashfree payment recorded twice, a 
 payment/refund without its document, a refund adjustment without its refund, and accounting journal entries (onboarding
 never posts any). A receipt or credit-note subject listed twice would mean a duplicate email.
 
-## Moving an existing stack onto the dedicated subnet
+## Applying a new tunnel address to a running stack
 
-A stack started before `STAGING_SUBNET` existed has an auto-assigned network; preflight then says so. Mailpit used to
-keep mail inside its container, so **save evidence first** (the command below does it again anyway), then:
+A quick tunnel gets a new address whenever it restarts. To point a stack that is already running at the new address
+without stopping the databases, storage, mail, web or gateway:
+
+```bash
+./staging.sh network-check
+```
+
+(read-only: shows the network, its subnet, what is attached, and that Compose treats it as external), then:
+
+```bash
+./staging.sh tunnel
+```
+
+(starts only the tunnel container if it is not running, saves its current address in `staging.env`), then:
+
+```bash
+./staging.sh refresh-app
+```
+
+`refresh-app` runs preflight, then restarts **only** `api`, `celery_worker` and `celery_beat` (the services that read
+`STAGING_PUBLIC_URL`: frontend links, CORS, the Cashfree return URL), reloads the gateway's nginx so it finds the
+restarted API, waits until the API is ready and prints the `FRONTEND_URL` the API now uses. Postgres, Redis, MinIO,
+Mailpit (and their volumes), web, the gateway and the tunnel keep running. Finally update the webhook URL in the
+Cashfree dashboard to the one printed. Unpaid orders created earlier keep the old return address (see Troubleshooting).
+
+## Why the network is external
+
+Compose 2.40 and newer stores a hash of a network's definition on the network and, when a later `up` finds a different
+hash, stops the services it was asked to start and tries to remove the network before recreating it. On a running stack
+that cannot work (the databases are still attached): `up -d --no-deps --force-recreate api` stopped the API, failed with
+"network ... has active endpoints", and left the site returning 502. A network created by an older `compose.yml`
+(before `STAGING_SUBNET` existed) has a different hash than the current definition even when the subnet is the same.
+Declaring the network `external` in `compose.yml` makes Compose only look it
+up; `./staging.sh` creates it (once, on `STAGING_SUBNET`) and removes it only in `recreate-network` and `destroy`, and
+only if it is this project's and nothing is attached. Your existing network, subnet and data are used as they are.
+
+If the API container was recovered by hand (`docker network connect ...` then `docker start ...`), `refresh-app` replaces
+it with a clean container from the compose definition (with the right network alias and the new address); a container connected with a plain
+`docker network connect` may lack the `api` alias the gateway looks up.
+
+## Moving a stack to a different subnet
+
+Not needed to keep the subnet the network already has: set `STAGING_SUBNET` to it in `staging.env` (preflight then says
+"kept as it is"). Only to **change** the subnet: **save evidence first** (the command below does it again anyway), then:
 
 ```bash
 ./staging.sh recreate-network
 ```
 
-It saves evidence, then removes only this project's containers and network; the database, Redis, MinIO and (from now
-on) Mailpit volumes stay. Then `./staging.sh tunnel`, `./staging.sh up`, and update the webhook URL in the Cashfree
-dashboard (a new tunnel address).
+It saves evidence, stops and removes this project's containers, then removes the (now empty) network; it refuses to remove
+a network that is not this project's or still has anything attached. The database, Redis, MinIO and Mailpit volumes stay.
+Then `./staging.sh tunnel`, `./staging.sh up` (creates the network on the new subnet), and update the webhook URL in the
+Cashfree dashboard (a new tunnel address).
 
 ## Day to day
 
@@ -173,11 +217,16 @@ dashboard (a new tunnel address).
 ```
 
 ```bash
+./staging.sh network-check
+```
+
+```bash
 ./staging.sh down
 ```
 
 `down` stops everything and keeps the data. A quick tunnel gets a **new address** each time it starts, so after
 `down`: run `./staging.sh tunnel`, then `./staging.sh up`, and update the webhook URL in the Cashfree dashboard.
+When the stack is still running and only the address changed, use `./staging.sh refresh-app` instead of `up`.
 Keep the tunnel running only while you test.
 
 ## Clean up (this project only)
@@ -197,13 +246,23 @@ docker ps -a --filter label=com.docker.compose.project=erpx-cf-staging
 
 ## Testing the scripts on the Mac
 
-The preflight runs under macOS's `/bin/bash` (bash 3.2). Its regression suite (allowed and unexpected settings, CRLF,
-an existing `STAGING_SUBNET`, the kept validations) runs the real `preflight.sh` with a fake `docker` in a throwaway
-git repository, so it touches no container, network or `staging.env`:
+The scripts run under macOS's `/bin/bash` (bash 3.2). Two suites run the real `preflight.sh` and `staging.sh` with a fake
+`docker` in a throwaway git repository, so they touch no container, network, volume or `staging.env`:
 
 ```bash
 /bin/bash ops/staging-cashfree/tests/preflight_test.sh
 ```
+
+(allowed and unexpected settings, CRLF, an existing `STAGING_SUBNET`, the kept validations, the external-network rule), and
+
+```bash
+/bin/bash ops/staging-cashfree/tests/upgrade_test.sh
+```
+
+(an already-running stack whose network has a stale Compose hash and the databases attached: `refresh-app`, `tunnel`,
+`up` and `network-check` must never create, change or remove the network; `recreate-network` removes only an empty one;
+a control case reproduces the original failure so a regression would be caught). The fake models Compose's behaviour from
+its source; the final proof is `./staging.sh network-check` and `./staging.sh refresh-app` on the real stack.
 
 ## Troubleshooting
 
@@ -213,6 +272,10 @@ git repository, so it touches no container, network or `staging.env`:
   address), Cashfree sends the browser to an address that no longer exists. The payment itself is still confirmed by
   the webhook or the status check; open the student's link again. Avoid restarting the tunnel during a test.
 
+- 502 from the gateway after the API was restarted by hand: nginx looks up `api` only when it loads its configuration, so
+  `docker compose ... exec gateway nginx -s reload` (or `./staging.sh refresh-app`, which does it) fixes it.
+- "network erpx-cf-staging_default declared as external, but could not be found" (running `docker compose` directly):
+  run through `./staging.sh`, which creates the network.
 - Port already in use: set `STAGING_HTTP_PORT` / `STAGING_MAIL_PORT` in `staging.env` to free ports, then `./staging.sh up`.
 - "keys do not look like Test-mode keys": Cashfree Test-mode App IDs start with `TEST` and secret keys contain
   `_test_`. Copy the keys from Test mode, not Live. Only if Cashfree changes this format, add
