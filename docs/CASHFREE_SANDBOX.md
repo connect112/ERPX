@@ -106,7 +106,7 @@ this repository.
 | 7c | Second lost-webhook run: Student D (`ERPX-INT-2026-000007`), ₹2,000 sandbox payment with the webhook blocked (HTTP 503). Cashfree redirected the browser to `/internship-onboarding?order=...`, and ERPX confirmed the payment automatically; receipt `RCPT-2026-000005` issued once, its email appears once in Mailpit | passed as an **automatic-recovery** test, **not** a manual-button pass: the button could not be tested because the return page confirmed first. After the nginx change was reverted `./staging.sh verify` passed; evidence `20261103T075929Z`: zero problems across all five integrity checks | Mac (owner-reported; snapshot not reviewed) |
 | 8 | First checkout stayed on Cashfree's return page, second returned | not reproduced in code; see 4b below | Mac |
 | 9 | **Automatic reconciliation by the scheduled task** when the webhook, the return-page check and every student status check are unavailable and nobody presses anything | **PASSED** (owner-reported, one real run). Student F (`ERPX-INT-2026-000009`), Cashfree payment `1471080942373399040`, receipt `RCPT-2026-000007`. With `./staging.sh recon` on from 09:49:43Z: three Cashfree webhook calls refused with 503 and none reached ERPX, the return page blocked, no student status check, Beat and the worker running throughout. Order created 09:50:22Z, payment succeeded 09:50:28Z, ERPX confirmed it at 10:15:00Z during the scheduled run (worker finished about 10:15:01Z, result `{'checked': 1, 'confirmed': 1}`). One confirmed payment, one receipt, one `payment_confirmed` event, one email in Mailpit, all five integrity checks 0; automatic rollback reported. Evidence `ops/staging-cashfree/evidence/recon-20261103T101529Z` is on the Mac (git-ignored) and was **not inspected by the author**. Not reported to the author: the report's printed PASS/FAIL lines, the confirmation's timeline "source", and the Cashfree request line in the worker log. See 4a-iv for the timeline and criteria | Mac (owner-reported); Test |
-| 10 | A payment succeeds on the same Cashfree order after a failed or dropped attempt, its notification is lost, and the scheduled task recovers it with nobody pressing anything | **NOT YET VERIFIED in the sandbox.** A gap was found and fixed (4a-v); automated tests against PostgreSQL pass; the fix has not been exercised against real Cashfree. Student F's run (row 9) was a single attempt on an `active` order and did **not** cover this | Test |
+| 10 | A payment succeeds on the same Cashfree order after a failed or dropped attempt, its notification is lost, and the scheduled task recovers it with nobody pressing anything | **PARTIALLY VERIFIED: not passed.** Student G (`ERPX-INT-2026-000010`), Cashfree order `ERPXIFBE8D1204F036125239A17FF`, `recon` mode on from 11:35:24Z. The first attempt FAILED; Beat dispatched the task at 11:45 and 12:00 UTC; at 12:00 it returned `{'checked': 1, 'confirmed': 0}` and the ERPX order was `failed`; three webhooks were refused with 503 and no student status check occurred. **Observed:** the scheduled task detected and recorded a real Cashfree failed attempt on its own. **Not observed:** a successful second attempt on the same Cashfree order (the checkout redirected to the deliberately blocked return page and the visible UI offered no accessible retry path), and therefore the automatic recovery of such a payment. Ended cleanly: recon mode off, Beat and worker running, normal webhook routing restored (unsigned webhook 401), `./staging.sh verify` passed. Owner-reported; the evidence was not inspected by the author. The fix itself rests on automated tests (4a-v) | Mac (owner-reported, partial); Test |
 
 ### 4a-i. Completed and untested, at a glance
 
@@ -127,7 +127,7 @@ refund-adjustment mismatches, 0 unexpected accounting entries; each receipt once
   automatic status check (the second run, row 7c, behaved the same way). The scheduled reconciliation has now been seen confirming a
 payment on its own (row 9), but that run had the return page and status checks blocked; it does not show who recovered rows 7 and 7c;
 - Cashfree actually sending a "payment user dropped" notification: **not observed** (row 6a). The manual cancelled-checkout check (row 6) most likely closed the page before any method was chosen, which creates no attempt and no notification;
-- the reconciliation fix for a lost success after a failed or dropped attempt (row 10, 4a-v): automated tests only, not yet run against real Cashfree;
+- the reconciliation fix for a lost success after a failed or dropped attempt (row 10, 4a-v): **partially verified** on the Mac (Student G): the failed attempt was detected automatically; the successful second attempt and the automatic recovery were **not observed**; automated tests cover the fix;
 - an auto-refund notification (`AUTO_REFUND_STATUS_WEBHOOK`): tests only, with a mocked body;
 - API version `2026-01-01` (production stays on the pinned `2025-01-01`);
 - the stuck return page (row 8) is still unexplained;
@@ -397,11 +397,40 @@ a checkout closed before a method is chosen; repeated runs; the spacing and the 
 every non-SUCCESS status; a wrong amount or currency; the student's own check. Against the original code 13 of the 18 fail (the 5 that
 pass guard behaviour that must not change); weakening the grace bound, dropping `expired`, or treating USER_DROPPED as success fails tests.
 
-**What still needs a real sandbox run (row 10).** The fix is verified only against Cashfree's documented behaviour and a mock. The README
-describes a run with `./staging.sh recon`: an attempt with `testfailure@gocash`, the scheduled task recording it (order `failed`), a second
-attempt with `testsuccess@gocash` on the same Cashfree order, and the next scheduled tick confirming it. Whether the sandbox lets the
-student retry on the same order is part of what it would show. A genuine USER_DROPPED notification cannot be produced on demand; the
-FAILED attempt follows the same code path (both map to "failed") and is documented test data.
+**Result of the first real attempt (row 10: PARTIALLY VERIFIED, not passed).** Owner-reported; the evidence was not inspected by the author.
+
+| Time / item | What was reported |
+|---|---|
+| 11:35:24 UTC | `recon` mode on |
+| Student G | `ERPX-INT-2026-000010`, Cashfree order `ERPXIFBE8D1204F036125239A17FF`; first attempt (`testfailure@gocash`) FAILED |
+| Webhooks and student checks | three Cashfree webhooks refused with 503; no student status-check request |
+| 11:45 and 12:00 | Beat dispatched the reconciliation task |
+| 12:00 | the task returned `{'checked': 1, 'confirmed': 0}`; the ERPX order was `failed` |
+| After the failed attempt | the Cashfree checkout redirected to the deliberately blocked ERPX return page; a second payment attempt on the same Cashfree order could not be made through the visible UI |
+| Ending the test | recon mode off; Beat and worker running; unsigned webhook answered 401; `./staging.sh verify` passed |
+
+What this shows: the scheduled task, with the webhook and every student check out of the way, detected a real Cashfree FAILED attempt and recorded it
+(order `failed`). That is the first half of the scenario, on real Cashfree.
+
+What it does not show: a successful second attempt, and its automatic recovery. Neither happened, so the part of the scenario that was
+broken before the fix was not exercised. Nothing here says the fix works or fails against real Cashfree.
+
+A point from the reported times and the code (arithmetic, not reported): the order was created after the mode went on at 11:35:24, so at the 11:45
+tick it was under 10 minutes old, below the task's minimum age; 12:00 was its first eligible tick, and at that moment it was still
+`active`. The 12:00 run is the one that recorded the failure. So even a recovery after 12:00 would be the first time a `failed` order
+was examined by the new code path in real life, and that has not happened yet.
+
+About retrying on the same order: this is a statement about the checkout flow as it was used, not about Cashfree. In this run the
+visible checkout did not offer an accessible way to try again on the same Cashfree order. It is not established that Cashfree Sandbox
+forbids retrying an order, or that no other path (for example a different payment method flow, or a checkout page left open) exists. Within ERPX's
+own screens, the Pay button reuses the same Cashfree order only while the local order is still `active` (before the scheduled task has
+marked it `failed`); once it is `failed`, Pay starts a fresh order. So a second attempt on the *same* Cashfree order after the local
+order has become `failed` needs the original Cashfree checkout page or session, which this flow did not provide.
+
+**Decision for the owner:** row 10 stays partially verified. Options, none started: accept the mock-based coverage (18 automated cases on
+PostgreSQL, 13 of which fail on the original code) for this narrow case, which needs a failed attempt, a retry on the original Cashfree
+session, a lost success notification and a student who never returns; or look for a way to make a same-order retry accessible and
+repeat the run. A genuine USER_DROPPED notification still cannot be produced on demand (row 6a).
 
 ### 4b. The stuck return page (first checkout)
 
@@ -420,7 +449,7 @@ not affect what ERPX records. No code change was made for it.
 
 1. Sandbox scenarios 5, 6, 7 and 9 are done on the Mac (4a; evidence checks at 0, one email per receipt). The manual button on its own
    (7b) passed with qualifications (4a-iii) and the scheduled reconciliation passed once (row 9, 4a-iv), both owner-reported. Still open,
-   owner's call on whether they are needed before a controlled start: the fix for a lost success after a failed or dropped attempt (row 10, 4a-v: found and corrected in this PR, awaiting one real sandbox run), a real "user dropped" notification (row 6a, not observed), an auto-refund
+   owner's call on whether they are needed before a controlled start: the fix for a lost success after a failed or dropped attempt (row 10, 4a-v: found and corrected in this PR; **partially verified**, the failed attempt was detected automatically, the successful retry and its recovery were not observed), a real "user dropped" notification (row 6a, not observed), an auto-refund
    notification (mocked body only), API version `2026-01-01`, and the unexplained stuck return page (row 8).
 2. Review and merge PR #163 (owner).
 3. Production prerequisites (owner): production App ID / Secret Key as server secrets only; webhook

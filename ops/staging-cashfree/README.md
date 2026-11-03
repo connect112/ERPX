@@ -199,7 +199,7 @@ refused the order only becomes `failed` when the scheduled task itself records t
 1. Make a synthetic student ready to pay. Start `caffeinate -i ./staging.sh recon run ERPX-INT-2026-0000NN 60` a few minutes before a quarter hour (:00, :15, :30, :45 UTC).
 2. Press Pay **1 to 4 minutes after a quarter hour** (so the order is 10 minutes old at the next one) and pay with the failing UPI `testfailure@gocash`. Do not press any status button.
 3. At the next quarter hour the task records the failed attempt. Check with `./staging.sh recon status` in another terminal: the order should read `failed` (and the worker line shows `{'checked': 1, 'confirmed': 0}`).
-4. Before the order expires (30 minutes after you pressed Pay), go back to the same Cashfree checkout page and pay again with `testsuccess@gocash`. If the sandbox does not let you retry on the same order, stop and note that; it is a finding.
+4. Before the order expires (30 minutes after you pressed Pay), go back to the same Cashfree checkout page and pay again with `testsuccess@gocash`. If the sandbox does not let you retry on the same order, stop and note that; it is a finding. (First attempt, 2026-11-03: the checkout redirected to the blocked return page after the failure and offered no accessible retry, so step 4 could not be done; see section 4a-v. Do not repeat the run unchanged.)
 5. At the following quarter hour (10 or more minutes after the previous check) the task should confirm the payment: `recon run` prints its report and rolls everything back. Read the ledger in `./staging.sh evidence`: one failed row (the first attempt) and one confirmed row, one receipt, one email. Before the fix this payment would have stayed unrecorded.
 
 ## Evidence (before any change to the running stack)
