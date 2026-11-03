@@ -109,6 +109,54 @@ psql_app() { dc exec -T postgres psql -U erpx -d erpx_staging -X -q "$@"; }
 recon_query() {  # <application ref or ''> <since> <task_ok or ''>: the facts and checks of recon.sql, one key=value per line
   psql_app -v "app=$1" -v "since=$2" -v "task_ok=$3" -f - < "$DIR/recon.sql"
 }
+# --- readiness check helpers (portable: macOS bash 3.2 + BSD date/sed). No `producer | grep -q` anywhere: under pipefail, grep -q
+# exits at its first match, the producer can then die of SIGPIPE, and the pipeline reports "not found" for a line that was there.
+line_ts() {  # first timestamp on a log line, as YYYY-MM-DDTHH:MM:SSZ: Docker's (--timestamps) or, failing that, Celery's own "[YYYY-MM-DD HH:MM:SS,"
+  printf '%s\n' "$1" | sed -n -e 's/^\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9]\{2\}:[0-9]\{2\}:[0-9]\{2\}\).*/\1Z/p' \
+    -e 's/.*\[\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\) \([0-9]\{2\}:[0-9]\{2\}:[0-9]\{2\}\),.*/\1T\2Z/p' | head -1
+}
+iso_minutes_ago() {  # <minutes>: UTC, BSD date (-r seconds) first, then GNU date (-d @seconds)
+  t=$(( $(date +%s) - $1 * 60 ))
+  date -u -r "$t" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$t" +%Y-%m-%dT%H:%M:%SZ
+}
+ts_ge() { [ "$1" = "$2" ] || [ "$(printf '%s\n%s\n' "$1" "$2" | sort | tail -1)" = "$1" ]; }  # $1 >= $2 (fixed-width ISO strings)
+first_lines() { printf '%s\n' "$1" | head -"${2:-2}" | sed 's/^/        /'; }
+recon_check() {
+  ok=1
+  for svc in celery_worker celery_beat; do
+    if [ "$(svc_state "$svc")" = running ]; then echo "OK    $svc is running"; else echo "FAIL  $svc is not running"; ok=0; fi
+  done
+  # 1. is the task registered? Ask the worker (one node, patient: a reply can take more than inspect's default 1 s on Docker
+  #    Desktop); errors are shown, not hidden. If inspect gives nothing, the worker's own log is evidence too.
+  reg="$(dc exec -T celery_worker sh -c 'celery -A app.core.celery_app inspect registered -t 20 -d "celery@$(hostname)"' 2>&1)" || true
+  case "$reg" in
+    *internship_onboarding.reconcile_payments*) echo "OK    the worker has the task internship_onboarding.reconcile_payments registered (celery inspect)" ;;
+    *)
+      logged="$(dc logs --no-log-prefix celery_worker 2>&1 | grep -Ec '^[[:space:]]*\. internship_onboarding\.reconcile_payments[[:space:]]*$|Task internship_onboarding\.reconcile_payments\[.*succeeded' || true)"
+      if [ "${logged:-0}" -ge 1 ]; then
+        echo "OK    the worker's own log lists or ran the task internship_onboarding.reconcile_payments ($logged line(s)); celery inspect did not answer in time:"
+        first_lines "$reg" 2
+      else
+        echo "FAIL  neither celery inspect nor the worker's log shows the task internship_onboarding.reconcile_payments; celery inspect said:"
+        first_lines "${reg:-(nothing)}" 3
+        ok=0
+      fi ;;
+  esac
+  # 2. has Beat been sending it? The newest matching line of Beat's whole log, judged by its timestamp.
+  tick="$(dc logs --timestamps --no-log-prefix celery_beat 2>&1 | grep 'Sending due task' | grep 'reconcile' | tail -1 || true)"
+  if [ -z "$tick" ]; then
+    echo "WAIT  Beat's log has no 'Sending due task ... reconcile' line yet (it fires at :00, :15, :30, :45 UTC; if Beat started recently, check again after the next tick)"
+  else
+    tick_ts="$(line_ts "$tick")"; cutoff="$(iso_minutes_ago 20)"
+    if [ -n "$tick_ts" ] && ts_ge "$tick_ts" "$cutoff"; then echo "OK    Beat last sent the task at $tick_ts (now $(date -u +%Y-%m-%dT%H:%M:%SZ), UTC)"
+    else echo "WAIT  Beat last sent the task at ${tick_ts:-an unreadable time}, more than 20 minutes ago (now $(date -u +%Y-%m-%dT%H:%M:%SZ), UTC); it should fire every 15 minutes: check ./staging.sh logs celery_beat"; fi
+  fi
+  # 3. information only: when did the worker last run it, and what did it do?
+  run="$(dc logs --timestamps --no-log-prefix celery_worker 2>&1 | grep 'reconcile_payments\[' | grep 'succeeded' | tail -1 || true)"
+  if [ -n "$run" ]; then echo "INFO  the worker last ran it at $(line_ts "$run"): $(printf '%s\n' "$run" | sed -n "s/.*succeeded in [^:]*: \(.*\)$/\1/p")"
+  else echo "INFO  the worker has not run it yet"; fi
+  [ "$ok" = 1 ]
+}
 recon_on() {
   if gate_is_on; then echo "a staging test mode is already on ($(gate_mode)): ./staging.sh gate off (or recon off) first"; return 1; fi
   ensure_network
@@ -372,20 +420,7 @@ case "${1:-help}" in
     case "${2:-status}" in
       on) recon_on || exit 1 ;;
       off) gate_remove_all; echo "recon OFF: normal webhook delivery, return page, status checks and scheduled tasks." ;;
-      check)
-        # read-only readiness check before the long wait: is the task registered, are Beat and the worker up, has Beat been sending it
-        ok=1
-        for svc in celery_worker celery_beat; do
-          if [ "$(svc_state "$svc")" = running ]; then echo "OK    $svc is running"; else echo "FAIL  $svc is not running"; ok=0; fi
-        done
-        if dc exec -T celery_worker celery -A app.core.celery_app inspect registered 2>/dev/null | grep -q 'internship_onboarding.reconcile_payments'; then
-          echo "OK    the worker has the task internship_onboarding.reconcile_payments registered"
-        else echo "FAIL  the worker does not list the reconciliation task"; ok=0; fi
-        if dc logs --no-log-prefix --since 20m celery_beat 2>/dev/null | grep -q 'Sending due task internship-onboarding-reconcile-payments'; then
-          echo "OK    Beat has sent the task in the last 20 minutes"
-        else echo "WAIT  Beat has not sent it in the last 20 minutes (it fires at :00, :15, :30, :45 UTC; if Beat started recently, check again after the next tick)"; fi
-        [ "$ok" = 1 ]
-        ;;
+      check) recon_check ;;
       status) recon_status ;;
       report) recon_report "${3:-}" ;;
       run) recon_run "${3:-}" "${4:-45}" ;;

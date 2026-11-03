@@ -94,19 +94,76 @@ expect "recon status shows the mode, the gateway counters and the scheduled runs
   "refused with 503: 2" "payment return-page requests blocked: 1" "student status-check calls: 0" \
   "beat sent the task at 2026-11-03T08:30:00" "worker ran it at 2026-11-03T08:30:01"
 
-# 4. check: readiness before the long wait
+# 4. check: readiness before the long wait. The log lines below follow the formats of Celery 5.4 and `docker compose logs --timestamps`
+#    (Beat "Scheduler: Sending due task <entry> (<task>)", worker "Task <name>[<id>] received/succeeded in ...: {...}", the
+#    worker's "[tasks]" list at start, and the reply of `celery inspect registered`).
+beat_line() {  # <minutes ago> <entry> <task>
+  ts="$(iso_ago "$1")"
+  echo "${ts}.004123456Z [$(echo "$ts" | tr T ' '),003: INFO/MainProcess] Scheduler: Sending due task $2 ($3)"
+}
+healthy_logs() {
+  { beat_line 20 internship-onboarding-sweep internship_onboarding.sweep; beat_line 5 internship-onboarding-reconcile-payments internship_onboarding.reconcile_payments
+    beat_line 2 internship-onboarding-sweep internship_onboarding.sweep; } > "$FAKE_STATE/beat_log"
+  ts="$(iso_ago 5)"
+  cat > "$FAKE_STATE/worker_log" <<LOG
+ -------------- celery@8f3a2b1c9d0e v5.4.0 (opalescent)
+[tasks]
+  . internship_onboarding.reconcile_payments
+  . internship_onboarding.sweep
+${ts}.020000000Z [$(echo "$ts" | tr T ' '),019: INFO/MainProcess] Task internship_onboarding.reconcile_payments[9f1c2d3e-0a1b-4c5d-8e9f-001122334455] received
+${ts}.080000000Z [$(echo "$ts" | tr T ' '),079: INFO/ForkPoolWorker-1] Task internship_onboarding.reconcile_payments[9f1c2d3e-0a1b-4c5d-8e9f-001122334455] succeeded in 0.05s: {'checked': 0, 'confirmed': 0}
+LOG
+}
+running_stack; healthy_logs
 run_staging recon check
-expect "recon check passes when Beat, the worker and the registered task are there" 0 "OK    celery_beat is running" "registered" "OK    Beat has sent the task in the last 20 minutes"
-echo "-> celery@w: OK" > "$FAKE_STATE/registered"
+forbid_log " stop"; forbid_log " start"; forbid_log "restart"; forbid_log " up "; no_network_changes   # read-only
+need_log "inspect registered -t 20 -d"
+expect "recon check: healthy (inspect answers, Beat ticked 5 minutes ago, the worker ran it)" 0 \
+  "OK    celery_beat is running" "registered (celery inspect)" "OK    Beat last sent the task at $(iso_ago 5)" \
+  "INFO  the worker last ran it at $(iso_ago 5)Z: {'checked': 0, 'confirmed': 0}"
+
+# a reply larger than the pipe buffer that arrives in two chunks: a pipeline ending in `grep -q` reports "not found" for it under pipefail (the real reply is small, about 1.5 KB; this pins the hazard class down)
+running_stack; healthy_logs
+{ echo "->  celery@8f3a2b1c9d0e: OK"; echo "    * celery.accumulate"; echo "    * celery.backend_cleanup"; echo "    * internship_onboarding.reconcile_payments"
+  for i in $(seq 1 40000); do echo "    * module.task_$i"; done; } > "$FAKE_STATE/registered_slow"
 run_staging recon check
-expect "recon check fails when the worker does not list the task" 1 "FAIL  the worker does not list the reconciliation task"
-rm -f "$FAKE_STATE/registered"; echo stopped > "$FAKE_STATE/svc_celery_beat"; : > "$FAKE_STATE/beat_log"
+expect "recon check: a long inspect reply that arrives in chunks is still found" 0 "registered (celery inspect)"
+
+# inspect timing out is not a missing task: the worker's own log is evidence, and the inspect answer is shown
+running_stack; healthy_logs; echo "Error: No nodes replied within time constraint" > "$FAKE_STATE/registered_error"
 run_staging recon check
-expect "recon check fails when Beat is stopped and says when to look again" 1 "FAIL  celery_beat is not running" "WAIT  Beat has not sent it"
-echo running > "$FAKE_STATE/svc_celery_beat"
+expect "recon check: inspect times out but the worker log lists and ran the task" 0 \
+  "OK    the worker's own log lists or ran the task" "No nodes replied within time constraint" "OK    Beat last sent the task"
+# ...and when nothing shows the task, it fails and says why
+running_stack; healthy_logs; echo "Error: No nodes replied within time constraint" > "$FAKE_STATE/registered_error"; : > "$FAKE_STATE/worker_log"
+run_staging recon check
+expect "recon check: no sign of the task anywhere is a FAIL that shows what inspect said" 1 \
+  "FAIL  neither celery inspect nor the worker's log shows the task" "No nodes replied within time constraint" "INFO  the worker has not run it yet"
+# a mere mention in an error is not registration
+running_stack; healthy_logs; echo "Error: No nodes replied within time constraint" > "$FAKE_STATE/registered_error"
+echo "[ERROR/MainProcess] Received unregistered task of type 'internship_onboarding.reconcile_payments'" > "$FAKE_STATE/worker_log"
+run_staging recon check
+expect "recon check: an 'unregistered task' error does not count as registered" 1 "FAIL  neither celery inspect nor the worker's log shows the task"
+
+# Beat: the newest matching tick is judged by its timestamp, other tasks do not count, no tick yet waits, a stale one is shown
+running_stack; healthy_logs; beat_line 40 internship-onboarding-reconcile-payments internship_onboarding.reconcile_payments > "$FAKE_STATE/beat_log"
+run_staging recon check
+expect "recon check: a tick older than 20 minutes is reported with its time, not hidden" 0 "WAIT  Beat last sent the task at $(iso_ago 40)Z, more than 20 minutes ago"
+running_stack; healthy_logs; { beat_line 3 internship-onboarding-sweep internship_onboarding.sweep; beat_line 17 other-task other.task; } > "$FAKE_STATE/beat_log"
+run_staging recon check
+expect "recon check: ticks of other tasks do not count" 0 "WAIT  Beat's log has no 'Sending due task ... reconcile' line yet"
+running_stack; healthy_logs; echo "[$(iso_ago 4 | tr T ' '),003: INFO/MainProcess] Scheduler: Sending due task internship-onboarding-reconcile-payments (internship_onboarding.reconcile_payments)" > "$FAKE_STATE/beat_log"
+run_staging recon check
+expect "recon check: Celery's own timestamp is used when Docker's is missing" 0 "OK    Beat last sent the task at $(iso_ago 4)Z"
+running_stack; healthy_logs; echo stopped > "$FAKE_STATE/svc_celery_beat"
+run_staging recon check
+expect "recon check: Beat stopped is a FAIL" 1 "FAIL  celery_beat is not running"
+running_stack; healthy_logs; echo stopped > "$FAKE_STATE/svc_celery_worker"
+run_staging recon check
+expect "recon check: the worker stopped is a FAIL" 1 "FAIL  celery_worker is not running"
 
 # 5. report: every criterion met
-pass_logs; pass_facts
+started; pass_logs; pass_facts
 run_staging recon report "$APP"
 latest="$(ls -d "$REPO"/ops/staging-cashfree/evidence/recon-* 2>/dev/null | tail -1)"
 [ -f "$latest/report.txt" ] && [ -f "$latest/facts.txt" ] || PROBLEMS="$PROBLEMS

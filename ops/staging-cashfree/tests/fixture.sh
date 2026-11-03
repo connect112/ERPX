@@ -126,8 +126,11 @@ case "$1" in
           *nginx*reload*) echo reloaded >> "$S/gateway_reloads" ;;
           *"-v app="*) cat "$S/recon_facts" 2>/dev/null ;;
           *"-tA -c"*) cat "$S/paid_count" 2>/dev/null || echo 0 ;;
-          *"inspect registered"*) cat "$S/registered" 2>/dev/null || echo "-> celery@w: OK
-    * internship_onboarding.reconcile_payments" ;;
+          *"inspect registered"*)
+            if [ -f "$S/registered_error" ]; then cat "$S/registered_error"; exit 1
+            elif [ -f "$S/registered_slow" ]; then head -n 3 "$S/registered_slow"; /bin/sleep 0.4; exec tail -n +4 "$S/registered_slow"   # two chunks; the process in the pipeline writes the second one (as docker compose exec does) and dies of SIGPIPE if the reader has already left
+            elif [ -f "$S/registered" ]; then cat "$S/registered"
+            else printf '%s\n' "->  celery@8f3a2b1c9d0e: OK" "    * internship_onboarding.reconcile_payments"; fi ;;
           *psql*) printf '== CHECKS\nduplicate payments | 0\n== Cashfree\n' ;;
         esac
         exit 0 ;;
@@ -185,6 +188,9 @@ exit 0
 FAKE
 printf '#!/bin/sh\n[ -n "${FAKE_SLEEP:-}" ] && exec /bin/sleep "$FAKE_SLEEP"\nexit 0\n' > "$WORK/bin/sleep"
 chmod +x "$WORK/bin/docker" "$WORK/bin/curl" "$WORK/bin/sleep"
+
+# <minutes>: a UTC time that long ago, YYYY-MM-DDTHH:MM:SS (BSD date first, then GNU date)
+iso_ago() { t=$(( $(date +%s) - $1 * 60 )); date -u -r "$t" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -d "@$t" +%Y-%m-%dT%H:%M:%S; }
 
 # --- state helpers
 reset_state() {  # an empty Docker: no staging network, no other network, API stopped

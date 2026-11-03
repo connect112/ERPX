@@ -252,7 +252,8 @@ stopped, restarted or modified (`recon on` refuses if either is not running). It
 other way round.
 
 **Commands (Mac, from `ops/staging-cashfree`):**
-- `./staging.sh recon check`: read-only readiness (Beat and worker up, the task registered, Beat has been sending it). Run it first.
+- `./staging.sh recon check`: read-only readiness (Beat and worker up, the task registered, Beat has been sending it, when the worker last
+  ran it). Run it first. See "Readiness check" below.
 - `./staging.sh recon run ERPX-INT-2026-0000NN 45`: turns the mode on, waits up to 45 minutes for that student's order to become
   paid in ERPX (checks every 30 seconds), prints the evidence report, and **always rolls back** (also on timeout, failure, Ctrl-C,
   SIGTERM or a closed terminal). Use `caffeinate -i` so the Mac does not sleep: a sleeping Mac pauses Beat as well.
@@ -260,6 +261,21 @@ other way round.
 - `./staging.sh recon off` is the rollback and is safe to run any time, any number of times: it removes every gate file, reloads the
   gateway (restarting only the gateway if the reload fails), and starts Beat and the worker if they are not running. After it,
   `./staging.sh gate status` shows "gate: off" and `./staging.sh verify` should pass.
+
+**Readiness check (corrected after its first Mac run).** The first version of `recon check` printed "the worker does not list the
+reconciliation task" and "Beat has not sent it in the last 20 minutes" although the staging logs show Beat dispatching the task at
+09:00 and 09:15 UTC and the worker running it at 09:15 (`{'checked': 0, 'confirmed': 0}`). That was a fault of the checker, not of the
+reconciliation, which was working. The exact cause could not be determined from here; the checker had several weaknesses, all fixed:
+it ran `celery inspect` with the default 1-second timeout and without naming the node (a reply on Docker Desktop can take longer) and
+threw its error output away; it tested both answers with `producer | grep -q` under `pipefail`, which reports "not found" when the
+producer is killed by SIGPIPE after grep has already matched (reproduced with a reply larger than the pipe buffer; the real reply is
+small, about 1.5 KB, so this is less likely for the registration check); and it looked only at the last 20 minutes of Beat's log for an
+exact phrase. The check now asks one node with `-t 20 -d celery@<host>`, shows what `inspect` said, accepts the worker's own log
+(its task list, or a run that succeeded) when `inspect` does not answer, finds Beat's newest "Sending due task ... reconcile" line in
+its whole log and judges it by its timestamp (Docker's, or Celery's own), says when the worker last ran the task and with what
+result, and uses no pipe into `grep -q`. It is read-only and starts, stops or restarts nothing. Its tests use log lines in the formats
+of Celery 5.4 and `docker compose logs --timestamps`; they are representative, not copied from the Mac. This changed no reconciliation
+logic, and row 9 is still **not run**.
 
 **Procedure:** `recon check`; then in one terminal `caffeinate -i ./staging.sh recon run <application ref> 45`, and in the
 browser: make a synthetic student ready to pay, press Pay, pay with `testsuccess@gocash`, let the Cashfree page finish, and **do

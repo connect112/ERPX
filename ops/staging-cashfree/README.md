@@ -175,7 +175,8 @@ return page and the student's status check are kept out while Celery Beat and th
 ./staging.sh recon check
 ```
 
-(read-only: Beat and the worker are up, the task is registered, Beat has been sending it), then, keeping the Mac awake:
+(read-only; it starts or restarts nothing: Beat and the worker are up, the task is registered (asked of the worker, or shown in its log), the
+time of Beat's last tick, and when the worker last ran the task and with what result), then, keeping the Mac awake:
 
 ```bash
 caffeinate -i ./staging.sh recon run ERPX-INT-2026-0000NN 45
