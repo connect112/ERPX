@@ -125,9 +125,13 @@ Cashfree sandbox test data (check Cashfree's sandbox page for current values): U
 4. Failure: another student pays with `testfailure@gocash` -> no receipt; they can retry with a new order.
 5. Cancellation: another student closes the checkout -> no receipt; "I have paid: check status" and the 15-minute
    reconciliation keep it unpaid.
-6. Lost webhook: disable the webhook in the dashboard, pay with another student, then "I have paid: check status" ->
-   confirmed by the status check; enable the webhook again. (Do not restart the tunnel for this: it would get a new
-   address.)
+6. Lost webhook: disable the webhook in the dashboard (or make the gateway refuse it), pay with another student ->
+   ERPX confirms the payment from its own status check, once. Two things can do that before you press anything: the
+   student's return page (`?order=...` runs the same check on load) and the 15-minute reconciliation. To test the button
+   itself, close the Cashfree page without returning, open the student link without `?order=`, and press "I have paid:
+   check status" within 10 minutes of creating the order. Then enable the webhook again and expect the late
+   notifications to be acknowledged (200) without a second payment or receipt. (Do not restart the tunnel for this: it
+   would get a new address.)
 7. Refund: finance refunds ₹1.00 of the paid order -> Cashfree refund -> refund webhook -> credit note. Then, with that
    order's id:
 

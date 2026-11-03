@@ -75,14 +75,18 @@ Network access, and add `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` (sandbox keys) 
 |---|---|
 | Adapter, webhook, reconciliation and refund code | reviewed against the current docs; mocked tests with real signatures pass; fixes: auto refunds, standalone bootstrap seed |
 | Sandbox keys, public HTTPS webhook endpoint, isolated staging | **available** on the owner's Mac (`ops/staging-cashfree/`, Cloudflare quick tunnel, Test-mode keys only) |
+| Sandbox acceptance | scenarios 1-7a passed on the Mac as reported (4a); untested items are listed in 4a-i |
 | Cloud session access to Cashfree | still blocked (proxy); not needed any more, the sandbox run happens on the Mac |
 | Production | untouched; Cashfree stays off there (`CASHFREE_ENABLED` unset) |
 
 ## 4a. Sandbox acceptance record
 
-Sources: **Mac** = observed by the owner on the Mac staging stack (2026-11-02/03), as reported; **Test** = automated
-test in this repository (mocked Cashfree HTTP, real HMAC signatures, real database). No result below is claimed from a
-source it does not list.
+Sources: **Mac** = observed by the owner on the Mac staging stack (2026-11-02/03), as reported to the author of this
+document; **Test** = automated test in this repository (mocked Cashfree HTTP, real HMAC signatures, real database).
+No result below is claimed from a source it does not list. The Mac evidence snapshots (`ops/staging-cashfree/evidence/`,
+for example `20261103T072028Z`) are git-ignored and stay on the owner's Mac; they were **not** available to the author,
+so the figures taken from them are the owner's report, not independently reviewed. Code statements were checked in
+this repository.
 
 | # | Scenario | Result | Source |
 |---|---|---|---|
@@ -93,10 +97,52 @@ source it does not list.
 | 4 | ₹1 sandbox refund -> refund webhook -> credit note `RCPT-CN-2026-000001` emailed (Mailpit) | passed | Mac |
 | 4a | ₹1 refund counted once: ledger = payment 2,000 + refund 1 + waiver 1 (`refund_adjustment`); student owes 1,999 and has paid 1,999 net; balance 0; dashboard received 1,999 | passed: the waiver lowers what is owed, the refund lowers what was paid, so the ₹1 is not counted twice; Mac evidence: 0 refund-adjustment mismatches | Test; Mac |
 | 4b | Refund idempotency: one open refund per payment (second request 409); one gateway call with an id derived from the refund row; refund-webhook replays (exact and re-wrapped) change nothing; one credit note, emailed once | passed | Test |
-| 5 | Failed payment (`testfailure@gocash`) -> no receipt, student can retry with a new order | passed in tests; **sandbox run pending** | Test; Mac pending |
-| 6 | Checkout closed / user dropped -> no receipt, stays unpaid, retry possible | passed in tests; **sandbox run pending** | Test; Mac pending |
-| 7 | Lost webhook -> recovered by the status check / 15-minute reconciliation, exactly once | passed in tests (stale_orders -> refresh_order; re-running changes nothing); **sandbox run pending** | Test; Mac pending |
+| 5 | Failed payment (`testfailure@gocash`) -> no receipt, student can retry with a new order | passed: the student stayed unpaid, no receipt was issued, and a successful retry created a new order | Mac; Test |
+| 6 | Checkout closed / user dropped -> no receipt, stays unpaid, retry possible | passed **on manual checks only**: the student stayed unpaid, got no receipt and could retry; no evidence figures or timeline entry were reviewed for this case, and it is not known whether Cashfree sent a "user dropped" notification | Mac (manual); Test |
+| 7 | Lost webhook (gateway returned HTTP 503 to Cashfree while the sandbox payment succeeded) -> ERPX confirms the payment on its own, exactly once | passed: ERPX confirmed the payment and issued receipt `RCPT-2026-000004` **without the manual "I have paid: check status" button being used**; the receipt appeared exactly once in Mailpit. Which automatic path did it is **not established** (see 4a-ii) | Mac; Test |
+| 7a | Webhooks delivered after the endpoint was restored: Cashfree delivered two payment-success notifications for payment `1471038895188844032`, both acknowledged HTTP 200 | passed: nothing was added (per the code, a success for a payment already confirmed returns 200 and adds nothing to the ledger, and an identical body is answered "duplicate"); owner's evidence: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0 refund-adjustment mismatches, 0 unexpected accounting entries. Which of the two answers each delivery received comes from the webhook table in the snapshot, which was not reviewed | Mac; Test |
+| 7b | Manual "I have paid: check status" button, used on its own for a lost webhook | **not tested** in the sandbox; recovery by the button is covered only by automated tests | Test |
 | 8 | First checkout stayed on Cashfree's return page, second returned | not reproduced in code; see 4b below | Mac |
+
+### 4a-i. Completed and untested, at a glance
+
+**Completed in the sandbox on the Mac:** successful payments (twice); success webhook and replay; receipt and email once;
+the ₹1 refund and its credit note; failed payment and retry; checkout cancelled (manual checks); automatic recovery of a
+payment whose webhook was refused, and the later duplicate webhooks. Owner-reported evidence for the last round: 0
+duplicate payments, 0 duplicate documents, 0 missing documents, 0 refund-adjustment mismatches, 0 unexpected accounting
+entries, `RCPT-2026-000004` once in Mailpit.
+
+**Not tested in the sandbox (do not read these as passed):**
+- the manual "I have paid: check status" button as the thing that recovers a lost webhook (row 7b);
+- which automatic path recovered `RCPT-2026-000004` (4a-ii), and therefore whether the 15-minute reconciliation task has
+  run against the real sandbox at all;
+- Cashfree actually sending a "payment user dropped" notification for a closed checkout (row 6 is a manual observation);
+- an auto-refund notification (`AUTO_REFUND_STATUS_WEBHOOK`): tests only, with a mocked body;
+- API version `2026-01-01` (production stays on the pinned `2025-01-01`);
+- the stuck return page (row 8) is still unexplained;
+- anything on production: no production keys, webhook, domain whitelist or live payment has been used (4c).
+
+### 4a-ii. How the lost-webhook payment was recovered (code review, not evidence)
+
+While the gateway answered 503, Cashfree's notifications never reached ERPX (ERPX's webhook handler only answers 503 when Cashfree
+is not configured, so the 503 came from the staging gateway). Reading the code, ERPX has two automatic server-side
+status checks that need neither the webhook nor the button, and both end in the same function (`refresh_order` ->
+`apply_gateway_payment`, which records a payment once per Cashfree payment id and issues the receipt):
+
+1. **The return page.** When the browser comes back to `/internship-onboarding?order=...`, the portal calls
+   `POST /payments/refresh` on load (`onboarding-portal-page.tsx`), the same endpoint the button uses.
+2. **The reconciliation task** `internship_onboarding.reconcile_payments`, every 15 minutes, for active Cashfree orders
+   older than 10 minutes that were not checked in the last 10 minutes.
+
+Both record the payment with the source "status check", so the payment's timeline entry does not tell them apart. They
+differ in timing: a confirmation within seconds of the browser returning points to the return page; one 10-15 minutes
+after the order was created points to the task. The recorded evidence was not available to the author, so neither is
+claimed. The result that matters holds either way: the payment was confirmed once, with one receipt and one email, while
+the webhook was refused, and the two late webhooks changed nothing.
+
+To test the button itself: block the webhook, pay, close the Cashfree page without returning to ERPX, open the student's
+onboarding link without `?order=`, and press the button within 10 minutes of creating the order (before the next
+reconciliation tick). Then run `./staging.sh evidence`.
 
 ### 4b. The stuck return page (first checkout)
 
@@ -113,8 +159,9 @@ not affect what ERPX records. No code change was made for it.
 
 ### 4c. Before a controlled production rollout
 
-1. On the Mac: scenarios 5, 6, 7 in the sandbox, then `./staging.sh evidence` with every check at 0 and one email per
-   receipt/credit note; record the results in this table.
+1. Sandbox scenarios 5, 6 and 7 are done on the Mac (4a, evidence checks at 0, one email per receipt). Still open from
+   4a-i, owner's call on whether they are needed before a controlled start: the button on its own (7b), which automatic
+   path recovers a lost webhook (4a-ii), and a real "user dropped" notification (row 6).
 2. Review and merge PR #163 (owner).
 3. Production prerequisites (owner): production App ID / Secret Key as server secrets only; webhook
    `https://erp.pentrix.in/api/v1/public/payments/cashfree/webhook` (version 2025-01-01, payment + refund events);
