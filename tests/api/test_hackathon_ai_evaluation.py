@@ -25,7 +25,7 @@ from tests.api.test_hackathon_participants import (  # noqa: F401 - fixtures and
     sent_emails,
 )
 
-pytestmark = pytest.mark.api
+pytestmark = [pytest.mark.api, pytest.mark.usefixtures("rbac_seeded")]
 
 _PARAGRAPH = (
     "We provisioned a t3.medium instance in ap-south-1 and attached a security group that only allows ports 22 "

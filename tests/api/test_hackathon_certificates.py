@@ -14,7 +14,7 @@ from sqlalchemy import select
 from modules.hackathons.models import TaskSubmission
 from modules.workshop_exams.models import WorkshopExamAttendee
 
-pytestmark = pytest.mark.api
+pytestmark = [pytest.mark.api, pytest.mark.usefixtures("rbac_seeded")]
 
 _EXAMS = "/api/v1/workshop-exams"
 _HACK = "/api/v1/hackathons"
