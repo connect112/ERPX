@@ -104,6 +104,7 @@ this repository.
 | 7b | Manual "I have paid: check status" button, used on its own for a lost webhook (isolated with `./staging.sh gate on`) | **passed, with qualifications.** Student E (`ERPX-INT-2026-000008`), ₹2,000, Cashfree payment `1471061513720561664`: with the gate on (from 2026-11-03T08:25:33Z) the webhook was refused (four 503s in the cumulative gate log, not attributed per student), one Cashfree return-page request was blocked, Celery Beat was stopped, and the payment changed to Paid after the student pressed "I have paid: check status" (owner's observation). Receipt `RCPT-2026-000006` issued once; its email appears once in Mailpit. Gateway log: two `POST /payments/refresh` answered 200, at 08:29:00 and 08:33:55 UTC; the second aligns with the click, the **first is not attributed to Student E**. Owner-reported evidence `20261103T083944Z`: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0 refund-adjustment mismatches, 0 unexpected accounting entries. Restored: `gate off` completed, `gate status` OFF, Celery Beat running, `verify` passed (unsigned webhook refused with 401). Not reported: the timeline's "source" for the confirmation, and a retried webhook after `gate off`. See 4a-iii for the criteria | Mac (owner-reported; snapshot and gate log not reviewed); Test |
 | 7c | Second lost-webhook run: Student D (`ERPX-INT-2026-000007`), ₹2,000 sandbox payment with the webhook blocked (HTTP 503). Cashfree redirected the browser to `/internship-onboarding?order=...`, and ERPX confirmed the payment automatically; receipt `RCPT-2026-000005` issued once, its email appears once in Mailpit | passed as an **automatic-recovery** test, **not** a manual-button pass: the button could not be tested because the return page confirmed first. After the nginx change was reverted `./staging.sh verify` passed; evidence `20261103T075929Z`: zero problems across all five integrity checks | Mac (owner-reported; snapshot not reviewed) |
 | 8 | First checkout stayed on Cashfree's return page, second returned | not reproduced in code; see 4b below | Mac |
+| 9 | **Automatic reconciliation by the scheduled task** when the webhook, the return-page check and every student status check are unavailable and nobody presses anything | **NOT YET RUN: do not read this as passed.** Tooling and a procedure now exist (`./staging.sh recon`, section 4a-iv); the task body, its Beat schedule entry and the report SQL are covered by automated tests only | Test |
 
 ### 4a-i. Completed and untested, at a glance
 
@@ -119,7 +120,7 @@ refund-adjustment mismatches, 0 unexpected accounting entries; each receipt once
   Student E's payment is **not proven** (the second aligns with the click; the first is unattributed); the timeline
   "source" for that confirmation and a retried webhook after `gate off` were not reported;
 - the mechanism that recovered `RCPT-2026-000004` is a likely explanation, not a proven one (4a-ii): the return page's
-  automatic status check (the second run, row 7c, behaved the same way); the 15-minute reconciliation task has **not** been seen working against the real sandbox;
+  automatic status check (the second run, row 7c, behaved the same way); the 15-minute reconciliation task has **not** been seen working against the real sandbox (row 9: the test mode and report exist, 4a-iv; not run yet);
 - Cashfree actually sending a "payment user dropped" notification for a closed checkout (row 6 is a manual observation);
 - an auto-refund notification (`AUTO_REFUND_STATUS_WEBHOOK`): tests only, with a mocked body;
 - API version `2026-01-01` (production stays on the pinned `2025-01-01`);
@@ -218,6 +219,71 @@ the page without `?order=`, the refresh endpoint, other API calls and other page
 network changes); `tests/api/test_internship_onboarding_cashfree.py::test_a_lost_webhook_is_recovered_only_by_the_students_explicit_status_check`
 covers the server side. None of these is a sandbox run.
 
+### 4a-iv. Automatic reconciliation test (row 9): `./staging.sh recon`
+
+**Does the existing implementation support the test? Yes; no architectural blocker was found.** Checked in the code:
+- `internship_onboarding.reconcile_payments` is on the Beat schedule every 15 minutes (`crontab(minute="*/15")`, UTC), is registered
+  by the worker (`modules.internship_onboarding` is in the Celery include list, no queue routing), and the staging compose file
+  runs Beat and a worker with `--loglevel=info` and `CASHFREE_ENABLED=true`.
+- `_reconcile()` takes the open Cashfree orders (`status=active`) that are **older than 10 minutes** and were not checked in the
+  last 10 minutes, asks Cashfree for each order's payments (`refresh_order`), and confirms a successful payment of the exact
+  amount through the same function the webhook uses. It returns `{'checked': n, 'confirmed': m}`, which Celery logs when the task
+  succeeds. Only two things call `refresh_order`: this task and the student's `POST /payments/refresh` (button and return page).
+  So with the webhook refused and that endpoint refused, the scheduled task is the only way left to confirm.
+- A paid order that nothing else confirms therefore waits **10 to about 25 minutes** (10 minutes of age, then the next :00, :15,
+  :30 or :45 UTC tick). That is the real behaviour under test; the test does not shorten it or call the task by hand.
+
+**Limits to know about (they shape the evidence, they are not blockers):**
+- The timeline entry says "status check" whether the student endpoint or the scheduled task made it, so the timeline alone cannot
+  prove who did it. The proof is the combination: the student endpoint was refused at the gateway, the webhook was refused, the
+  confirmation came at least 10 minutes after checkout, and the worker log shows the scheduled task finishing with
+  `'confirmed': 1` within seconds of the confirmation, after Beat's "Sending due task" line.
+- The application does not log its own request to Cashfree. The worker's HTTP client may log it (the report shows such lines if
+  they exist, as corroboration only); the confirmation itself can only come from Cashfree's answer for the exact amount.
+- Beat and worker logs live in the containers: do not recreate them during the test (`up` and `refresh-app` refuse while the test
+  mode is on). A direct call to the API inside Docker (not through the gateway) would not be seen; nothing in the procedure makes one.
+
+**The isolation (staging gateway only; no application code, no change to the task, its schedule or the workers):**
+`./staging.sh recon on` makes Cashfree's webhook endpoint answer 503, answers the checkout return page
+(`/internship-onboarding?order=...`) at the gateway so the web app never loads there, and makes the student's status-check
+endpoint answer 503 (so even an accidental button press cannot confirm; such attempts are counted and reported). Checkout, the
+student page without `?order=` and the rest of the API stay open. `celery_beat` and `celery_worker` keep running and are never
+stopped, restarted or modified (`recon on` refuses if either is not running). It excludes `gate on` (which stops Beat) and the
+other way round.
+
+**Commands (Mac, from `ops/staging-cashfree`):**
+- `./staging.sh recon check`: read-only readiness (Beat and worker up, the task registered, Beat has been sending it). Run it first.
+- `./staging.sh recon run ERPX-INT-2026-0000NN 45`: turns the mode on, waits up to 45 minutes for that student's order to become
+  paid in ERPX (checks every 30 seconds), prints the evidence report, and **always rolls back** (also on timeout, failure, Ctrl-C,
+  SIGTERM or a closed terminal). Use `caffeinate -i` so the Mac does not sleep: a sleeping Mac pauses Beat as well.
+- Manual alternative: `recon on`, then `recon status` while waiting, then `recon report ERPX-INT-2026-0000NN`, then `recon off`.
+- `./staging.sh recon off` is the rollback and is safe to run any time, any number of times: it removes every gate file, reloads the
+  gateway (restarting only the gateway if the reload fails), and starts Beat and the worker if they are not running. After it,
+  `./staging.sh gate status` shows "gate: off" and `./staging.sh verify` should pass.
+
+**Procedure:** `recon check`; then in one terminal `caffeinate -i ./staging.sh recon run <application ref> 45`, and in the
+browser: make a synthetic student ready to pay, press Pay, pay with `testsuccess@gocash`, let the Cashfree page finish, and **do
+not press any status button**. Wait. The report appears when ERPX shows the order as paid (or after 45 minutes).
+
+**Pass criteria (all must hold; the report prints each as PASS or FAIL):**
+1. The mode was on before checkout started; no Cashfree notification was accepted by the gateway and none reached ERPX; no student
+   status check reached ERPX (blocked attempts are listed, not counted against the test).
+2. Beat sent the task; the worker ran it and it confirmed at least one payment; ERPX recorded the confirmation within 120 seconds
+   of the end of that run; the confirmation came at least 10 minutes after checkout; its source is "status check" and the
+   order's `last_checked_at` matches it.
+3. The order is paid with exactly one confirmed payment, one receipt and one `payment_confirmed` event; exactly one receipt email
+   for that receipt number in Mailpit; the five integrity checks are 0 (duplicate payments, duplicate documents, confirmed payments
+   without a document, refund-adjustment mismatches, accounting journal entries).
+The report also saves filtered gateway, Beat and worker lines and the database facts in `evidence/recon-<time>/` (git-ignored).
+A Paid screenshot is not evidence; the report is. Row 9 is changed only after the owner has run this and read the report.
+
+**Tests (none is a sandbox run):** `tests/api/test_internship_onboarding_reconcile_task.py` runs the real `_reconcile()` on a lost-webhook
+order (a young order is not touched; after 11 minutes it is confirmed once with one receipt and one email; a second run and a late
+webhook change nothing; disabled Cashfree is a no-op), checks the Beat entry and the task registration, and executes the real
+`recon.sql` on PostgreSQL (including each way the evidence can be missing or contaminated);
+`tests/unit/test_staging_gateway.py` runs the recon gateway rules in a real nginx; `ops/staging-cashfree/tests/recon_test.sh` (30
+cases, fake Docker) covers the commands, the report's verdicts, mutual exclusion and every rollback path.
+
 ### 4b. The stuck return page (first checkout)
 
 ERPX never relies on the return page for money: payments are confirmed only by a signed webhook or a server-side status
@@ -235,8 +301,8 @@ not affect what ERPX records. No code change was made for it.
 
 1. Sandbox scenarios 5, 6 and 7 are done on the Mac (4a, evidence checks at 0, one email per receipt). Still open from
    4a-i. The manual button on its own (7b) has now passed with qualifications (4a-iii). Still open, owner's call on whether
-   they are needed before a controlled start: the 15-minute reconciliation task against the real sandbox (the lost-webhook
-   recoveries so far were the return page, 4a-ii, and the button), and a real "user dropped" notification (row 6).
+   they are needed before a controlled start: the 15-minute reconciliation task against the real sandbox (row 9: the isolated test and its
+   report exist, 4a-iv, but it has **not been run**; the lost-webhook recoveries so far were the return page, 4a-ii, and the button), and a real "user dropped" notification (row 6).
 2. Review and merge PR #163 (owner).
 3. Production prerequisites (owner): production App ID / Secret Key as server secrets only; webhook
    `https://erp.pentrix.in/api/v1/public/payments/cashfree/webhook` (version 2025-01-01, payment + refund events);

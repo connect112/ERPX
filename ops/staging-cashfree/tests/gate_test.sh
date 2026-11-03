@@ -34,7 +34,7 @@ for cmd in up refresh-app; do
   run_staging "$cmd"
   forbid_log " up -d --build"; forbid_log "force-recreate"
   need_state svc_celery_beat stopped
-  expect "$cmd is refused while the gate is on" 1 "the test gate is ON"
+  expect "$cmd is refused while the gate is on" 1 "a staging test mode is ON"
 done
 
 # 3. status shows the gate and what the gateway saw (so the button can be told apart from a page-load check)
@@ -48,7 +48,7 @@ expect "gate status reports the gate, the reconciliation and the status checks t
   "gate: ON" "reconciliation (celery_beat): stopped" "webhook calls (503 = refused):     1" "return-page requests (?order=):    1" \
   "[03/Nov/2026:08:03:40" "/api/v1/public/internship-onboarding/payments/refresh" "match the time to your button press"
 run_staging status
-expect "status warns that the gate is on" 0 "the test gate is ON"
+expect "status warns that the gate is on" 0 "a staging test mode is ON"
 
 # 4. gate off: files removed, nginx reloaded, reconciliation back, network untouched
 run_staging gate off

@@ -162,8 +162,31 @@ blocked nothing automatic calls the endpoint, but the log has no student identit
 ./staging.sh gate off
 ```
 
-`up` and `refresh-app` refuse to run while the gate is on; `status` and `gate status` show it. Details and pass criteria:
+`up` and `refresh-app` refuse to run while the gate (or `recon`) is on; `status` and `gate status` show it. Details and pass criteria:
 `docs/CASHFREE_SANDBOX.md` section 4a-iii.
+
+## Testing the scheduled reconciliation (`recon`)
+
+The reconciliation task confirms a paid order by itself when nothing else does. To test it alone, Cashfree's webhook, the payment
+return page and the student's status check are kept out while Celery Beat and the worker keep running untouched
+(`gate on` stops Beat, so it cannot be used for this):
+
+```bash
+./staging.sh recon check
+```
+
+(read-only: Beat and the worker are up, the task is registered, Beat has been sending it), then, keeping the Mac awake:
+
+```bash
+caffeinate -i ./staging.sh recon run ERPX-INT-2026-0000NN 45
+```
+
+In the browser meanwhile: make a synthetic student ready to pay, pay with `testsuccess@gocash`, and do **not** press any status
+button. The task only looks at orders older than 10 minutes, at :00, :15, :30 and :45 UTC, so expect 10 to about 25 minutes. The
+command prints a PASS/FAIL report (gateway, Beat and worker lines, database facts, one receipt, one email, the five integrity
+checks), saves it in `evidence/recon-<time>/`, and rolls everything back when it ends, however it ends. By hand: `recon on`,
+`recon status`, `recon report <application ref>`, `recon off`. `recon off` is always safe to run and restores the webhook,
+the return page, the status-check endpoint, Beat and the worker. Details: `docs/CASHFREE_SANDBOX.md` section 4a-iv.
 
 ## Evidence (before any change to the running stack)
 
@@ -289,6 +312,10 @@ The scripts run under macOS's `/bin/bash` (bash 3.2). Two suites run the real `p
 
 ```bash
 /bin/bash ops/staging-cashfree/tests/gate_test.sh
+```
+
+```bash
+/bin/bash ops/staging-cashfree/tests/recon_test.sh
 ```
 
 (an already-running stack whose network has a stale Compose hash and the databases attached: `refresh-app`, `tunnel`,

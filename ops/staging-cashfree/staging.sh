@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One entry point for the isolated Cashfree SANDBOX staging stack (project "erpx-cf-staging"). See README.md.
 #   init | preflight | tunnel | up | refresh-app | seed | verify | sandbox-tests | evidence | status | logs [service] | down
-#   | network-check | gate on|off|status | recreate-network | destroy
+#   | network-check | gate on|off|status | recon on|off|check|status|report|run | recreate-network | destroy
 # Every command acts only on this project's containers, network, volumes and images. Never prints a secret.
 # The Docker network is created and removed HERE, not by Compose (it is `external` in compose.yml), so no Compose
 # command can ever stop services to rebuild an occupied network.
@@ -58,13 +58,190 @@ remove_network() {
 # True when compose.yml (as Compose renders it) declares the network external.
 net_is_external() { dc --profile tunnel config 2>/dev/null | awk '/^networks:/ { n = 1; next } /^[A-Za-z]/ { n = 0 } n && /external: true/ { f = 1 } END { exit !f }'; }
 
-# --- the staging test gate (gate-templates/ -> gate/ -> the gateway). Staging gateway only; no application code is involved.
+# --- the staging test modes (gate-templates/ -> gate/ -> the gateway). Staging gateway only; no application code is involved.
+#   gate  (mode "manual")     webhook refused, payment return page blocked, celery_beat STOPPED: tests the student's button.
+#   recon (mode "reconcile")  webhook refused, return page blocked, student status-check endpoint refused; celery_beat and
+#                             celery_worker keep RUNNING: tests the scheduled reconciliation on its own.
 gate_is_on() { ls "$GATE"/*.conf >/dev/null 2>&1; }
-gate_warn() { gate_is_on && echo "NOTE: the test gate is ON (webhook refused, payment return page blocked, reconciliation stopped): ./staging.sh gate off" || true; }
-# up and refresh-app would start celery_beat again, which would quietly end the isolation
-gate_refuse() { if gate_is_on; then echo "the test gate is ON: finish the test and run ./staging.sh gate off first (this command would restart the reconciliation)."; exit 1; fi; }
+gate_mode() { cat "$GATE/mode" 2>/dev/null || true; }
+gate_warn() { gate_is_on && echo "NOTE: a staging test mode is ON ($(gate_mode)): webhook refused and payment return page blocked: ./staging.sh gate off (or recon off)" || true; }
+# up and refresh-app would restart containers the test depends on (the reconciliation, or its logs)
+gate_refuse() { if gate_is_on; then echo "a staging test mode is ON ($(gate_mode)): finish the test and run ./staging.sh gate off (or recon off) first (this command would restart containers the test relies on)."; exit 1; fi; }
 # validate the gateway configuration first; nginx keeps running the old one if the new one is invalid
 gate_reload() { dc exec -T gateway nginx -t >/dev/null 2>&1 && dc exec -T gateway nginx -s reload >/dev/null 2>&1; }
+svc_state() { dc ps "$1" --format '{{.State}}' 2>/dev/null | head -1; }
+# The one way back, used by gate off, recon off, the rollback of a failed start and the trap of `recon run`: removes every
+# gate file, makes the gateway pick that up (a reload, or a restart of the gateway alone if the reload fails; its gate
+# folder is empty by then, so a restart is always a clean configuration) and makes sure Beat and the worker are running.
+gate_remove_all() {
+  rm -f "${GATE:?}"/*.conf "${GATE:?}/mode"
+  if ! gate_reload; then
+    echo "could not reload the gateway; restarting the gateway only (its gate folder is empty)"
+    dc restart gateway >/dev/null 2>&1 || echo "COULD NOT RESTART THE GATEWAY: ./staging.sh logs gateway"
+  fi
+  dc start celery_beat celery_worker >/dev/null 2>&1 || true
+  echo "restored: webhook, return page and status checks reach ERPX again; celery_beat $(svc_state celery_beat), celery_worker $(svc_state celery_worker)"
+}
+# installs the templates for a mode ("manual" or "reconcile"), validates, and rolls back by itself if nginx rejects them
+gate_install() {
+  mkdir -p "$GATE"
+  cp "$DIR"/gate-templates/*.conf "$GATE"/
+  if [ "$1" = reconcile ]; then cp "$DIR"/gate-templates/reconcile/*.conf "$GATE"/; fi
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$GATE/since"
+  echo "$1" > "$GATE/mode"
+  if ! gate_reload; then
+    gate_remove_all >/dev/null
+    echo "the gateway refused the gate configuration; the gate was removed again and nothing changed."
+    return 1
+  fi
+}
+# --- reconciliation test (recon): everything below only reads logs and the database, except recon on/off/run
+gw_log() { dc logs --no-log-prefix --since "$1" gateway 2>/dev/null || true; }
+count_lines() { grep -c "$1" || true; }
+recon_counters() {  # <gateway log text>: what the gateway saw since the mode went on
+  hook_total="$(printf '%s\n' "$1" | grep 'payments/cashfree/webhook' | count_lines '')" || true
+  hook_ok="$(printf '%s\n' "$1" | grep 'payments/cashfree/webhook' | grep -v '" 503 ' | count_lines '')" || true
+  ref_total="$(printf '%s\n' "$1" | grep 'payments/refresh' | count_lines '')" || true
+  ref_reached="$(printf '%s\n' "$1" | grep 'payments/refresh' | grep -v '" 503 ' | count_lines '')" || true
+  ret_total="$(printf '%s\n' "$1" | count_lines 'internship-onboarding?order=')" || true
+}
+psql_app() { dc exec -T postgres psql -U erpx -d erpx_staging -X -q "$@"; }
+recon_query() {  # <application ref or ''> <since> <task_ok or ''>: the facts and checks of recon.sql, one key=value per line
+  psql_app -v "app=$1" -v "since=$2" -v "task_ok=$3" -f - < "$DIR/recon.sql"
+}
+recon_on() {
+  if gate_is_on; then echo "a staging test mode is already on ($(gate_mode)): ./staging.sh gate off (or recon off) first"; return 1; fi
+  ensure_network
+  for svc in celery_worker celery_beat; do
+    [ "$(svc_state "$svc")" = running ] || dc start "$svc" >/dev/null 2>&1 || true
+    [ "$(svc_state "$svc")" = running ] || { echo "$svc is not running: the scheduled reconciliation cannot be tested (./staging.sh up first)"; return 1; }
+  done
+  dc up -d --no-deps gateway   # only recreates the gateway if its definition changed (the first time after this update)
+  gate_install reconcile || return 1
+  echo "recon mode ON (since $(cat "$GATE/since")): webhook refused (503), payment return page blocked, student status-check endpoint refused (503)."
+  echo "celery_beat and celery_worker are RUNNING and untouched. The scheduled task runs at :00, :15, :30, :45 UTC and only picks up orders older than 10 minutes."
+  echo "Next: create a student, pay with testsuccess@gocash, and do NOT press any status button. Then ./staging.sh recon status, and ./staging.sh recon report <application ref>."
+  echo "Turn it off afterwards: ./staging.sh recon off     (or let ./staging.sh recon run do everything and roll back by itself)"
+}
+recon_status() {
+  if gate_is_on; then echo "mode: ON ($(gate_mode))"; else echo "mode: off"; fi
+  echo "celery_beat: $(svc_state celery_beat)   celery_worker: $(svc_state celery_worker)"
+  [ -f "$GATE/since" ] || { echo "the test mode has not been used yet."; return 0; }
+  since="$(cat "$GATE/since")"
+  recon_counters "$(gw_log "$since")"
+  echo "since $since, as the gateway saw it:"
+  echo "  Cashfree webhook calls: $hook_total (refused with 503: $((hook_total - hook_ok)); any other answer would invalidate the test: $hook_ok)"
+  echo "  payment return-page requests blocked: $ret_total"
+  echo "  student status-check calls: $ref_total (refused with 503: $((ref_total - ref_reached)); reached ERPX: $ref_reached)"
+  echo "scheduled reconciliation, from the Beat and worker logs:"
+  dc logs --timestamps --no-log-prefix --since "$since" celery_beat 2>/dev/null | grep 'Sending due task internship-onboarding-reconcile-payments' | awk '{ print "  beat sent the task at " $1 }' | tail -5 || true
+  dc logs --timestamps --no-log-prefix --since "$since" celery_worker 2>/dev/null | grep 'reconcile_payments\[.*succeeded' | sed 's/^\([^ ]*\) .*succeeded in \([^:]*\): /  worker ran it at \1 (\2): /' | tail -5 || true
+  echo "Cashfree orders created since then:"
+  recon_query "" "$since" "" | grep -E '^fact\.(application|order|order_status|order_created_at|order_last_checked_at|order_paid_at)=' | sed 's/^/  /' || true
+}
+recon_report() {  # <application ref or ''>
+  app="${1:-}"
+  case "$app" in *[!A-Za-z0-9-]*) echo "the application reference may contain only letters, digits and dashes"; return 2 ;; esac
+  [ -f "$GATE/since" ] || { echo "no recon test has been started (./staging.sh recon on)"; return 2; }
+  since="$(cat "$GATE/since")"
+  out="$DIR/evidence/recon-$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$out" && chmod 700 "$DIR/evidence" "$out"
+  # only the lines that matter are kept, never whole logs
+  gw="$(gw_log "$since")"
+  printf '%s\n' "$gw" | grep -E 'payments/cashfree/webhook|payments/refresh|internship-onboarding\?order=' > "$out/gateway-lines.txt" || true
+  dc logs --timestamps --no-log-prefix --since "$since" celery_beat 2>/dev/null | grep 'Sending due task internship-onboarding-reconcile-payments' > "$out/beat-lines.txt" || true
+  dc logs --timestamps --no-log-prefix --since "$since" celery_worker 2>/dev/null | grep -E 'reconcile_payments\[|sandbox.cashfree.com/pg/orders/.*/payments' > "$out/worker-lines.txt" || true
+  task_ok=""; task_line=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *reconcile_payments*succeeded*)
+        n="$(printf '%s' "$line" | sed -n "s/.*'confirmed': \([0-9]*\).*/\1/p")"
+        if [ "${n:-0}" -ge 1 ]; then ts="${line%% *}"; task_ok="${ts%%.*}Z"; task_line="$line"; fi ;;
+    esac
+  done < "$out/worker-lines.txt"
+  recon_query "$app" "$since" "$task_ok" > "$out/facts.txt"
+  recon_counters "$gw"
+  beat_ticks="$(count_lines 'Sending due task' < "$out/beat-lines.txt")"
+  api_lines="$(grep -c 'sandbox.cashfree.com/pg/orders/.*/payments' "$out/worker-lines.txt" || true)"
+  kv() { grep "^$1=" "$out/facts.txt" | head -1 | cut -d= -f2-; }
+  mails="n/a"
+  if [ -n "$(kv fact.receipt_number)" ] && [ "$(kv fact.receipt_number)" != NONE ]; then
+    mails="$(curl -fsS "http://127.0.0.1:$(getv STAGING_MAIL_PORT)/api/v1/messages?limit=1000" 2>/dev/null | grep -o '"Subject":"[^"]*"' | grep -c "$(kv fact.receipt_number)" || true)"
+  fi
+  bad_integrity="$(grep '^integrity\.' "$out/facts.txt" | grep -vc '=0$' || true)"
+  fails=""
+  verdict() {  # <description> <true|false>
+    if [ "$2" = true ]; then echo "PASS  $1"; else echo "FAIL  $1"; fails="$fails
+  - $1"; fi
+  }
+  {
+    echo "Automatic reconciliation test: report $(date -u +%Y-%m-%dT%H:%M:%SZ)   (test mode on since $since)"
+    echo "application $(kv fact.application)  order $(kv fact.order)  status $(kv fact.order_status)  Cashfree payment $(kv fact.cashfree_payment_id)"
+    echo "order created $(kv fact.order_created_at)  last checked $(kv fact.order_last_checked_at)  paid $(kv fact.order_paid_at)  receipt $(kv fact.receipt_number)"
+    echo "payment confirmed event at $(kv fact.confirmed_event_at), source '$(kv fact.confirmed_event_source)'"
+    echo "task run that confirmed it: ${task_line:-none found}"
+    echo "== isolation"
+    verdict "the test mode was on before checkout started" "$(kv check.test_mode_was_on_before_checkout)"
+    verdict "no Cashfree notification was accepted by the gateway ($hook_ok non-503 answers; $hook_total call(s) in all)" "$([ "$hook_ok" = 0 ] && echo true || echo false)"
+    verdict "no notification reached ERPX (webhook table has no row for this order)" "$(kv check.no_notification_reached_erpx)"
+    verdict "no student status check reached ERPX ($ref_reached reached; $((ref_total - ref_reached)) refused at the gateway)" "$([ "$ref_reached" = 0 ] && echo true || echo false)"
+    echo "== the scheduled reconciliation did it"
+    verdict "Celery Beat sent the reconciliation task ($beat_ticks time(s) since the mode went on)" "$([ "$beat_ticks" -ge 1 ] && echo true || echo false)"
+    verdict "the worker ran it and it confirmed at least one payment" "$([ -n "$task_ok" ] && echo true || echo false)"
+    verdict "ERPX recorded the confirmation inside that run (within 120 s of its end)" "$(kv check.confirmation_inside_scheduled_task_run)"
+    verdict "confirmation came at least 10 minutes after checkout (the task's minimum order age)" "$(kv check.confirmed_at_least_10_minutes_after_checkout)"
+    verdict "the confirmation's source is 'status check' and the order's last_checked_at matches it" "$([ "$(kv check.confirmation_source_is_status_check)" = true ] && [ "$(kv check.order_last_checked_at_matches_confirmation)" = true ] && echo true || echo false)"
+    echo "INFO  Cashfree API request lines for an order's payments in the worker log: $api_lines (corroboration only; the confirmation itself can only come from Cashfree's answer for the exact amount)"
+    echo "== result in ERPX"
+    verdict "paid, with exactly one confirmed payment, one receipt and one payment_confirmed event" "$(kv check.paid_by_one_payment_one_receipt_one_event)"
+    verdict "exactly one receipt email in Mailpit for $(kv fact.receipt_number) (found $mails)" "$([ "$mails" = 1 ] && echo true || echo false)"
+    verdict "the five integrity checks are all 0 (duplicates, missing documents, refund mismatches, accounting entries)" "$([ "$bad_integrity" = 0 ] && echo true || echo false)"
+    echo "== context"
+    echo "Cashfree notifications refused at the gateway: $((hook_total - hook_ok)); payment return-page requests blocked: $ret_total; student status checks refused: $((ref_total - ref_reached))"
+    if [ -z "$fails" ]; then
+      echo "RESULT: every criterion is met. Record the acceptance as passed only after the owner has read this report and the files in ${out#"$REPO"/}."
+    else
+      echo "RESULT: NOT PROVEN. Not met:$fails"
+    fi
+  } > "$out/report.txt"
+  cat "$out/report.txt"
+  echo "saved to ${out#"$REPO"/} (git-ignored; gateway, Beat and worker lines are filtered, no secrets)"
+  [ -z "$fails" ]
+}
+recon_rollback_trap() {  # runs when `recon run` ends in any way: success, failure, timeout, Ctrl-C, closed terminal
+  rc=$?
+  trap - EXIT INT TERM HUP
+  set +e
+  echo "== rollback"
+  gate_remove_all
+  exit "$rc"
+}
+recon_run() {  # <application ref or ''> [minutes]
+  app="${1:-}"; minutes="${2:-45}"
+  case "$minutes" in ''|*[!0-9]*) echo "minutes must be a number"; return 2 ;; esac
+  case "$app" in *[!A-Za-z0-9-]*) echo "the application reference may contain only letters, digits and dashes"; return 2 ;; esac
+  if gate_is_on; then echo "a staging test mode is already on ($(gate_mode)): ./staging.sh gate off (or recon off) first"; return 1; fi
+  trap recon_rollback_trap EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  recon_on || return 1
+  since="$(cat "$GATE/since")"
+  echo "Waiting up to $minutes minutes for a Cashfree order created from now on to become paid (checking every 30 s)."
+  paid=0
+  for i in $(seq 1 $((minutes * 2))); do
+    sleep 30
+    if [ -n "$app" ]; then
+      paid="$(psql_app -tA -c "SELECT count(*) FROM internship_payment_orders o JOIN internship_onboarding_applications a ON a.id = o.application_id WHERE o.method = 'cashfree' AND o.status = 'paid' AND a.reference = '$app' AND o.created_at >= '$since'" | head -1)"
+    else
+      paid="$(psql_app -tA -c "SELECT count(*) FROM internship_payment_orders WHERE method = 'cashfree' AND status = 'paid' AND created_at >= '$since'" | head -1)"
+    fi
+    [ "${paid:-0}" -ge 1 ] && break
+    [ $((i % 4)) = 0 ] && echo "  ... $((i / 2)) min, not paid in ERPX yet ($(date -u +%H:%M:%S) UTC)"
+  done
+  if [ "${paid:-0}" -ge 1 ]; then echo "paid in ERPX."; else echo "not paid in ERPX within $minutes minutes."; fi
+  recon_report "$app"
+}
 
 need_env() {
   [ -f "$ENVF" ] || { echo "staging.env is missing: run ./staging.sh init"; exit 1; }
@@ -156,14 +333,10 @@ case "${1:-help}" in
     need_env
     case "${2:-status}" in
       on)
+        if gate_is_on; then echo "a staging test mode is already on ($(gate_mode)): ./staging.sh gate off (or recon off) first"; exit 1; fi
         ensure_network
         dc up -d --no-deps gateway   # only recreates the gateway if its definition changed (the first time after this update)
-        cp "$DIR"/gate-templates/*.conf "$GATE"/
-        date -u +%Y-%m-%dT%H:%M:%SZ > "$GATE/since"
-        if ! gate_reload; then
-          rm -f "$GATE"/*.conf "$GATE/since"; gate_reload || true
-          echo "the gateway refused the gate configuration; the gate was removed again and nothing changed."; exit 1
-        fi
+        gate_install manual || exit 1
         dc stop celery_beat
         echo "gate ON (since $(cat "$GATE/since")): webhook refused (503), payment return page blocked, reconciliation stopped."
         echo "Pay with a student; Cashfree shows its success page, then the browser lands on ERPX's gate page. Open the student's"
@@ -171,13 +344,11 @@ case "${1:-help}" in
         echo "Turn it off afterwards: ./staging.sh gate off"
         ;;
       off)
-        rm -f "$GATE"/*.conf
-        gate_reload || { echo "could not reload the gateway: ./staging.sh logs gateway"; exit 1; }
-        dc start celery_beat
+        gate_remove_all
         echo "gate OFF: webhook, return page and the 15-minute reconciliation work normally again (the since-time is kept for gate status)."
         ;;
       status)
-        if gate_is_on; then echo "gate: ON"; else echo "gate: off"; fi
+        if gate_is_on; then echo "gate: ON (mode: $(gate_mode))"; else echo "gate: off"; fi
         echo "reconciliation (celery_beat): $(dc ps celery_beat --format '{{.State}}' 2>/dev/null | head -1)"
         if [ -f "$GATE/since" ]; then
           since="$(cat "$GATE/since")"
@@ -191,6 +362,34 @@ case "${1:-help}" in
         else echo "the gate has not been used yet."; fi
         ;;
       *) echo "usage: ./staging.sh gate on|off|status"; exit 1 ;;
+    esac
+    ;;
+  recon)
+    # The automatic-reconciliation test: Cashfree's webhook, the return-page check and every student status check are out
+    # of the way, and the scheduled reconciliation (Beat + worker) is left running and untouched.
+    #   recon on | off | status | check | report [application ref] | run [application ref] [minutes]
+    need_env
+    case "${2:-status}" in
+      on) recon_on || exit 1 ;;
+      off) gate_remove_all; echo "recon OFF: normal webhook delivery, return page, status checks and scheduled tasks." ;;
+      check)
+        # read-only readiness check before the long wait: is the task registered, are Beat and the worker up, has Beat been sending it
+        ok=1
+        for svc in celery_worker celery_beat; do
+          if [ "$(svc_state "$svc")" = running ]; then echo "OK    $svc is running"; else echo "FAIL  $svc is not running"; ok=0; fi
+        done
+        if dc exec -T celery_worker celery -A app.core.celery_app inspect registered 2>/dev/null | grep -q 'internship_onboarding.reconcile_payments'; then
+          echo "OK    the worker has the task internship_onboarding.reconcile_payments registered"
+        else echo "FAIL  the worker does not list the reconciliation task"; ok=0; fi
+        if dc logs --no-log-prefix --since 20m celery_beat 2>/dev/null | grep -q 'Sending due task internship-onboarding-reconcile-payments'; then
+          echo "OK    Beat has sent the task in the last 20 minutes"
+        else echo "WAIT  Beat has not sent it in the last 20 minutes (it fires at :00, :15, :30, :45 UTC; if Beat started recently, check again after the next tick)"; fi
+        [ "$ok" = 1 ]
+        ;;
+      status) recon_status ;;
+      report) recon_report "${3:-}" ;;
+      run) recon_run "${3:-}" "${4:-45}" ;;
+      *) echo "usage: ./staging.sh recon on|off|check|status|report [application ref]|run [application ref] [minutes]"; exit 1 ;;
     esac
     ;;
   network-check)

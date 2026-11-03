@@ -7,6 +7,8 @@ The Cashfree staging scripts (ops/staging-cashfree) must run on macOS's /bin/bas
    STAGING_TEST_BASH32=/path/to/bash-3.2 to add it.
    - tests/preflight_test.sh: allowed and unexpected settings, CRLF, an existing STAGING_SUBNET without network
      recreation, kept validations, the external-network requirement.
+   - tests/recon_test.sh: the automatic-reconciliation test mode (`./staging.sh recon ...`): isolation without stopping Beat/worker,
+     the evidence report and its verdicts, and the rollback in every ending (off, failed start, timeout, signal).
    - tests/gate_test.sh: the staging test gate (`./staging.sh gate on|off|status`) used to test the status-check button alone.
    - tests/upgrade_test.sh: upgrading an already-running stack (occupied network with a stale Compose hash): refresh-app,
      tunnel, up and network-check never create, change or remove the network; recreate-network removes only an empty one.
@@ -25,7 +27,7 @@ import yaml
 pytestmark = pytest.mark.unit
 
 KIT = Path(__file__).resolve().parents[2] / "ops" / "staging-cashfree"
-SCRIPTS = [KIT / "preflight.sh", KIT / "staging.sh", KIT / "tests" / "fixture.sh", KIT / "tests" / "preflight_test.sh", KIT / "tests" / "upgrade_test.sh", KIT / "tests" / "gate_test.sh"]
+SCRIPTS = [KIT / "preflight.sh", KIT / "staging.sh", KIT / "tests" / "fixture.sh", KIT / "tests" / "preflight_test.sh", KIT / "tests" / "upgrade_test.sh", KIT / "tests" / "gate_test.sh", KIT / "tests" / "recon_test.sh"]
 
 BASH4_ONLY = {
     r"\bdeclare\s+-[a-zA-Z]*A": "associative arrays (declare -A)",
@@ -85,7 +87,7 @@ def available_bashes() -> list[str]:
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="the suites build a throwaway git repository")
-@pytest.mark.parametrize("suite", ["preflight_test.sh", "upgrade_test.sh", "gate_test.sh"])
+@pytest.mark.parametrize("suite", ["preflight_test.sh", "upgrade_test.sh", "gate_test.sh", "recon_test.sh"])
 @pytest.mark.parametrize("bash", available_bashes())
 def test_the_staging_suites_pass_under_each_available_bash(bash, suite):
     result = subprocess.run([bash, str(KIT / "tests" / suite)], capture_output=True, text=True, timeout=300)

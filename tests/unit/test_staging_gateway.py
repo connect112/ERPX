@@ -8,7 +8,9 @@ The staging test gate (ops/staging-cashfree/gateway.conf + gate-templates/), run
 - everything else, including the API's POST .../payments/refresh that the "I have paid: check status" button calls,
   still reaches its upstream.
 With the gate off (the folder empty) nothing is changed. Staging gateway only: the API and the web app are untouched.
-Skipped when no nginx binary is installed.
+`./staging.sh recon on` (the scheduled-reconciliation test) installs the same two plus a third template that also refuses the
+student's status-check endpoint (POST .../payments/refresh) with 503, so no student-side check can reach ERPX; checkout and
+the rest of the API stay open. Skipped when no nginx binary is installed.
 """
 
 import http.client
@@ -29,6 +31,7 @@ KIT = Path(__file__).resolve().parents[2] / "ops" / "staging-cashfree"
 NGINX = shutil.which("nginx") or ("/usr/sbin/nginx" if Path("/usr/sbin/nginx").exists() else None)
 WEBHOOK = "/api/v1/public/payments/cashfree/webhook"
 REFRESH = "/api/v1/public/internship-onboarding/payments/refresh"
+CHECKOUT = "/api/v1/public/internship-onboarding/payments/checkout"
 
 pytestmark = [pytest.mark.unit, pytest.mark.skipif(NGINX is None, reason="needs an nginx binary")]
 
@@ -126,8 +129,11 @@ class Gateway:
         conn.close()
         return response.status, body
 
-    def gate_on(self):
-        for template in (KIT / "gate-templates").glob("*.conf"):
+    def gate_on(self, mode: str = "manual"):
+        templates = list((KIT / "gate-templates").glob("*.conf"))
+        if mode == "reconcile":  # ./staging.sh recon on: the same two, plus the refusal of the student's status-check endpoint
+            templates += list((KIT / "gate-templates" / "reconcile").glob("*.conf"))
+        for template in templates:
             shutil.copy(template, self.gate / template.name)
         assert self.test_config().returncode == 0
         self.reload()
@@ -196,3 +202,34 @@ def test_switching_the_gate_off_restores_both_paths(gateway):
     assert gateway.request("POST", WEBHOOK) == (200, "from api")
     assert gateway.request("GET", "/internship-onboarding?order=ERPXI123") == (200, "from web")
     assert gateway.api.seen and gateway.web.seen
+
+
+def test_recon_mode_also_refuses_the_students_status_check_but_nothing_else(gateway):
+    gateway.gate_on("reconcile")
+    gateway.clear()
+
+    # the three things that could confirm a payment before the scheduled task: all out of the way
+    assert gateway.request("POST", WEBHOOK)[0] == 503
+    status, body = gateway.request("GET", "/internship-onboarding?order=ERPXI123")
+    assert status == 200 and "Staging test gate is on" in body
+    assert gateway.request("POST", REFRESH)[0] == 503
+    assert gateway.api.seen == [] and gateway.web.seen == []  # none of them reached ERPX
+
+    # ...while the student can still open the page, start a checkout and use the rest of the API
+    assert gateway.request("GET", "/internship-onboarding") == (200, "from web")
+    assert gateway.request("POST", CHECKOUT) == (200, "from api")
+    assert gateway.request("GET", "/api/v1/health") == (200, "from api")
+    assert gateway.api.seen == [f"POST {CHECKOUT}", "GET /api/v1/health"]
+
+
+def test_manual_mode_keeps_the_status_check_open_and_recon_mode_off_restores_it(gateway):
+    gateway.gate_on("manual")
+    assert gateway.request("POST", REFRESH) == (200, "from api")  # the button's endpoint is open in the button test
+    gateway.gate_off()
+    gateway.gate_on("reconcile")
+    assert gateway.request("POST", REFRESH)[0] == 503
+    gateway.gate_off()
+    gateway.clear()
+    assert gateway.request("POST", REFRESH) == (200, "from api")
+    assert gateway.request("POST", WEBHOOK) == (200, "from api")
+    assert gateway.request("GET", "/internship-onboarding?order=ERPXI123") == (200, "from web")

@@ -27,7 +27,7 @@ echo "bash under test: $SHELL_UNDER_TEST ($("$SHELL_UNDER_TEST" -c 'echo $BASH_V
 # --- a throwaway repository holding the kit, like the real checkout
 REPO="$WORK/repo"
 mkdir -p "$REPO/ops/staging-cashfree"
-for f in preflight.sh staging.sh staging.env.example compose.yml evidence.sql .gitignore; do
+for f in preflight.sh staging.sh staging.env.example compose.yml evidence.sql recon.sql .gitignore; do
   cp "$KIT/$f" "$REPO/ops/staging-cashfree/"
 done
 cp -R "$KIT/gate-templates" "$REPO/ops/staging-cashfree/"
@@ -110,17 +110,24 @@ case "$1" in
       logs)
         case "$*" in
           *gateway*) cat "$S/gateway_log" 2>/dev/null ;;
+          *celery_beat*) cat "$S/beat_log" 2>/dev/null ;;
+          *celery_worker*) cat "$S/worker_log" 2>/dev/null ;;
           *) echo "tunnel-1  | https://new-name-5678.trycloudflare.com" ;;
         esac
         exit 0 ;;
       stop) for a in "$@"; do case "$a" in -*) ;; *) echo stopped > "$S/svc_$a" ;; esac; done; exit 0 ;;
-      start) for a in "$@"; do case "$a" in -*) ;; *) echo running > "$S/svc_$a" ;; esac; done; exit 0 ;;
+      start) [ -n "${FAKE_START_FAILS:-}" ] && exit 1; for a in "$@"; do case "$a" in -*) ;; *) echo running > "$S/svc_$a" ;; esac; done; exit 0 ;;
+      restart) echo restarted >> "$S/restarts"; exit 0 ;;
       ps) for a in "$@"; do case "$a" in -*|"{{.State}}") ;; *) cat "$S/svc_$a" 2>/dev/null; break ;; esac; done; exit 0 ;;
       exec)
         case "$*" in
           *"printenv FRONTEND_URL"*) cat "$S/frontend_url" 2>/dev/null ;;
           *"nginx -t"*) echo "nginx -t" >> "$S/nginx_checks"; [ -e "$S/nginx_invalid" ] && exit 1 ;;
           *nginx*reload*) echo reloaded >> "$S/gateway_reloads" ;;
+          *"-v app="*) cat "$S/recon_facts" 2>/dev/null ;;
+          *"-tA -c"*) cat "$S/paid_count" 2>/dev/null || echo 0 ;;
+          *"inspect registered"*) cat "$S/registered" 2>/dev/null || echo "-> celery@w: OK
+    * internship_onboarding.reconcile_payments" ;;
           *psql*) printf '== CHECKS\nduplicate payments | 0\n== Cashfree\n' ;;
         esac
         exit 0 ;;
@@ -171,12 +178,12 @@ cat > "$WORK/bin/curl" <<'FAKE'
 #!/bin/sh
 case "$*" in
   *health/ready*) [ "$(cat "$FAKE_STATE/svc_api" 2>/dev/null)" = running ] || exit 22; exit 0 ;;
-  *api/v1/messages*) echo '{"messages":[{"ID":"m1","Subject":"Receipt RCPT-1"}]}'; exit 0 ;;
+  *api/v1/messages*) if [ -f "$FAKE_STATE/mail_json" ]; then cat "$FAKE_STATE/mail_json"; else echo '{"messages":[{"ID":"m1","Subject":"Receipt RCPT-1"}]}'; fi; exit 0 ;;
   */message/*/raw*) echo "raw mail"; exit 0 ;;
 esac
 exit 0
 FAKE
-printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/sleep"
+printf '#!/bin/sh\n[ -n "${FAKE_SLEEP:-}" ] && exec /bin/sleep "$FAKE_SLEEP"\nexit 0\n' > "$WORK/bin/sleep"
 chmod +x "$WORK/bin/docker" "$WORK/bin/curl" "$WORK/bin/sleep"
 
 # --- state helpers
