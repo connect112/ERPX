@@ -30,6 +30,7 @@ mkdir -p "$REPO/ops/staging-cashfree"
 for f in preflight.sh staging.sh staging.env.example compose.yml evidence.sql .gitignore; do
   cp "$KIT/$f" "$REPO/ops/staging-cashfree/"
 done
+cp -R "$KIT/gate-templates" "$REPO/ops/staging-cashfree/"
 (cd "$REPO" && git init -q && git add -A && git -c user.name=test -c user.email=test@example.com commit -qm fixture)
 ENVF="$REPO/ops/staging-cashfree/staging.env"
 NETNAME="erpx-cf-staging_default"
@@ -106,10 +107,19 @@ case "$1" in
     verb="$1"; shift
     case "$verb" in
       config) cat "$FAKE_CONFIG"; exit 0 ;;
-      logs) echo "tunnel-1  | https://new-name-5678.trycloudflare.com"; exit 0 ;;
+      logs)
+        case "$*" in
+          *gateway*) cat "$S/gateway_log" 2>/dev/null ;;
+          *) echo "tunnel-1  | https://new-name-5678.trycloudflare.com" ;;
+        esac
+        exit 0 ;;
+      stop) for a in "$@"; do case "$a" in -*) ;; *) echo stopped > "$S/svc_$a" ;; esac; done; exit 0 ;;
+      start) for a in "$@"; do case "$a" in -*) ;; *) echo running > "$S/svc_$a" ;; esac; done; exit 0 ;;
+      ps) for a in "$@"; do case "$a" in -*|"{{.State}}") ;; *) cat "$S/svc_$a" 2>/dev/null; break ;; esac; done; exit 0 ;;
       exec)
         case "$*" in
           *"printenv FRONTEND_URL"*) cat "$S/frontend_url" 2>/dev/null ;;
+          *"nginx -t"*) echo "nginx -t" >> "$S/nginx_checks"; [ -e "$S/nginx_invalid" ] && exit 1 ;;
           *nginx*reload*) echo reloaded >> "$S/gateway_reloads" ;;
           *psql*) printf '== CHECKS\nduplicate payments | 0\n== Cashfree\n' ;;
         esac

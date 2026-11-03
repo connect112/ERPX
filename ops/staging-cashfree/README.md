@@ -126,12 +126,10 @@ Cashfree sandbox test data (check Cashfree's sandbox page for current values): U
 5. Cancellation: another student closes the checkout -> no receipt; "I have paid: check status" and the 15-minute
    reconciliation keep it unpaid.
 6. Lost webhook: disable the webhook in the dashboard (or make the gateway refuse it), pay with another student ->
-   ERPX confirms the payment from its own status check, once. Two things can do that before you press anything: the
-   student's return page (`?order=...` runs the same check on load) and the 15-minute reconciliation. To test the button
-   itself, close the Cashfree page without returning, open the student link without `?order=`, and press "I have paid:
-   check status" within 10 minutes of creating the order. Then enable the webhook again and expect the late
-   notifications to be acknowledged (200) without a second payment or receipt. (Do not restart the tunnel for this: it
-   would get a new address.)
+   Cashfree sends the browser back to `/internship-onboarding?order=...`, whose page checks the payment itself, so ERPX
+   confirms it once without the button (this is what happened in both runs so far). Enable the webhook again and expect
+   the late notifications to be acknowledged (200) without a second payment or receipt. To test the **button** alone,
+   use the gate below. (Do not restart the tunnel for this: it would get a new address.)
 7. Refund: finance refunds ₹1.00 of the paid order -> Cashfree refund -> refund webhook -> credit note. Then, with that
    order's id:
 
@@ -140,6 +138,32 @@ PAID_ORDER=<order id> REFUND=1 ./staging.sh sandbox-tests
 ```
 
 8. Optional: set `CASHFREE_API_VERSION=2026-01-01` in `staging.env`, run `./staging.sh up`, repeat step 2.
+
+## Testing the "I have paid: check status" button on its own (the gate)
+
+```bash
+./staging.sh gate on
+```
+
+Refuses Cashfree's webhook (503), answers the payment return page (`?order=...`) with a "test gate is on" page so the web
+app never runs its automatic check, and stops the 15-minute reconciliation (`celery_beat`). Only the staging gateway and that
+staging container change; the first time after an update it also recreates the gateway container (a few seconds). Then:
+pay with `testsuccess@gocash` for a ready student; the browser lands on the gate page and the student must still be unpaid;
+open the student's link **without** `?order=` and press "I have paid: check status"; then
+
+```bash
+./staging.sh gate status
+```
+
+(lists the status checks the gateway saw: with the return page blocked, exactly one `POST .../payments/refresh` is the
+button), then `./staging.sh evidence` (five checks 0), and finally
+
+```bash
+./staging.sh gate off
+```
+
+`up` and `refresh-app` refuse to run while the gate is on; `status` and `gate status` show it. Details and pass criteria:
+`docs/CASHFREE_SANDBOX.md` section 4a-iii.
 
 ## Evidence (before any change to the running stack)
 
@@ -261,6 +285,10 @@ The scripts run under macOS's `/bin/bash` (bash 3.2). Two suites run the real `p
 
 ```bash
 /bin/bash ops/staging-cashfree/tests/upgrade_test.sh
+```
+
+```bash
+/bin/bash ops/staging-cashfree/tests/gate_test.sh
 ```
 
 (an already-running stack whose network has a stale Compose hash and the databases attached: `refresh-app`, `tunnel`,

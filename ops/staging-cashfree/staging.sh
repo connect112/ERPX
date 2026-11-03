@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One entry point for the isolated Cashfree SANDBOX staging stack (project "erpx-cf-staging"). See README.md.
 #   init | preflight | tunnel | up | refresh-app | seed | verify | sandbox-tests | evidence | status | logs [service] | down
-#   | network-check | recreate-network | destroy
+#   | network-check | gate on|off|status | recreate-network | destroy
 # Every command acts only on this project's containers, network, volumes and images. Never prints a secret.
 # The Docker network is created and removed HERE, not by Compose (it is `external` in compose.yml), so no Compose
 # command can ever stop services to rebuild an occupied network.
@@ -12,6 +12,7 @@ REPO="$(cd "$DIR/../.." && pwd)"
 ENVF="$DIR/staging.env"
 PROJECT="erpx-cf-staging"
 NET="${PROJECT}_default"   # the network compose.yml declares external
+GATE="$DIR/gate"            # mounted into the gateway; empty unless a test needs it (see `gate`)
 
 getv() { awk -v k="$1" '{ sub(/\r$/, "") } index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$ENVF"; }
 setv() {  # replace or append KEY=value without printing it (portable: no sed -i)
@@ -19,7 +20,7 @@ setv() {  # replace or append KEY=value without printing it (portable: no sed -i
   awk -v k="$1" -v v="$2" 'BEGIN { done = 0 } index($0, k "=") == 1 { print k "=" v; done = 1; next } { print } END { if (!done) print k "=" v }' "$ENVF" > "$tmp"
   mv "$tmp" "$ENVF"; chmod 600 "$ENVF"
 }
-dc() { docker compose --project-directory "$DIR" -f "$DIR/compose.yml" --env-file "$ENVF" "$@"; }
+dc() { mkdir -p "$GATE"; docker compose --project-directory "$DIR" -f "$DIR/compose.yml" --env-file "$ENVF" "$@"; }
 port() { getv STAGING_HTTP_PORT; }
 # --- the staging network (outside Compose's control; see the note in compose.yml)
 net_exists() { docker network inspect "$NET" >/dev/null 2>&1; }
@@ -56,6 +57,14 @@ remove_network() {
 }
 # True when compose.yml (as Compose renders it) declares the network external.
 net_is_external() { dc --profile tunnel config 2>/dev/null | awk '/^networks:/ { n = 1; next } /^[A-Za-z]/ { n = 0 } n && /external: true/ { f = 1 } END { exit !f }'; }
+
+# --- the staging test gate (gate-templates/ -> gate/ -> the gateway). Staging gateway only; no application code is involved.
+gate_is_on() { ls "$GATE"/*.conf >/dev/null 2>&1; }
+gate_warn() { gate_is_on && echo "NOTE: the test gate is ON (webhook refused, payment return page blocked, reconciliation stopped): ./staging.sh gate off" || true; }
+# up and refresh-app would start celery_beat again, which would quietly end the isolation
+gate_refuse() { if gate_is_on; then echo "the test gate is ON: finish the test and run ./staging.sh gate off first (this command would restart the reconciliation)."; exit 1; fi; }
+# validate the gateway configuration first; nginx keeps running the old one if the new one is invalid
+gate_reload() { dc exec -T gateway nginx -t >/dev/null 2>&1 && dc exec -T gateway nginx -s reload >/dev/null 2>&1; }
 
 need_env() {
   [ -f "$ENVF" ] || { echo "staging.env is missing: run ./staging.sh init"; exit 1; }
@@ -112,6 +121,7 @@ case "${1:-help}" in
     ;;
   up)
     need_env
+    gate_refuse
     "${BASH:-bash}" "$DIR/preflight.sh"
     ensure_network
     dc up -d --build
@@ -126,6 +136,7 @@ case "${1:-help}" in
     # (FRONTEND_URL, CORS, student links, the Cashfree return URL). Postgres, Redis, MinIO, Mailpit, web, the gateway and
     # the tunnel keep running, no image is built, and the network is not touched (it is external).
     need_env
+    gate_refuse
     "${BASH:-bash}" "$DIR/preflight.sh"
     ensure_network
     echo "restarting api, celery_worker, celery_beat with STAGING_PUBLIC_URL=$(getv STAGING_PUBLIC_URL)"
@@ -133,7 +144,54 @@ case "${1:-help}" in
     reload_gateway
     wait_ready
     echo "the API now uses FRONTEND_URL=$(dc exec -T api printenv FRONTEND_URL)"
+    gate_warn
     echo "Cashfree webhook URL: $(getv STAGING_PUBLIC_URL)/api/v1/public/payments/cashfree/webhook (must be this in the dashboard)"
+    ;;
+  gate)
+    # The manual status-check test: makes sure NOTHING but the student's button can confirm a payment.
+    #   gate on     Cashfree's webhook answers 503; the return page (/internship-onboarding?order=...) is answered by the
+    #               gateway, so the web app never loads there and never runs its automatic status check; the
+    #               15-minute reconciliation (celery_beat) is stopped. The button's endpoint stays open.
+    #   gate off    undoes all three.   gate status   shows what is on and which status checks the gateway has seen.
+    need_env
+    case "${2:-status}" in
+      on)
+        ensure_network
+        dc up -d --no-deps gateway   # only recreates the gateway if its definition changed (the first time after this update)
+        cp "$DIR"/gate-templates/*.conf "$GATE"/
+        date -u +%Y-%m-%dT%H:%M:%SZ > "$GATE/since"
+        if ! gate_reload; then
+          rm -f "$GATE"/*.conf "$GATE/since"; gate_reload || true
+          echo "the gateway refused the gate configuration; the gate was removed again and nothing changed."; exit 1
+        fi
+        dc stop celery_beat
+        echo "gate ON (since $(cat "$GATE/since")): webhook refused (503), payment return page blocked, reconciliation stopped."
+        echo "Pay with a student; Cashfree shows its success page, then the browser lands on ERPX's gate page. Open the student's"
+        echo "onboarding link WITHOUT ?order=, press 'I have paid: check status', then ./staging.sh gate status and ./staging.sh evidence."
+        echo "Turn it off afterwards: ./staging.sh gate off"
+        ;;
+      off)
+        rm -f "$GATE"/*.conf
+        gate_reload || { echo "could not reload the gateway: ./staging.sh logs gateway"; exit 1; }
+        dc start celery_beat
+        echo "gate OFF: webhook, return page and the 15-minute reconciliation work normally again (the since-time is kept for gate status)."
+        ;;
+      status)
+        if gate_is_on; then echo "gate: ON"; else echo "gate: off"; fi
+        echo "reconciliation (celery_beat): $(dc ps celery_beat --format '{{.State}}' 2>/dev/null | head -1)"
+        if [ -f "$GATE/since" ]; then
+          since="$(cat "$GATE/since")"
+          log="$(dc logs --no-log-prefix --since "$since" gateway 2>/dev/null || true)"
+          echo "since $since, as the gateway saw it:"
+          echo "  webhook calls (503 = refused):     $(echo "$log" | grep -c 'payments/cashfree/webhook' || true)"
+          echo "  return-page requests (?order=):    $(echo "$log" | grep -c 'internship-onboarding?order=' || true)"
+          echo "  status checks (POST .../payments/refresh), each is the button or an automatic page-load check:"
+          echo "$log" | grep 'payments/refresh' | awk '{ print "    " $4, $6, $7, $9 }' || true
+          echo "  (with the return page blocked, any status check listed here was made by the student's button)"
+        else echo "the gate has not been used yet."; fi
+        ;;
+      *) echo "usage: ./staging.sh gate on|off|status"; exit 1 ;;
+    esac
     ;;
   network-check)
     # read-only: nothing is created, changed or removed
@@ -218,6 +276,7 @@ case "${1:-help}" in
     need_env
     dc --profile tunnel ps
     echo "public: $(getv STAGING_PUBLIC_URL)"
+    gate_warn
     ;;
   logs)
     need_env

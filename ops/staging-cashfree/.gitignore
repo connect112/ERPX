@@ -1,3 +1,4 @@
 staging.env
 .staging.env.*
 evidence/
+gate/

@@ -245,3 +245,58 @@ async def test_reconciliation_recovers_a_lost_success_and_settles_failed_or_drop
     for order in stale:
         await service.refresh_order(order)
     assert (await db_session.execute(select(func.count(FinancialDocument.id)))).scalar() == 1 and len(queued_emails) == 1
+
+
+# ------------------------------------------------------------------ sandbox acceptance: the status-check button on its own
+
+
+async def test_a_lost_webhook_is_recovered_only_by_the_students_explicit_status_check(client, auth_headers, db_session, organization, storage, gateway, queued_emails):
+    """The server side of the "I have paid: check status" test (./staging.sh gate on blocks the webhook and the return page):
+    the money was paid at the gateway, no notification arrived. Opening the student's page never asks the gateway and never
+    confirms anything; the explicit status check confirms exactly once; asking again, and the late notifications, change nothing."""
+    from modules.internship_onboarding.models import OnboardingEvent, PaymentTransaction, PaymentWebhookEvent
+
+    internship, (s0, _) = await world(db_session, organization)
+    entries_before = await journal_entries(db_session)
+    await configure(client, auth_headers, internship, fees={"base_amount": "2000", "methods": ["cashfree"]}, payment_accounts={"bank": None})
+    token = await ready_to_pay(client, auth_headers, internship, s0)
+    order_id = (await client.post(f"{PUBLIC}/payments/checkout", headers=tok(token))).json()["order_id"]
+    gateway.payments[order_id] = [{"cf_payment_id": "777", "payment_status": "SUCCESS", "payment_amount": 2000, "payment_currency": "INR"}]
+
+    def status_checks():
+        return [r for r in gateway.requests if r.url.path.endswith(f"/orders/{order_id}/payments")]
+
+    async def counts():
+        payments = (await db_session.execute(select(func.count(PaymentTransaction.id)).where(PaymentTransaction.kind == "payment"))).scalar()
+        documents = (await db_session.execute(select(func.count(FinancialDocument.id)))).scalar()
+        webhooks = (await db_session.execute(select(func.count(PaymentWebhookEvent.id)))).scalar()
+        return payments, documents, webhooks, len(queued_emails)
+
+    # 1. the student opens the page without ?order=: nothing is asked of the gateway and nothing is recorded
+    view = await client.get(PUBLIC, headers=tok(token))
+    assert view.status_code == 200 and view.json()["statuses"]["payment"] != "paid"
+    assert status_checks() == [] and await counts() == (0, 0, 0, 0)
+
+    # 2. the explicit status check confirms the payment, once
+    out = (await client.post(f"{PUBLIC}/payments/refresh", headers=tok(token))).json()
+    assert out["outcome"] == "confirmed" and out["statuses"]["payment"] == "paid"
+    assert len(status_checks()) == 1
+    assert await counts() == (1, 1, 0, 1)  # one payment, one receipt, no webhook involved, one receipt email
+    confirmed = (await db_session.execute(select(OnboardingEvent).where(OnboardingEvent.event == "payment_confirmed"))).scalars().all()
+    assert [e.detail.get("source") for e in confirmed] == ["status check"]
+
+    # 3. pressing it again: the order is paid, so there is nothing to check and nothing changes
+    again = (await client.post(f"{PUBLIC}/payments/refresh", headers=tok(token))).json()
+    assert again["outcome"] == "nothing to check" and len(status_checks()) == 1
+    assert await counts() == (1, 1, 0, 1)
+
+    # 4. the notifications that were refused earlier arrive now: acknowledged, nothing is added
+    success = payment_event(order_id, amount=2000.0, payment_id="777")
+    success["data"]["order"]["order_amount"] = 2000.0
+    raw, sig = signed(success)
+    first = await client.post(HOOK, content=raw, headers=sig)
+    assert first.status_code == 200 and first.json()["outcome"] == "already recorded"
+    second = await client.post(HOOK, content=raw, headers=sig)
+    assert second.status_code == 200 and second.json()["outcome"] == "duplicate"
+    assert await counts() == (1, 1, 1, 1)  # only the (processed) notification is stored; no second payment, receipt or email
+    assert await journal_entries(db_session) == entries_before

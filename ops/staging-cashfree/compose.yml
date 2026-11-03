@@ -164,6 +164,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gate:/etc/nginx/staging-gate:ro   # empty unless ./staging.sh gate on (staging test gate)
     ports:
       - "127.0.0.1:${STAGING_HTTP_PORT:-8080}:80"   # this computer only; the tunnel reaches it inside Docker
     depends_on:
