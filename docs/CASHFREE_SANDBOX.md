@@ -99,7 +99,7 @@ this repository.
 | 4b | Refund idempotency: one open refund per payment (second request 409); one gateway call with an id derived from the refund row; refund-webhook replays (exact and re-wrapped) change nothing; one credit note, emailed once | passed | Test |
 | 5 | Failed payment (`testfailure@gocash`) -> no receipt, student can retry with a new order | passed: the student stayed unpaid, no receipt was issued, and a successful retry created a new order | Mac; Test |
 | 6 | Checkout closed / user dropped -> no receipt, stays unpaid, retry possible | passed **on manual checks only**: the student stayed unpaid, got no receipt and could retry; no evidence figures or timeline entry were reviewed for this case, and it is not known whether Cashfree sent a "user dropped" notification | Mac (manual); Test |
-| 7 | Lost webhook (gateway returned HTTP 503 to Cashfree while the sandbox payment succeeded) -> ERPX confirms the payment on its own, exactly once | passed: ERPX confirmed the payment and issued receipt `RCPT-2026-000004` **without the manual "I have paid: check status" button being used**; the receipt appeared exactly once in Mailpit. Which automatic path did it is **not established** (see 4a-ii) | Mac; Test |
+| 7 | Lost webhook (gateway returned HTTP 503 to Cashfree while the sandbox payment succeeded) -> ERPX confirms the payment on its own, exactly once | passed: ERPX confirmed the payment and issued receipt `RCPT-2026-000004` **without the manual "I have paid: check status" button being used**; the receipt appeared exactly once in Mailpit. Most likely path: the portal's automatic status check on the return page; **likely, not proven** (see 4a-ii) | Mac; Test |
 | 7a | Webhooks delivered after the endpoint was restored: Cashfree delivered two payment-success notifications for payment `1471038895188844032`, both acknowledged HTTP 200 | passed: nothing was added (per the code, a success for a payment already confirmed returns 200 and adds nothing to the ledger, and an identical body is answered "duplicate"); owner's evidence: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0 refund-adjustment mismatches, 0 unexpected accounting entries. Which of the two answers each delivery received comes from the webhook table in the snapshot, which was not reviewed | Mac; Test |
 | 7b | Manual "I have paid: check status" button, used on its own for a lost webhook | **not tested** in the sandbox; recovery by the button is covered only by automated tests | Test |
 | 8 | First checkout stayed on Cashfree's return page, second returned | not reproduced in code; see 4b below | Mac |
@@ -114,31 +114,42 @@ entries, `RCPT-2026-000004` once in Mailpit.
 
 **Not tested in the sandbox (do not read these as passed):**
 - the manual "I have paid: check status" button as the thing that recovers a lost webhook (row 7b);
-- which automatic path recovered `RCPT-2026-000004` (4a-ii), and therefore whether the 15-minute reconciliation task has
-  run against the real sandbox at all;
+- the mechanism that recovered `RCPT-2026-000004` is a likely explanation, not a proven one (4a-ii): the return page's
+  automatic status check; the 15-minute reconciliation task has **not** been seen working against the real sandbox;
 - Cashfree actually sending a "payment user dropped" notification for a closed checkout (row 6 is a manual observation);
 - an auto-refund notification (`AUTO_REFUND_STATUS_WEBHOOK`): tests only, with a mocked body;
 - API version `2026-01-01` (production stays on the pinned `2025-01-01`);
 - the stuck return page (row 8) is still unexplained;
 - anything on production: no production keys, webhook, domain whitelist or live payment has been used (4c).
 
-### 4a-ii. How the lost-webhook payment was recovered (code review, not evidence)
+### 4a-ii. How the lost-webhook payment was recovered (timeline + code review: a likely explanation, not proof)
 
-While the gateway answered 503, Cashfree's notifications never reached ERPX (ERPX's webhook handler only answers 503 when Cashfree
-is not configured, so the 503 came from the staging gateway). Reading the code, ERPX has two automatic server-side
-status checks that need neither the webhook nor the button, and both end in the same function (`refresh_order` ->
-`apply_gateway_payment`, which records a payment once per Cashfree payment id and issues the receipt):
+While the gateway answered 503, Cashfree's notifications never reached ERPX (ERPX's webhook handler only answers 503 when
+Cashfree is not configured, so the 503 came from the staging gateway). In the code, an order can only be confirmed by a
+webhook, or by `refresh_order` -> `apply_gateway_payment`, which records a payment once per Cashfree payment id and issues
+the receipt. `refresh_order` has exactly two callers:
 
-1. **The return page.** When the browser comes back to `/internship-onboarding?order=...`, the portal calls
-   `POST /payments/refresh` on load (`onboarding-portal-page.tsx`), the same endpoint the button uses.
-2. **The reconciliation task** `internship_onboarding.reconcile_payments`, every 15 minutes, for active Cashfree orders
-   older than 10 minutes that were not checked in the last 10 minutes.
+1. **The student endpoint** `POST /payments/refresh`, called by the portal automatically when the browser comes back to
+   `/internship-onboarding?order=...` (`onboarding-portal-page.tsx`) and by the "I have paid: check status" button.
+2. **The reconciliation task** `internship_onboarding.reconcile_payments`, every 15 minutes, only for active Cashfree
+   orders **older than 10 minutes** that were not checked in the last 10 minutes.
 
-Both record the payment with the source "status check", so the payment's timeline entry does not tell them apart. They
-differ in timing: a confirmation within seconds of the browser returning points to the return page; one 10-15 minutes
-after the order was created points to the task. The recorded evidence was not available to the author, so neither is
-claimed. The result that matters holds either way: the payment was confirmed once, with one receipt and one email, while
-the webhook was refused, and the two late webhooks changed nothing.
+Administrator timeline for `RCPT-2026-000004` (reported by the owner, 3 November 2026, IST; minute resolution): checkout
+started 12:32, payment confirmed 12:33, document issued 12:33, payment completed 12:33; Cashfree's webhook attempts at
+12:33 and 12:35 both received 503; the student returned from Cashfree and ERPX showed Paid without the button being used.
+
+Reasoning from that and the code:
+- **Not the webhook:** both attempts were refused with 503 (the first in the same minute as the confirmation).
+- **Not the reconciliation task:** the order was about one minute old at 12:33, and the task skips orders younger than 10
+  minutes. The "checkout started" entry is only written when a new order is created (reusing an unpaid order returns
+  before that line), so the order was not an older one that was reused.
+- **That leaves the student endpoint,** and since the button was not clicked, the return page's automatic call.
+
+This is the most likely explanation, **not a proven mechanism**: the timeline has minute resolution, the page-load call and
+the button call the same endpoint and are not distinguished in the record (both give the source "status check"), "the
+button was not clicked" is the owner's observation, and nothing logs which request confirmed the payment. The result that
+matters holds either way: the payment was confirmed once, with one receipt and one email, while the webhook was refused,
+and the two late webhooks changed nothing.
 
 To test the button itself: block the webhook, pay, close the Cashfree page without returning to ERPX, open the student's
 onboarding link without `?order=`, and press the button within 10 minutes of creating the order (before the next
@@ -160,8 +171,9 @@ not affect what ERPX records. No code change was made for it.
 ### 4c. Before a controlled production rollout
 
 1. Sandbox scenarios 5, 6 and 7 are done on the Mac (4a, evidence checks at 0, one email per receipt). Still open from
-   4a-i, owner's call on whether they are needed before a controlled start: the button on its own (7b), which automatic
-   path recovers a lost webhook (4a-ii), and a real "user dropped" notification (row 6).
+   4a-i, owner's call on whether they are needed before a controlled start: the button on its own (7b), the 15-minute
+   reconciliation task against the real sandbox (the lost-webhook recovery is most likely the return page, 4a-ii), and a
+   real "user dropped" notification (row 6).
 2. Review and merge PR #163 (owner).
 3. Production prerequisites (owner): production App ID / Secret Key as server secrets only; webhook
    `https://erp.pentrix.in/api/v1/public/payments/cashfree/webhook` (version 2025-01-01, payment + refund events);
