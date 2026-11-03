@@ -669,6 +669,26 @@ async def count_public_tables(target_url: str) -> int:
         await conn.close()
 
 
+PSQL_EXIT_SCRIPT_ERROR = 3  # psql with ON_ERROR_STOP=1 stops at the first failing statement and exits 3
+
+
+def assess_failed_restore(result: StreamResult, tables_before: int, tables_after: int | None) -> tuple[bool, str]:
+    """(rolled_back, message) for a restore that was reported as failed.
+
+    "COMMIT was written to the pipe" does not mean "COMMIT ran": on a small script the writer has often finished before psql
+    reaches the failing statement. psql exiting with code 3 means it stopped at an error and never reached COMMIT (and a COMMIT
+    inside an aborted transaction rolls back), so that is a rollback. Any other failure after COMMIT was sent (a lost
+    connection, a crash) is genuinely ambiguous, so the message says to check instead of claiming the target is unchanged."""
+    if result.committed_sent and result.consumer_returncode != PSQL_EXIT_SCRIPT_ERROR:
+        return False, ("COMMIT had already been sent when the failure was reported, so the restore may have been APPLIED. "
+                       "Check the target database before using it or restoring again.")
+    if tables_after == tables_before:
+        return True, (f"The restore ran inside one transaction and was rolled back: the target database was not changed "
+                      f"({tables_before} table(s) in the public schema before and after).")
+    return False, (f"WARNING: could not confirm the target is unchanged (public tables before: {tables_before}, after: "
+                   f"{tables_after}). Check it before using it.")
+
+
 async def run_streaming_restore(target_url: str, local_path: str, dump_format: str, wipe_schema: bool) -> StreamResult:
     """Restore as ONE transaction (wipe included): see scripts/restore_stream.py. Plain SQL is read from the file, a compressed
     archive from `pg_restore -f -`; ownership and privileges are skipped exactly as before (--no-owner --no-privileges)."""
@@ -843,17 +863,12 @@ async def _async_main(args: argparse.Namespace) -> int:
                 tables_after = await count_public_tables(args.database_url)
             except Exception:  # noqa: BLE001 - the report below says so; the failure itself is what matters
                 pass
-            unchanged = tables_after == tables_before
+            unchanged, outcome_message = assess_failed_restore(result, tables_before, tables_after)
             entry.extra["restore_rolled_back"] = unchanged
             write_audit_entry(entry, args.audit_log_path)
             await record_restore_attempt(args.database_url, entry, resolved.backup_job_id)
             print(f"RESTORE FAILED: {result.failure}")
-            if unchanged:
-                print(f"The restore ran inside one transaction and was rolled back: the target database was not changed "
-                      f"({tables_before} table(s) in the public schema before and after).")
-            else:
-                print(f"WARNING: could not confirm the target is unchanged (public tables before: {tables_before}, after: "
-                      f"{tables_after}). Check it before using it.")
+            print(outcome_message)
             if safety_backup_path:
                 print(f"A safety backup of the previous state is at {safety_backup_path}")
             print(f"tool output (tail):\n{tail}", file=sys.stderr)

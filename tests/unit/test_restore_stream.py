@@ -205,3 +205,52 @@ class TestStreamRestore:
     def test_a_missing_producer_binary_does_not_leave_the_consumer_running(self):
         with pytest.raises(OSError):
             stream_restore(_py("import time; time.sleep(60)"), producer_cmd=["/definitely/not/a/binary"])
+
+
+class TestFailureReporting:
+    """A rollback is claimed when COMMIT cannot have run; it is never claimed when the outcome is ambiguous."""
+
+    def _result(self, committed_sent: bool, consumer_returncode: int = 3):
+        from scripts.restore_stream import StreamResult
+
+        return StreamResult(ok=False, committed_sent=committed_sent, producer_returncode=0, consumer_returncode=consumer_returncode)
+
+    def test_rollback_is_claimed_when_nothing_was_committed_and_the_table_count_is_unchanged(self):
+        from scripts.restore_backup import assess_failed_restore
+
+        rolled_back, message = assess_failed_restore(self._result(False), 5, 5)
+        assert rolled_back and "rolled back" in message and "5 table(s)" in message
+
+    def test_a_script_error_is_a_rollback_even_though_COMMIT_was_already_in_the_pipe(self):
+        # small script: the writer finished before psql hit the failing statement; psql exits 3 and never runs COMMIT
+        from scripts.restore_backup import assess_failed_restore
+
+        rolled_back, _ = assess_failed_restore(self._result(True, consumer_returncode=3), 5, 5)
+        assert rolled_back
+
+    @pytest.mark.parametrize("returncode", [1, 2, -9, None])
+    def test_no_rollback_claim_when_a_failure_after_COMMIT_was_sent_is_not_a_script_error(self, returncode):
+        from scripts.restore_backup import assess_failed_restore
+
+        rolled_back, message = assess_failed_restore(self._result(True, consumer_returncode=returncode), 5, 5)
+        assert not rolled_back and "APPLIED" in message and "rolled back" not in message
+
+    @pytest.mark.parametrize("after", [4, None])
+    def test_a_changed_or_unreadable_target_is_a_warning_not_a_claim(self, after):
+        from scripts.restore_backup import assess_failed_restore
+
+        rolled_back, message = assess_failed_restore(self._result(False), 5, after)
+        assert not rolled_back and message.startswith("WARNING")
+
+    def test_sanitize_dump_for_restore_keeps_data_rows_and_streams(self, tmp_path):
+        from scripts.restore_backup import sanitize_dump_for_restore
+
+        src = tmp_path / "d.sql"
+        src.write_bytes(HEADER + b"CREATE TABLE notes (body text, n int);\nCOPY public.notes (body, n) FROM stdin;\nSET transaction_timeout = 0;\t7\n\.\n")
+        out = sanitize_dump_for_restore(str(src))
+        assert out != str(src)
+        cleaned = open(out, "rb").read()
+        assert b"SET transaction_timeout = 0;\n" not in cleaned and b"SET transaction_timeout = 0;\t7\n" in cleaned
+        clean_src = tmp_path / "clean.sql"
+        clean_src.write_bytes(b"--\nSELECT 1;\n")
+        assert sanitize_dump_for_restore(str(clean_src)) == str(clean_src) and not (tmp_path / "clean.sql.sanitized.sql").exists()
