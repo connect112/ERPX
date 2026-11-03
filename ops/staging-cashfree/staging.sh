@@ -187,7 +187,7 @@ case "${1:-help}" in
           echo "  return-page requests (?order=):    $(echo "$log" | grep -c 'internship-onboarding?order=' || true)"
           echo "  status checks (POST .../payments/refresh), each is the button or an automatic page-load check:"
           echo "$log" | grep 'payments/refresh' | awk '{ print "    " $4, $6, $7, $9 }' || true
-          echo "  (with the return page blocked, any status check listed here was made by the student's button)"
+          echo "  (with the return page blocked nothing automatic makes these calls: match the time to your button press; the log has no student identity)"
         else echo "the gate has not been used yet."; fi
         ;;
       *) echo "usage: ./staging.sh gate on|off|status"; exit 1 ;;

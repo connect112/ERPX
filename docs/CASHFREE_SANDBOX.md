@@ -75,7 +75,7 @@ Network access, and add `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` (sandbox keys) 
 |---|---|
 | Adapter, webhook, reconciliation and refund code | reviewed against the current docs; mocked tests with real signatures pass; fixes: auto refunds, standalone bootstrap seed |
 | Sandbox keys, public HTTPS webhook endpoint, isolated staging | **available** on the owner's Mac (`ops/staging-cashfree/`, Cloudflare quick tunnel, Test-mode keys only) |
-| Sandbox acceptance | scenarios 1-7a passed on the Mac as reported (4a); untested items are listed in 4a-i |
+| Sandbox acceptance | scenarios 1-7c passed on the Mac as reported, the manual status-check button (7b) with qualifications (4a, 4a-iii); untested items are listed in 4a-i |
 | Cloud session access to Cashfree | still blocked (proxy); not needed any more, the sandbox run happens on the Mac |
 | Production | untouched; Cashfree stays off there (`CASHFREE_ENABLED` unset) |
 
@@ -101,7 +101,7 @@ this repository.
 | 6 | Checkout closed / user dropped -> no receipt, stays unpaid, retry possible | passed **on manual checks only**: the student stayed unpaid, got no receipt and could retry; no evidence figures or timeline entry were reviewed for this case, and it is not known whether Cashfree sent a "user dropped" notification | Mac (manual); Test |
 | 7 | Lost webhook (gateway returned HTTP 503 to Cashfree while the sandbox payment succeeded) -> ERPX confirms the payment on its own, exactly once | passed: ERPX confirmed the payment and issued receipt `RCPT-2026-000004` **without the manual "I have paid: check status" button being used**; the receipt appeared exactly once in Mailpit. Most likely path: the portal's automatic status check on the return page; **likely, not proven** (see 4a-ii) | Mac; Test |
 | 7a | Webhooks delivered after the endpoint was restored: Cashfree delivered two payment-success notifications for payment `1471038895188844032`, both acknowledged HTTP 200 | passed: nothing was added (per the code, a success for a payment already confirmed returns 200 and adds nothing to the ledger, and an identical body is answered "duplicate"); owner's evidence: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0 refund-adjustment mismatches, 0 unexpected accounting entries. Which of the two answers each delivery received comes from the webhook table in the snapshot, which was not reviewed | Mac; Test |
-| 7b | Manual "I have paid: check status" button, used on its own for a lost webhook | **not tested** in the sandbox. Two attempts (rows 7 and 7c) ended in the automatic return-page check before the button could be pressed. An isolated procedure now exists (`./staging.sh gate on`, section 4a-iii); the server side (page load never confirms, the explicit check confirms once, repeats and late webhooks change nothing) is covered by an automated test | Test |
+| 7b | Manual "I have paid: check status" button, used on its own for a lost webhook (isolated with `./staging.sh gate on`) | **passed, with qualifications.** Student E (`ERPX-INT-2026-000008`), ₹2,000, Cashfree payment `1471061513720561664`: with the gate on (from 2026-11-03T08:25:33Z) the webhook was refused (four 503s in the cumulative gate log, not attributed per student), one Cashfree return-page request was blocked, Celery Beat was stopped, and the payment changed to Paid after the student pressed "I have paid: check status" (owner's observation). Receipt `RCPT-2026-000006` issued once; its email appears once in Mailpit. Gateway log: two `POST /payments/refresh` answered 200, at 08:29:00 and 08:33:55 UTC; the second aligns with the click, the **first is not attributed to Student E**. Owner-reported evidence `20261103T083944Z`: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0 refund-adjustment mismatches, 0 unexpected accounting entries. Restored: `gate off` completed, `gate status` OFF, Celery Beat running, `verify` passed (unsigned webhook refused with 401). Not reported: the timeline's "source" for the confirmation, and a retried webhook after `gate off`. See 4a-iii for the criteria | Mac (owner-reported; snapshot and gate log not reviewed); Test |
 | 7c | Second lost-webhook run: Student D (`ERPX-INT-2026-000007`), ₹2,000 sandbox payment with the webhook blocked (HTTP 503). Cashfree redirected the browser to `/internship-onboarding?order=...`, and ERPX confirmed the payment automatically; receipt `RCPT-2026-000005` issued once, its email appears once in Mailpit | passed as an **automatic-recovery** test, **not** a manual-button pass: the button could not be tested because the return page confirmed first. After the nginx change was reverted `./staging.sh verify` passed; evidence `20261103T075929Z`: zero problems across all five integrity checks | Mac (owner-reported; snapshot not reviewed) |
 | 8 | First checkout stayed on Cashfree's return page, second returned | not reproduced in code; see 4b below | Mac |
 
@@ -110,12 +110,14 @@ this repository.
 **Completed in the sandbox on the Mac:** successful payments (twice); success webhook and replay; receipt and email once;
 the ₹1 refund and its credit note; failed payment and retry; checkout cancelled (manual checks); automatic recovery of a
 payment whose webhook was refused (twice: `RCPT-2026-000004` and, for Student D, `RCPT-2026-000005`), and the later
-duplicate webhooks. Owner-reported evidence: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0
+duplicate webhooks; the manual status-check button on its own, with the return page, webhook and reconciliation
+isolated (Student E, `RCPT-2026-000006`, row 7b, with the qualifications in 4a-iii). Owner-reported evidence: 0 duplicate payments, 0 duplicate documents, 0 missing documents, 0
 refund-adjustment mismatches, 0 unexpected accounting entries; each receipt once in Mailpit.
 
 **Not tested in the sandbox (do not read these as passed):**
-- the manual "I have paid: check status" button as the thing that recovers a lost webhook (row 7b; the isolated
-  procedure in 4a-iii has not been run yet);
+- for the button run (row 7b): which of the two `POST /payments/refresh` calls (08:29:00 and 08:33:55 UTC) confirmed
+  Student E's payment is **not proven** (the second aligns with the click; the first is unattributed); the timeline
+  "source" for that confirmation and a retried webhook after `gate off` were not reported;
 - the mechanism that recovered `RCPT-2026-000004` is a likely explanation, not a proven one (4a-ii): the return page's
   automatic status check (the second run, row 7c, behaved the same way); the 15-minute reconciliation task has **not** been seen working against the real sandbox;
 - Cashfree actually sending a "payment user dropped" notification for a closed checkout (row 6 is a manual observation);
@@ -185,10 +187,29 @@ student's onboarding link without `?order=`, press "I have paid: check status"; 
 `./staging.sh evidence`; finally `./staging.sh gate off`.
 
 Pass criteria: (a) before the button, the student is unpaid with no receipt; (b) after it, Paid, one payment, one receipt
-`RCPT-...` once in Mailpit, and the timeline's "payment confirmed" source is "status check"; (c) `gate status` lists
-exactly one `POST .../payments/refresh`, made after the gate went on, so it was the button (with the return page blocked
-nothing else calls it); (d) the webhook count is 503 only and the five evidence checks are 0; (e) after `gate off`, when Cashfree retries (or the notification is resent from the dashboard), the
+`RCPT-...` once in Mailpit, and the timeline's "payment confirmed" source is "status check"; (c) note the clock time of
+the click; `gate status` must list a `POST .../payments/refresh` at that time. The gateway log has no student identity and
+the page is also used by other testers, so other entries are not attributed unless their time matches (Student E's run
+showed two entries; see the result below), and with the return page blocked nothing automatic calls it; (d) the webhook count is 503 only and the five evidence checks are 0; (e) after `gate off`, when Cashfree retries (or the notification is resent from the dashboard), the
 notification is acknowledged without a second payment or receipt. Record the result as row 7b.
+
+**Result of the first run (Student E, owner-reported 2026-11-03; the evidence snapshot `20261103T083944Z` and the gate log
+are git-ignored on the Mac and were not available to the author):**
+
+| Criterion | Result |
+|---|---|
+| (a) unpaid before the button | reported: the payment changed to Paid after the click. No separate check of "no receipt before the click" was reported |
+| (b) Paid, one payment, one receipt, one email | reported: `RCPT-2026-000006` once in Mailpit; evidence checks 0 (duplicates, missing documents, refund mismatches, accounting entries). The timeline "source" was **not reported** |
+| (c) a status check at the time of the click | met with a qualification: two `POST /payments/refresh` (200) at 08:29:00 and 08:33:55 UTC. The second aligns with the click. The first is **not attributed** to Student E: it may be another tester's, an earlier press, or something else, and the log does not say which |
+| (d) webhook refused, five checks 0 | reported: four 503s (cumulative since the gate went on, so not all necessarily Student E's), one return-page request blocked, Celery Beat stopped; five checks 0 |
+| (e) retried webhook after `gate off` | **not reported**, so not claimed |
+| Restoration | reported: `gate off` completed, `gate status` OFF, Celery Beat running, `verify` passed including the unsigned-webhook check (HTTP 401) |
+
+Reading it: with the webhook refused, the return page blocked and the reconciliation stopped, the only path left to confirm
+the payment was an explicit status check. The payment was unpaid until the student pressed the button, which fits the
+second call. The result is therefore recorded as a pass with qualifications, not as a fully attributed single call. Two
+things would settle the attribution if the owner wants it: the timeline's "payment confirmed" time for `RCPT-2026-000006`
+(08:33:55 UTC is 14:03 IST; 08:29:00 UTC is 13:59 IST, minute resolution) and its "source".
 
 Tests: `tests/unit/test_staging_gateway.py` runs the real gateway configuration and gate templates in a real nginx with stub
 upstreams (gate off: unchanged; gate on: webhook 503 and never reaches the API, return page never reaches the web app,
@@ -213,9 +234,9 @@ not affect what ERPX records. No code change was made for it.
 ### 4c. Before a controlled production rollout
 
 1. Sandbox scenarios 5, 6 and 7 are done on the Mac (4a, evidence checks at 0, one email per receipt). Still open from
-   4a-i, owner's call on whether they are needed before a controlled start: the button on its own (7b), the 15-minute
-   reconciliation task against the real sandbox (the lost-webhook recovery is most likely the return page, 4a-ii), and a
-   real "user dropped" notification (row 6).
+   4a-i. The manual button on its own (7b) has now passed with qualifications (4a-iii). Still open, owner's call on whether
+   they are needed before a controlled start: the 15-minute reconciliation task against the real sandbox (the lost-webhook
+   recoveries so far were the return page, 4a-ii, and the button), and a real "user dropped" notification (row 6).
 2. Review and merge PR #163 (owner).
 3. Production prerequisites (owner): production App ID / Secret Key as server secrets only; webhook
    `https://erp.pentrix.in/api/v1/public/payments/cashfree/webhook` (version 2025-01-01, payment + refund events);

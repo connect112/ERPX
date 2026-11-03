@@ -155,8 +155,8 @@ open the student's link **without** `?order=` and press "I have paid: check stat
 ./staging.sh gate status
 ```
 
-(lists the status checks the gateway saw: with the return page blocked, exactly one `POST .../payments/refresh` is the
-button), then `./staging.sh evidence` (five checks 0), and finally
+(lists the status checks the gateway saw. Note the clock time when you press the button and match it: with the return page
+blocked nothing automatic calls the endpoint, but the log has no student identity, so other entries are not attributed), then `./staging.sh evidence` (five checks 0), and finally
 
 ```bash
 ./staging.sh gate off
