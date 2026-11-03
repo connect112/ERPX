@@ -195,6 +195,16 @@ remove the webhook endpoint from the Cashfree dashboard. To confirm nothing is l
 docker ps -a --filter label=com.docker.compose.project=erpx-cf-staging
 ```
 
+## Testing the scripts on the Mac
+
+The preflight runs under macOS's `/bin/bash` (bash 3.2). Its regression suite (allowed and unexpected settings, CRLF,
+an existing `STAGING_SUBNET`, the kept validations) runs the real `preflight.sh` with a fake `docker` in a throwaway
+git repository, so it touches no container, network or `staging.env`:
+
+```bash
+/bin/bash ops/staging-cashfree/tests/preflight_test.sh
+```
+
 ## Troubleshooting
 
 - The browser stays on Cashfree's page after paying: the return address is fixed when the order is created

@@ -43,7 +43,22 @@ chmod 600 "$ENVF"
 (cd "$REPO" && git check-ignore -q "$ENVF") && ok "staging.env is git-ignored" || fail "staging.env is not git-ignored"
 (cd "$REPO" && git ls-files --error-unmatch "$ENVF" >/dev/null 2>&1) && fail "staging.env is tracked by Git: remove it from the index" || ok "staging.env is not tracked"
 [ -n "$ALLOWED" ] || fail "could not read the documented settings from staging.env.example"
-UNKNOWN="$(awk -F= '{ sub(/\r$/, "") } /^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' "$ENVF" | while read -r k; do case " $ALLOWED " in *" $k "*) ;; *) echo "$k" ;; esac; done | tr '\n' ' ')"
+# A plain loop at the top level: bash 3.2 (macOS /bin/bash) mis-parses a `case` inside $( ... ), so never put one there.
+UNKNOWN=""
+while IFS= read -r line || [ -n "$line" ]; do
+  line="${line%$'\r'}"                       # tolerate Windows line endings
+  case "$line" in
+    [A-Za-z_]*=*) key="${line%%=*}" ;;       # a setting: KEY=value
+    *) continue ;;                           # comments, blank lines
+  esac
+  case "$key" in
+    *[!A-Za-z0-9_]*) continue ;;             # not a variable name
+  esac
+  case " $ALLOWED " in
+    *" $key "*) ;;                           # documented in staging.env.example
+    *) UNKNOWN="$UNKNOWN $key" ;;
+  esac
+done < "$ENVF"
 grep -q "$(printf '\r')" "$ENVF" && warn "staging.env has Windows line endings; they are ignored, but save it as plain text" || true
 [ -z "$UNKNOWN" ] && ok "only staging settings in staging.env" || fail "unexpected settings in staging.env (copied from another environment?): $UNKNOWN"
 if grep -qiE "pentrix\.in|girtechnologies|amazonaws\.com|rds\.|shared_postgres|erpx_minio|api\.cashfree\.com|/opt/erpx" "$ENVF"; then
