@@ -1074,7 +1074,11 @@ async def test_a_team_is_joined_only_with_its_code_which_only_its_members_and_st
 
     # The code reaches the team's own members and staff; nobody else gets it.
     assert (await client.get(f"{base}/me", headers=asha)).json()["team"]["join_code"] == code
-    assert [t["join_code"] for t in (await client.get(base, headers=auth_headers)).json()] == [code, blue["join_code"]]
+    # Compared as a set: the list is ordered by created_at, but every request in these tests shares one open transaction, and
+    # Postgres's now() is the transaction's start time, so both teams carry the same created_at and their order is arbitrary
+    # here (it fails about half the time). In production each request has its own transaction. What matters is who is listed.
+    listed = [t["join_code"] for t in (await client.get(base, headers=auth_headers)).json()]
+    assert sorted(listed) == sorted([code, blue["join_code"]])
     assert (await client.get(f"{base}/browse", headers=ravi)).status_code in (404, 405)
     # The old join-by-id door is closed.
     assert (await client.post(f"{base}/{red['id']}/join/me", headers=ravi)).status_code in (404, 405)
