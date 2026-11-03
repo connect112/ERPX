@@ -167,7 +167,8 @@ blocked nothing automatic calls the endpoint, but the log has no student identit
 
 ## Testing the scheduled reconciliation (`recon`)
 
-The reconciliation task confirms a paid order by itself when nothing else does. To test it alone, Cashfree's webhook, the payment
+The reconciliation task confirms a paid order by itself when nothing else does. It has been seen doing so once on the Mac (Student F,
+2026-11-03; `docs/CASHFREE_SANDBOX.md` row 9). To test it alone, Cashfree's webhook, the payment
 return page and the student's status check are kept out while Celery Beat and the worker keep running untouched
 (`gate on` stops Beat, so it cannot be used for this):
 
