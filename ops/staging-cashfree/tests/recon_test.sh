@@ -97,14 +97,17 @@ expect "recon status shows the mode, the gateway counters and the scheduled runs
 # 4. check: readiness before the long wait. The log lines below follow the formats of Celery 5.4 and `docker compose logs --timestamps`
 #    (Beat "Scheduler: Sending due task <entry> (<task>)", worker "Task <name>[<id>] received/succeeded in ...: {...}", the
 #    worker's "[tasks]" list at start, and the reply of `celery inspect registered`).
-beat_line() {  # <minutes ago> <entry> <task>
-  ts="$(iso_ago "$1")"
-  echo "${ts}.004123456Z [$(echo "$ts" | tr T ' '),003: INFO/MainProcess] Scheduler: Sending due task $2 ($3)"
+# Every relative time is read from the clock ONCE, here, and the fixture and its assertion both use that value. (Reading the clock again
+# for the assertion made the test flaky: on a slower machine a second boundary passed between building the log lines and checking
+# them, and the checker, which prints exactly what is in the log, no longer matched a freshly computed "5 minutes ago".)
+T2="$(iso_ago 2)"; T4="$(iso_ago 4)"; T5="$(iso_ago 5)"; T17="$(iso_ago 17)"; T20="$(iso_ago 20)"; T40="$(iso_ago 40)"
+beat_line() {  # <timestamp YYYY-MM-DDTHH:MM:SS> <entry> <task>: Docker's timestamp first, then Celery's own, both the same second
+  echo "${1}.004123456Z [$(echo "$1" | tr T ' '),003: INFO/MainProcess] Scheduler: Sending due task $2 ($3)"
 }
 healthy_logs() {
-  { beat_line 20 internship-onboarding-sweep internship_onboarding.sweep; beat_line 5 internship-onboarding-reconcile-payments internship_onboarding.reconcile_payments
-    beat_line 2 internship-onboarding-sweep internship_onboarding.sweep; } > "$FAKE_STATE/beat_log"
-  ts="$(iso_ago 5)"
+  { beat_line "$T20" internship-onboarding-sweep internship_onboarding.sweep; beat_line "$T5" internship-onboarding-reconcile-payments internship_onboarding.reconcile_payments
+    beat_line "$T2" internship-onboarding-sweep internship_onboarding.sweep; } > "$FAKE_STATE/beat_log"
+  ts="$T5"
   cat > "$FAKE_STATE/worker_log" <<LOG
  -------------- celery@8f3a2b1c9d0e v5.4.0 (opalescent)
 [tasks]
@@ -114,13 +117,13 @@ ${ts}.020000000Z [$(echo "$ts" | tr T ' '),019: INFO/MainProcess] Task internshi
 ${ts}.080000000Z [$(echo "$ts" | tr T ' '),079: INFO/ForkPoolWorker-1] Task internship_onboarding.reconcile_payments[9f1c2d3e-0a1b-4c5d-8e9f-001122334455] succeeded in 0.05s: {'checked': 0, 'confirmed': 0}
 LOG
 }
-running_stack; healthy_logs
+running_stack; healthy_logs; /bin/sleep 2   # a slow machine: the clock moves on between building the log lines and checking them
 run_staging recon check
 forbid_log " stop"; forbid_log " start"; forbid_log "restart"; forbid_log " up "; no_network_changes   # read-only
 need_log "inspect registered -t 20 -d"
 expect "recon check: healthy (inspect answers, Beat ticked 5 minutes ago, the worker ran it)" 0 \
-  "OK    celery_beat is running" "registered (celery inspect)" "OK    Beat last sent the task at $(iso_ago 5)" \
-  "INFO  the worker last ran it at $(iso_ago 5)Z: {'checked': 0, 'confirmed': 0}"
+  "OK    celery_beat is running" "registered (celery inspect)" "OK    Beat last sent the task at ${T5}Z" \
+  "INFO  the worker last ran it at ${T5}Z: {'checked': 0, 'confirmed': 0}"
 
 # a reply larger than the pipe buffer that arrives in two chunks: a pipeline ending in `grep -q` reports "not found" for it under pipefail (the real reply is small, about 1.5 KB; this pins the hazard class down)
 running_stack; healthy_logs
@@ -146,21 +149,50 @@ run_staging recon check
 expect "recon check: an 'unregistered task' error does not count as registered" 1 "FAIL  neither celery inspect nor the worker's log shows the task"
 
 # Beat: the newest matching tick is judged by its timestamp, other tasks do not count, no tick yet waits, a stale one is shown
-running_stack; healthy_logs; beat_line 40 internship-onboarding-reconcile-payments internship_onboarding.reconcile_payments > "$FAKE_STATE/beat_log"
+running_stack; healthy_logs; beat_line "$T40" internship-onboarding-reconcile-payments internship_onboarding.reconcile_payments > "$FAKE_STATE/beat_log"
 run_staging recon check
-expect "recon check: a tick older than 20 minutes is reported with its time, not hidden" 0 "WAIT  Beat last sent the task at $(iso_ago 40)Z, more than 20 minutes ago"
-running_stack; healthy_logs; { beat_line 3 internship-onboarding-sweep internship_onboarding.sweep; beat_line 17 other-task other.task; } > "$FAKE_STATE/beat_log"
+expect "recon check: a tick older than 20 minutes is reported with its time, not hidden" 0 "WAIT  Beat last sent the task at ${T40}Z, more than 20 minutes ago"
+running_stack; healthy_logs; { beat_line "$T2" internship-onboarding-sweep internship_onboarding.sweep; beat_line "$T17" other-task other.task; } > "$FAKE_STATE/beat_log"
 run_staging recon check
 expect "recon check: ticks of other tasks do not count" 0 "WAIT  Beat's log has no 'Sending due task ... reconcile' line yet"
-running_stack; healthy_logs; echo "[$(iso_ago 4 | tr T ' '),003: INFO/MainProcess] Scheduler: Sending due task internship-onboarding-reconcile-payments (internship_onboarding.reconcile_payments)" > "$FAKE_STATE/beat_log"
+running_stack; healthy_logs; echo "[$(echo "$T4" | tr T ' '),003: INFO/MainProcess] Scheduler: Sending due task internship-onboarding-reconcile-payments (internship_onboarding.reconcile_payments)" > "$FAKE_STATE/beat_log"
 run_staging recon check
-expect "recon check: Celery's own timestamp is used when Docker's is missing" 0 "OK    Beat last sent the task at $(iso_ago 4)Z"
+expect "recon check: Celery's own timestamp is used when Docker's is missing" 0 "OK    Beat last sent the task at ${T4}Z"
 running_stack; healthy_logs; echo stopped > "$FAKE_STATE/svc_celery_beat"
 run_staging recon check
 expect "recon check: Beat stopped is a FAIL" 1 "FAIL  celery_beat is not running"
 running_stack; healthy_logs; echo stopped > "$FAKE_STATE/svc_celery_worker"
 run_staging recon check
 expect "recon check: the worker stopped is a FAIL" 1 "FAIL  celery_worker is not running"
+
+# 4b. timestamp parsing, with literal log lines and no clock: Docker's timestamp wins over Celery's own, Celery's is the fallback, the
+#     fraction is dropped (not rounded), the result stays UTC ("Z"), and a line without any timestamp gives nothing
+eval "$(sed -n '/^line_ts()/,/^}/p' "$KIT/staging.sh")"
+eval "$(sed -n '/^ts_ge()/p' "$KIT/staging.sh")"
+eval "$(sed -n '/^iso_minutes_ago()/,/^}/p' "$KIT/staging.sh")"
+check_ts() {  # <name> <log line> <expected>
+  got="$(line_ts "$2")"
+  if [ "$got" = "$3" ]; then pass "timestamp parsing: $1"; else flunk "timestamp parsing: $1 (got '$got', wanted '$3')"; fi
+}
+BEAT="Scheduler: Sending due task internship-onboarding-reconcile-payments (internship_onboarding.reconcile_payments)"
+check_ts "Docker's timestamp is used" "2026-11-03T09:26:09.004123456Z [2026-11-03 09:26:09,003: INFO/MainProcess] $BEAT" "2026-11-03T09:26:09Z"
+check_ts "Docker's timestamp wins when it differs from Celery's by a second" "2026-11-03T09:26:09.999999999Z [2026-11-03 09:26:10,001: INFO/MainProcess] $BEAT" "2026-11-03T09:26:09Z"
+check_ts "the fraction is truncated, never rounded up to the next second" "2026-11-03T09:26:09.999999999Z $BEAT" "2026-11-03T09:26:09Z"
+check_ts "Celery's own timestamp is the fallback" "[2026-11-03 09:26:10,001: INFO/MainProcess] $BEAT" "2026-11-03T09:26:10Z"
+check_ts "a Docker timestamp without a fraction" "2026-11-03T09:26:09Z $BEAT" "2026-11-03T09:26:09Z"
+check_ts "midnight and month boundaries are kept as written (UTC, no conversion)" "2026-12-31T23:59:59.5Z $BEAT" "2026-12-31T23:59:59Z"
+check_ts "a line without a timestamp gives nothing" "Scheduler: Sending due task x (y)" ""
+if ts_ge 2026-11-03T09:26:10Z 2026-11-03T09:26:09Z && ! ts_ge 2026-11-03T09:26:09Z 2026-11-03T09:26:10Z && ts_ge 2026-11-03T09:26:09Z 2026-11-03T09:26:09Z \
+   && ts_ge 2027-01-01T00:00:00Z 2026-12-31T23:59:59Z; then pass "timestamp comparison: one second apart, equal, and across a year boundary"
+else flunk "timestamp comparison"; fi
+cutoff="$(iso_minutes_ago 20)"
+case "$cutoff" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) pass "the 20-minute cutoff is a UTC ISO time ($cutoff)" ;; *) flunk "the cutoff is not an ISO UTC time: $cutoff" ;; esac
+now_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+if ts_ge "$now_utc" "$cutoff" && ! ts_ge "$cutoff" "$(iso_minutes_ago 0)" ; then pass "the cutoff lies before now (in UTC, whatever the machine's time zone)"; else flunk "the cutoff is not before now ($cutoff, $now_utc)"; fi
+tz_minute="$(TZ=Asia/Kolkata iso_minutes_ago 20 | cut -c1-16)"   # to the minute: the two calls may straddle a second
+if [ "$tz_minute" = "$(iso_minutes_ago 20 | cut -c1-16)" ] || [ "$tz_minute" = "$(iso_minutes_ago 21 | cut -c1-16)" ] || [ "$tz_minute" = "$(iso_minutes_ago 19 | cut -c1-16)" ]; then
+  pass "the cutoff does not depend on the machine's time zone"
+else flunk "the cutoff changed with TZ ($tz_minute vs $(iso_minutes_ago 20))"; fi
 
 # 5. report: every criterion met
 started; pass_logs; pass_facts

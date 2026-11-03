@@ -297,8 +297,9 @@ A Paid screenshot is not evidence; the report is. Row 9 is changed only after th
 order (a young order is not touched; after 11 minutes it is confirmed once with one receipt and one email; a second run and a late
 webhook change nothing; disabled Cashfree is a no-op), checks the Beat entry and the task registration, and executes the real
 `recon.sql` on PostgreSQL (including each way the evidence can be missing or contaminated);
-`tests/unit/test_staging_gateway.py` runs the recon gateway rules in a real nginx; `ops/staging-cashfree/tests/recon_test.sh` (30
-cases, fake Docker) covers the commands, the report's verdicts, mutual exclusion and every rollback path.
+`tests/unit/test_staging_gateway.py` runs the recon gateway rules in a real nginx; `ops/staging-cashfree/tests/recon_test.sh` (48
+cases, fake Docker) covers the commands, the readiness check, timestamp parsing (Docker's timestamp first, Celery's as fallback, UTC), the
+report's verdicts, mutual exclusion and every rollback path.
 
 ### 4b. The stuck return page (first checkout)
 
