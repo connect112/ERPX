@@ -14,11 +14,11 @@ FAILS=0
 ok() { echo "OK    $1"; }
 warn() { echo "WARN  $1"; }
 fail() { echo "FAIL  $1"; FAILS=$((FAILS + 1)); }
-getv() { awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$ENVF"; }
+getv() { awk -v k="$1" '{ sub(/\r$/, "") } index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$ENVF"; }
 
-ALLOWED="CASHFREE_APP_ID CASHFREE_SECRET_KEY CASHFREE_API_VERSION STAGING_PUBLIC_URL STAGING_HTTP_PORT STAGING_MAIL_PORT
-POSTGRES_PASSWORD MINIO_ROOT_USER MINIO_ROOT_PASSWORD JWT_SECRET_KEY SEED_SUPERADMIN_EMAIL SEED_SUPERADMIN_PASSWORD
-STAGING_ADMIN_EMAIL STAGING_ADMIN_PASSWORD STAGING_MINIO_IMAGE STAGING_CASHFREE_KEY_CHECK"
+# The settings staging.env may hold are exactly the ones documented in staging.env.example (set or commented out), so
+# a new documented setting never needs a second list here.
+ALLOWED="$(awk '{ sub(/\r$/, "") } match($0, /^#?[ ]*[A-Z_][A-Z0-9_]*=/) { k = substr($0, RSTART, RLENGTH - 1); sub(/^#?[ ]*/, "", k); print k }' "$DIR/staging.env.example" | sort -u | tr '\n' ' ')"
 SECRETS="CASHFREE_SECRET_KEY POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_SECRET_KEY SEED_SUPERADMIN_PASSWORD STAGING_ADMIN_PASSWORD"
 
 echo "== tools and resources"
@@ -42,7 +42,9 @@ if [ ! -f "$ENVF" ]; then fail "staging.env is missing: run ./staging.sh init"; 
 chmod 600 "$ENVF"
 (cd "$REPO" && git check-ignore -q "$ENVF") && ok "staging.env is git-ignored" || fail "staging.env is not git-ignored"
 (cd "$REPO" && git ls-files --error-unmatch "$ENVF" >/dev/null 2>&1) && fail "staging.env is tracked by Git: remove it from the index" || ok "staging.env is not tracked"
-UNKNOWN="$(awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' "$ENVF" | while read -r k; do case " $(echo $ALLOWED) " in *" $k "*) ;; *) echo "$k" ;; esac; done | tr '\n' ' ')"
+[ -n "$ALLOWED" ] || fail "could not read the documented settings from staging.env.example"
+UNKNOWN="$(awk -F= '{ sub(/\r$/, "") } /^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' "$ENVF" | while read -r k; do case " $ALLOWED " in *" $k "*) ;; *) echo "$k" ;; esac; done | tr '\n' ' ')"
+grep -q "$(printf '\r')" "$ENVF" && warn "staging.env has Windows line endings; they are ignored, but save it as plain text" || true
 [ -z "$UNKNOWN" ] && ok "only staging settings in staging.env" || fail "unexpected settings in staging.env (copied from another environment?): $UNKNOWN"
 if grep -qiE "pentrix\.in|girtechnologies|amazonaws\.com|rds\.|shared_postgres|erpx_minio|api\.cashfree\.com|/opt/erpx" "$ENVF"; then
   fail "staging.env mentions a production host or service"
@@ -93,6 +95,44 @@ else
     https://*) warn "public address is not a quick tunnel: make sure it points only at this staging stack" ;;
     *) fail "STAGING_PUBLIC_URL must be the https:// tunnel address (run ./staging.sh tunnel)" ;;
   esac
+fi
+
+echo "== dedicated Docker subnet"
+# IPv4 CIDR helpers (bash 3.2 + awk; 64-bit shell arithmetic)
+cidr_range() { awk -v c="$1" 'BEGIN { split(c, a, "/"); n = split(a[1], o, "."); m = (a[2] == "" ? 32 : a[2]) + 0
+  ip = ((o[1] * 256 + o[2]) * 256 + o[3]) * 256 + o[4]; size = 2 ^ (32 - m); s = int(ip / size) * size; printf "%.0f %.0f\n", s, s + size - 1 }'; }
+overlaps() { local s1 e1 s2 e2; read -r s1 e1 <<EOF2
+$(cidr_range "$1")
+EOF2
+  read -r s2 e2 <<EOF2
+$(cidr_range "$2")
+EOF2
+  [ "$s1" -le "$e2" ] && [ "$s2" -le "$e1" ]; }
+SUBNET="$(getv STAGING_SUBNET)"
+if ! echo "$SUBNET" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}/(1[6-9]|2[0-8])$'; then
+  fail "STAGING_SUBNET must be an IPv4 network from /16 to /28 (e.g. 10.213.47.0/24), got '${SUBNET}'"
+elif ! { overlaps "$SUBNET" 10.0.0.0/8 || overlaps "$SUBNET" 172.16.0.0/12 || overlaps "$SUBNET" 192.168.0.0/16; }; then
+  fail "STAGING_SUBNET must be a private range (10.x, 172.16-31.x, 192.168.x)"
+else
+  OWN="$(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null | tr '\n' ' ')"
+  CLASH=""
+  for net in $(docker network ls -q 2>/dev/null); do
+    case " $OWN " in *" $net "*) continue ;; esac
+    for other in $(docker network inspect "$net" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null); do
+      case "$other" in *:*) continue ;; esac   # IPv6
+      overlaps "$SUBNET" "$other" && CLASH="$CLASH $(docker network inspect "$net" --format '{{.Name}}')($other)"
+    done
+  done
+  # this computer's own addresses (LAN, VPN) and Docker Desktop's internal network
+  ADDRS="$( (ifconfig 2>/dev/null || ip -4 -o addr 2>/dev/null) | grep -oE 'inet (addr:)?([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '^127\.')"
+  for a in $ADDRS; do overlaps "$SUBNET" "$a/32" && CLASH="$CLASH host-address($a)"; done
+  overlaps "$SUBNET" 192.168.65.0/24 && CLASH="$CLASH docker-desktop-internal(192.168.65.0/24)"
+  if [ -n "$CLASH" ]; then fail "STAGING_SUBNET $SUBNET overlaps:$CLASH; set STAGING_SUBNET to a private range that overlaps none of these"
+  else ok "dedicated subnet $SUBNET overlaps no other Docker network, host address or Docker Desktop range"; fi
+  if [ -n "$OWN" ]; then
+    CURRENT="$(docker network inspect $OWN --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null | head -1)"
+    [ -z "$CURRENT" ] || [ "$CURRENT" = "$SUBNET" ] || fail "this stack's network uses $CURRENT, not $SUBNET: run ./staging.sh recreate-network (keeps all data)"
+  fi
 fi
 
 echo "== ports and Docker conflicts"

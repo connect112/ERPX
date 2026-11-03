@@ -91,6 +91,10 @@ services:
   mailpit:
     image: axllent/mailpit:v1.21
     restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db   # mail survives container restarts and recreation (test evidence)
+    volumes:
+      - mailpitdata:/data
     ports:
       - "127.0.0.1:${STAGING_MAIL_PORT:-8025}:8025"   # mail viewer, this computer only
 
@@ -174,7 +178,15 @@ services:
     # a temporary https://<random>.trycloudflare.com address that forwards to the gateway only
     command: ["tunnel", "--no-autoupdate", "--url", "http://gateway:80"]
 
+networks:
+  # this project's own network on a dedicated subnet (checked by preflight against every other Docker network)
+  default:
+    ipam:
+      config:
+        - subnet: ${STAGING_SUBNET:-10.213.47.0/24}
+
 volumes:
   pgdata:
   redisdata:
   miniodata:
+  mailpitdata:

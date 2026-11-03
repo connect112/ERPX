@@ -11,6 +11,7 @@ production server, and no real money can move.
 |---|---|
 | Names | Docker Compose project `erpx-cf-staging` (in `compose.yml`): every container, network and volume is prefixed with it; there are no fixed `container_name`s, so another ERPX stack (e.g. `erpx_api`) never collides |
 | Data | its own Postgres (`erpx_staging`), Redis and MinIO, each on its own volume; the database starts empty and is migrated from scratch |
+| Network | its own Docker network on a dedicated subnet (`STAGING_SUBNET`, default `10.213.47.0/24`); preflight refuses it if it overlaps any other Docker network on the Mac (other projects included), a LAN/VPN address of the Mac, or Docker Desktop's internal `192.168.65.0/24` |
 | Ports | only two, both on `127.0.0.1`: the gateway (`STAGING_HTTP_PORT`, default 8080) and the Mailpit viewer (`STAGING_MAIL_PORT`, default 8025). Postgres, Redis, MinIO, the API and Celery publish nothing |
 | Internet exposure | a Cloudflare quick tunnel (`https://<random>.trycloudflare.com`) forwards to the gateway only. The gateway serves the web app, `/api/` (staff screens, student page, Cashfree webhook) and `/_files/` (short-lived signed file links); it hides `/api/docs`, `/api/redoc`, `/api/openapi.json` and `/metrics` |
 | Email | all mail goes to Mailpit (viewer on `127.0.0.1` only); nothing is sent |
@@ -27,6 +28,8 @@ production server, and no real money can move.
 - weak or default secrets, or any secret found in tracked/staged files;
 - a public address that is not `https://`;
 - a port already used by another program or container;
+- a `STAGING_SUBNET` that is not a private /16-/28 range or overlaps another network, or this stack's network still on an older subnet;
+- settings not documented in `staging.env.example` (the allowed list is read from that file, so a newly documented setting never trips it);
 - any published port not bound to `127.0.0.1`, a fixed container name, or Cashfree/ENVIRONMENT not sandbox/staging in every backend service.
 
 ## Requirements (MacBook Pro M3 Pro)
@@ -133,6 +136,32 @@ PAID_ORDER=<order id> REFUND=1 ./staging.sh sandbox-tests
 
 8. Optional: set `CASHFREE_API_VERSION=2026-01-01` in `staging.env`, run `./staging.sh up`, repeat step 2.
 
+## Evidence (before any change to the running stack)
+
+```bash
+./staging.sh evidence
+```
+
+Saves a read-only snapshot to `ops/staging-cashfree/evidence/<UTC time>/` (git-ignored): payment orders, the full
+ledger, net per student, receipts and credit notes with their email status, every Cashfree notification's outcome (no
+signatures or bodies are stored anywhere), timeline events, every Mailpit message as `.eml`, and emails per subject. It
+also prints the checks that must all be 0: a Cashfree payment recorded twice, a document issued twice, a confirmed
+payment/refund without its document, a refund adjustment without its refund, and accounting journal entries (onboarding
+never posts any). A receipt or credit-note subject listed twice would mean a duplicate email.
+
+## Moving an existing stack onto the dedicated subnet
+
+A stack started before `STAGING_SUBNET` existed has an auto-assigned network; preflight then says so. Mailpit used to
+keep mail inside its container, so **save evidence first** (the command below does it again anyway), then:
+
+```bash
+./staging.sh recreate-network
+```
+
+It saves evidence, then removes only this project's containers and network; the database, Redis, MinIO and (from now
+on) Mailpit volumes stay. Then `./staging.sh tunnel`, `./staging.sh up`, and update the webhook URL in the Cashfree
+dashboard (a new tunnel address).
+
 ## Day to day
 
 ```bash
@@ -167,6 +196,12 @@ docker ps -a --filter label=com.docker.compose.project=erpx-cf-staging
 ```
 
 ## Troubleshooting
+
+- The browser stays on Cashfree's page after paying: the return address is fixed when the order is created
+  (`<public address>/internship-onboarding?order=...`), and an unpaid order is reused for up to 30 minutes. If the
+  tunnel address changed (tunnel restarted, or the order was created before `./staging.sh up` picked up the new
+  address), Cashfree sends the browser to an address that no longer exists. The payment itself is still confirmed by
+  the webhook or the status check; open the student's link again. Avoid restarting the tunnel during a test.
 
 - Port already in use: set `STAGING_HTTP_PORT` / `STAGING_MAIL_PORT` in `staging.env` to free ports, then `./staging.sh up`.
 - "keys do not look like Test-mode keys": Cashfree Test-mode App IDs start with `TEST` and secret keys contain

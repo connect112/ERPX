@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One entry point for the isolated Cashfree SANDBOX staging stack (project "erpx-cf-staging"). See README.md.
-#   init | preflight | tunnel | up | seed | verify | sandbox-tests | status | logs [service] | down | destroy
+#   init | preflight | tunnel | up | seed | verify | sandbox-tests | evidence | status | logs [service] | down
+#   | recreate-network | destroy
 # Every command acts only on this project's containers, network, volumes and images. Never prints a secret.
 set -euo pipefail
 
@@ -9,7 +10,7 @@ REPO="$(cd "$DIR/../.." && pwd)"
 ENVF="$DIR/staging.env"
 PROJECT="erpx-cf-staging"
 
-getv() { awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$ENVF"; }
+getv() { awk -v k="$1" '{ sub(/\r$/, "") } index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$ENVF"; }
 setv() {  # replace or append KEY=value without printing it (portable: no sed -i)
   local tmp; tmp="$(mktemp "$DIR/.staging.env.XXXXXX")"
   awk -v k="$1" -v v="$2" 'BEGIN { done = 0 } index($0, k "=") == 1 { print k "=" v; done = 1; next } { print } END { if (!done) print k "=" v }' "$ENVF" > "$tmp"
@@ -17,7 +18,11 @@ setv() {  # replace or append KEY=value without printing it (portable: no sed -i
 }
 dc() { docker compose --project-directory "$DIR" -f "$DIR/compose.yml" --env-file "$ENVF" "$@"; }
 port() { getv STAGING_HTTP_PORT; }
-need_env() { [ -f "$ENVF" ] || { echo "staging.env is missing: run ./staging.sh init"; exit 1; }; }
+need_env() {
+  [ -f "$ENVF" ] || { echo "staging.env is missing: run ./staging.sh init"; exit 1; }
+  # Windows line endings (from some editors or a paste) would end up inside the values Docker reads: drop them
+  if grep -q "$(printf '\r')" "$ENVF"; then tr -d '\r' < "$ENVF" > "$ENVF.tmp" && mv "$ENVF.tmp" "$ENVF" && chmod 600 "$ENVF"; fi
+}
 
 wait_ready() {
   echo "waiting for the API (migrations and seeding run on first start; the first build takes several minutes)..."
@@ -102,6 +107,32 @@ case "${1:-help}" in
       -e CASHFREE_SANDBOX_TESTS=1 -e CASHFREE_SANDBOX_PAID_ORDER_ID="${PAID_ORDER:-}" -e CASHFREE_SANDBOX_REFUND="${REFUND:-}" \
       -v "$REPO/tests:/app/tests:ro" -v "$REPO/pytest.ini:/app/pytest.ini:ro" \
       api -m pytest tests/sandbox -q -p no:cacheprovider
+    ;;
+  evidence)
+    need_env
+    # read-only snapshot of the test results: ledger, documents, notifications, checks, and every Mailpit message
+    out="$DIR/evidence/$(date -u +%Y%m%dT%H%M%SZ)"
+    mkdir -p "$out/mail" && chmod 700 "$DIR/evidence" "$out"
+    dc exec -T postgres psql -U erpx -d erpx_staging -v ON_ERROR_STOP=1 -q -f - < "$DIR/evidence.sql" > "$out/ledger.txt"
+    mail="http://127.0.0.1:$(getv STAGING_MAIL_PORT)"
+    curl -fsS "$mail/api/v1/messages?limit=1000" > "$out/mail/messages.json"
+    for id in $(grep -oE '"ID":"[^"]+"' "$out/mail/messages.json" | cut -d'"' -f4); do
+      curl -fsS "$mail/api/v1/message/$id/raw" > "$out/mail/$id.eml"
+    done
+    grep -oE '"Subject":"[^"]*"' "$out/mail/messages.json" | cut -d'"' -f4 | sort | uniq -c | sort -rn > "$out/mail/subjects.txt"
+    echo "saved to ${out#"$REPO"/} (git-ignored)"
+    echo "== checks (each must be 0)"; sed -n '/== CHECKS/,/== Cashfree/p' "$out/ledger.txt" | grep -vE '^==|^-|check \|'
+    echo "== emails per subject (a receipt or credit note listed twice would mean a duplicate email)"; cat "$out/mail/subjects.txt"
+    ;;
+  recreate-network)
+    need_env
+    echo "Moves this stack onto STAGING_SUBNET: saves evidence first, then removes this project's containers and network."
+    echo "Volumes (database, Redis, MinIO, Mailpit) are kept. The tunnel gets a new address afterwards."
+    printf 'Type %s to continue: ' "$PROJECT"; read -r answer
+    [ "$answer" = "$PROJECT" ] || { echo "cancelled"; exit 1; }
+    "$0" evidence
+    dc --profile tunnel down --remove-orphans
+    echo "done (data kept). Next: ./staging.sh tunnel, ./staging.sh up, then update the webhook URL in the Cashfree dashboard."
     ;;
   status)
     need_env
