@@ -31,7 +31,7 @@ git diff origin/master...origin/claude/cashfree-sandbox-readiness -- modules app
 | `apps/api/requirements.txt` | pins the Celery messaging stack: `kombu==5.6.2`, `amqp==5.4.1`, `billiard==4.3.1`, `vine==5.1.0` (celery 5.4.0 and redis 5.0.8 unchanged) | section 3 | that the set is compatible; that no unrelated pin moved |
 | `apps/api/Dockerfile` | builder stage runs `scripts/check_dependency_compat.py` after `pip install` | the build fails instead of the containers | that it adds no network access and runs in the builder stage only |
 | `apps/api/scripts/check_dependency_compat.py` (new) | checks declared requirements of celery/kombu/amqp/billiard/vine (including the `redis` extras) against what is installed; `--broker URL` also opens a real Kombu connection | section 3 | the logic; exit codes |
-| `.github/workflows/ci.yml` | one step running the check against CI's Redis service | section 3 | **CI does not currently trigger on this branch's base** (section 6, B2) |
+| `.github/workflows/ci.yml` | one step running the check against CI's Redis service | section 3 | CI now triggers on `master`; see B2 for what it reports |
 
 **Deliberately not changed:** signature verification, the webhook dedupe, amount/currency validation, the confirmation path
 (`apply_gateway_payment`), the refund service, the ledger and its constraints, the provider-status mapping, the fee/amount calculation
@@ -191,7 +191,7 @@ owner-approved change; api, worker and Beat share that block, so all three are r
 | # | Blocker | Owner |
 |---|---|---|
 | B1 | Independent review of this PR (no review is recorded) and the owner's merge; only the owner merges and deploys (`docs/team-workflow.md`) | reviewer, owner |
-| B2 | **CI has not run on this PR and will not:** `ci.yml` triggers on `main`/`develop` and the repository has only `master` (a branch `srujan/ci-run-on-master` exists, not reviewed here). Everything reported comes from the author's cloud runs. Run the suite in CI or on the owner's machine before merge | owner |
+| B2 | **CI now runs on this PR but is not green, for reasons that are not in this PR's code.** `ci.yml` used to trigger only on `main`/`develop` (the repository has only `master`); it now also triggers on `master` (commit f386fca), and its migration step got the missing `PYTHONPATH` (b9852ff). Run 8 on b9852ff: dependency-compat step and migrations pass; the backend test step fails (about 65 tests plus 14 errors, none in payment, internship, Cashfree or dependency-compat tests: they need MinIO at host `minio`, which CI does not provide, an un-seeded `hackathon_participant` role, and one stale migration-head assertion); the four frontend jobs build and pass their tests, then fail the npm-audit High/Critical gate; the pip-audit gate is not reached. Details in section 6a. The owner decides whether to fix those in a separate change | owner |
 | B3 | The Celery pins must be in any production image build; no rebuild from the old file | owner |
 | B4 | The `CASHFREE_*` pass-through added to `docker-compose.prod.yml` (separate change) and the production secrets placed in `/opt/erpx/.env` | owner |
 | B5 | Production keys, webhook registration (URL, version, events), domain whitelist, and API IP whitelist if enabled | owner |
@@ -205,6 +205,21 @@ owner-approved change; api, worker and Beat share that block, so all three are r
 - An auto-refund notification (mocked body only); API version `2026-01-01`; the unexplained stuck return page on the first checkout (row 8, no code change); the cancelled-checkout check is manual only (most likely closed before a method was chosen, which creates no attempt and no notification); the scheduled reconciliation has one real run (row 9); the 60-minute grace is a judgement; the attributions in rows 7, 7b and 7c are "likely, not proven" as marked.
 - Not run anywhere by the author: a Docker image build, real bash 3.2, a production-mode Cashfree call.
 
+### 6a. What CI reports on this PR (run 8, head b9852ff; nothing skipped, disabled or loosened)
+
+| Check | Result | Cause | In this PR's code? |
+|---|---|---|---|
+| Triggers on a pull request into `master` | works | `ci.yml` branches now `[main, master, develop]` | the fix, in this PR |
+| backend: install, Celery/Kombu/redis-py compatibility (real Redis), migrations | pass | migrations first failed with `No module named 'modules'`; fixed with `PYTHONPATH` on that step | the fix, in this PR |
+| backend: tests | **fail** (about 65 failed, 14 errors; 2197 pass in the author's identical local run) | 47 failures show `Failed to resolve 'minio'` (CI has no object storage; the backup, health-check and integration-test failures are probably the same cause but were not individually traced); 27 hackathon tests need the `hackathon_participant` system role seeded; `test_storage_manager_migration` asserts migration head `0096` but head is `0100` | no. The PR changes none of those files and adds no migration. No payment, internship, Cashfree or dependency-compat test fails |
+| backend: pip-audit gate | not reached (it runs after the tests) | | unknown |
+| frontend x4 (web, student-portal, trainer-portal, corporate-portal): install, type check and build, tests | pass | | |
+| frontend x4: npm-audit High/Critical gate | **fail** | existing advisories (for example tinypool critical, zod high); the PR changes no frontend file or dependency | no |
+
+The author did not fix these: they are outside "minimal change", would mean skipping tests, adding services or upgrading dependencies, and
+belong in separate owner-approved changes. The GitHub log download is blocked from the author's environment, so the per-test list for
+CI itself was not read; the counts above come from the identical local run.
+
 ---
 
 ## 7. Controlled production start: checklist (not executed)
@@ -212,7 +227,7 @@ owner-approved change; api, worker and Beat share that block, so all three are r
 Nothing below has been run. Each step needs the owner's go-ahead and is recorded when done.
 
 **A. Before anything touches production**
-- [ ] PR #163 independently reviewed; findings answered; CI (or an owner-run full test pass) green on this branch (B1, B2).
+- [ ] PR #163 independently reviewed; findings answered; the CI failures in B2 resolved or explicitly accepted by the owner (B1, B2).
 - [ ] Owner merges; a release note says what is in it (reconciliation fix, auto-refund handling, Celery pins, no migration).
 - [ ] A fresh, restorable backup of the database and of `erpx_minio_data` exists and a restore has been rehearsed (`docs/operations/disaster-recovery-runbook.md`).
 - [ ] MinIO running image preserved and pinned (section 4, steps 1-3) (B7).
@@ -254,7 +269,7 @@ constraints, and the production guards. What that does and does not establish:
 - It is the author's own review plus automated tests (407 unit and 76 API tests pass; the 18 new cases fail on the original code), so an
   independent review (B1) is still required and is the main remaining control.
 - The low-severity findings L1-L5 are real but do not endanger money; L5 is a procedure, covered in section 5.
-- Two process defects are outside the payment code: CI does not run on `master` pull requests (B2), and the production image build could
-  silently regress without the pins (B3). Both are named above.
+- Two process defects are outside the payment code: CI did not run on `master` pull requests and, now that it does, is red for reasons
+  unrelated to this PR (B2), and the production image build could silently regress without the pins (B3). Both are named above.
 - Behaviours that only a production-mode run can show (live webhook delivery from Cashfree's production environment, the real card/UPI
   flows) have by definition not been tested, which is why section 7 starts with one staff transaction.
