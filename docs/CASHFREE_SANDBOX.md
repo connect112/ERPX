@@ -69,16 +69,60 @@ Network: the server calls `sandbox.cashfree.com` (later `api.cashfree.com`); stu
 those. For a Claude Code cloud session: allow `sandbox.cashfree.com` and `www.cashfree.com` under the environment's
 Network access, and add `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY` (sandbox keys) as environment secrets.
 
-## 4. Readiness (assessed 2026-11-01)
+## 4. Readiness (updated 2026-11-03)
 
 | Item | Status |
 |---|---|
-| Adapter, webhook, reconciliation and refund code | reviewed against the current docs; mocked tests with real signatures pass; one fix (auto refunds) |
-| `sandbox.cashfree.com`, `sdk.cashfree.com`, `www.cashfree.com`, `api.cashfree.com` from the Claude Code cloud session | **blocked** (the session's proxy refuses them) |
-| Sandbox keys | **not provided** (no `CASHFREE_*` secrets in the environment; they must never be pasted in chat) |
-| Staging environment | **none defined**: the repository describes staging only as a process (Compose path); no staging host, stack or DNS name exists in the repo, and AWS could not be inspected (no valid credentials in the session) |
-| Public HTTPS webhook endpoint | **not available** until a staging stack runs (section 5) |
-| Production | untouched; Cashfree stays off there (`CASHFREE_ENABLED` unset) and is never used for sandbox tests |
+| Adapter, webhook, reconciliation and refund code | reviewed against the current docs; mocked tests with real signatures pass; fixes: auto refunds, standalone bootstrap seed |
+| Sandbox keys, public HTTPS webhook endpoint, isolated staging | **available** on the owner's Mac (`ops/staging-cashfree/`, Cloudflare quick tunnel, Test-mode keys only) |
+| Cloud session access to Cashfree | still blocked (proxy); not needed any more, the sandbox run happens on the Mac |
+| Production | untouched; Cashfree stays off there (`CASHFREE_ENABLED` unset) |
+
+## 4a. Sandbox acceptance record
+
+Sources: **Mac** = observed by the owner on the Mac staging stack (2026-11-02/03), as reported; **Test** = automated
+test in this repository (mocked Cashfree HTTP, real HMAC signatures, real database). No result below is claimed from a
+source it does not list.
+
+| # | Scenario | Result | Source |
+|---|---|---|---|
+| 1 | ₹2,000 order for the configured fee, hosted checkout, sandbox payment (twice) | passed | Mac |
+| 2 | Success webhook -> HTTP 200 -> payment confirmed once -> receipt PDF + email | passed | Mac; Test |
+| 3 | Same success webhook delivered again -> HTTP 200, still one payment and one receipt | passed | Mac |
+| 3a | Replay adds no second receipt **email**, payment row or accounting entry (exact repeat, re-wrapped copy, status check) | passed in tests (one email queued; the send task also skips a document already sent; onboarding posts nothing to accounting); confirm on the Mac with `./staging.sh evidence` | Test; Mac pending |
+| 4 | ₹1 sandbox refund -> refund webhook -> credit note `RCPT-CN-2026-000001` emailed (Mailpit) | passed | Mac |
+| 4a | ₹1 refund counted once: ledger = payment 2,000 + refund 1 + waiver 1 (`refund_adjustment`); student owes 1,999 and has paid 1,999 net; balance 0; dashboard received 1,999 | correct by design and tested; the waiver lowers what is owed, the refund lowers what was paid, so the ₹1 is not counted twice; confirm the Mac numbers with `./staging.sh evidence` | Test; Mac pending |
+| 4b | Refund idempotency: one open refund per payment (second request 409); one gateway call with an id derived from the refund row; refund-webhook replays (exact and re-wrapped) change nothing; one credit note, emailed once | passed | Test |
+| 5 | Failed payment (`testfailure@gocash`) -> no receipt, student can retry with a new order | passed in tests; **sandbox run pending** | Test; Mac pending |
+| 6 | Checkout closed / user dropped -> no receipt, stays unpaid, retry possible | passed in tests; **sandbox run pending** | Test; Mac pending |
+| 7 | Lost webhook -> recovered by the status check / 15-minute reconciliation, exactly once | passed in tests (stale_orders -> refresh_order; re-running changes nothing); **sandbox run pending** | Test; Mac pending |
+| 8 | First checkout stayed on Cashfree's return page, second returned | not reproduced in code; see 4b below | Mac |
+
+### 4b. The stuck return page (first checkout)
+
+ERPX never relies on the return page for money: payments are confirmed only by a signed webhook or a server-side status
+check, so the first payment was recorded correctly either way. The return address is fixed when the order is created
+(`FRONTEND_URL` + `/internship-onboarding?order=<id>`), and an unpaid order with the same amount is reused for up to 30
+minutes. On the Mac, `FRONTEND_URL` is the quick-tunnel address the API was started with; if the tunnel was restarted
+(new address) or the order was created before `./staging.sh up` picked up the address, Cashfree redirects to an
+address that no longer exists and the browser stays on Cashfree's page. To confirm: compare the first order's
+`created_at` (`./staging.sh evidence`, "payment orders") with when the tunnel address last changed, and look at that
+order's return URL in the Cashfree dashboard (Test mode, order details). In production `FRONTEND_URL` is fixed
+(`https://erp.pentrix.in`), so this cause cannot occur there; if it is something else (a Cashfree-side delay), it does
+not affect what ERPX records. No code change was made for it.
+
+### 4c. Before a controlled production rollout
+
+1. On the Mac: scenarios 5, 6, 7 in the sandbox, then `./staging.sh evidence` with every check at 0 and one email per
+   receipt/credit note; record the results in this table.
+2. Review and merge PR #163 (owner).
+3. Production prerequisites (owner): production App ID / Secret Key as server secrets only; webhook
+   `https://erp.pentrix.in/api/v1/public/payments/cashfree/webhook` (version 2025-01-01, payment + refund events);
+   `erp.pentrix.in` whitelisted; `CASHFREE_ENABLED=true`, `CASHFREE_ENV=production`, `CASHFREE_ALLOW_PRODUCTION=true`
+   set only with written authorization; the production MinIO image issue (official `minio/minio` can no longer be pulled)
+   resolved before any rebuild of that host.
+4. Controlled start (owner's decision): one internship, "Online (Cashfree)" enabled by finance, one real low-value payment by a staff member
+   and its refund, then open to students.
 
 ## 5. Where the sandbox run happens
 
