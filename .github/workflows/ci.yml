@@ -172,8 +172,10 @@ jobs:
         # Previously this job only covered apps/web — student-portal,
         # trainer-portal, and corporate-portal were never built, type-
         # checked, or tested in CI at all (Production Hardening Audit
-        # finding #5). All four apps share the same build/test scripts.
-        app: [web, student-portal, trainer-portal, corporate-portal]
+        # finding #5). employee-portal was missing from this list too, so its
+        # dependencies were never audited here. All five apps share the same
+        # build/test/audit scripts.
+        app: [web, student-portal, trainer-portal, corporate-portal, employee-portal]
     steps:
       - uses: actions/checkout@v4
 
