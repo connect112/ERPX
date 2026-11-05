@@ -19,7 +19,7 @@ import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,20 @@ from modules.internship_onboarding.service import (
 from modules.our_internships.models import InternshipSelection, OurInternship, PaymentStatus
 
 logger = get_logger(__name__)
+
+# Which local orders are still worth asking Cashfree about. A Cashfree order takes new payment attempts until it expires, so after a
+# FAILED or USER_DROPPED attempt the local order is "failed" (that is what lets the student start a fresh one) but another attempt on
+# the same Cashfree order can still succeed; and an attempt started before expiry (UPI, net banking) can still be PENDING for a while
+# after it. Reconciliation therefore covers "active" orders, and "failed" or "expired" ones until RECONCILE_GRACE after their expiry.
+# After that an order is final: Cashfree is not asked again (a signed notification can still record a late payment). Only a
+# verified SUCCESS for the order's exact amount and currency ever confirms anything; FAILED / USER_DROPPED never do.
+RECONCILE_GRACE = timedelta(minutes=60)
+RECONCILABLE_STATUSES = ("active", "failed", "expired")
+
+
+def _inside_grace(moment):
+    """SQL condition: the order's expiry plus the grace period has not passed yet."""
+    return func.coalesce(PaymentOrder.expires_at, PaymentOrder.created_at) + RECONCILE_GRACE > moment
 
 MAX_PROOF_BYTES = 5 * 1024 * 1024
 
@@ -413,6 +427,11 @@ class PaymentService:
         record.event_type, record.merchant_order_id = parsed.event_type, parsed.merchant_order_id[:64]
         if seen is None:
             self.db.add(record)
+        if parsed.event_type.startswith("AUTO_REFUND"):
+            outcome = await self.report_auto_refund(parsed)
+            record.outcome, record.processed_at = outcome, now()
+            await self.db.flush()
+            return 200, outcome
         if order is None:
             record.outcome, record.processed_at = "unknown order", now()
             await self.db.flush()
@@ -425,6 +444,25 @@ class PaymentService:
         record.outcome, record.processed_at = outcome[:200], now()
         await self.db.flush()
         return 200, outcome
+
+    async def report_auto_refund(self, parsed) -> str:
+        """Cashfree returned money by itself. The ledger is not changed (staff confirm what happened and record it); the
+        student's timeline says so, so the refund is never silent."""
+        payment = None
+        if parsed.auto_refund_payment_id:
+            payment = (
+                await self.db.execute(
+                    select(PaymentTransaction).where(PaymentTransaction.provider == "cashfree",
+                                                     PaymentTransaction.provider_payment_id == parsed.auto_refund_payment_id)
+                )
+            ).scalar_one_or_none()  # fmt: skip
+        if payment is None:
+            logger.warning("cashfree_auto_refund_unmatched")
+            return "auto refund: no matching payment"
+        application = await self.db.get(OnboardingApplication, payment.application_id)
+        await event(self.db, application, "gateway_auto_refund", actor="system", amount=parsed.auto_refund_amount,
+                    payment=parsed.auto_refund_payment_id, note="Cashfree refunded this payment itself; finance to check and record.")  # fmt: skip
+        return "auto refund: reported to staff"
 
     async def refresh_order(self, order: PaymentOrder) -> str:
         """Ask the gateway directly (the student pressed "check payment", or the reconciliation task)."""
@@ -444,7 +482,8 @@ class PaymentService:
         orders = (
             await self.db.execute(
                 select(PaymentOrder).where(PaymentOrder.application_id == ctx.application.id, PaymentOrder.method == "cashfree",
-                                           PaymentOrder.status.in_(("active", "created", "failed")))
+                                           or_(PaymentOrder.status.in_(("active", "created", "failed")),
+                                               and_(PaymentOrder.status == "expired", _inside_grace(now()))))
             )
         ).scalars().all()  # fmt: skip
         outcome = "nothing to check"
@@ -460,11 +499,14 @@ class PaymentService:
         return outcome
 
     async def stale_orders(self, older_than: timedelta = timedelta(minutes=10), limit: int = 200) -> list[PaymentOrder]:
-        cutoff = now() - older_than
+        moment = now()
+        cutoff = moment - older_than
         rows = await self.db.execute(
             select(PaymentOrder).where(
-                PaymentOrder.method == "cashfree", PaymentOrder.status == "active", PaymentOrder.created_at < cutoff,
+                PaymentOrder.method == "cashfree", PaymentOrder.created_at < cutoff,
                 (PaymentOrder.last_checked_at.is_(None)) | (PaymentOrder.last_checked_at < cutoff),
+                or_(PaymentOrder.status == "active",
+                    and_(PaymentOrder.status.in_(("failed", "expired")), _inside_grace(moment))),
             ).limit(limit)
         )  # fmt: skip
         return list(rows.scalars())

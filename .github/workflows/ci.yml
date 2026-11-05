@@ -117,6 +117,13 @@ jobs:
           print(f"bucket {bucket} ready")
           PY
 
+      # Celery, Kombu and redis-py must agree: a floating kombu once refused the pinned redis-py and killed every worker at start-up
+      # ("VersionMismatch: Redis transport requires redis-py versions 6.1.0 or later"). This checks the declared requirements and
+      # opens a real Kombu connection to the Redis service above, which runs Kombu's own runtime guard.
+      - name: Check Celery / Kombu / redis-py compatibility
+        working-directory: apps/api
+        run: python scripts/check_dependency_compat.py --broker redis://localhost:6379/1
+
       - name: Run migrations
         working-directory: apps/api
         env:

@@ -206,7 +206,8 @@ class PaymentOrder(TimestampedBase):
     method: Mapped[str] = mapped_column(String(20), nullable=False)  # cashfree | bank_transfer | upi
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
-    # created | active | paid | failed | expired | cancelled
+    # created | active | paid | failed | expired | cancelled. "failed" means the latest attempt failed or was dropped, not that the
+    # Cashfree order is closed: it can still take another attempt until it expires, which is why reconciliation also covers it.
     status: Mapped[str] = mapped_column(String(20), default="created", server_default="created", nullable=False, index=True)
     merchant_order_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     provider: Mapped[str | None] = mapped_column(String(20), nullable=True)

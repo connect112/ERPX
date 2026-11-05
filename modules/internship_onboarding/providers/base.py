@@ -40,6 +40,10 @@ class WebhookEvent:
     merchant_order_id: str
     payment: ProviderPayment | None
     refund: ProviderRefund | None = None
+    # A refund the gateway made by itself (e.g. money for an order that could no longer take it). It is not one of ours,
+    # so it is only reported to staff: the gateway's payment id and the amount it says it returned.
+    auto_refund_payment_id: str | None = None
+    auto_refund_amount: str | None = None
 
 
 class PaymentProvider(ABC):

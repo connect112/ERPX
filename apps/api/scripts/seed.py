@@ -36,9 +36,15 @@ from modules.authorization.service import AuthorizationService
 # fails with NoReferencedTableError unless Branch is imported (app.main pulls in
 # every model transitively; this standalone script must register it explicitly).
 from modules.branches.models import Branch  # noqa: F401
+
+# Same reason for Organization's two optional payroll defaults: default_salary_payable_account_id FKs to
+# accounting_accounts and default_expense_reimbursement_component_id to payroll_salary_components. Without these
+# imports, creating an organization on a fresh database (no "System" org yet) fails with NoReferencedTableError.
+from modules.accounting.ledger.models import Account  # noqa: F401
 from modules.courses.repository import CourseRepository
 from modules.organizations.repository import OrganizationRepository
 from modules.organizations.service import SYSTEM_ORG_SLUG as _SYSTEM_ORG_SLUG
+from modules.payroll.models import SalaryComponent  # noqa: F401  (see the Account import above)
 from modules.provisioning.service import PENTRIX_ORG_SLUG
 from modules.users.repository import UserProfileRepository
 

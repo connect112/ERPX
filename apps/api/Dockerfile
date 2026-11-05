@@ -43,6 +43,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY apps/api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Fail the BUILD, not the running containers, if the messaging stack does not fit together (Celery / Kombu / redis-py). A floating
+# kombu once passed `pip install` and then killed every Celery worker and Beat container at start-up with
+# "VersionMismatch: Redis transport requires redis-py versions 6.1.0 or later". Cheap, offline, no broker needed.
+COPY apps/api/scripts/check_dependency_compat.py /tmp/check_dependency_compat.py
+RUN python /tmp/check_dependency_compat.py && rm /tmp/check_dependency_compat.py
+
 # ---- Runtime stage: only what's needed to run the app ----
 FROM python:3.12-slim
 
