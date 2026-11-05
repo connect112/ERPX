@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
@@ -60,7 +61,7 @@ export function QuotationFormDialog({ open, onOpenChange, clientId }: QuotationF
     watch,
     reset,
     formState: { errors },
-  } = useForm<QuotationFormValues>({
+  } = useForm<z.input<typeof quotationFormSchema>, unknown, QuotationFormValues>({
     resolver: zodResolver(quotationFormSchema),
     defaultValues: emptyValues,
   });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const depreciationRunStatusValues = ["draft", "posted", "cancelled"] as const;
 export type DepreciationRunStatus = (typeof depreciationRunStatusValues)[number];
@@ -10,8 +11,8 @@ export const depreciationRunStatusLabels: Record<DepreciationRunStatus, string> 
 };
 
 export const generateDepreciationRunFormSchema = z.object({
-  periodYear: z.coerce.number().min(2000),
-  periodMonth: z.coerce.number().min(1).max(12),
+  periodYear: coerceNumber().min(2000),
+  periodMonth: coerceNumber().min(1).max(12),
   runDate: z.string().min(1, "Run date is required."),
 });
 export type GenerateDepreciationRunFormValues = z.infer<typeof generateDepreciationRunFormSchema>;

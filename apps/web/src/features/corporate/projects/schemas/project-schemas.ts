@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const projectTypeValues = ["vapt", "soc", "consulting", "training", "other"] as const;
 export type ProjectType = (typeof projectTypeValues)[number];
@@ -36,7 +37,7 @@ export const projectFormSchema = z.object({
   projectManagerEmployeeId: z.string().optional().or(z.literal("")),
   startDate: z.string().min(1, "Start date is required."),
   endDate: z.string().optional().or(z.literal("")),
-  budgetAmount: z.coerce.number().min(0).optional(),
+  budgetAmount: coerceNumber().min(0).optional(),
   notes: z.string().optional().or(z.literal("")),
 });
 export type ProjectFormValues = z.infer<typeof projectFormSchema>;

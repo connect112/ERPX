@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const contractTypeValues = ["project", "amc", "retainer", "soc_subscription", "other"] as const;
 export type ContractType = (typeof contractTypeValues)[number];
@@ -29,7 +30,7 @@ export const contractFormSchema = z.object({
   contractType: z.enum(contractTypeValues),
   startDate: z.string().min(1, "Start date is required."),
   endDate: z.string().optional().or(z.literal("")),
-  contractValue: z.coerce.number().min(0, "Must be zero or more."),
+  contractValue: coerceNumber().min(0, "Must be zero or more."),
   documentUrl: z.string().optional().or(z.literal("")),
   notes: z.string().optional().or(z.literal("")),
 });
@@ -37,6 +38,6 @@ export type ContractFormValues = z.infer<typeof contractFormSchema>;
 
 export const renewContractFormSchema = z.object({
   newEndDate: z.string().min(1, "New end date is required."),
-  newContractValue: z.coerce.number().min(0).optional(),
+  newContractValue: coerceNumber().min(0).optional(),
 });
 export type RenewContractFormValues = z.infer<typeof renewContractFormSchema>;

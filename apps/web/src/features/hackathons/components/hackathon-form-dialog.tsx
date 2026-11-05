@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 
@@ -50,7 +51,7 @@ export function HackathonFormDialog({ open, onOpenChange, hackathon, eventId }: 
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<HackathonFormValues>({
+  } = useForm<z.input<typeof hackathonFormSchema>, unknown, HackathonFormValues>({
     resolver: zodResolver(hackathonFormSchema),
     defaultValues: emptyValues,
   });

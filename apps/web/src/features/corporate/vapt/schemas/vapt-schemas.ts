@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const vaptEngagementTypeValues = [
   "web_app",
@@ -73,7 +74,7 @@ export type VAPTEngagementFormValues = z.infer<typeof vaptEngagementFormSchema>;
 export const vaptFindingFormSchema = z.object({
   title: z.string().min(2, "Title is required."),
   severity: z.enum(findingSeverityValues),
-  cvssScore: z.coerce.number().min(0).max(10).optional(),
+  cvssScore: coerceNumber().min(0).max(10).optional(),
   description: z.string().min(2, "Description is required."),
   recommendation: z.string().min(2, "Recommendation is required."),
   reportedDate: z.string().min(1, "Reported date is required."),

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const quotationStatusValues = ["draft", "sent", "accepted", "rejected", "expired"] as const;
 export type QuotationStatus = (typeof quotationStatusValues)[number];
@@ -13,8 +14,8 @@ export const quotationStatusLabels: Record<QuotationStatus, string> = {
 
 export const quotationLineFormSchema = z.object({
   description: z.string().min(1, "Description is required."),
-  quantity: z.coerce.number().gt(0, "Quantity must be greater than zero.").default(1),
-  unitPrice: z.coerce.number().min(0, "Unit price must be zero or more."),
+  quantity: coerceNumber().gt(0, "Quantity must be greater than zero.").default(1),
+  unitPrice: coerceNumber().min(0, "Unit price must be zero or more."),
   gstRateId: z.string().optional().or(z.literal("")),
 });
 
