@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 
@@ -53,7 +54,7 @@ export function AdjustStockDialog({ open, onOpenChange, defaultItemId }: AdjustS
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<AdjustStockFormValues>({
+  } = useForm<z.input<typeof adjustStockFormSchema>, unknown, AdjustStockFormValues>({
     resolver: zodResolver(adjustStockFormSchema),
     defaultValues: emptyValues,
   });

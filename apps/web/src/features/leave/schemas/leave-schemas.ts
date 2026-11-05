@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const leaveApplicationStatusValues = ["pending", "approved", "rejected", "cancelled"] as const;
 export type LeaveApplicationStatus = (typeof leaveApplicationStatusValues)[number];
@@ -13,10 +14,10 @@ export const leaveApplicationStatusLabels: Record<LeaveApplicationStatus, string
 export const leaveTypeFormSchema = z.object({
   name: z.string().min(2, "Name is required."),
   code: z.string().min(1, "Code is required."),
-  annualQuota: z.coerce.number().min(0, "Quota must be zero or more."),
+  annualQuota: coerceNumber().min(0, "Quota must be zero or more."),
   isPaid: z.boolean(),
   carryForwardAllowed: z.boolean(),
-  maxCarryForwardDays: z.coerce.number().optional(),
+  maxCarryForwardDays: coerceNumber().optional(),
 });
 export type LeaveTypeFormValues = z.infer<typeof leaveTypeFormSchema>;
 

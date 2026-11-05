@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const purchaseOrderStatusValues = [
   "draft",
@@ -20,8 +21,8 @@ export const purchaseOrderStatusLabels: Record<PurchaseOrderStatus, string> = {
 export const purchaseOrderLineFormSchema = z.object({
   itemId: z.string().min(1, "Item is required."),
   description: z.string().min(1, "Description is required."),
-  quantityOrdered: z.coerce.number().gt(0, "Quantity must be greater than zero."),
-  unitPrice: z.coerce.number().min(0, "Unit price must be zero or more."),
+  quantityOrdered: coerceNumber().gt(0, "Quantity must be greater than zero."),
+  unitPrice: coerceNumber().min(0, "Unit price must be zero or more."),
   gstRateId: z.string().optional().or(z.literal("")),
 });
 

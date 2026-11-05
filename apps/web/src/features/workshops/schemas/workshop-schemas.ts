@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const workshopModeValues = ["physical", "virtual"] as const;
 export type WorkshopMode = (typeof workshopModeValues)[number];
@@ -31,11 +32,11 @@ export const workshopFormSchema = z.object({
   endTime: z.string().min(1, "End time is required."),
   capacity: z.preprocess(
     (val) => (val === "" || val === undefined ? undefined : val),
-    z.coerce.number().int().min(1).optional()
+    coerceNumber().int().min(1).optional()
   ),
   fee: z.preprocess(
     (val) => (val === "" || val === undefined ? undefined : val),
-    z.coerce.number().min(0).optional()
+    coerceNumber().min(0).optional()
   ),
 });
 export type WorkshopFormValues = z.infer<typeof workshopFormSchema>;

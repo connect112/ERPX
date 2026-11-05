@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const jobTypeValues = ["full_time", "part_time", "internship", "contract"] as const;
 export type JobType = (typeof jobTypeValues)[number];
@@ -46,11 +47,11 @@ export const postingFormSchema = z.object({
   location: z.string().optional().or(z.literal("")),
   salaryMin: z.preprocess(
     (val) => (val === "" || val === undefined ? undefined : val),
-    z.coerce.number().min(0).optional()
+    coerceNumber().min(0).optional()
   ),
   salaryMax: z.preprocess(
     (val) => (val === "" || val === undefined ? undefined : val),
-    z.coerce.number().min(0).optional()
+    coerceNumber().min(0).optional()
   ),
   requiredSkills: z.string().optional().or(z.literal("")),
   applicationDeadline: z.string().optional().or(z.literal("")),

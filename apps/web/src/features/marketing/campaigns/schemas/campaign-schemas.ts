@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const campaignChannelValues = [
   "email",
@@ -46,8 +47,8 @@ export const campaignFormSchema = z.object({
   channel: z.enum(campaignChannelValues),
   startDate: z.string().min(1, "Start date is required."),
   endDate: z.string().optional().or(z.literal("")),
-  budgetAmount: z.coerce.number().min(0).optional(),
-  actualSpend: z.coerce.number().min(0).optional(),
+  budgetAmount: coerceNumber().min(0).optional(),
+  actualSpend: coerceNumber().min(0).optional(),
   targetAudience: z.string().optional().or(z.literal("")),
   goal: z.string().optional().or(z.literal("")),
   notes: z.string().optional().or(z.literal("")),

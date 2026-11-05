@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const socServiceTypeValues = [
   "monitoring",
@@ -48,7 +49,7 @@ export const incidentStatusLabels: Record<IncidentStatus, string> = {
 export const socServiceFormSchema = z.object({
   projectId: z.string().optional().or(z.literal("")),
   serviceType: z.enum(socServiceTypeValues),
-  slaResponseTimeMinutes: z.coerce.number().min(1).optional(),
+  slaResponseTimeMinutes: coerceNumber().min(1).optional(),
   startDate: z.string().min(1, "Start date is required."),
   endDate: z.string().optional().or(z.literal("")),
   notes: z.string().optional().or(z.literal("")),

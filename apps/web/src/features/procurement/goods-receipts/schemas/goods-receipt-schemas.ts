@@ -1,10 +1,11 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const goodsReceiptLineFormSchema = z.object({
   purchaseOrderLineId: z.string().min(1),
   description: z.string(),
-  quantityReceived: z.coerce.number().min(0, "Must be zero or more."),
-  unitCost: z.coerce.number().min(0, "Must be zero or more."),
+  quantityReceived: coerceNumber().min(0, "Must be zero or more."),
+  unitCost: coerceNumber().min(0, "Must be zero or more."),
 });
 
 export const goodsReceiptFormSchema = z.object({

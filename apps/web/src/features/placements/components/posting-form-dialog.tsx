@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 
@@ -60,7 +61,7 @@ export function PostingFormDialog({ open, onOpenChange, posting }: PostingFormDi
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<PostingFormValues>({
+  } = useForm<z.input<typeof postingFormSchema>, unknown, PostingFormValues>({
     resolver: zodResolver(postingFormSchema),
     defaultValues: emptyValues,
   });

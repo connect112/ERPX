@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const salaryComponentTypeValues = ["earning", "deduction"] as const;
 export type SalaryComponentType = (typeof salaryComponentTypeValues)[number];
@@ -29,7 +30,7 @@ export type SalaryComponentFormValues = z.infer<typeof salaryComponentFormSchema
 
 export const salaryStructureLineFormSchema = z.object({
   salaryComponentId: z.string().min(1, "Component is required."),
-  amount: z.coerce.number().min(0, "Amount must be zero or more."),
+  amount: coerceNumber().min(0, "Amount must be zero or more."),
 });
 
 export const salaryStructureFormSchema = z.object({
@@ -40,8 +41,8 @@ export const salaryStructureFormSchema = z.object({
 export type SalaryStructureFormValues = z.infer<typeof salaryStructureFormSchema>;
 
 export const generatePayrollRunFormSchema = z.object({
-  periodYear: z.coerce.number().min(2000),
-  periodMonth: z.coerce.number().min(1).max(12),
+  periodYear: coerceNumber().min(2000),
+  periodMonth: coerceNumber().min(1).max(12),
   runDate: z.string().min(1, "Run date is required."),
 });
 export type GeneratePayrollRunFormValues = z.infer<typeof generatePayrollRunFormSchema>;

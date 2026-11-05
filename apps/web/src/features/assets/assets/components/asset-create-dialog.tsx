@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 
@@ -65,7 +66,7 @@ export function AssetCreateDialog({ open, onOpenChange }: AssetCreateDialogProps
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<AssetFormValues>({
+  } = useForm<z.input<typeof assetFormSchema>, unknown, AssetFormValues>({
     resolver: zodResolver(assetFormSchema),
     defaultValues: emptyValues,
   });

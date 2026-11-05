@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -40,7 +41,7 @@ export function ReferralProgramsPage() {
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<ReferralProgramFormValues>({
+  } = useForm<z.input<typeof referralProgramFormSchema>, unknown, ReferralProgramFormValues>({
     resolver: zodResolver(referralProgramFormSchema),
     defaultValues: { name: "", code: "", referrerRewardAmount: 0, refereeDiscountAmount: 0 },
   });

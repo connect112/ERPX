@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const billingFrequencyValues = ["monthly", "quarterly", "annually"] as const;
 export type BillingFrequency = (typeof billingFrequencyValues)[number];
@@ -33,8 +34,8 @@ export const amcContractFormSchema = z.object({
   coverageDescription: z.string().min(2, "Coverage description is required."),
   startDate: z.string().min(1, "Start date is required."),
   endDate: z.string().min(1, "End date is required."),
-  renewalReminderDays: z.coerce.number().min(1).default(30),
-  amount: z.coerce.number().min(0, "Must be zero or more."),
+  renewalReminderDays: coerceNumber().min(1).default(30),
+  amount: coerceNumber().min(0, "Must be zero or more."),
   billingFrequency: z.enum(billingFrequencyValues),
 });
 export type AMCContractFormValues = z.infer<typeof amcContractFormSchema>;
