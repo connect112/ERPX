@@ -138,6 +138,29 @@ def secret_placement_problems(html: str | None, subject: str | None = "", prehea
     return problems
 
 
+def _drop_optional_blocks(markup: str, values: dict[str, object]) -> str:
+    """Remove every part of the email that exists only for a secret placeholder (the onboarding link) when it has no value: a part is
+    marked by an element carrying ``data-optional-for="onboarding_link"`` and goes whole, with everything inside it (its heading, its
+    text, its button, its note). Nothing is left behind to describe a link that is not there."""
+    out = markup
+    for name in SECRET_PLACEHOLDERS:
+        if str(values.get(name) or "").strip():
+            continue
+        start = re.compile(r"(?is)<([a-z][a-z0-9]*)\b[^>]*?\bdata-optional-for\s*=\s*([\"'])" + re.escape(name) + r"\2[^>]*>")
+        while (found := start.search(out)) is not None:
+            tag = re.compile(r"(?is)<(/?)" + found.group(1) + r"\b[^>]*>")
+            depth, end = 1, None
+            for piece in tag.finditer(out, found.end()):
+                depth += -1 if piece.group(1) else 1
+                if depth == 0:
+                    end = piece.end()
+                    break
+            if end is None:
+                break  # not closed: leave it rather than cut the rest of the email away
+            out = out[: found.start()] + out[end:]
+    return out
+
+
 def _drop_empty_links(markup: str, values: dict[str, object]) -> str:
     """A link whose whole address is a secret placeholder with no value is not a link: keep its text, drop the anchor, so no dead
     button or empty address is ever sent (for example when onboarding is manual)."""
@@ -153,7 +176,7 @@ def _drop_empty_links(markup: str, values: dict[str, object]) -> str:
 def fill_html(markup: str, values: dict[str, object], blocks: dict[str, str] | None = None) -> str:
     """The HTML with its placeholders filled in. ``blocks`` holds the HTML of component placeholders. A name with no value is
     replaced by nothing; check `missing()` first when that matters."""
-    out = _drop_empty_links(markup, values)
+    out = _drop_empty_links(_drop_optional_blocks(markup, values), values)
     for name, block in (blocks or {}).items():
         # a block placeholder on its own in a paragraph or cell replaces the whole paragraph
         out = re.sub(r"(?is)<p\b[^>]*>\s*\{\{\s*" + name + r"\s*\}\}\s*</p\s*>", lambda _m, b=block: b, out, count=1)

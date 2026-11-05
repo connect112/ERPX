@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useStudioPermissions } from "@/features/email-studio/lib/permissions";
 import { errorMessage } from "@/features/institutions/lib/format";
 import {
   type LetterConfig,
@@ -17,14 +17,15 @@ import {
   lettersApi,
   useLetterStudents,
 } from "@/features/our-internships/api/letters-api";
-import { AreaField, TextField, selectClass } from "@/features/our-internships/components/letter-fields";
-import { setPath } from "@/features/our-internships/lib/letters";
+import { LettersEmail } from "@/features/our-internships/components/letters-email";
+import { type ReleaseChoices, asksAboutLinks, releaseBlockedBy, releaseOptions } from "@/features/our-internships/lib/letters";
 
 const DELIVERY = { none: "Not sent", queued: "Sending", sent: "Sent", failed: "Failed" } as const;
 
 /**
- * Step 5: the email, who gets it, and the send. Only letters an administrator approved can be released, each student gets only
- * their own PDF at their registered address, and every attempt (with the reason for a failure) is kept in the history.
+ * Step 5: the email, who gets it, and the send. The email itself is an Email Studio template (see LettersEmail). Only letters an
+ * administrator approved can be released, each student gets only their own PDF at their registered address, and every attempt (with
+ * the reason for a failure) is kept in the history.
  */
 export function LettersRelease({
   internshipId,
@@ -43,18 +44,17 @@ export function LettersRelease({
   const students = useLetterStudents(internshipId);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [previewFor, setPreviewFor] = useState("");
-  const [testTo, setTestTo] = useState("");
+  const [choices, setChoices] = useState<ReleaseChoices>({ linkPolicy: "keep_existing", useLegacy: false });
   const [result, setResult] = useState<ReleaseResult | null>(null);
+  const permissions = useStudioPermissions();
   const refresh = () => queryClient.invalidateQueries({ queryKey: letterKeys.all(internshipId) });
 
-  const saveEmail = useMutation({ mutationFn: () => lettersApi.saveConfig(internshipId, draft, "internship"), onSuccess: () => void refresh() });
   const preview = useQuery({
     queryKey: [...letterKeys.all(internshipId), "email-preview", previewFor, settings.config.email.subject, settings.config.email.body],
     queryFn: () => lettersApi.emailPreview(internshipId, previewFor || null),
   });
-  const test = useMutation({ mutationFn: () => lettersApi.testEmail(internshipId, testTo.trim()) });
   const release = useMutation({
-    mutationFn: (ids: string[]) => lettersApi.release(internshipId, ids, false),
+    mutationFn: (ids: string[]) => lettersApi.release(internshipId, ids, false, releaseOptions(preview.data, choices)),
     onSuccess: (r) => {
       setResult(r);
       setPicked(new Set());
@@ -79,73 +79,21 @@ export function LettersRelease({
       else next.add(id);
       return next;
     });
-  const emailDirty = dirty && (draft.email.subject !== settings.config.email.subject || draft.email.body !== settings.config.email.body);
+  const blockedBy = releaseBlockedBy(preview.data, choices);
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Email template</CardTitle>
-          <CardDescription>
-            Sent with the student's own letter attached. Placeholders: {Object.keys(settings.placeholders).map((k) => `{{${k}}}`).join(", ")}.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <TextField id="em-subject" label="Subject" value={draft.email.subject} onChange={(v) => onDraft(setPath(draft, ["email", "subject"], v))} />
-          <AreaField id="em-body" label="Message" rows={9} value={draft.email.body} onChange={(v) => onDraft(setPath(draft, ["email", "body"], v))} />
-          <div className="flex flex-wrap items-center gap-3">
-            <Button size="sm" disabled={!dirty || saveEmail.isPending} onClick={() => saveEmail.mutate()}>
-              {saveEmail.isPending ? "Saving..." : "Save the email"}
-            </Button>
-            {emailDirty && <span className="text-sm text-amber-700 dark:text-amber-400">Save to see the preview below change.</span>}
-            {saveEmail.isError && <span className="text-sm text-destructive">{errorMessage(saveEmail.error, "Could not save.")}</span>}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Review the email and attachment</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <label htmlFor="em-student" className="text-sm font-medium">
-              Show it for
-            </label>
-            <select id="em-student" className={`${selectClass} max-w-sm`} value={previewFor} onChange={(e) => setPreviewFor(e.target.value)}>
-              <option value="">A sample student</option>
-              {rows.map((r) => (
-                <option key={r.student_id} value={r.student_id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          {preview.data && (
-            <div className="space-y-1 rounded-md border bg-muted/30 p-3 text-sm">
-              <p>
-                <span className="text-muted-foreground">To:</span> {preview.data.to || "(a sample address)"}
-              </p>
-              <p>
-                <span className="text-muted-foreground">Subject:</span> {preview.data.subject}
-              </p>
-              <p>
-                <span className="text-muted-foreground">Attachment:</span> {preview.data.attachment}
-              </p>
-              <pre className="mt-2 whitespace-pre-wrap font-sans">{preview.data.body}</pre>
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            <Input aria-label="Send a test email to" type="email" placeholder="you@example.com" className="max-w-xs" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
-            <Button size="sm" variant="outline" disabled={!testTo.trim() || test.isPending} onClick={() => test.mutate()}>
-              <Mail className="h-4 w-4" />
-              {test.isPending ? "Sending..." : "Send a test with a sample letter"}
-            </Button>
-          </div>
-          {test.isSuccess && <p className="text-sm text-emerald-700 dark:text-emerald-400">{test.data.message}</p>}
-          {test.isError && <p className="text-sm text-destructive">{errorMessage(test.error, "Could not send the test.")}</p>}
-        </CardContent>
-      </Card>
+      <LettersEmail
+        internshipId={internshipId}
+        settings={settings}
+        draft={draft}
+        onDraft={onDraft}
+        dirty={dirty}
+        rows={rows}
+        preview={preview}
+        previewFor={previewFor}
+        onPreviewFor={setPreviewFor}
+      />
 
       <Card>
         <CardHeader>
@@ -194,6 +142,33 @@ export function LettersRelease({
               </Table>
             </div>
           )}
+          {asksAboutLinks(preview.data) && (
+            <fieldset className="space-y-2 rounded-md border p-3 text-sm">
+              <legend className="px-1 font-medium">Students' onboarding links</legend>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="link-policy" className="mt-1" checked={choices.linkPolicy === "keep_existing"} onChange={() => setChoices({ ...choices, linkPolicy: "keep_existing" })} />
+                <span>Keep the link a student already has (recommended). Students with no link get a new one in their email.</span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="link-policy" className="mt-1" checked={choices.linkPolicy === "replace"} onChange={() => setChoices({ ...choices, linkPolicy: "replace" })} />
+                <span>Give every student a new link. A student's earlier link stops working once their new email is accepted by the mail server.</span>
+              </label>
+            </fieldset>
+          )}
+          {preview.data?.problem && (
+            <div role="alert" className="space-y-2 rounded-md border border-destructive/50 p-3 text-sm">
+              <p className="text-destructive">The assigned email template cannot be used: {preview.data.problem}</p>
+              <p className="text-muted-foreground">Fix it in Email Studio. Nothing is sent with other wording unless you choose the built-in email below.</p>
+              {permissions.canPublish ? (
+                <label className="flex items-start gap-2">
+                  <input type="checkbox" className="mt-1" checked={choices.useLegacy} onChange={(e) => setChoices({ ...choices, useLegacy: e.target.checked })} />
+                  <span>Send the built-in (legacy) email for this release instead. This is recorded on each letter.</span>
+                </label>
+              ) : (
+                <p className="text-xs text-muted-foreground">Choosing the built-in email needs Email Studio publish access.</p>
+              )}
+            </div>
+          )}
           {release.isError && <p className="text-sm text-destructive">{errorMessage(release.error, "Could not release the letters.")}</p>}
           {result && (
             <div className="space-y-1 text-sm">
@@ -206,15 +181,17 @@ export function LettersRelease({
             </div>
           )}
           <Button
-            disabled={chosen.length === 0 || release.isPending || dirty}
+            disabled={chosen.length === 0 || release.isPending || dirty || !!blockedBy}
             onClick={() => {
-              if (window.confirm(`Email an offer letter to ${chosen.length} student${chosen.length === 1 ? "" : "s"}? Each gets only their own letter. This cannot be undone.`)) release.mutate(chosen.map((r) => (r.letter as { id: string }).id));
+              const links = asksAboutLinks(preview.data) && releaseOptions(preview.data, choices).link_policy === "replace" ? " Every student gets a NEW onboarding link, and their earlier link stops working once the email is accepted." : "";
+              if (window.confirm(`Email an offer letter to ${chosen.length} student${chosen.length === 1 ? "" : "s"}? Each gets only their own letter. This cannot be undone.${links}`)) release.mutate(chosen.map((r) => (r.letter as { id: string }).id));
             }}
           >
             <Send className="h-4 w-4" />
             {release.isPending ? "Releasing..." : chosen.length ? `Confirm release to ${chosen.length}` : "Choose students to release"}
           </Button>
           {dirty && <p className="text-xs text-amber-700 dark:text-amber-400">Save or discard your unsaved settings before releasing.</p>}
+          {blockedBy && <p className="text-xs text-destructive">{blockedBy}</p>}
         </CardContent>
       </Card>
 

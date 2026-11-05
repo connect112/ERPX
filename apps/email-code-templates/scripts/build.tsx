@@ -15,6 +15,8 @@ import { fileURLToPath } from "node:url";
 import * as accountVerification from "../src/templates/account-verification";
 import * as certificateDistribution from "../src/templates/certificate-distribution";
 import * as internshipOffer from "../src/templates/internship-offer";
+import * as internshipOfferOnboarding from "../src/templates/internship-offer-onboarding";
+import * as internshipOnboardingInvite from "../src/templates/internship-onboarding-invite";
 import * as internshipWelcome from "../src/templates/internship-welcome";
 import * as passwordReset from "../src/templates/password-reset";
 import type { TemplateMeta } from "../src/types";
@@ -23,6 +25,8 @@ const TEMPLATES: { meta: TemplateMeta; default: (props: Record<string, string>) 
   accountVerification,
   passwordReset,
   internshipOffer,
+  internshipOfferOnboarding,
+  internshipOnboardingInvite,
   internshipWelcome,
   certificateDistribution,
 ];

@@ -140,6 +140,7 @@ class OfferEmail:
 
 
 LINK_POLICIES = ("keep_existing", "replace")
+TEST_NOTE = "This is a test email: the details are sample values, the link goes nowhere real, and no student received it."
 LEASE_MINUTES = 5
 
 
@@ -748,17 +749,37 @@ class LetterService:
             letter = (await self.current_letters(internship)).get(selection.id)
             filename = letter.filename if letter and letter.filename else letter_filename(facts.name, internship.id, 1)
         from modules.email_studio.engine import AssignedTemplateUnusable, TemplateRenderFailed
+        from modules.email_studio.models import EmailStudioVersion
         from modules.internship_onboarding.emails import preview_onboarding_values
+        from modules.internship_onboarding.service import config_of
 
+        _, onboarding = await config_of(self.db, internship)
         values = self.email_values(loaded.config, facts, internship.title, reference)
         # a preview only READS: no application, reference number or link is created, and the link shown is a plain sample
-        values.update(await preview_onboarding_values(self.db, internship, selection if student_id is not None else None))
+        values.update(await preview_onboarding_values(self.db, internship, selection if student_id is not None else None, onboarding))
+        out: dict[str, Any] = {
+            "to": facts.email, "subject": "", "body": "", "html": "", "attachment": filename, "source": "legacy", "template": None,
+            "uses_link": False, "link_available": onboarding.modes.self_service, "problem": None,
+        }  # fmt: skip
+        plan: OfferEmailPlan | None = None
         try:
-            subject, text, _, _ = await self.render_offer_email(internship, loaded.config, values)
+            plan = await self.plan_offer_email(internship.organization_id)
+            email = await self.render_offer(internship, loaded.config, values, plan)
         except (TemplateRenderFailed, AssignedTemplateUnusable) as exc:
-            reason = exc.message if isinstance(exc, TemplateRenderFailed) else str(exc)
-            return {"to": facts.email, "subject": "(cannot be made)", "body": f"The assigned email template cannot be used. {reason}", "attachment": filename}
-        return {"to": facts.email, "subject": subject, "body": text, "attachment": filename}
+            out["subject"] = "(cannot be made)"
+            out["problem"] = exc.message if isinstance(exc, TemplateRenderFailed) else str(exc)
+            if plan is None:
+                out["source"] = "studio"  # a template IS assigned, it just cannot be used
+        else:
+            out.update(subject=email.subject, body=email.text, html=email.html, uses_link="onboarding_link" in email.used)
+        if plan is not None and plan.source == "studio":
+            version = await self.db.get(EmailStudioVersion, plan.version_id) if plan.version_id else None
+            out["source"] = "studio"
+            out["template"] = {
+                "id": plan.template_id, "name": plan.template_name, "version_number": version.version_number if version else None,
+                "published_at": version.published_at if version else None,
+            }  # fmt: skip
+        return out
 
     async def send_test(self, internship: OurInternship, to_email: str, user_id: uuid.UUID | None = None) -> None:
         from modules.email_studio.engine import AssignedTemplateUnusable, TemplateRenderFailed
@@ -775,12 +796,35 @@ class LetterService:
             raise ValidationError(f"The assigned email template cannot be used: {reason}") from exc
         note.is_test, note.sent_by_user_id = True, user_id
         set_send_meta(note)
+        if user_id is not None:
+            self._allow_test(user_id)
+        banner = f'<div style="background:#fef3c7;color:#92400e;font:12px Arial,sans-serif;padding:8px 12px;text-align:center">{TEST_NOTE}</div>'
+        body_at = html.find("<body")
+        if body_at != -1 and html.find(">", body_at) != -1:
+            close = html.find(">", body_at)
+            html = html[: close + 1] + banner + html[close + 1 :]
+        text = f"{text}\n\n--\n{TEST_NOTE}"
         sent = await email_service.send(
             to_email, "[Test] " + subject, text, html,
             attachments=[EmailAttachment(filename="OfferLetter_Sample.pdf", content=pdf, mime_type="application/pdf")],
         )
         if not sent:
             raise ServiceUnavailableError("The test email could not be sent. Check the email (SMTP) settings.")
+
+    def _allow_test(self, user_id: uuid.UUID) -> None:
+        """The same hourly limit Email Studio puts on test emails (and the same counter): a test must not become a way to mail people."""
+        import time
+
+        from app.core.exceptions import RateLimitError
+        from modules.email_studio.service import TEST_SENDS_PER_HOUR, _recent_tests
+
+        moment = time.monotonic()
+        recent = _recent_tests[user_id]
+        while recent and moment - recent[0] > 3600:
+            recent.popleft()
+        if len(recent) >= TEST_SENDS_PER_HOUR:
+            raise RateLimitError(f"You can send {TEST_SENDS_PER_HOUR} test emails an hour. Try again later.")
+        recent.append(moment)
 
     # ------------------------------------------------------------------ files
 

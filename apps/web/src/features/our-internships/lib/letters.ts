@@ -1,4 +1,4 @@
-import type { LetterConfig, RowStatus } from "@/features/our-internships/api/letters-api";
+import type { EmailPreview, LetterConfig, LinkPolicy, ReleaseOptions, RowStatus } from "@/features/our-internships/api/letters-api";
 
 export const ROW_STATUS: Record<RowStatus, { label: string; variant: "success" | "info" | "secondary" | "destructive" | "warning" | "outline" }> = {
   missing_data: { label: "Missing data", variant: "warning" },
@@ -78,4 +78,34 @@ export function saveBlob(blob: Blob, filename: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** What the administrator chose on the release step about the email. */
+export interface ReleaseChoices {
+  linkPolicy: LinkPolicy;
+  useLegacy: boolean;
+}
+
+type EmailFacts = Pick<EmailPreview, "uses_link" | "link_available" | "problem">;
+
+/** Whether the choice of link applies: only when the wording carries the personal link and onboarding is done by the student. */
+export function asksAboutLinks(email: EmailFacts | undefined): boolean {
+  return !!email && email.uses_link && email.link_available && !email.problem;
+}
+
+/**
+ * What to send with a release. A new link for everyone is only ever sent when the administrator asked for it AND the email carries
+ * one; the legacy email is only ever asked for when the assigned template cannot be used and the administrator chose it.
+ */
+export function releaseOptions(email: EmailFacts | undefined, choices: ReleaseChoices): ReleaseOptions {
+  return {
+    link_policy: asksAboutLinks(email) && choices.linkPolicy === "replace" ? "replace" : "keep_existing",
+    fallback: !!email?.problem && choices.useLegacy ? "legacy_letter_settings" : "none",
+  };
+}
+
+/** Why a release cannot go ahead (the assigned template is unusable and the legacy email was not chosen), or null. */
+export function releaseBlockedBy(email: EmailFacts | undefined, choices: ReleaseChoices): string | null {
+  if (email?.problem && !choices.useLegacy) return `The assigned email template cannot be used: ${email.problem}`;
+  return null;
 }
