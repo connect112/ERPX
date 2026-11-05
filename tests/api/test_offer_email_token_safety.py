@@ -301,7 +301,7 @@ async def test_a_worker_that_dies_after_the_mail_server_took_the_message_leaves_
     kit = await setup(client, auth_headers, world)
     await release(kit)
     began = await letter_tasks._begin(uuid.UUID(kit.letters["asha"]))
-    assert not isinstance(began, bool)
+    assert not isinstance(began, bool) and await letter_tasks._handoff(began)  # the worker is about to contact the mail server
     outcome = await letter_tasks._deliver(began)  # the mail server accepted it...
     assert outcome.kind == "accepted" and len(mail.sent) == 1
     # ...and the worker died here: _finish never ran. The letter is still queued under its lease, the link is pending.

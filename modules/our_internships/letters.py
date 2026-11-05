@@ -626,6 +626,7 @@ class LetterService:
                 letter.delivery_attempts = 0
                 letter.delivery_error = None
                 letter.delivery_lease_until = None
+                letter.delivery_handoff_at = None
                 letter.release_batch_id = batch_id
                 letter.email_source = plan.source
                 letter.email_version_id = plan.version_id

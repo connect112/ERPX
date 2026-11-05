@@ -97,6 +97,8 @@ class OnboardingApplication(TimestampedBase):
     __table_args__ = (
         UniqueConstraint("organization_id", "reference", name="uq_onboarding_application_reference"),
         Index("ix_onboarding_applications_internship", "internship_id"),
+        # a pending link's hash is as unique as an active one (matches migration 0101)
+        Index("uq_onboarding_pending_token", "pending_token_hash", unique=True, postgresql_where=text("pending_token_hash IS NOT NULL")),
     )
     # The link token only ever exists as a hash here, and even that stays out of the audit trail; the acceptance's
     # network details are kept on the row (limited) but not copied into the audit table.

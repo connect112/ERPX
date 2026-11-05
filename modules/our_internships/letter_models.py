@@ -126,6 +126,9 @@ class OfferLetter(TimestampedBase):
     email_fallback_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     # one worker at a time: held while an attempt is in progress; an expired lease means that attempt's outcome is unknown
     delivery_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # set (and committed) just before the mail server is contacted. A lease that runs out with this still empty means the message was
+    # never handed over; with it set, the message may have been delivered and is never sent again automatically.
+    delivery_handoff_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class OfferLetterDelivery(TimestampedBase):

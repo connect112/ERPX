@@ -190,6 +190,12 @@ celery_app.conf.beat_schedule = {
         "task": "internship_onboarding.reconcile_payments",
         "schedule": crontab(minute="*/15"),
     },
+    # Offer letters: a worker that died mid-send leaves a letter "sending" under an expired lease. Sort those out (never sent: send
+    # again; possibly delivered: mark unconfirmed, never send again on its own).
+    "offer-letters-recover-deliveries": {
+        "task": "our_internships.recover_offer_letter_deliveries",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 

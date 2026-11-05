@@ -11,7 +11,8 @@ Additive only: every column is nullable and nothing is backfilled, so letters al
   link's HASH here; it becomes the active token only once the mail server has accepted the message (or the student first uses
   it). The raw token is never stored.
 - offer_letters: what one release decided (the Studio template version, the link policy, who authorised a legacy fallback)
-  and a short lease so two workers cannot send the same letter at once.
+  a short lease so two workers cannot send the same letter at once, and the moment the mail server was last contacted (so a worker
+  that died can be told apart: before that moment nothing was sent, after it the message may have been).
 """
 from typing import Sequence, Union
 
@@ -45,10 +46,11 @@ def upgrade() -> None:
     op.add_column("offer_letters", sa.Column(
         "email_fallback_by_user_id", _UUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True))
     op.add_column("offer_letters", sa.Column("delivery_lease_until", sa.DateTime(timezone=True), nullable=True))
+    op.add_column("offer_letters", sa.Column("delivery_handoff_at", sa.DateTime(timezone=True), nullable=True))
 
 
 def downgrade() -> None:
-    for column in ("delivery_lease_until", "email_fallback_by_user_id", "email_link_policy", "email_version_id", "email_source", "release_batch_id"):
+    for column in ("delivery_handoff_at", "delivery_lease_until", "email_fallback_by_user_id", "email_link_policy", "email_version_id", "email_source", "release_batch_id"):
         op.drop_column("offer_letters", column)
     op.drop_index("uq_onboarding_pending_token", table_name="internship_onboarding_applications")
     for column in ("pending_token_ref", "pending_token_issued_at", "pending_token_hash"):
