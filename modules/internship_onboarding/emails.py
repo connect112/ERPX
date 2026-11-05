@@ -20,7 +20,7 @@ from modules.internship_onboarding import fees as fee_maths
 from modules.internship_onboarding import ledger
 from modules.internship_onboarding.config import OnboardingConfig
 from modules.internship_onboarding.models import OnboardingApplication
-from modules.internship_onboarding.service import ApplicationService, config_of, effective_deadline, event
+from modules.internship_onboarding.service import ApplicationService, config_of, effective_deadline, event, link_for
 from modules.our_internships.models import InternshipSelection, OurInternship
 
 logger = get_logger(__name__)
@@ -42,30 +42,73 @@ def when(value: datetime | None, tz: str, with_time: bool = True) -> str:
     return local.strftime("%d %b %Y, %I:%M %p %Z") if with_time else local.strftime("%d %b %Y")
 
 
+# What a preview or a test email shows instead of a student's real link: it can never match a stored token, so it opens nothing.
+PREVIEW_TOKEN = "PREVIEW-SAMPLE-NOT-A-REAL-LINK"
+PREVIEW_REFERENCE = "ERPX-INT-0000-000000"
+
+
+class _NoApplication:
+    """Stands in for an application that does not exist yet (a preview never creates one)."""
+
+    deadline_override_at = None
+    fee_snapshot = None
+    reference = ""
+
+
+async def link_values(
+    db: AsyncSession, config: OnboardingConfig, application: OnboardingApplication | None, link: str, reference: str = "",
+) -> dict[str, str]:  # fmt: skip
+    """The onboarding placeholders for one student, given the link to show (or "" for none). It only READS: it never creates an
+    application, takes a reference number or issues a link. Empty values when onboarding is manual."""
+    if not config.modes.self_service:
+        return dict(EMPTY)
+    app = application if application is not None else _NoApplication()
+    snapshot = app.fee_snapshot or fee_maths.snapshot(config.fees)
+    currency = config.fees.currency
+    tz = config.deadlines.timezone
+    payment = config.modes.require_payment
+    if application is not None:
+        totals = await ledger.totals(db, application, fee_maths.total_of(snapshot))
+        charges, waivers, payable = totals.charges, totals.waivers, totals.payable
+    else:
+        charges = waivers = Decimal("0")
+        payable = fee_maths.total_of(snapshot)
+    return {
+        "onboarding_link": link,
+        "onboarding_deadline": when(effective_deadline(app, config), tz),  # type: ignore[arg-type]
+        "onboarding_start_date": when(config.deadlines.opens_at, tz, with_time=False),
+        "internship_fee": money(Decimal(snapshot["total"]), currency) if payment else "",
+        "late_fee": money(charges - waivers, currency) if payment and charges > waivers else "",
+        "total_payable": money(payable, currency) if payment else "",
+        "application_reference": application.reference if application is not None else reference,
+    }
+
+
+async def preview_onboarding_values(
+    db: AsyncSession, internship: OurInternship, selection: InternshipSelection | None, config: OnboardingConfig | None = None,
+) -> dict[str, str]:  # fmt: skip
+    """The onboarding placeholders for a PREVIEW or TEST email: the student's real deadline, fees and (if they have one) reference,
+    and a link that is plainly a sample. Creates nothing and issues nothing: it only reads. In manual onboarding everything is
+    empty, exactly as in a real email."""
+    if config is None:
+        _, config = await config_of(db, internship)
+    if not config.modes.self_service:
+        return dict(EMPTY)
+    application = await ApplicationService(db).get_for_selection(selection.id) if selection is not None else None
+    return await link_values(db, config, application, link_for(PREVIEW_TOKEN), reference=PREVIEW_REFERENCE)
+
+
 async def onboarding_values(
     db: AsyncSession, internship: OurInternship, selection: InternshipSelection, config: OnboardingConfig | None = None,
 ) -> dict[str, str]:  # fmt: skip
-    """The onboarding placeholders for one student, issuing them a fresh link. Empty values when onboarding is manual."""
+    """The onboarding placeholders for one student, issuing them a fresh ACTIVE link (the invitation, reminder and completion
+    emails; the earlier link stops working). Empty values when onboarding is manual."""
     if config is None:
         _, config = await config_of(db, internship)
     if not config.modes.self_service:
         return dict(EMPTY)
     issued = await ApplicationService(db).issue_link(internship, selection, None, "email")
-    app = issued.application
-    snapshot = app.fee_snapshot or fee_maths.snapshot(config.fees)
-    totals = await ledger.totals(db, app, fee_maths.total_of(snapshot))
-    currency = config.fees.currency
-    tz = config.deadlines.timezone
-    payment = config.modes.require_payment
-    return {
-        "onboarding_link": issued.link,
-        "onboarding_deadline": when(effective_deadline(app, config), tz),
-        "onboarding_start_date": when(config.deadlines.opens_at, tz, with_time=False),
-        "internship_fee": money(Decimal(snapshot["total"]), currency) if payment else "",
-        "late_fee": money(totals.charges - totals.waivers, currency) if payment and totals.charges > totals.waivers else "",
-        "total_payable": money(totals.payable, currency) if payment else "",
-        "application_reference": app.reference,
-    }
+    return await link_values(db, config, issued.application, issued.link)
 
 
 async def _send_invitation(application_id: uuid.UUID) -> None:

@@ -35,6 +35,7 @@ from modules.email_studio.placeholders import (
     fill_subject,
     missing,
     placeholders_in,
+    secret_placement_problems,
     unsupported,
 )
 from modules.email_studio.sanitize import html_to_text
@@ -46,6 +47,21 @@ class MissingPlaceholders(ValueError):
     def __init__(self, names: list[str]):
         self.names = names
         super().__init__("Missing values: " + ", ".join("{{" + n + "}}" for n in names))
+
+
+class TemplateRenderFailed(Exception):
+    """A template that is meant to be used cannot be turned into an email (a value it needs is missing, its design is broken, the
+    version is gone). The caller reports this and must NOT quietly send some other wording instead. ``code`` is a short, stable
+    reason; ``message`` is safe to show and to store (it never holds a recipient's values)."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        self.message = message
+        super().__init__(f"{code}: {message}")
+
+
+class AssignedTemplateUnusable(Exception):
+    """An administrator assigned a template to this ERPX email, but it cannot be used now (deleted, archived, not published)."""
 
 
 @dataclass
@@ -62,6 +78,7 @@ class Rendered:
     warnings: list[str] = field(default_factory=list)
     attachments: list[Any] = field(default_factory=list)  # shared files that go with every copy
     requires: list[str] = field(default_factory=list)  # recipient documents that must be supplied by the sender
+    used: list[str] = field(default_factory=list)  # the {{placeholders}} the email uses (subject and body)
 
 
 def asset_url(token: str) -> str:
@@ -276,12 +293,16 @@ async def render_draft(
     used = [n for n in placeholders_in(html, draft.subject) if n not in COMPONENT_NAMES]
     gone = missing(used, merged, required)
     problems = component_misuse(html)
+    secret_problems = secret_placement_problems(html, draft.subject, draft.preheader)
+    problems += secret_problems
     if allowed is not None:
         bad = unsupported(used, allowed | set(BRAND_NAMES))
         if bad:
             problems.append("Unsupported placeholders: " + ", ".join("{{" + n + "}}" for n in bad))
     if gone and strict:
         raise MissingPlaceholders(gone)
+    if secret_problems and strict:
+        raise TemplateRenderFailed("secret_placement", " ".join(secret_problems))
 
     final = fill_html(html, merged, blocks)
     shared, requires = await _attachments(db, organization_id, draft.config.get("attachments"))
@@ -298,6 +319,7 @@ async def render_draft(
         warnings=problems,
         attachments=shared,
         requires=requires,
+        used=used,
     )
 
 
@@ -321,6 +343,54 @@ async def assigned_version(
         if version is not None:
             return template, version
     return None
+
+
+async def usable_assignment(db: AsyncSession, organization_id: uuid.UUID, key: str) -> tuple[EmailStudioTemplate, EmailStudioVersion] | None:
+    """The published studio version an ERPX email is assigned to use, or None when nothing is assigned. Unlike ``assigned_version``,
+    an assignment that cannot be used (the template was deleted, archived or unpublished) is an error, never a silent "nothing":
+    the caller must not fall back to other wording behind the administrator's back."""
+    row = (
+        await db.execute(
+            select(EmailTemplateAssignment).where(
+                EmailTemplateAssignment.organization_id == organization_id, EmailTemplateAssignment.key == key,
+                EmailTemplateAssignment.hackathon_id.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    template = await db.get(EmailStudioTemplate, row.template_id)
+    if template is None or template.organization_id != organization_id:
+        raise AssignedTemplateUnusable("The template assigned to this email no longer exists")
+    if template.deleted_at is not None:
+        raise AssignedTemplateUnusable(f'The template assigned to this email ("{template.name}") was deleted')
+    if template.status != TemplateStatus.PUBLISHED.value or template.published_version_id is None:
+        raise AssignedTemplateUnusable(f'The template assigned to this email ("{template.name}") is {template.status}, not published')
+    version = await db.get(EmailStudioVersion, template.published_version_id)
+    if version is None or version.organization_id != organization_id:
+        raise AssignedTemplateUnusable(f'The published version of the template assigned to this email ("{template.name}") is missing')
+    return template, version
+
+
+async def render_pinned(
+    db: AsyncSession, organization_id: uuid.UUID, version_id: uuid.UUID | None, values: dict[str, object],
+    allowed: set[str] | None = None, required: tuple[str, ...] = (),
+) -> Rendered:
+    """Render exactly this template version (published or since superseded). Every way it can fail is a TemplateRenderFailed."""
+    version = await db.get(EmailStudioVersion, version_id) if version_id is not None else None
+    if version is None or version.organization_id != organization_id:
+        raise TemplateRenderFailed("version_missing", "The template version chosen for this release no longer exists.")
+    template = await db.get(EmailStudioTemplate, version.template_id)
+    if template is None:
+        raise TemplateRenderFailed("template_missing", "The template this version belongs to no longer exists.")
+    try:
+        return await render_draft(db, organization_id, draft_of(version, template.source_type), values, allowed=allowed, required=required, strict=True)
+    except TemplateRenderFailed:
+        raise
+    except MissingPlaceholders as exc:
+        raise TemplateRenderFailed("missing_values", "The template needs " + ", ".join("{{" + n + "}}" for n in exc.names) + ", which this student does not have.") from exc
+    except (ValueError, CodeTemplateError, KeyError) as exc:
+        raise TemplateRenderFailed("render_error", str(exc)[:300]) from exc
 
 
 async def render_assigned(

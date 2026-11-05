@@ -100,7 +100,7 @@ class OnboardingApplication(TimestampedBase):
     )
     # The link token only ever exists as a hash here, and even that stays out of the audit trail; the acceptance's
     # network details are kept on the row (limited) but not copied into the audit table.
-    __audit_exclude_fields__ = {"token_hash", "acceptance_meta", "last_activity_at", "updated_at"}
+    __audit_exclude_fields__ = {"token_hash", "pending_token_hash", "acceptance_meta", "last_activity_at", "updated_at"}
 
     organization_id: Mapped[uuid.UUID] = _org()
     internship_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("our_internships.id", ondelete="CASCADE"), nullable=False)
@@ -112,6 +112,11 @@ class OnboardingApplication(TimestampedBase):
     token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     token_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     token_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A link that an email is about to carry (or may already carry). Only its hash is stored. It becomes the active token when the
+    # mail server accepts the message, or when the student first uses it; it stops working after PENDING_TOKEN_TTL.
+    pending_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pending_token_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pending_token_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)  # not secret: which delivery it belongs to
     # progress
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

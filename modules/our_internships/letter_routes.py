@@ -143,6 +143,12 @@ class ApproveRequest(BaseModel):
 class ReleaseRequest(BaseModel):
     letter_ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
     resend: bool = False
+    # Students who already have an active onboarding link keep it ("keep_existing": the email goes without a new one); "replace"
+    # gives every student in the batch a new link and so replaces theirs. Only emails whose template uses the link are affected.
+    link_policy: Literal["keep_existing", "replace"] = "keep_existing"
+    # An explicit administrator choice to send the legacy letter-settings email although an Email Studio template is assigned
+    # (the recovery when that template cannot be used). Needs email_templates.publish as well; recorded on every letter.
+    fallback: Literal["none", "legacy_letter_settings"] = "none"
 
 
 class SkippedLetter(BaseModel):
@@ -488,7 +494,7 @@ async def send_test_email(
 ):
     """Send the real email with a sample letter to one address, to check the wording and the attachment."""
     internship = await _internship(db, internship_id, organization_id)
-    await LetterService(db).send_test(internship, str(payload.to_email))
+    await LetterService(db).send_test(internship, str(payload.to_email), user.id)
     return MessageResponse(message=f"A test email with a sample letter was sent to {payload.to_email}.")
 
 
@@ -502,8 +508,14 @@ async def release_letters(
 ):
     """Email the chosen, approved letters to the students' registered addresses. This is the only thing that sends a letter."""
     internship = await _internship(db, internship_id, organization_id)
+    if payload.fallback == "legacy_letter_settings":
+        from modules.internship_onboarding.service import require
+
+        await require(db, user, "email_templates.publish")  # it bypasses a template an administrator published and assigned
     service = LetterService(db)
-    result = await service.release(internship, user.id, payload.letter_ids, payload.resend)
+    result = await service.release(
+        internship, user.id, payload.letter_ids, payload.resend, link_policy=payload.link_policy, fallback=payload.fallback == "legacy_letter_settings"
+    )
     ids: list[uuid.UUID] = result["queued"]
     await db.commit()
     if ids:

@@ -658,6 +658,7 @@ async def cancel_application(db: AsyncSession, internship: OurInternship, studen
         raise ConflictError("This onboarding is already cancelled.")
     application.cancelled_at, application.cancel_reason = now(), reason.strip()[:1000]
     application.token_hash, application.token_revoked_at = None, now()
+    application.pending_token_hash = application.pending_token_issued_at = application.pending_token_ref = None
     await db.flush()
     await event(db, application, "onboarding_cancelled", user_id=user.id, reason=application.cancel_reason)
 
