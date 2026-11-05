@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 
@@ -53,7 +54,7 @@ export function AMCFormDialog({ open, onOpenChange, clientId }: AMCFormDialogPro
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<AMCContractFormValues>({
+  } = useForm<z.input<typeof amcContractFormSchema>, unknown, AMCContractFormValues>({
     resolver: zodResolver(amcContractFormSchema),
     defaultValues: emptyValues,
   });

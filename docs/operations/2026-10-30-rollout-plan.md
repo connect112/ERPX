@@ -122,8 +122,11 @@ unused file chosen together.
   `alembic upgrade head` on start and fails with "Can't locate revision 0096". To roll back #154: first
   `docker exec erpx_api alembic downgrade 0095` (drops `storage_trash` and `storage_deletion_log`; any file already in Trash
   stays in the bucket under `.trash/`, only its record is lost), then recreate from the old image.
-- Compressed (`.dump`) in-app backups must be restored with `pg_restore` 17 or newer (the API image has it). Old `.sql` backups
-  still restore with `psql`; `restore_backup.py` handles both.
+- Compressed (`.dump`) in-app backups are made by the API image's `pg_dump` 17 against the PostgreSQL 16 server. They can only be
+  restored with a `pg_restore` of version 17 or newer, and a `pg_restore` 17+ cannot restore them straight into a 16 server
+  (`SET transaction_timeout` is rejected). `restore_backup.py` therefore restores through a script stream in one transaction
+  (see `docs/operations/disaster-recovery-runbook.md`); before that fix is deployed, use the manual route in that runbook.
+  Old `.sql` backups restore with `psql` as before.
 - The off-server backup does not depend on the application, so it keeps running through every rollback.
 
 ## CI and dependency vulnerabilities (not a deployment dependency)

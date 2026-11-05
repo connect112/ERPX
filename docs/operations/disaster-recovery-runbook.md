@@ -191,5 +191,50 @@ run if it was fetched from object storage (not deleted if you passed
 | `BACKUP_DISK_SAFETY_FACTOR` / `BACKUP_MIN_FREE_BYTES` | `2.5` / `2 GiB` | A backup starts only if free disk >= database size x factor + reserve. Otherwise the job is recorded as failed with the numbers, and nothing is written. |
 | `BACKUP_RETENTION_KEEP_LAST` | `0` | `0` keeps everything. `python -m scripts.prune_backups --keep N` lists older backups (dry run); `--execute` removes them after a typed confirmation. Never scheduled. |
 
-A compressed archive must be restored with a `pg_restore` of the same version as the `pg_dump` that made it, or newer.
-The API image ships both at version 17.
+### Restoring a compressed archive: what `restore_backup.py` checks and guarantees
+
+A compressed archive is turned into SQL by `pg_restore -f -` and streamed into `psql` inside ONE transaction. The optional schema
+wipe (`--yes-wipe-existing-schema`) is part of that same transaction, and `COMMIT` is sent only after `pg_restore` has finished
+cleanly. So **a restore that fails is rolled back and the target database is left as it was**; the tool prints the number of public
+tables before and after and records `restore_rolled_back` in the audit log. (Plain `.sql` dumps are restored the same way.)
+
+Before anything is changed the tool refuses, with exit code 8 (`PREFLIGHT_FAILED`), when:
+
+- the restore client is **older than the `pg_dump` that made the archive** (an older `pg_restore` cannot read it:
+  `unsupported version (1.16)`); use a restore client of that version or newer, for example the API image's;
+- the archive comes from a **newer server** than the target;
+- `pg_restore` and `psql` are from **different major versions** (the SQL one writes is replayed by the other).
+
+**Disk space.** Because the wipe and the restore are one transaction, the old data is not freed until `COMMIT`. The database
+server therefore needs free space of roughly the size of the restored database (plus its WAL) on top of what the old data uses.
+Check this on the database server before a wipe-and-restore of a large database; the previous behaviour freed the old data first
+but left an empty, unusable database if the restore then failed. This is not checked by the tool (the database may be on another
+machine).
+
+A damaged or truncated archive is found by reading it through once before the restore (exit code 2); `--skip-archive-scan` turns
+that read-through off, in which case the damage is found during the restore and rolled back (exit code 6). `--dry-run` runs all of
+these checks and prints the method it would use.
+
+The one header line a newer client writes that an older server rejects (`SET transaction_timeout = 0;`, PostgreSQL 17+) is removed
+from the SQL header only; application data is never edited. Ownership and privileges are not restored (`--no-owner
+--no-privileges`), as before.
+
+Tested combinations: a PostgreSQL 16 server restored with client tools 16, 17 and 18
+(`tests/integration/test_restore_client_compat.py`). Other combinations are allowed when they can work and are logged as untested;
+they are protected by the transaction, not by test coverage. This is not a promise of universal cross-version compatibility.
+
+#### Until a release with this restore is deployed: manual route into an EMPTY database
+
+The older `restore_backup.py` cannot restore an archive made by the API image's `pg_dump` 17 into the PostgreSQL 16 server (it
+fails on `SET transaction_timeout`). Use a `pg_restore` of version 17 or newer, write the SQL to a file, check that step, remove the
+one header line, and replay it in a single transaction. Do it first against a drill database. The `sed` below deletes only the FIRST
+occurrence of the line (the header), never a later identical-looking data row.
+
+```bash
+pg_restore --no-owner --no-privileges -f restore.sql backup.dump        # must exit 0; needs disk of several times the archive size
+sed '0,/^SET transaction_timeout = 0;\r\?$/{/^SET transaction_timeout = 0;\r\?$/d}' restore.sql > restore.clean.sql
+psql -h <host> -U <user> -d <EMPTY database> -v ON_ERROR_STOP=1 --single-transaction -f restore.clean.sql
+```
+
+Never pipe `pg_restore` straight into `psql --single-transaction`: if `pg_restore` dies half-way, `psql` still commits what it
+received. The fixed `restore_backup.py` avoids this by sending `COMMIT` only after `pg_restore` has exited cleanly.

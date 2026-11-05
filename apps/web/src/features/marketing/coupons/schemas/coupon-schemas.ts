@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const couponDiscountTypeValues = ["percentage", "fixed_amount"] as const;
 export type CouponDiscountType = (typeof couponDiscountTypeValues)[number];
@@ -13,11 +14,11 @@ export const couponFormSchema = z.object({
   campaignId: z.string().optional().or(z.literal("")),
   description: z.string().optional().or(z.literal("")),
   discountType: z.enum(couponDiscountTypeValues),
-  discountValue: z.coerce.number().gt(0, "Discount value must be greater than zero."),
-  maxDiscountAmount: z.coerce.number().min(0).optional(),
-  minOrderAmount: z.coerce.number().min(0).default(0),
-  usageLimitTotal: z.coerce.number().min(1).optional(),
-  usageLimitPerCustomer: z.coerce.number().min(1).default(1),
+  discountValue: coerceNumber().gt(0, "Discount value must be greater than zero."),
+  maxDiscountAmount: coerceNumber().min(0).optional(),
+  minOrderAmount: coerceNumber().min(0).default(0),
+  usageLimitTotal: coerceNumber().min(1).optional(),
+  usageLimitPerCustomer: coerceNumber().min(1).default(1),
   validFrom: z.string().min(1, "Valid-from date is required."),
   validUntil: z.string().min(1, "Valid-until date is required."),
 });

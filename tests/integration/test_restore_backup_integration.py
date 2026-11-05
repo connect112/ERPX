@@ -238,7 +238,56 @@ class TestCompressedBackupRestore:
                 "--audit-log-path", str(tmp_path / "audit.log"),
             ]
         )
+        # the full read-through finds the damage BEFORE anything is changed, so the target is untouched
+        assert exit_code == ExitCode.BACKUP_NOT_FOUND_OR_INVALID
+        conn = await asyncpg.connect(dsn=throwaway_db)
+        try:
+            assert await conn.fetchval("SELECT count(*) FROM widgets") == 3
+        finally:
+            await conn.close()
+
+    async def test_a_truncated_archive_found_mid_restore_is_rolled_back(self, throwaway_db, tmp_path):
+        """With the up-front read-through switched off, the damage is only found while restoring. The wipe and the restore are one
+        transaction, so the original data must still be there afterwards (the old behaviour left an empty database)."""
+        await _seed_sample_data(throwaway_db)
+        conn = await asyncpg.connect(dsn=throwaway_db)
+        try:
+            # enough incompressible data that the cut falls in the data blocks and the table of contents (at the start) survives
+            await conn.execute("CREATE TABLE filler AS SELECT g AS id, md5(g::text) || md5((g + 1)::text) AS pad FROM generate_series(1, 40000) g")
+        finally:
+            await conn.close()
+        dump_path = tmp_path / "backup.dump"
+        await _dump_database(throwaway_db, str(dump_path), compressed=True)
+        data = dump_path.read_bytes()
+        broken = tmp_path / "broken.dump"
+        broken.write_bytes(data[: len(data) * 3 // 4])
+
+        # change the target AFTER the dump: only a true rollback leaves exactly this state behind
+        conn = await asyncpg.connect(dsn=throwaway_db)
+        try:
+            await conn.execute("DELETE FROM widgets WHERE name = 'beta'")
+        finally:
+            await conn.close()
+
+        exit_code = await _run(
+            [
+                "--backup-file", str(broken),
+                "--database-url", throwaway_db,
+                "--force",
+                "--yes-wipe-existing-schema",
+                "--skip-safety-backup",
+                "--skip-archive-scan",
+                "--audit-log-path", str(tmp_path / "audit.log"),
+            ]
+        )
         assert exit_code == ExitCode.RESTORE_FAILED
+        conn = await asyncpg.connect(dsn=throwaway_db)
+        try:
+            assert sorted(r["name"] for r in await conn.fetch("SELECT name FROM widgets")) == ["alpha", "gamma"]
+            assert await conn.fetchval("SELECT count(*) FROM filler") == 40000
+        finally:
+            await conn.close()
+        assert '"restore_rolled_back": true' in (tmp_path / "audit.log").read_text()
 
 
 class TestFullRestoreFlow:

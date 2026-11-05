@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 
@@ -60,7 +61,7 @@ export function WorkshopFormDialog({ open, onOpenChange, workshop }: WorkshopFor
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<WorkshopFormValues>({
+  } = useForm<z.input<typeof workshopFormSchema>, unknown, WorkshopFormValues>({
     resolver: zodResolver(workshopFormSchema),
     defaultValues: emptyValues,
   });

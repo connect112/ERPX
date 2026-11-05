@@ -16,7 +16,7 @@ export const eventFormSchema = z
     title: z.string().trim().min(2, "Title is required."),
     description: z.string().trim().min(1, "Description is required."),
     eventType: z.enum(eventTypeValues, {
-      errorMap: () => ({ message: "Type is required." }),
+      error: () => "Type is required.",
     }),
     startAt: z.string().min(1, "Start date/time is required."),
     endAt: z.string().min(1, "End date/time is required."),
@@ -27,7 +27,7 @@ export const eventFormSchema = z
     // End must be strictly after start (both are required above).
     if (values.startAt && values.endAt && new Date(values.endAt) <= new Date(values.startAt)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["endAt"],
         message: "End must be after the start.",
       });

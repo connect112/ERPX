@@ -9,6 +9,14 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      # Isolated object storage for the tests that upload, download, back up and inspect files. Throwaway values for a
+      # container that exists only for this job; they match nothing outside it.
+      MINIO_ENDPOINT: 127.0.0.1:9000
+      MINIO_ACCESS_KEY: erpx_ci_minio
+      MINIO_SECRET_KEY: erpx_ci_minio_secret
+      MINIO_BUCKET: erpx-ci-tests
+      MINIO_SECURE: "false"
     services:
       postgres:
         image: postgres:16-alpine
@@ -40,6 +48,75 @@ jobs:
         working-directory: apps/api
         run: pip install -r requirements.txt
 
+      # The test database is `postgres:16` (production's server is 16 too). The runner image (Ubuntu 26.04) ships PostgreSQL 18
+      # client tools, and Ubuntu's own archive has only `postgresql-client-18`. A `pg_restore` 17 or newer sends
+      # `SET transaction_timeout = 0;` when it restores straight into a 16 server, which 16 rejects, so the compressed-archive
+      # restore tests failed (and `pg_restore` 16 cannot read archives made by `pg_dump` 17 or newer). Version 16 of the tools
+      # therefore comes from the PostgreSQL project's apt repository (PGDG) through its official setup script, and goes first
+      # on PATH so the tests' bare `pg_dump`/`pg_restore`/`psql` are the 16 ones. Any failure here fails the job; nothing is skipped.
+      - name: Use PostgreSQL 16 client tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          apt-cache policy postgresql-client-16
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client-16
+          test -x /usr/lib/postgresql/16/bin/pg_restore
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+
+      # Permanent diagnostic: which client tools the tests will run and which server they talk to. The check fails the job if
+      # the tools are not version 16, so the setup above cannot silently stop working.
+      - name: Show PostgreSQL client and server versions
+        env:
+          PGPASSWORD: erpx_secret
+        run: |
+          set -euo pipefail
+          for tool in pg_dump pg_restore psql; do echo "$tool -> $(command -v "$tool"): $("$tool" --version)"; done
+          echo "server: $(psql -h 127.0.0.1 -U erpx -d erpx_test -Atc 'show server_version')"
+          pg_dump --version | grep -q 'PostgreSQL) 16\.'
+          pg_restore --version | grep -q 'PostgreSQL) 16\.'
+          psql --version | grep -q 'PostgreSQL) 16\.'
+
+      # A service container cannot be given the `server /data` command MinIO needs, so it is started here. MinIO no longer
+      # publishes community images (minio/minio cannot be pulled); this is the maintained community build the Mac staging kit
+      # also uses, pinned by the digest of its multi-arch image index (checked against the registry's manifest) so a re-pushed
+      # tag cannot change what CI runs. To update it, look up the new index digest and check that the manifest hashes to it.
+      - name: Start isolated MinIO
+        run: |
+          docker run -d --name erpx-ci-minio -p 127.0.0.1:9000:9000 \
+            -e MINIO_ROOT_USER="$MINIO_ACCESS_KEY" -e MINIO_ROOT_PASSWORD="$MINIO_SECRET_KEY" \
+            pgsty/minio@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372 server /data
+          # Wait for the server itself to report live and ready (curl retries a refused connection; no fixed sleep). If it
+          # never does, show its log and fail the job here instead of letting the tests fail with confusing errors.
+          if ! curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-connrefused --retry-all-errors \
+              http://127.0.0.1:9000/minio/health/live \
+            || ! curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors \
+              http://127.0.0.1:9000/minio/health/ready; then
+            docker logs erpx-ci-minio
+            exit 1
+          fi
+
+      - name: Create the test bucket
+        working-directory: apps/api
+        run: |
+          python - <<'PY'
+          import os
+          from minio import Minio
+
+          client = Minio(
+              os.environ["MINIO_ENDPOINT"],
+              access_key=os.environ["MINIO_ACCESS_KEY"],
+              secret_key=os.environ["MINIO_SECRET_KEY"],
+              secure=False,
+          )
+          bucket = os.environ["MINIO_BUCKET"]
+          if not client.bucket_exists(bucket):
+              client.make_bucket(bucket)
+          assert client.bucket_exists(bucket), f"bucket {bucket} was not created"
+          print(f"bucket {bucket} ready")
+          PY
+
       # Celery, Kombu and redis-py must agree: a floating kombu once refused the pinned redis-py and killed every worker at start-up
       # ("VersionMismatch: Redis transport requires redis-py versions 6.1.0 or later"). This checks the declared requirements and
       # opens a real Kombu connection to the Redis service above, which runs Kombu's own runtime guard.
@@ -56,11 +133,30 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: alembic upgrade head
 
+      # tests/integration/test_restore_client_compat.py restores archives with PostgreSQL client tools 16, 17 and 18 against the
+      # postgres:16 service. The runner's default tools (18) stay first on PATH, as they are for every other test; the other two
+      # are installed beside them under /usr/lib/postgresql/<n>/bin, which is where the tests look. Ubuntu's own archive only has
+      # the newest client, so 16 and 17 come from the PostgreSQL project's apt repository (PGDG) via its official setup script.
+      - name: Install PostgreSQL client tools 16, 17 and 18 (restore compatibility tests)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client-16 postgresql-client-17 postgresql-client-18
+          for v in 16 17 18; do /usr/lib/postgresql/$v/bin/pg_restore --version; done
+
       - name: Run backend tests
         env:
           DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
           REDIS_URL: redis://localhost:6379/0
+          # a missing client must FAIL the compatibility tests here, not skip them
+          ERPX_REQUIRE_PG_CLIENTS: "1"
         run: pytest -v --cov=apps/api/app --cov=modules --cov=packages
+
+      - name: Stop MinIO
+        if: always()
+        run: docker rm --force erpx-ci-minio || true
 
       # Production Hardening Audit: no dependency vulnerability scanning
       # existed anywhere in CI. pip-audit's own JSON output carries no
@@ -70,7 +166,10 @@ jobs:
       # is what actually gates the build, using OSV.dev's severity data
       # for pip-audit's reported GHSA aliases, so only Critical/High
       # findings fail CI; Low/Moderate/Unknown are reported, not blocking.
+      # `!cancelled()` keeps the vulnerability gate evaluating even when a test failed; without it a red test step would
+      # silently skip the gate and hide its result. It still fails the job on Critical/High, exactly as before.
       - name: Dependency vulnerability scan (pip-audit)
+        if: ${{ !cancelled() }}
         working-directory: apps/api
         run: |
           pip install pip-audit
@@ -84,6 +183,7 @@ jobs:
           path: pip-audit-report.json
 
       - name: Gate on Critical/High severity (pip-audit)
+        if: ${{ !cancelled() }}
         run: python .github/scripts/pip_audit_severity_gate.py pip-audit-report.json
 
   frontend:
@@ -94,8 +194,10 @@ jobs:
         # Previously this job only covered apps/web — student-portal,
         # trainer-portal, and corporate-portal were never built, type-
         # checked, or tested in CI at all (Production Hardening Audit
-        # finding #5). All four apps share the same build/test scripts.
-        app: [web, student-portal, trainer-portal, corporate-portal]
+        # finding #5). employee-portal was missing from this list too, so its
+        # dependencies were never audited here. All five apps share the same
+        # build/test/audit scripts.
+        app: [web, student-portal, trainer-portal, corporate-portal, employee-portal]
     steps:
       - uses: actions/checkout@v4
 

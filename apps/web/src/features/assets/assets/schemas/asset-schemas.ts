@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 import { depreciationMethodValues } from "@/features/assets/categories/schemas/asset-category-schemas";
 
@@ -23,9 +24,9 @@ export const assetFormSchema = z.object({
   description: z.string().optional().or(z.literal("")),
   location: z.string().optional().or(z.literal("")),
   purchaseDate: z.string().min(1, "Purchase date is required."),
-  purchaseCost: z.coerce.number().gt(0, "Purchase cost must be greater than zero."),
-  salvageValue: z.coerce.number().min(0, "Must be zero or more.").default(0),
-  usefulLifeYears: z.coerce.number().min(1, "Must be at least 1 year."),
+  purchaseCost: coerceNumber().gt(0, "Purchase cost must be greater than zero."),
+  salvageValue: coerceNumber().min(0, "Must be zero or more.").default(0),
+  usefulLifeYears: coerceNumber().min(1, "Must be at least 1 year."),
   depreciationMethod: z.enum(depreciationMethodValues),
   notes: z.string().optional().or(z.literal("")),
 });
@@ -44,7 +45,7 @@ export type AssetEditFormValues = z.infer<typeof assetEditFormSchema>;
 
 export const disposeAssetFormSchema = z.object({
   disposalDate: z.string().min(1, "Disposal date is required."),
-  disposalAmount: z.coerce.number().min(0, "Must be zero or more."),
+  disposalAmount: coerceNumber().min(0, "Must be zero or more."),
   cashAccountId: z.string().min(1, "Cash account is required."),
   gainLossAccountId: z.string().min(1, "Gain/loss account is required."),
 });

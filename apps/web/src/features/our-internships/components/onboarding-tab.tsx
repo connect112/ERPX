@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { errorMessage } from "@/features/institutions/lib/format";
@@ -16,7 +16,7 @@ import {
   ourInternshipsKeys,
 } from "@/features/our-internships/api/our-internships-api";
 import { StudentOnboardingDialog } from "@/features/our-internships/components/student-onboarding-dialog";
-import { OnboardingFlowPanel } from "@/features/internship-onboarding/components/flow-panel";
+import { OnboardingOperationsPanel } from "@/features/internship-onboarding/components/flow-panel";
 import {
   LMS_LABELS,
   OFFER_RESPONSE_LABELS,
@@ -29,12 +29,12 @@ import {
   stageVariant,
 } from "@/features/our-internships/lib/onboarding";
 
-const selectClass = "rounded-md border bg-background px-3 py-2 text-sm";
 const GRANT_BATCH = 25;
 
 /**
  * After the offers: see every selected student's stage at a glance, mark verification and payment (one at a time from their
- * profile, or many at once), and grant LMS access. The LMS course is chosen here, once, for the whole internship.
+ * profile, or many at once), and grant LMS access. How the internship onboards (including its LMS course) is set in the
+ * Onboarding Settings tab.
  */
 export function OnboardingTab({ internship, isAdmin = false }: { internship: OurInternship; isAdmin?: boolean }) {
   const queryClient = useQueryClient();
@@ -44,10 +44,8 @@ export function OnboardingTab({ internship, isAdmin = false }: { internship: Our
   const [progress, setProgress] = useState<string | null>(null);
 
   const selected = useQuery({ queryKey: ourInternshipsKeys.selected(internship.id), queryFn: () => ourInternshipsApi.selected(internship.id) });
-  const courses = useQuery({ queryKey: ["our-internships", "courses", internship.id], queryFn: () => onboardingApi.courses(internship.id) });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ourInternshipsKeys.all });
 
-  const setCourse = useMutation({ mutationFn: (courseId: string | null) => onboardingApi.setCourse(internship.id, courseId), onSuccess: refresh });
   const mark = useMutation({
     mutationFn: (v: { verification_status?: "verified"; payment_status?: "paid" }) => onboardingApi.updateMany(internship.id, [...picked], v),
     onSuccess: refresh,
@@ -87,33 +85,10 @@ export function OnboardingTab({ internship, isAdmin = false }: { internship: Our
 
   return (
     <div className="space-y-6">
-      <OnboardingFlowPanel internshipId={internship.id} canManage={isAdmin} />
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">LMS course</CardTitle>
-          <CardDescription>Students given LMS access are enrolled in this course on lms.pentrix.in.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <select
-            aria-label="LMS course"
-            className={`${selectClass} w-full max-w-md`}
-            value={internship.lms_course_id ?? ""}
-            disabled={setCourse.isPending}
-            onChange={(e) => setCourse.mutate(e.target.value || null)}
-          >
-            <option value="">Choose a course...</option>
-            {courses.data?.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-                {c.is_published ? "" : " (not published)"}
-              </option>
-            ))}
-          </select>
-          {courses.data?.length === 0 && <p className="text-xs text-muted-foreground">There are no courses yet. Create one under Courses first.</p>}
-          {!internship.lms_course_id && <p className="text-xs text-amber-700 dark:text-amber-400">Choose the course before granting access.</p>}
-          {setCourse.isError && <p className="text-sm text-destructive">{errorMessage(setCourse.error, "Could not save the course.")}</p>}
-        </CardContent>
-      </Card>
+      <OnboardingOperationsPanel internshipId={internship.id} isAdmin={isAdmin} />
+      {!internship.lms_course_id && (
+        <p className="text-sm text-amber-700 dark:text-amber-400">No LMS course is chosen yet: choose it in Onboarding Settings before granting access.</p>
+      )}
 
       <div className="flex flex-wrap gap-2" aria-label="Students per stage">
         {STAGE_ORDER.filter((stage) => counts[stage]).map((stage) => (

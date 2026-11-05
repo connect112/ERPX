@@ -17,7 +17,7 @@ from modules.workshop_exams.models import WorkshopExamAttendee
 from packages.email.registry import TEMPLATES
 from tests.api.test_hackathon_certificates import _hackathon
 
-pytestmark = pytest.mark.api
+pytestmark = [pytest.mark.api, pytest.mark.usefixtures("rbac_seeded")]
 
 _HACK = "/api/v1/hackathons"
 _EXAMS = "/api/v1/workshop-exams"

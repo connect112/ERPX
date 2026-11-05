@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const stockTransactionTypeValues = [
   "purchase_receipt",
@@ -22,8 +23,8 @@ export const stockTransactionTypeLabels: Record<StockTransactionType, string> = 
 export const receiveStockFormSchema = z.object({
   itemId: z.string().min(1, "Item is required."),
   warehouseId: z.string().min(1, "Warehouse is required."),
-  quantity: z.coerce.number().gt(0, "Quantity must be greater than zero."),
-  unitCost: z.coerce.number().min(0, "Unit cost must be zero or more."),
+  quantity: coerceNumber().gt(0, "Quantity must be greater than zero."),
+  unitCost: coerceNumber().min(0, "Unit cost must be zero or more."),
   notes: z.string().optional().or(z.literal("")),
 });
 export type ReceiveStockFormValues = z.infer<typeof receiveStockFormSchema>;
@@ -31,7 +32,7 @@ export type ReceiveStockFormValues = z.infer<typeof receiveStockFormSchema>;
 export const issueStockFormSchema = z.object({
   itemId: z.string().min(1, "Item is required."),
   warehouseId: z.string().min(1, "Warehouse is required."),
-  quantity: z.coerce.number().gt(0, "Quantity must be greater than zero."),
+  quantity: coerceNumber().gt(0, "Quantity must be greater than zero."),
   notes: z.string().optional().or(z.literal("")),
 });
 export type IssueStockFormValues = z.infer<typeof issueStockFormSchema>;
@@ -39,8 +40,8 @@ export type IssueStockFormValues = z.infer<typeof issueStockFormSchema>;
 export const adjustStockFormSchema = z.object({
   itemId: z.string().min(1, "Item is required."),
   warehouseId: z.string().min(1, "Warehouse is required."),
-  quantityChange: z.coerce.number().refine((v) => v !== 0, "Quantity change cannot be zero."),
-  unitCost: z.coerce.number().min(0, "Unit cost must be zero or more.").default(0),
+  quantityChange: coerceNumber().refine((v) => v !== 0, "Quantity change cannot be zero."),
+  unitCost: coerceNumber().min(0, "Unit cost must be zero or more.").default(0),
   reason: z.string().min(2, "Reason is required."),
 });
 export type AdjustStockFormValues = z.infer<typeof adjustStockFormSchema>;
@@ -49,7 +50,7 @@ export const transferStockFormSchema = z.object({
   itemId: z.string().min(1, "Item is required."),
   fromWarehouseId: z.string().min(1, "Source warehouse is required."),
   toWarehouseId: z.string().min(1, "Destination warehouse is required."),
-  quantity: z.coerce.number().gt(0, "Quantity must be greater than zero."),
+  quantity: coerceNumber().gt(0, "Quantity must be greater than zero."),
   notes: z.string().optional().or(z.literal("")),
 });
 export type TransferStockFormValues = z.infer<typeof transferStockFormSchema>;

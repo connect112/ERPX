@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { coerceNumber } from "@/lib/zod-helpers";
 
 export const internshipPostingStatusValues = ["draft", "open", "closed"] as const;
 export type InternshipPostingStatus = (typeof internshipPostingStatusValues)[number];
@@ -41,11 +42,11 @@ export const postingFormSchema = z.object({
   description: z.string().optional().or(z.literal("")),
   durationMonths: z.preprocess(
     (val) => (val === "" || val === undefined ? undefined : val),
-    z.coerce.number().int().min(1).max(36).optional()
+    coerceNumber().int().min(1).max(36).optional()
   ),
   stipend: z.preprocess(
     (val) => (val === "" || val === undefined ? undefined : val),
-    z.coerce.number().min(0).optional()
+    coerceNumber().min(0).optional()
   ),
   location: z.string().optional().or(z.literal("")),
   requiredSkills: z.string().optional().or(z.literal("")),
