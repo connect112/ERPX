@@ -168,6 +168,9 @@ class ConfigService:
             "template_id": record.template_id if record else None,
             "template_version": record.template_version if record else None,
             "can_edit_finance": await has(self.db, user, FINANCE_MANAGE),
+            # what the staff screens may offer this user (the API checks again on every action)
+            "can_view_finance": finance,
+            "can_review": await has(self.db, user, REVIEW),
             "fee_preview": fee_maths.snapshot(config.fees),
             "cashfree_available": settings.CASHFREE_ENABLED,
             "virus_scanning_available": settings.CLAMAV_ENABLED,

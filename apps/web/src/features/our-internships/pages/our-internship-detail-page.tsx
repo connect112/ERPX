@@ -21,6 +21,9 @@ import { CertificatesTab } from "@/features/our-internships/components/certifica
 import { AwardsTab } from "@/features/our-internships/components/awards-tab";
 import { OfferLettersTab } from "@/features/our-internships/components/offer-letters-tab";
 import { OnboardingTab } from "@/features/our-internships/components/onboarding-tab";
+import { OnboardingSettingsTab } from "@/features/our-internships/components/onboarding-settings-tab";
+import { onboardingAccess, useOnboardingConfig } from "@/features/internship-onboarding/hooks";
+import { TOP_TABS, topTabs } from "@/features/internship-onboarding/lib/tabs";
 import { SelectedStudentsTab } from "@/features/our-internships/components/selected-students-tab";
 import { StudentsManager } from "@/features/our-internships/components/students-manager";
 import { TeamWiseView } from "@/features/our-internships/components/team-wise-view";
@@ -50,6 +53,8 @@ export function OurInternshipDetailPage() {
   const access = useMyAccess(internshipId);
   const canDelete = access.data?.can_delete ?? false;
   const isAdmin = access.data?.role === "admin" && canDelete;
+  const onboardingConfig = useOnboardingConfig(internshipId);
+  const settingsTab = topTabs(onboardingAccess(isAdmin, onboardingConfig.data)).includes(TOP_TABS.settings);
   const performance = useQuery({
     queryKey: ourInternshipsKeys.performance(internshipId, institutionId, eventId, q),
     queryFn: () => ourInternshipsApi.performance(internshipId, { institutionId, eventId, q }),
@@ -194,6 +199,7 @@ export function OurInternshipDetailPage() {
           <TabsTrigger value="selected">Selected ({i.selected_count})</TabsTrigger>
           {isAdmin && <TabsTrigger value="offers">Offer letters</TabsTrigger>}
           <TabsTrigger value="onboarding">Onboarding</TabsTrigger>
+          {settingsTab && <TabsTrigger value="onboarding-settings">Onboarding Settings</TabsTrigger>}
           <TabsTrigger value="exams">Exams</TabsTrigger>
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
           <TabsTrigger value="projects">Projects</TabsTrigger>
@@ -236,6 +242,11 @@ export function OurInternshipDetailPage() {
         <TabsContent value="onboarding">
           <OnboardingTab internship={i} isAdmin={isAdmin} />
         </TabsContent>
+        {settingsTab && (
+          <TabsContent value="onboarding-settings">
+            <OnboardingSettingsTab internship={i} isAdmin={isAdmin} />
+          </TabsContent>
+        )}
         <TabsContent value="exams">
           <ExamsTab internshipId={internshipId} canManage />
         </TabsContent>
