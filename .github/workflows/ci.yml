@@ -126,10 +126,25 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: alembic upgrade head
 
+      # tests/integration/test_restore_client_compat.py restores archives with PostgreSQL client tools 16, 17 and 18 against the
+      # postgres:16 service. The runner's default tools (18) stay first on PATH, as they are for every other test; the other two
+      # are installed beside them under /usr/lib/postgresql/<n>/bin, which is where the tests look. Ubuntu's own archive only has
+      # the newest client, so 16 and 17 come from the PostgreSQL project's apt repository (PGDG) via its official setup script.
+      - name: Install PostgreSQL client tools 16, 17 and 18 (restore compatibility tests)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client-16 postgresql-client-17 postgresql-client-18
+          for v in 16 17 18; do /usr/lib/postgresql/$v/bin/pg_restore --version; done
+
       - name: Run backend tests
         env:
           DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
           REDIS_URL: redis://localhost:6379/0
+          # a missing client must FAIL the compatibility tests here, not skip them
+          ERPX_REQUIRE_PG_CLIENTS: "1"
         run: pytest -v --cov=apps/api/app --cov=modules --cov=packages
 
       - name: Stop MinIO
