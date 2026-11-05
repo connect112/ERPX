@@ -41,6 +41,30 @@ class SendMeta:
 
 _current: ContextVar[SendMeta | None] = ContextVar("email_send_meta", default=None)
 
+# How the last send in this task ended: "accepted", "refused" (the mail server or the network refused it before taking the message,
+# so it was definitely not delivered) or "unknown" (the connection broke or timed out after the message may have been handed over).
+# Callers that must not guess (an email carrying a personal link) read it; everything else can keep using the True/False result.
+_outcome: ContextVar[str | None] = ContextVar("email_send_outcome", default=None)
+
+
+def set_send_outcome(outcome: str | None) -> None:
+    _outcome.set(outcome)
+
+
+def take_send_outcome() -> str | None:
+    outcome = _outcome.get()
+    _outcome.set(None)
+    return outcome
+
+
+def redact(text: str | None, secrets: list[str]) -> str:
+    """The text with each secret (a raw link or token) replaced, for anything that is stored or logged."""
+    out = text or ""
+    for secret in secrets:
+        if secret:
+            out = out.replace(secret, "[removed]")
+    return out
+
 
 def set_send_meta(meta: SendMeta) -> None:
     _current.set(meta)
@@ -51,6 +75,22 @@ def take_send_meta() -> SendMeta | None:
     meta = _current.get()
     _current.set(None)
     return meta
+
+
+def record_failure(db: Any, meta: SendMeta | None, to_email: str, subject: str, error: str) -> None:
+    """Add a failed row to the send history for an email that was never handed to the mail server (for example its template could not
+    be rendered), in the caller's own database session, so it is written or rolled back together with the caller's other records."""
+    from modules.email_studio.models import EmailSendRecord, SendStatus
+
+    meta = meta or SendMeta()
+    db.add(
+        EmailSendRecord(
+            organization_id=meta.organization_id, key=meta.key, module=meta.module, template_id=meta.template_id, version_id=meta.version_id,
+            source=meta.source, recipient=to_email.strip().lower()[:255], subject=(subject or "")[:300], status=SendStatus.FAILED.value,
+            error=(error or "The email could not be made.")[:500], attachments=0, is_test=meta.is_test, idempotency_key=meta.idempotency_key,
+            sent_by_user_id=meta.sent_by_user_id,
+        )
+    )
 
 
 async def record_send(meta: SendMeta | None, to_email: str, subject: str, ok: bool, error: str | None, attachments: int) -> None:

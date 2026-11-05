@@ -9,12 +9,12 @@ the audit trail. Raw link tokens exist only in memory: the database keeps their 
 import hashlib
 import secrets
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +43,9 @@ REVIEW = "our_internships.onboarding.review"
 FINANCE_VIEW = "our_internships.finance.view"
 FINANCE_MANAGE = "our_internships.finance.manage"
 PREVIEW_MINUTES = 3
+# How long a link that an email carries (or may carry) but that is not yet confirmed works. It is promoted to the active link
+# when the mail server accepts the message, or when the student first uses it. A provisional value (72 hours).
+PENDING_TOKEN_TTL = timedelta(hours=72)
 
 
 def now() -> datetime:
@@ -324,6 +327,24 @@ class Issued:
     link: str
 
 
+@dataclass
+class PendingLink:
+    """A link issued for an email that has not been sent yet. ``link`` holds the raw token: it lives in memory only and is never
+    stored, logged, put on the task queue or shown in a repr."""
+
+    application: OnboardingApplication
+    token_hash: str
+    link: str = field(repr=False)
+
+
+def pending_is_alive(application: OnboardingApplication, at: datetime | None = None) -> bool:
+    return (
+        application.pending_token_hash is not None
+        and application.pending_token_issued_at is not None
+        and application.pending_token_issued_at + PENDING_TOKEN_TTL > (at or now())
+    )
+
+
 class ApplicationService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -370,18 +391,146 @@ class ApplicationService:
         if application.cancelled_at is not None:
             raise ValidationError("This student's onboarding was cancelled.")
         token = secrets.token_urlsafe(32)
-        application.token_hash = hash_token(token)
-        application.token_issued_at = now()
-        application.token_revoked_at = None
-        await self.db.flush()
+        application = await self.install_link(application.id, hash_token(token))
         await event(self.db, application, "link_issued", actor="staff" if user_id else "system", user_id=user_id, reason=reason)
         return Issued(application, link_for(token))
 
-    async def revoke_link(self, application: OnboardingApplication, user_id: uuid.UUID) -> None:
-        application.token_hash = None
-        application.token_revoked_at = now()
+    # ---- the application's link state changes under one row lock, with conditional writes: a staff action and an email that is
+    # being confirmed can never overwrite each other with a stale copy of the row
+
+    async def _locked(self, application_id: uuid.UUID) -> OnboardingApplication:
+        return (
+            await self.db.execute(
+                select(OnboardingApplication).where(OnboardingApplication.id == application_id).with_for_update().execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+
+    async def install_link(self, application_id: uuid.UUID, token_hash: str) -> OnboardingApplication:
+        """Make this the active link, atomically: whatever was active, revoked or pending before is superseded, and a pending link
+        that an email is still carrying can no longer be promoted over it (its promotion is conditional on the pending slot)."""
+        locked = await self._locked(application_id)
+        if locked.cancelled_at is not None:
+            raise ValidationError("This student's onboarding was cancelled.")
+        await self.db.execute(
+            update(OnboardingApplication).where(OnboardingApplication.id == application_id)
+            .values(token_hash=token_hash, token_issued_at=now(), token_revoked_at=None, pending_token_hash=None, pending_token_issued_at=None, pending_token_ref=None)
+            .execution_options(synchronize_session=False)
+        )  # fmt: skip
+        await self.db.refresh(locked)
+        return locked
+
+    async def cancel_link_state(self, application_id: uuid.UUID, reason: str) -> OnboardingApplication:
+        """Cancel the application and stop every link, active and pending, under the row lock."""
+        locked = await self._locked(application_id)
+        if locked.cancelled_at is not None:
+            raise ConflictError("This onboarding is already cancelled.")
+        await self.db.execute(
+            update(OnboardingApplication).where(OnboardingApplication.id == application_id)
+            .values(cancelled_at=now(), cancel_reason=reason, token_hash=None, token_revoked_at=now(), pending_token_hash=None, pending_token_issued_at=None, pending_token_ref=None)
+            .execution_options(synchronize_session=False)
+        )  # fmt: skip
+        await self.db.refresh(locked)
+        return locked
+
+    async def discard_pending_for(self, application_id: uuid.UUID, ref: str) -> bool:
+        """Forget the pending link that belongs to this delivery (by its reference), if the slot still holds it. For a delivery that
+        is known never to have reached the mail server."""
+        result = await self.db.execute(
+            update(OnboardingApplication)
+            .where(OnboardingApplication.id == application_id, OnboardingApplication.pending_token_ref == ref, OnboardingApplication.pending_token_hash.is_not(None))
+            .values(pending_token_hash=None, pending_token_issued_at=None, pending_token_ref=None)
+            .execution_options(synchronize_session=False)
+        )  # fmt: skip
+        if result.rowcount == 1:
+            application = await self.db.get(OnboardingApplication, application_id, populate_existing=True)
+            if application is not None:
+                await event(self.db, application, "link_pending_discarded", actor="system", reason="never sent")
+        return result.rowcount == 1
+
+    # ---- links that an email carries: issued as pending, confirmed once the mail server accepts the message
+
+    async def link_eligibility(self, selection: InternshipSelection, config: OnboardingConfig, policy: str) -> tuple[bool, str]:
+        """Whether an email may carry a NEW link for this student, and if not why. Reads only: nothing is created."""
+        if not config.modes.self_service:
+            return False, "manual"
+        if selection.offer_response.value == "declined":
+            return False, "declined"
+        application = await self.get_for_selection(selection.id)
+        if application is None:
+            return True, "ok"
+        if application.cancelled_at is not None:
+            return False, "cancelled"
+        if application.completed_at is not None:
+            return False, "completed"
+        if application.token_hash is None and application.token_revoked_at is not None:
+            return False, "revoked"  # staff stopped this link on purpose: a bulk email never undoes that
+        if application.token_hash is not None and policy != "replace":
+            return False, "keeps_existing"
+        return True, "ok"
+
+    async def issue_pending(self, internship: OurInternship, selection: InternshipSelection, ref: str, config: OnboardingConfig | None = None) -> PendingLink:
+        """A new link for an email about to be sent. The student's active link keeps working: this one only replaces it once the
+        mail server has accepted the message (``promote_pending``) or the student first uses it. A pending link that is still
+        unconfirmed is replaced by the new one, which is why callers never do this for an automatic retry."""
+        if config is None:
+            _, config = await config_of(self.db, internship)
+        application = await self.ensure(internship, selection, config)
+        locked = (
+            await self.db.execute(
+                select(OnboardingApplication).where(OnboardingApplication.id == application.id).with_for_update().execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        if locked.cancelled_at is not None or locked.completed_at is not None or (locked.token_hash is None and locked.token_revoked_at is not None):
+            raise ValidationError("A new link cannot be issued for this student.")
+        token = secrets.token_urlsafe(32)
+        locked.pending_token_hash = hash_token(token)
+        locked.pending_token_issued_at = now()
+        locked.pending_token_ref = ref[:80]
         await self.db.flush()
-        await event(self.db, application, "link_revoked", user_id=user_id)
+        await event(self.db, locked, "link_pending_issued", actor="system", reason=ref[:80])
+        return PendingLink(locked, locked.pending_token_hash, link_for(token))
+
+    async def promote_pending(self, application_id: uuid.UUID, token_hash: str, reason: str = "sent") -> bool:
+        """Make this pending link the active one (the old active link stops working). A compare-and-swap: nothing happens if the
+        pending slot no longer holds this exact link (a newer one replaced it, or the link was revoked or cancelled meanwhile)."""
+        result = await self.db.execute(
+            update(OnboardingApplication)
+            .where(
+                OnboardingApplication.id == application_id, OnboardingApplication.pending_token_hash == token_hash,
+                OnboardingApplication.cancelled_at.is_(None), OnboardingApplication.token_revoked_at.is_(None),
+            )
+            .values(token_hash=token_hash, token_issued_at=now(), pending_token_hash=None, pending_token_issued_at=None, pending_token_ref=None)
+            .execution_options(synchronize_session=False)
+        )  # fmt: skip
+        promoted = result.rowcount == 1
+        application = await self.db.get(OnboardingApplication, application_id, populate_existing=True)
+        if application is not None:
+            await event(self.db, application, "link_promoted" if promoted else "link_promote_skipped", actor="system", reason=reason)
+        return promoted
+
+    async def discard_pending(self, application_id: uuid.UUID, token_hash: str) -> bool:
+        """The email was definitely not sent: forget its pending link, only if the slot still holds that exact link."""
+        result = await self.db.execute(
+            update(OnboardingApplication)
+            .where(OnboardingApplication.id == application_id, OnboardingApplication.pending_token_hash == token_hash)
+            .values(pending_token_hash=None, pending_token_issued_at=None, pending_token_ref=None)
+            .execution_options(synchronize_session=False)
+        )  # fmt: skip
+        if result.rowcount == 1:
+            application = await self.db.get(OnboardingApplication, application_id, populate_existing=True)
+            if application is not None:
+                await event(self.db, application, "link_pending_discarded", actor="system")
+        return result.rowcount == 1
+
+    async def revoke_link(self, application: OnboardingApplication, user_id: uuid.UUID) -> None:
+        locked = await self._locked(application.id)
+        await self.db.execute(
+            update(OnboardingApplication).where(OnboardingApplication.id == locked.id)
+            .values(token_hash=None, token_revoked_at=now(), pending_token_hash=None, pending_token_issued_at=None, pending_token_ref=None)
+            .execution_options(synchronize_session=False)
+        )  # fmt: skip
+        await self.db.refresh(locked)
+        await event(self.db, locked, "link_revoked", user_id=user_id)
 
     async def selections(self, internship: OurInternship, student_ids: list[uuid.UUID] | None = None) -> list[tuple[InternshipSelection, InstitutionStudent]]:
         query = (

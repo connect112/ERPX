@@ -115,6 +115,20 @@ class OfferLetter(TimestampedBase):
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     released_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     sent_to_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # What the release that queued this letter decided. The email's Studio template version is pinned here, so a version published
+    # while the batch is still being sent cannot change the emails that follow. No pin (letters queued before this existed)
+    # means the email is resolved when it is sent.
+    release_batch_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    email_source: Mapped[str | None] = mapped_column(String(20), nullable=True)  # studio | letter_settings
+    email_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("email_studio_versions.id", ondelete="SET NULL"), nullable=True)
+    email_link_policy: Mapped[str | None] = mapped_column(String(20), nullable=True)  # keep_existing | replace
+    # set only when an administrator chose the legacy email although a Studio template is assigned
+    email_fallback_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # one worker at a time: held while an attempt is in progress; an expired lease means that attempt's outcome is unknown
+    delivery_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # set (and committed) just before the mail server is contacted. A lease that runs out with this still empty means the message was
+    # never handed over; with it set, the message may have been delivered and is never sent again automatically.
+    delivery_handoff_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class OfferLetterDelivery(TimestampedBase):

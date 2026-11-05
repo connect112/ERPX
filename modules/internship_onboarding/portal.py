@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -31,6 +31,7 @@ from modules.internship_onboarding.service import (
     hash_token,
     now,
     payment_deadline,
+    pending_is_alive,
 )
 from modules.organizations.models import Organization
 from modules.our_internships.models import InternshipSelection, OfferResponse, OurInternship
@@ -93,10 +94,17 @@ class PortalService:
     async def resolve(self, token: str) -> Context:
         if not token or len(token) > 200:
             raise NotFoundError("Onboarding link", "")
+        digest = hash_token(token)
         application = (
-            await self.db.execute(select(OnboardingApplication).where(OnboardingApplication.token_hash == hash_token(token)))
+            await self.db.execute(
+                select(OnboardingApplication).where(or_(OnboardingApplication.token_hash == digest, OnboardingApplication.pending_token_hash == digest))
+            )
         ).scalar_one_or_none()
         if application is None or application.token_revoked_at is not None:
+            raise NotFoundError("Onboarding link", "")
+        # A link an email carries but that was not confirmed yet works for a limited time; using it confirms it.
+        via_pending = application.token_hash != digest
+        if via_pending and (application.cancelled_at is not None or not pending_is_alive(application)):
             raise NotFoundError("Onboarding link", "")
         selection = await self.db.get(InternshipSelection, application.selection_id)
         internship = await self.db.get(OurInternship, application.internship_id)
@@ -108,6 +116,8 @@ class PortalService:
         _, config = await config_of(self.db, internship)
         if not config.modes.self_service:
             raise NotFoundError("Onboarding link", "")
+        if via_pending:
+            await self.apps.promote_pending(application.id, digest, reason="first_use")
         return Context(application, selection, student, internship, config, effective_deadline(application, config))
 
     def _touch(self, ctx: Context, step: str | None = None) -> None:

@@ -33,6 +33,10 @@ _GROUP_OF = {
 }
 GROUP_ORDER = ("Account", "Student", "Institution", "Event", "Internship", "Company", "Documents", "System")
 
+# Placeholders whose value is a personal secret (a student's onboarding link). They may only be the whole address of a link, or
+# visible text: never the subject or preheader (both are kept in send histories and logs) and never part of a longer address.
+SECRET_PLACEHOLDERS = frozenset({"onboarding_link"})
+
 # Values Email Studio supplies itself from the chosen brand and signature (a sender's own value wins).
 BRAND_NAMES = (
     "company_name", "company_website", "company_email", "company_phone", "company_address", "brand_name", "logo_url",
@@ -111,10 +115,45 @@ def _attribute_name(source: str, position: int) -> str:
     return match.group(1).lower() if match else ""
 
 
+def secret_placement_problems(html: str | None, subject: str | None = "", preheader: str | None = "") -> list[str]:
+    """Where a secret placeholder (see SECRET_PLACEHOLDERS) is used in a way that could leak it. Empty when it is used safely."""
+    problems: list[str] = []
+    for name in sorted(SECRET_PLACEHOLDERS):
+        tag = "{{" + name + "}}"
+        if name in placeholders_in(subject):
+            problems.append(f"{tag} cannot be used in the subject: a subject is kept in the send history.")
+        if name in placeholders_in(preheader):
+            problems.append(f"{tag} cannot be used in the preheader: it is shown in inbox lists and kept with the message.")
+    source = html or ""
+    for match in VAR.finditer(source):
+        name = match.group(1)
+        if name not in SECRET_PLACEHOLDERS or not _in_tag(source, match.start()):
+            continue  # in the visible text of the email is fine
+        prefix = source[source.rfind("<", 0, match.start()) : match.start()]
+        whole = re.search(r"=\s*[\"']$", prefix) is not None and source[match.end() : match.end() + 1] in ('"', "'")
+        if _attribute_name(source, match.start()) != "href" or not whole:
+            message = "{{" + name + "}} may only be the whole address of a link (href=\"{{" + name + "}}\"), not part of another address or another attribute."
+            if message not in problems:
+                problems.append(message)
+    return problems
+
+
+def _drop_empty_links(markup: str, values: dict[str, object]) -> str:
+    """A link whose whole address is a secret placeholder with no value is not a link: keep its text, drop the anchor, so no dead
+    button or empty address is ever sent (for example when onboarding is manual)."""
+    out = markup
+    for name in SECRET_PLACEHOLDERS:
+        if str(values.get(name) or "").strip():
+            continue
+        pattern = r"(?is)<a\b[^>]*?\bhref\s*=\s*([\"'])\s*\{\{\s*" + name + r"\s*\}\}\s*\1[^>]*>(.*?)</a\s*>"
+        out = re.sub(pattern, lambda m: m.group(2), out)
+    return out
+
+
 def fill_html(markup: str, values: dict[str, object], blocks: dict[str, str] | None = None) -> str:
     """The HTML with its placeholders filled in. ``blocks`` holds the HTML of component placeholders. A name with no value is
     replaced by nothing; check `missing()` first when that matters."""
-    out = markup
+    out = _drop_empty_links(markup, values)
     for name, block in (blocks or {}).items():
         # a block placeholder on its own in a paragraph or cell replaces the whole paragraph
         out = re.sub(r"(?is)<p\b[^>]*>\s*\{\{\s*" + name + r"\s*\}\}\s*</p\s*>", lambda _m, b=block: b, out, count=1)

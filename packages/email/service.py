@@ -17,9 +17,22 @@ from email.message import EmailMessage
 
 from app.core.config import settings
 from app.core.logging_config import get_logger
-from packages.email.history import record_send, take_send_meta
+from packages.email.history import record_send, set_send_outcome, take_send_meta
 
 logger = get_logger(__name__)
+
+
+def is_refusal(exc: BaseException) -> bool:
+    """True when this failure means the message was definitely NOT taken by the mail server: it answered with an error, could not
+    be reached, or refused the recipients. A dropped connection or a timeout while waiting for the answer is NOT a refusal: the
+    message may have been delivered."""
+    return isinstance(
+        exc,
+        (
+            aiosmtplib.SMTPResponseException, aiosmtplib.SMTPRecipientsRefused, aiosmtplib.SMTPConnectError,
+            aiosmtplib.SMTPNotSupported, ValueError, TypeError,
+        ),
+    )  # fmt: skip
 
 
 @dataclass
@@ -61,7 +74,9 @@ class EmailService:
         if html_body:
             message.add_alternative(html_body, subtype="html")
 
+        set_send_outcome(None)
         if meta and meta.requires and not attachments:
+            set_send_outcome("refused")
             missing = ", ".join(meta.requires)
             logger.warning("email_required_attachment_missing", to=to_email, subject=subject, missing=missing)
             await record_send(meta, to_email, subject, False, f"Not sent: the required attachment is missing ({missing}).", 0)
@@ -86,10 +101,12 @@ class EmailService:
                 start_tls=self.port == 587,
                 tls_context=ssl.create_default_context(),
             )
+            set_send_outcome("accepted")
             logger.info("email_sent", to=to_email, subject=subject)
             await record_send(meta, to_email, subject, True, None, len(all_attachments))
             return True
         except Exception as exc:
+            set_send_outcome("refused" if is_refusal(exc) else "unknown")
             logger.exception("email_send_failed", to=to_email, subject=subject)
             await record_send(meta, to_email, subject, False, f"{type(exc).__name__}: {exc}"[:400], len(all_attachments))
             return False

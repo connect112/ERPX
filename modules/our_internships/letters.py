@@ -46,6 +46,7 @@ from modules.our_internships.letter_models import (
 )
 from modules.our_internships.letter_pdf import Asset, AssetError, StudentFacts, build_letter_pdf, letter_values, validate_asset
 from modules.our_internships.models import InternshipSelection, OfferStatus, OurInternship, OurInternshipStatus
+from packages.email.history import set_send_meta
 from packages.email.service import EmailAttachment, email_service
 
 SAMPLE_FACTS = StudentFacts("Asha Rao", "Sri Venkateswara College", "Tirupati, Andhra Pradesh", "asha.rao@example.com")
@@ -116,6 +117,30 @@ class Loaded:
     approved_hash: str | None
     approved_at: datetime | None
     settings_hash: str
+
+
+@dataclass
+class OfferEmailPlan:
+    """Which wording an offer email uses, decided once when a batch is released (see ``LetterService.plan_offer_email``)."""
+
+    source: str  # "studio": the pinned template version | "letter_settings": the email written in the letter settings (legacy)
+    version_id: uuid.UUID | None = None
+    template_id: uuid.UUID | None = None
+    template_name: str = ""
+    recovery_by: uuid.UUID | None = None  # an administrator chose the legacy email although a Studio template is assigned
+
+
+@dataclass
+class OfferEmail:
+    subject: str
+    text: str
+    html: str
+    note: Any  # the send-history note (which template and version made it)
+    used: list[str]  # the {{placeholders}} the wording uses
+
+
+LINK_POLICIES = ("keep_existing", "replace")
+LEASE_MINUTES = 5
 
 
 class LetterService:
@@ -537,18 +562,45 @@ class LetterService:
 
     # ------------------------------------------------------------------ releasing
 
-    async def release(self, internship: OurInternship, user_id: uuid.UUID, letter_ids: list[uuid.UUID], resend: bool) -> dict[str, Any]:
-        """Mark the chosen letters as queued for emailing. Only letters the admin approved can be released."""
+    async def release(
+        self, internship: OurInternship, user_id: uuid.UUID, letter_ids: list[uuid.UUID], resend: bool,
+        link_policy: str = "keep_existing", fallback: bool = False,
+    ) -> dict[str, Any]:  # fmt: skip
+        """Mark the chosen letters as queued for emailing. Only letters the admin approved can be released.
+
+        The release decides, once, which wording every email of the batch uses: the assigned Email Studio template's published
+        version (pinned on each letter, so a version published later cannot change emails still to be sent) or, when no template is
+        assigned, the email written in the letter settings. ``fallback`` is the administrator's explicit choice to use the legacy
+        email although a template is assigned (the caller has checked the permission); it is recorded on every letter."""
+        from modules.email_studio.engine import AssignedTemplateUnusable, TemplateRenderFailed
+        from modules.internship_onboarding.emails import preview_onboarding_values
+
         if not letter_ids:
             raise ValidationError("Choose at least one letter to release.")
+        if link_policy not in LINK_POLICIES:
+            raise ValidationError("link_policy must be keep_existing or replace.")
         await self.db.execute(select(OurInternship.id).where(OurInternship.id == internship.id).with_for_update())
         rows = {r["letter"].id: r for r in await self.rows(internship) if r["letter"] is not None}
         unknown = [i for i in letter_ids if i not in rows]
         if unknown:
             raise ValidationError("Only the current letters of this internship can be released.")
+        try:
+            plan = await self.plan_offer_email(internship.organization_id, recovery_by=user_id if fallback else None)
+        except AssignedTemplateUnusable as exc:
+            raise ValidationError(f"{exc}. Nothing was queued. Fix it in Email Studio, or release again choosing the legacy email.") from exc
+        loaded = await self.load(internship)
+        if plan.source == "studio":  # the template must work before anything is queued
+            sample = {**self.email_values(loaded.config, SAMPLE_FACTS, internship.title, "OFR-PREFLIGHT-000"), **await preview_onboarding_values(self.db, internship, None)}
+            try:
+                await self.render_offer(internship, loaded.config, sample, plan)
+            except TemplateRenderFailed as exc:
+                raise ValidationError(f"The assigned email template cannot be used: {exc.message} Nothing was queued. Fix it in Email Studio, or release again choosing the legacy email.") from exc
+        batch_id = uuid.uuid4()
+        lease_cutoff = datetime.now(timezone.utc)
         queued: list[uuid.UUID] = []
         skipped: list[dict[str, str]] = []
-        selections = {s.id: s for s, _, _ in await self.selected(internship)}
+        chosen = {s.id: (s, st, inst) for s, st, inst in await self.selected(internship)}
+        selections = {sid: tup[0] for sid, tup in chosen.items()}
         for letter_id in dict.fromkeys(letter_ids):
             row = rows[letter_id]
             letter: OfferLetter = row["letter"]
@@ -563,14 +615,23 @@ class LetterService:
                 skip("The letter is outdated. Regenerate and approve it first.")
             elif letter.status == LetterStatus.RELEASED.value and not resend:
                 skip("Already sent.")
-            elif letter.delivery_status == DeliveryStatus.QUEUED.value and not resend:
-                skip("Already on its way.")
+            elif letter.delivery_status == DeliveryStatus.QUEUED.value and not resend and not (letter.delivery_lease_until and letter.delivery_lease_until < lease_cutoff):
+                skip("Already on its way.")  # (a worker that died mid-send leaves an expired lease: that letter can be released again)
             elif letter.status not in (LetterStatus.APPROVED.value, LetterStatus.RELEASED.value):
                 skip("Approve the letter first.")
+            elif plan.source == "studio" and (problem := await self._student_template_problem(internship, loaded.config, plan, letter, chosen.get(letter.selection_id))):
+                skip(problem)
             else:
                 letter.delivery_status = DeliveryStatus.QUEUED.value
                 letter.delivery_attempts = 0
                 letter.delivery_error = None
+                letter.delivery_lease_until = None
+                letter.delivery_handoff_at = None
+                letter.release_batch_id = batch_id
+                letter.email_source = plan.source
+                letter.email_version_id = plan.version_id
+                letter.email_link_policy = link_policy
+                letter.email_fallback_by_user_id = plan.recovery_by
                 letter.released_by_user_id = user_id
                 selection = selections.get(letter.selection_id)
                 if selection is not None:
@@ -582,9 +643,26 @@ class LetterService:
         if queued:
             internship.status = OurInternshipStatus.OFFERS_RELEASED
             internship.offers_released_at = internship.offers_released_at or datetime.now(timezone.utc)
-            await self.log(internship, user_id, "release_requested", f"{len(queued)} letter{'s' if len(queued) != 1 else ''} queued for emailing")
+            how = " using the legacy email chosen by the administrator" if plan.recovery_by else ""
+            await self.log(internship, user_id, "release_requested", f"{len(queued)} letter{'s' if len(queued) != 1 else ''} queued for emailing{how}")
         await self.db.flush()
         return {"queued": queued, "skipped": skipped}
+
+    async def _student_template_problem(self, internship: OurInternship, config: LetterConfig, plan: OfferEmailPlan, letter: OfferLetter, chosen: Any) -> str | None:
+        """Why the pinned template cannot be filled for this student (None when it can). Reads only; nothing is issued or created."""
+        from modules.email_studio.engine import TemplateRenderFailed
+        from modules.internship_onboarding.emails import preview_onboarding_values
+
+        if chosen is None:
+            return None
+        selection, student, institution = chosen
+        values = self.email_values(config, facts_of(student, institution), internship.title, letter.reference, letter.generated_at)
+        values.update(await preview_onboarding_values(self.db, internship, selection))
+        try:
+            await self.render_offer(internship, config, values, plan)
+        except TemplateRenderFailed as exc:
+            return f"The email template cannot be filled for this student: {exc.message}"
+        return None
 
     async def revert_queue(self, letter_ids: list[uuid.UUID]) -> None:
         """The message broker was unreachable: put these back, so pressing Release again retries them."""
@@ -612,30 +690,50 @@ class LetterService:
         html = f"<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1f2937\">{body}</div>"
         return subject, text, html
 
-    async def render_offer_email(self, internship: OurInternship, config: LetterConfig, values: dict[str, str]) -> tuple[str, str, str, Any]:
-        """(subject, text, html, note for the send history). A published Email Studio template that an administrator assigned to the
-        offer email is used; otherwise the email written in the letter settings, as before. A studio template that needs a value this
-        student does not have raises MissingPlaceholders, so the letter is reported as not sent rather than sent wrongly."""
-        from modules.email_studio.engine import render_assigned
+    async def plan_offer_email(self, organization_id: uuid.UUID, recovery_by: uuid.UUID | None = None) -> OfferEmailPlan:
+        """Which wording the offer email uses now. A template that is ASSIGNED is used or reported (AssignedTemplateUnusable): it is
+        never quietly replaced by other wording. The legacy email is used only when nothing is assigned, or when an administrator
+        explicitly chose it (``recovery_by``)."""
+        from modules.email_studio.engine import usable_assignment
+
+        if recovery_by is not None:
+            return OfferEmailPlan("letter_settings", recovery_by=recovery_by)
+        found = await usable_assignment(self.db, organization_id, "internship_offer_letter")
+        if found is None:
+            return OfferEmailPlan("letter_settings")
+        template, version = found
+        return OfferEmailPlan("studio", version.id, template.id, template.name)
+
+    async def render_offer(self, internship: OurInternship, config: LetterConfig, values: dict[str, str], plan: OfferEmailPlan | None = None) -> OfferEmail:
+        """The offer email for these values, with the wording the plan names. A pinned Email Studio version that cannot be rendered
+        raises TemplateRenderFailed (never a silent switch to the legacy wording)."""
+        from modules.email_studio.engine import render_pinned
         from modules.email_studio.service import allowed_for_key
         from packages.email.history import SendMeta
         from packages.email.registry import get_def
 
-        definition = get_def("internship_offer_letter")
-        merged: dict[str, object] = {**values, "full_name": values.get("student_name", "")}
-        rendered = await render_assigned(
-            self.db, internship.organization_id, "internship_offer_letter", merged,
-            allowed=allowed_for_key(definition), required=definition.required if definition else (),
-        )
-        if rendered is not None:
+        plan = plan or await self.plan_offer_email(internship.organization_id)
+        if plan.source == "studio":
+            definition = get_def("internship_offer_letter")
+            merged: dict[str, object] = {**values, "full_name": values.get("student_name", "")}
+            rendered = await render_pinned(
+                self.db, internship.organization_id, plan.version_id, merged,
+                allowed=allowed_for_key(definition), required=definition.required if definition else (),
+            )
             note = SendMeta(
                 organization_id=internship.organization_id, key="internship_offer_letter", module="Internships", template_id=rendered.template_id,
                 version_id=rendered.version_id, source=rendered.source, reply_to=rendered.reply_to, from_name=rendered.from_name,
                 extra_attachments=rendered.attachments, requires=rendered.requires,
             )
-            return rendered.subject, rendered.text, rendered.html, note
+            return OfferEmail(rendered.subject, rendered.text, rendered.html, note, list(rendered.used))
         subject, text, html = self.render_email(config, values)
-        return subject, text, html, SendMeta(organization_id=internship.organization_id, key="internship_offer_letter", module="Internships", source="letter_settings")
+        source = "legacy_recovery" if plan.recovery_by else "letter_settings"
+        return OfferEmail(subject, text, html, SendMeta(organization_id=internship.organization_id, key="internship_offer_letter", module="Internships", source=source), [])
+
+    async def render_offer_email(self, internship: OurInternship, config: LetterConfig, values: dict[str, str]) -> tuple[str, str, str, Any]:
+        """(subject, text, html, note for the send history) with the wording that is assigned now."""
+        email = await self.render_offer(internship, config, values)
+        return email.subject, email.text, email.html, email.note
 
     async def email_preview(self, internship: OurInternship, student_id: uuid.UUID | None) -> dict[str, Any]:
         loaded = await self.load(internship)
@@ -649,19 +747,34 @@ class LetterService:
             reference = selection.offer_reference or reference
             letter = (await self.current_letters(internship)).get(selection.id)
             filename = letter.filename if letter and letter.filename else letter_filename(facts.name, internship.id, 1)
-        from modules.email_studio.engine import MissingPlaceholders
+        from modules.email_studio.engine import AssignedTemplateUnusable, TemplateRenderFailed
+        from modules.internship_onboarding.emails import preview_onboarding_values
 
+        values = self.email_values(loaded.config, facts, internship.title, reference)
+        # a preview only READS: no application, reference number or link is created, and the link shown is a plain sample
+        values.update(await preview_onboarding_values(self.db, internship, selection if student_id is not None else None))
         try:
-            subject, text, _, _ = await self.render_offer_email(internship, loaded.config, self.email_values(loaded.config, facts, internship.title, reference))
-        except MissingPlaceholders as exc:
-            return {"to": facts.email, "subject": "(cannot be made)", "body": f"The email template needs a value this student does not have. {exc}", "attachment": filename}
+            subject, text, _, _ = await self.render_offer_email(internship, loaded.config, values)
+        except (TemplateRenderFailed, AssignedTemplateUnusable) as exc:
+            reason = exc.message if isinstance(exc, TemplateRenderFailed) else str(exc)
+            return {"to": facts.email, "subject": "(cannot be made)", "body": f"The assigned email template cannot be used. {reason}", "attachment": filename}
         return {"to": facts.email, "subject": subject, "body": text, "attachment": filename}
 
-    async def send_test(self, internship: OurInternship, to_email: str) -> None:
+    async def send_test(self, internship: OurInternship, to_email: str, user_id: uuid.UUID | None = None) -> None:
+        from modules.email_studio.engine import AssignedTemplateUnusable, TemplateRenderFailed
+        from modules.internship_onboarding.emails import preview_onboarding_values
+
         loaded = await self.load(internship)
         pdf, _, _ = await self.preview(internship, None, None)
         values = self.email_values(loaded.config, SAMPLE_FACTS, internship.title, "OFR-TEST-000")
-        subject, text, html, _ = await self.render_offer_email(internship, loaded.config, values)
+        values.update(await preview_onboarding_values(self.db, internship, None))  # a sample link: a test never issues a real one
+        try:
+            subject, text, html, note = await self.render_offer_email(internship, loaded.config, values)
+        except (TemplateRenderFailed, AssignedTemplateUnusable) as exc:
+            reason = exc.message if isinstance(exc, TemplateRenderFailed) else str(exc)
+            raise ValidationError(f"The assigned email template cannot be used: {reason}") from exc
+        note.is_test, note.sent_by_user_id = True, user_id
+        set_send_meta(note)
         sent = await email_service.send(
             to_email, "[Test] " + subject, text, html,
             attachments=[EmailAttachment(filename="OfferLetter_Sample.pdf", content=pdf, mime_type="application/pdf")],

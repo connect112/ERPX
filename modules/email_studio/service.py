@@ -38,6 +38,7 @@ from modules.email_studio.placeholders import (
     fill_props,
     group_of,
     placeholders_in,
+    secret_placement_problems,
     unsupported,
 )
 from modules.email_studio.schemas import (
@@ -461,6 +462,7 @@ class StudioService:
         if not html.strip():
             found.append("The email has no content.")
         found += component_misuse(html)
+        found += secret_placement_problems(html, version.subject, version.preheader)
         used = [n for n in placeholders_in(html, version.subject) if n not in COMPONENT_NAMES]
         assigns = (await self.db.execute(select(EmailTemplateAssignment).where(EmailTemplateAssignment.template_id == template.id))).scalars().all()
         for a in assigns:
@@ -577,8 +579,9 @@ class StudioService:
             raise ValidationError("Publish the template before using it for an ERPX email.")
         version = await self.db.get(EmailStudioVersion, template.published_version_id)
         assert version is not None
-        used = [n for n in placeholders_in(await self._html_of(version, template.source_type), version.subject) if n not in COMPONENT_NAMES]
-        found: list[str] = []
+        html = await self._html_of(version, template.source_type)
+        used = [n for n in placeholders_in(html, version.subject) if n not in COMPONENT_NAMES]
+        found: list[str] = secret_placement_problems(html, version.subject, version.preheader)
         bad = unsupported(used, allowed_for_key(definition) or set())
         if bad:
             found.append("This email cannot use: " + ", ".join("{{" + n + "}}" for n in bad) + ".")
