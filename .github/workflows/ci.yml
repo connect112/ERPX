@@ -130,6 +130,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test
           REDIS_URL: redis://localhost:6379/0
+          PYTHONPATH: ${{ github.workspace }}
         run: pytest -v --cov=apps/api/app --cov=modules --cov=packages
 
       - name: Stop MinIO
