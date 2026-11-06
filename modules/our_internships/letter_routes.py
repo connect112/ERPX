@@ -163,11 +163,26 @@ class ReleaseResponse(BaseModel):
     message: str
 
 
+class EmailTemplateSummary(BaseModel):
+    id: uuid.UUID | None = None
+    name: str = ""
+    version_number: int | None = None
+    published_at: datetime | None = None
+
+
 class EmailPreviewOut(BaseModel):
     to: str
     subject: str
     body: str
     attachment: str
+    # What the email is made from: the published Email Studio template assigned to the offer letter email ("studio"), or the wording in
+    # the letter settings used when none is assigned ("legacy"). `problem` is set when the assigned template cannot be used.
+    html: str = ""
+    source: Literal["studio", "legacy"] = "legacy"
+    template: EmailTemplateSummary | None = None
+    uses_link: bool = False  # the wording carries the student's personal onboarding link
+    link_available: bool = True  # false in manual onboarding: the link is left out of the email
+    problem: str | None = None
 
 
 class TestEmailRequest(BaseModel):

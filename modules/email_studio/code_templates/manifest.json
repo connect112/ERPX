@@ -224,6 +224,219 @@
     ]
   },
   {
+    "key": "internship_offer_onboarding",
+    "name": "Internship offer letter with onboarding link",
+    "description": "Congratulates a selected student, summarises the internship and gives their personal onboarding button. Their offer letter PDF is attached by ERPX. Where the student has no new link to receive (manual onboarding, or they keep the link they have), the whole onboarding section is left out.",
+    "category": "Internship Offer Letters",
+    "module": "internships",
+    "suggested_for": "internship_offer_letter",
+    "subject": "Congratulations {{student_name}} - your internship offer from {{company_name}}",
+    "placeholders": [
+      "student_name",
+      "institution_name",
+      "internship_name",
+      "internship_position",
+      "internship_duration",
+      "internship_start_date",
+      "internship_end_date",
+      "program_type",
+      "company_name",
+      "reference",
+      "letter_date",
+      "signature",
+      "onboarding_link",
+      "onboarding_deadline"
+    ],
+    "props": [
+      {
+        "name": "heading",
+        "label": "Heading",
+        "type": "text",
+        "default": "Congratulations, {{student_name}}!",
+        "required": true
+      },
+      {
+        "name": "intro",
+        "label": "Opening message",
+        "type": "textarea",
+        "default": "We are pleased to offer you a place on {{internship_name}} at {{company_name}}."
+      },
+      {
+        "name": "attachment_note",
+        "label": "Attachment notice",
+        "type": "textarea",
+        "default": "Your offer letter (reference {{reference}}) is attached to this email as a PDF. Please read it carefully, sign it and send it back with the documents it lists."
+      },
+      {
+        "name": "onboarding_title",
+        "label": "Onboarding heading",
+        "type": "text",
+        "default": "Next step: complete your onboarding"
+      },
+      {
+        "name": "onboarding_text",
+        "label": "Onboarding message",
+        "type": "textarea",
+        "default": "Confirm your details, upload your documents and accept the offer before {{onboarding_deadline}}."
+      },
+      {
+        "name": "button_text",
+        "label": "Button text",
+        "type": "text",
+        "default": "Start onboarding",
+        "required": true
+      },
+      {
+        "name": "link_note",
+        "label": "Note under the button",
+        "type": "textarea",
+        "default": "Your onboarding link is personal, so please do not forward it. If we sent you one earlier, it keeps working."
+      },
+      {
+        "name": "closing",
+        "label": "Closing line",
+        "type": "text",
+        "default": "We look forward to working with you."
+      },
+      {
+        "name": "primary_color",
+        "label": "Main colour",
+        "type": "color",
+        "default": "#2563eb"
+      },
+      {
+        "name": "secondary_color",
+        "label": "Secondary colour",
+        "type": "color",
+        "default": "#1e40af"
+      },
+      {
+        "name": "accent_color",
+        "label": "Accent colour",
+        "type": "color",
+        "default": "#f59e0b"
+      },
+      {
+        "name": "background_color",
+        "label": "Page background",
+        "type": "color",
+        "default": "#f4f4f5"
+      },
+      {
+        "name": "text_color",
+        "label": "Text colour",
+        "type": "color",
+        "default": "#111827"
+      }
+    ]
+  },
+  {
+    "key": "internship_onboarding_invite",
+    "name": "Internship onboarding invitation",
+    "description": "Invites a selected student to complete onboarding with their personal link: what to do, when it opens and the deadline.",
+    "category": "Internship Onboarding",
+    "module": "internships",
+    "suggested_for": "internship_onboarding_invitation",
+    "subject": "Complete your internship onboarding - {{internship_name}}",
+    "placeholders": [
+      "student_name",
+      "internship_name",
+      "onboarding_link",
+      "onboarding_deadline",
+      "onboarding_start_date",
+      "application_reference",
+      "signature"
+    ],
+    "props": [
+      {
+        "name": "heading",
+        "label": "Heading",
+        "type": "text",
+        "default": "Welcome aboard, {{student_name}}",
+        "required": true
+      },
+      {
+        "name": "intro",
+        "label": "Opening message",
+        "type": "textarea",
+        "default": "Please complete your onboarding for {{internship_name}} before {{onboarding_deadline}}."
+      },
+      {
+        "name": "steps_title",
+        "label": "Steps heading",
+        "type": "text",
+        "default": "What you will do"
+      },
+      {
+        "name": "step_one",
+        "label": "Step 1",
+        "type": "text",
+        "default": "Check and confirm your details."
+      },
+      {
+        "name": "step_two",
+        "label": "Step 2",
+        "type": "text",
+        "default": "Upload the documents we ask for."
+      },
+      {
+        "name": "step_three",
+        "label": "Step 3",
+        "type": "text",
+        "default": "Accept your offer and, if a fee applies, pay it online."
+      },
+      {
+        "name": "button_text",
+        "label": "Button text",
+        "type": "text",
+        "default": "Start onboarding",
+        "required": true
+      },
+      {
+        "name": "link_note",
+        "label": "Note under the button",
+        "type": "textarea",
+        "default": "This link is personal, so please do not forward it. If you receive more than one email from us, use the newest one."
+      },
+      {
+        "name": "closing",
+        "label": "Closing line",
+        "type": "text",
+        "default": "We are glad to have you with us."
+      },
+      {
+        "name": "primary_color",
+        "label": "Main colour",
+        "type": "color",
+        "default": "#2563eb"
+      },
+      {
+        "name": "secondary_color",
+        "label": "Secondary colour",
+        "type": "color",
+        "default": "#1e40af"
+      },
+      {
+        "name": "accent_color",
+        "label": "Accent colour",
+        "type": "color",
+        "default": "#f59e0b"
+      },
+      {
+        "name": "background_color",
+        "label": "Page background",
+        "type": "color",
+        "default": "#f4f4f5"
+      },
+      {
+        "name": "text_color",
+        "label": "Text colour",
+        "type": "color",
+        "default": "#111827"
+      }
+    ]
+  },
+  {
     "key": "internship_welcome",
     "name": "Internship welcome",
     "description": "Welcomes a student who has joined an internship, with the key instructions and a link to sign in.",

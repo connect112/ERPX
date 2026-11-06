@@ -170,6 +170,25 @@ def test_every_approved_template_is_complete_safe_and_consistent():
                 assert name in used, f"{t.key} must keep {{{{{name}}}}}"
 
 
+def test_an_optional_section_goes_whole_when_its_link_has_no_value_and_stays_when_it_has_one():
+    section = (
+        '<p>Keep me</p><table data-optional-for="onboarding_link"><tr><td><p>Heading</p>'
+        '<table><tr><td><a href="{{onboarding_link}}">Start</a></td></tr></table><p>Note</p></td></tr></table><p>Also keep me</p>'
+    )
+    gone = fill_html(section, {"onboarding_link": ""})
+    assert "Heading" not in gone and "Start" not in gone and "Note" not in gone and "<a" not in gone and "data-optional-for" not in gone
+    assert "<p>Keep me</p>" in gone and "<p>Also keep me</p>" in gone and gone.count("<table") == 0  # the nested table went with it
+    kept = fill_html(section, {"onboarding_link": "https://erp.example.com/x#t=abc"})
+    assert "Heading" in kept and 'href="https://erp.example.com/x#t=abc"' in kept and "Note" in kept
+
+
+def test_a_section_marked_for_another_name_or_left_unclosed_is_not_touched():
+    assert "Heading" in fill_html('<div data-optional-for="other_thing"><p>Heading</p></div>', {"onboarding_link": ""})
+    unclosed = '<p>Before</p><div data-optional-for="onboarding_link"><p>Heading</p>'
+    assert "Before" in fill_html(unclosed, {"onboarding_link": ""})  # not closed: nothing is cut away
+    assert fill_html("<p>Plain {{student_name}}</p>", {"student_name": "Asha"}) == "<p>Plain Asha</p>"
+
+
 def test_an_unknown_approved_template_is_refused():
     with pytest.raises(CodeTemplateError):
         load_code_template("../../etc/passwd")

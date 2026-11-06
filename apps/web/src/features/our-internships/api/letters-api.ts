@@ -180,11 +180,35 @@ export interface ReleaseResult {
   message: string;
 }
 
+export interface EmailTemplateSummary {
+  id: string | null;
+  name: string;
+  version_number: number | null;
+  published_at: string | null;
+}
+
 export interface EmailPreview {
   to: string;
   subject: string;
   body: string;
   attachment: string;
+  /** The email as it will arrive (HTML), drawn by the server from the assigned template; empty when it cannot be made. */
+  html: string;
+  /** "studio": the published Email Studio template assigned to the offer letter email. "legacy": the wording in the letter settings, used when none is assigned. */
+  source: "studio" | "legacy";
+  template: EmailTemplateSummary | null;
+  /** The wording carries the student's personal onboarding link. */
+  uses_link: boolean;
+  /** False in manual onboarding: the link is left out of the email. */
+  link_available: boolean;
+  /** Why the assigned template cannot be used, when it cannot. */
+  problem: string | null;
+}
+
+export type LinkPolicy = "keep_existing" | "replace";
+export interface ReleaseOptions {
+  link_policy: LinkPolicy;
+  fallback: "none" | "legacy_letter_settings";
 }
 
 export interface Delivery {
@@ -251,8 +275,8 @@ export const lettersApi = {
     apiClient.get<Blob>(`${base(id)}/download.zip`, { responseType: "blob", params: { letter_id: letterIds }, paramsSerializer: { indexes: null } }).then((r) => r.data),
   emailPreview: (id: string, studentId: string | null) => apiClient.post<EmailPreview>(`${base(id)}/email-preview`, { student_id: studentId }).then((r) => r.data),
   testEmail: (id: string, toEmail: string) => apiClient.post<{ message: string }>(`${base(id)}/test-email`, { to_email: toEmail }).then((r) => r.data),
-  release: (id: string, letterIds: string[], resend: boolean) =>
-    apiClient.post<ReleaseResult>(`${base(id)}/release`, { letter_ids: letterIds, resend }).then((r) => r.data),
+  release: (id: string, letterIds: string[], resend: boolean, options?: ReleaseOptions) =>
+    apiClient.post<ReleaseResult>(`${base(id)}/release`, { letter_ids: letterIds, resend, ...options }).then((r) => r.data),
   deliveries: (id: string) => apiClient.get<Delivery[]>(`${base(id)}/deliveries`).then((r) => r.data),
   events: (id: string) => apiClient.get<LetterEvent[]>(`${base(id)}/events`).then((r) => r.data),
 };
