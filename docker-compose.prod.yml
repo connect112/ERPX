@@ -100,6 +100,17 @@ x-backend-env: &backend-env
   SMTP_PASSWORD: ${SMTP_PASSWORD}
   SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
   SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+  # Cashfree online payments (internship onboarding). OFF unless /opt/erpx/.env says otherwise: every name below has a safe default,
+  # so adding this block changes nothing by itself. Going live needs all three switches (ENABLED, ENV=production, ALLOW_PRODUCTION)
+  # plus the keys; see docs/CASHFREE_PRODUCTION_ACTIVATION.md. Keep the keys out of this file: they belong only in /opt/erpx/.env.
+  CASHFREE_ENABLED: ${CASHFREE_ENABLED:-false}
+  CASHFREE_ENV: ${CASHFREE_ENV:-sandbox}
+  CASHFREE_ALLOW_PRODUCTION: ${CASHFREE_ALLOW_PRODUCTION:-false}
+  CASHFREE_APP_ID: ${CASHFREE_APP_ID:-}
+  CASHFREE_SECRET_KEY: ${CASHFREE_SECRET_KEY:-}
+  CASHFREE_API_VERSION: ${CASHFREE_API_VERSION:-2025-01-01}
+  CASHFREE_ORDER_MINUTES: ${CASHFREE_ORDER_MINUTES:-30}
+  CASHFREE_WEBHOOK_MAX_AGE_HOURS: ${CASHFREE_WEBHOOK_MAX_AGE_HOURS:-72}
 
 services:
   minio:
