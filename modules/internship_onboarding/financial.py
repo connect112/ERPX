@@ -12,6 +12,7 @@ Receipts, tax invoices and credit notes for internship onboarding payments.
 import hashlib
 import io
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -128,18 +129,22 @@ def render_pdf(title: str, number: str, d: dict) -> bytes:
     return buffer.getvalue()
 
 
-async def issue(db: AsyncSession, transaction: PaymentTransaction) -> FinancialDocument | None:
-    """The document for a confirmed payment or refund. Idempotent; None for anything else (charges, waivers, claims)."""
+@dataclass
+class Context:
+    """What a document is made from: the confirmed payment and the records around it."""
+
+    application: OnboardingApplication
+    internship: "OurInternship"
+    student: "InstitutionStudent"
+    config: OnboardingConfig
+    organization_name: str
+
+
+async def load_context(db: AsyncSession, transaction: PaymentTransaction) -> Context:
     from modules.institutions.models import InstitutionStudent
     from modules.organizations.models import Organization
     from modules.our_internships.models import InternshipSelection, OurInternship
-    from packages.storage.client import get_storage_client
 
-    if transaction.status != "confirmed" or transaction.kind not in ("payment", "refund"):
-        return None
-    existing = (await db.execute(select(FinancialDocument).where(FinancialDocument.transaction_id == transaction.id))).scalar_one_or_none()
-    if existing is not None:
-        return existing
     application = await db.get(OnboardingApplication, transaction.application_id)
     internship = await db.get(OurInternship, application.internship_id) if application else None
     selection = await db.get(InternshipSelection, application.selection_id) if application else None
@@ -148,22 +153,32 @@ async def issue(db: AsyncSession, transaction: PaymentTransaction) -> FinancialD
         raise NotFoundError("Payment", transaction.id)
     _, config = await config_of(db, internship)
     org = await db.get(Organization, internship.organization_id)
-    kind = kind_for(transaction, config)
-    issued = now()
+    return Context(application, internship, student, config, org.name if org else "")
+
+
+async def _against(db: AsyncSession, transaction: PaymentTransaction) -> str | None:
+    if not transaction.refund_of_id:
+        return None
+    original = (await db.execute(select(FinancialDocument.number).where(FinancialDocument.transaction_id == transaction.refund_of_id))).scalar_one_or_none()
+    return f"Receipt {original}" if original else None
+
+
+def build_details(ctx: Context, transaction: PaymentTransaction, kind: str, issued: datetime, against: str | None, design: dict | None = None) -> dict:
+    """The facts a document states, from the verified payment and the issuer's settings. Nothing is invented: a missing reference or date
+    stays empty. ``design`` is the snapshot of the design it is made with (None: the legacy layout). The same function builds the
+    details of a real document and of a preview, so they can never differ."""
+    config, application = ctx.config, ctx.application
     tz = ZoneInfo(config.deadlines.timezone)
-    year = issued.astimezone(tz).year
-    prefix = f"{config.issuer.receipt_prefix}-CN" if kind == "credit_note" else config.issuer.receipt_prefix
-    number = f"{prefix}-{year}-{await next_number(db, internship.organization_id, 'credit_note' if kind == 'credit_note' else 'receipt', year):06d}"
-    against = None
-    if transaction.refund_of_id:
-        original = (await db.execute(select(FinancialDocument.number).where(FinancialDocument.transaction_id == transaction.refund_of_id))).scalar_one_or_none()
-        against = f"Receipt {original}" if original else None
+    shows_mobile = bool(design and design["design"]["sections"]["student_mobile"])
+    student = {"name": ctx.student.name, "email": ctx.student.email}
+    if shows_mobile and ctx.student.phone:
+        student["phone"] = ctx.student.phone
     details = {
         "kind": kind,
-        "issuer": {"name": config.issuer.legal_name or (org.name if org else ""), "address": config.issuer.address, "gstin": config.issuer.gstin},
-        "student": {"name": student.name, "email": student.email},
+        "issuer": {"name": config.issuer.legal_name or ctx.organization_name, "address": config.issuer.address, "gstin": config.issuer.gstin},
+        "student": student,
         "application_reference": application.reference,
-        "internship": internship.title,
+        "internship": ctx.internship.title,
         "description": (application.fee_snapshot or {}).get("description") or config.fees.description,
         "method": METHODS.get(transaction.method or "", transaction.method or "-"),
         "transaction_reference": transaction.reference or transaction.provider_payment_id,
@@ -175,7 +190,52 @@ async def issue(db: AsyncSession, transaction: PaymentTransaction) -> FinancialD
         "against": against,
         "footer": config.issuer.footer,
     }
-    pdf = render_pdf(TITLES[kind], number, details)
+    if design is not None:
+        details["design"] = design
+    return details
+
+
+async def issue(db: AsyncSession, transaction: PaymentTransaction) -> FinancialDocument | None:
+    """The document for a confirmed payment or refund. Idempotent; None for anything else (charges, waivers, claims). It is made with the
+    design that applies right now and records that design in the document, so it can be looked at exactly as issued for ever."""
+    from packages.storage.client import get_storage_client
+
+    from modules.internship_onboarding.receipt_pdf import build_receipt_pdf
+    from modules.internship_onboarding.receipt_service import ReceiptDesignService
+
+    if transaction.status != "confirmed" or transaction.kind not in ("payment", "refund"):
+        return None
+    existing = (await db.execute(select(FinancialDocument).where(FinancialDocument.transaction_id == transaction.id))).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    ctx = await load_context(db, transaction)
+    application, internship, config = ctx.application, ctx.internship, ctx.config
+    kind = kind_for(transaction, config)
+    issued = now()
+    tz = ZoneInfo(config.deadlines.timezone)
+    year = issued.astimezone(tz).year
+    prefix = f"{config.issuer.receipt_prefix}-CN" if kind == "credit_note" else config.issuer.receipt_prefix
+    number = f"{prefix}-{year}-{await next_number(db, internship.organization_id, 'credit_note' if kind == 'credit_note' else 'receipt', year):06d}"
+    against = await _against(db, transaction)
+
+    pdf: bytes | None = None
+    details: dict = {}
+    try:
+        designs = ReceiptDesignService(db)
+        async with db.begin_nested():
+            resolved = await designs.resolve(internship.organization_id, internship.id)
+            snapshot = await designs.snapshot(internship.organization_id, resolved)
+            images = await designs.images_for(internship.organization_id, resolved.design)
+        details = build_details(ctx, transaction, kind, issued, against, design=snapshot)
+        pdf, pages = build_receipt_pdf(kind, number, details, resolved.design, images)
+        details["render"] = {"engine": "receipt_pdf", "pages": pages}
+    except Exception:  # noqa: BLE001 - a design or rendering problem must never stop a confirmed payment from getting its document
+        logger.warning("receipt_design_render_failed_using_legacy_layout", transaction_id=str(transaction.id), exc_info=True)
+        pdf = None
+    if pdf is None:
+        details = build_details(ctx, transaction, kind, issued, against)
+        details["render"] = {"engine": "legacy", "pages": 1}
+        pdf = render_pdf(TITLES[kind], number, details)
     key = f"onboarding/{application.organization_id}/{application.id}/financial/{number}-{uuid.uuid4().hex[:8]}.pdf"
     await get_storage_client().upload_bytes(key, pdf, "application/pdf")
     document = FinancialDocument(
@@ -189,7 +249,9 @@ async def issue(db: AsyncSession, transaction: PaymentTransaction) -> FinancialD
             await db.flush()
     except IntegrityError:  # issued by a concurrent call a moment ago
         return (await db.execute(select(FinancialDocument).where(FinancialDocument.transaction_id == transaction.id))).scalar_one()
-    await event(db, application, "document_issued", actor="system", number=number, kind=kind, amount=details["amount"])
+    used = details.get("design") or {}
+    await event(db, application, "document_issued", actor="system", number=number, kind=kind, amount=details["amount"],
+                design=used.get("source"), design_version=used.get("version"), pages=details["render"]["pages"])  # fmt: skip
     if document.email_status == "pending":
         enqueue_email(document.id)
     return document

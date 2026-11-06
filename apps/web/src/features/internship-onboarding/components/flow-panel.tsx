@@ -4,7 +4,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { PaymentAccountsManager } from "@/features/internship-onboarding/components/payment-accounts-manager";
+import { GeneratedReceipts } from "@/features/internship-onboarding/components/generated-receipts";
 import { PaymentsQueue } from "@/features/internship-onboarding/components/payments-queue";
+import { ReceiptDesignerPanel } from "@/features/internship-onboarding/components/receipt-designer";
 import { SettingsEditor } from "@/features/internship-onboarding/components/settings-editor";
 import { StudentsBoard } from "@/features/internship-onboarding/components/students-board";
 import { TemplatesManager } from "@/features/internship-onboarding/components/templates-manager";
@@ -36,6 +38,7 @@ export function OnboardingOperationsPanel({ internshipId, isAdmin }: { internshi
             <TabsList className="h-auto flex-wrap justify-start">
               <TabsTrigger value="students">Students</TabsTrigger>
               {sections.includes("payments") && <TabsTrigger value="payments">Payment checks</TabsTrigger>}
+              {sections.includes("receipts") && <TabsTrigger value="receipts">Generated receipts</TabsTrigger>}
             </TabsList>
             <TabsContent value="students">
               <StudentsBoard internshipId={internshipId} timezone={config.data.settings.deadlines.timezone} canManage={selfServiceActions(access, mode)} />
@@ -43,6 +46,11 @@ export function OnboardingOperationsPanel({ internshipId, isAdmin }: { internshi
             {sections.includes("payments") && (
               <TabsContent value="payments">
                 <PaymentsQueue internshipId={internshipId} />
+              </TabsContent>
+            )}
+            {sections.includes("receipts") && (
+              <TabsContent value="receipts">
+                <GeneratedReceipts internshipId={internshipId} timezone={config.data.settings.deadlines.timezone} />
               </TabsContent>
             )}
           </Tabs>
@@ -65,6 +73,7 @@ export function OnboardingSettingsPanel({ internshipId, isAdmin, lmsCourse }: { 
         {sections.includes("general") && <TabsTrigger value="general">Settings</TabsTrigger>}
         {sections.includes("lms-course") && <TabsTrigger value="lms-course">LMS course</TabsTrigger>}
         {sections.includes("accounts") && <TabsTrigger value="accounts">Payment accounts</TabsTrigger>}
+        {sections.includes("receipt-designer") && <TabsTrigger value="receipt-designer">Receipt Designer</TabsTrigger>}
         {sections.includes("templates") && <TabsTrigger value="templates">Templates</TabsTrigger>}
       </TabsList>
       {sections.includes("general") && (
@@ -76,6 +85,11 @@ export function OnboardingSettingsPanel({ internshipId, isAdmin, lmsCourse }: { 
       {sections.includes("accounts") && (
         <TabsContent value="accounts">
           <PaymentAccountsManager />
+        </TabsContent>
+      )}
+      {sections.includes("receipt-designer") && (
+        <TabsContent value="receipt-designer">
+          <ReceiptDesignerPanel internshipId={internshipId} />
         </TabsContent>
       )}
       {sections.includes("templates") && (

@@ -35,6 +35,9 @@ class FakeStorage:
     async def delete_object(self, key):
         self.objects.pop(key, None)
 
+    async def read_bytes(self, key, max_bytes=20 * 1024 * 1024):
+        return self.objects[key]
+
     def presigned_download_url(self, key, expires=None, download_name=None):
         return f"https://files.example.test/{key}?sig=1&exp={int(expires.total_seconds()) if expires else 0}"
 

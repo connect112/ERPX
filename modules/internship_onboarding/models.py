@@ -11,9 +11,9 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, deferred, mapped_column
 
 from app.db.base_model import TimestampedBase
 from modules.our_internships import models as _internship_models  # noqa: F401  (foreign keys point at its tables)
@@ -338,3 +338,67 @@ class FinancialDocument(TimestampedBase):
     email_status: Mapped[str] = mapped_column(String(10), default="pending", server_default="pending", nullable=False)
     email_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ------------------------------------------------------------------ receipt designer (migration 0103)
+
+
+class ReceiptDesignRecord(TimestampedBase):
+    """The look of receipts: an organization's default (``scope='organization'``), one internship's own design (``'internship'``) or a
+    reusable named template (``'template'``). Presentation only: the issuer's legal details stay in the internship's settings."""
+
+    __tablename__ = "internship_receipt_designs"
+    __table_args__ = (
+        Index("uq_receipt_design_org", "organization_id", unique=True, postgresql_where=text("scope = 'organization'")),
+        Index("uq_receipt_design_internship", "internship_id", unique=True, postgresql_where=text("scope = 'internship'")),
+        Index("uq_receipt_design_template", "organization_id", "name", unique=True, postgresql_where=text("scope = 'template'")),
+        CheckConstraint(
+            "(scope = 'internship' AND internship_id IS NOT NULL) OR (scope IN ('organization', 'template') AND internship_id IS NULL)",
+            name="ck_receipt_design_scope",
+        ),
+    )
+
+    organization_id: Mapped[uuid.UUID] = _org()
+    scope: Mapped[str] = mapped_column(String(12), nullable=False)  # organization | internship | template
+    internship_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("our_internships.id", ondelete="CASCADE"), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    design: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class ReceiptDesignVersion(TimestampedBase):
+    """Every saved version of a design, kept for good (a document records which version it was made with)."""
+
+    __tablename__ = "internship_receipt_design_versions"
+    __table_args__ = (UniqueConstraint("design_id", "version", name="uq_receipt_design_version"),)
+
+    organization_id: Mapped[uuid.UUID] = _org()
+    design_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("internship_receipt_designs.id", ondelete="CASCADE"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    design: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class ReceiptAsset(TimestampedBase):
+    """An uploaded logo, signature or stamp. Immutable: a replacement is a new row, so a document made with the old image can always
+    be traced to it. Kept in the database (private; there is no public URL) and normalized to a PNG without metadata on upload."""
+
+    __tablename__ = "internship_receipt_assets"
+    __audit_exclude_fields__ = {"data"}
+    __table_args__ = (Index("ix_receipt_assets_org_kind", "organization_id", "kind"),)
+
+    organization_id: Mapped[uuid.UUID] = _org()
+    kind: Mapped[str] = mapped_column(String(12), nullable=False)  # logo | signature | stamp
+    filename: Mapped[str] = mapped_column(String(160), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    width_px: Mapped[int] = mapped_column(Integer, nullable=False)
+    height_px: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    data: Mapped[bytes] = deferred(mapped_column(LargeBinary, nullable=False))
+    uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
