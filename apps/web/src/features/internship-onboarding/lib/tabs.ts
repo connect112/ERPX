@@ -27,6 +27,7 @@ export const OPERATION_CONTROLS = [
   "student-detail",
   "document-review",
   "payment-checks",
+  "generated-receipts",
   "refund-requests",
   "manual-status-table",
   "lms-access-grant",
@@ -40,6 +41,7 @@ export const SETTINGS_CONTROLS = [
   "payment-timing",
   "payment-methods",
   "payment-accounts",
+  "receipt-designer",
   "refund-policy",
   "form-fields",
   "document-requirements",
@@ -50,8 +52,8 @@ export const SETTINGS_CONTROLS = [
   "templates",
 ] as const;
 
-export type OperationSection = "students" | "payments" | "manual";
-export type SettingsSection = "general" | "lms-course" | "accounts" | "templates";
+export type OperationSection = "students" | "payments" | "receipts" | "manual";
+export type SettingsSection = "general" | "lms-course" | "accounts" | "receipt-designer" | "templates";
 
 /** The Onboarding tab is there for everyone who can open the internship; the settings tab only for those who can change something in it. */
 export function topTabs(access: OnboardingAccess): string[] {
@@ -59,13 +61,13 @@ export function topTabs(access: OnboardingAccess): string[] {
 }
 
 export function operationSections(access: OnboardingAccess): OperationSection[] {
-  return access.canViewFinance ? ["students", "payments", "manual"] : ["students", "manual"];
+  return access.canViewFinance ? ["students", "payments", "receipts", "manual"] : ["students", "manual"];
 }
 
 export function settingsSections(access: OnboardingAccess): SettingsSection[] {
   const out: SettingsSection[] = [];
   if (access.isAdmin) out.push("general", "lms-course");
-  if (access.canEditFinance) out.push("accounts");
+  if (access.canEditFinance) out.push("accounts", "receipt-designer");
   if (access.isAdmin) out.push("templates");
   return out;
 }
