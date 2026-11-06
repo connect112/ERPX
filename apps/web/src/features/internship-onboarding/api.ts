@@ -38,6 +38,8 @@ export interface OnboardingSettings {
     allow_late_onboarding: boolean;
     reminders: boolean;
     invoice_emails: boolean;
+    /** Students may decline the offer from their page (off unless switched on). */
+    allow_decline: boolean;
   };
   fees: {
     currency: "INR";
@@ -71,6 +73,7 @@ export interface OnboardingSettings {
   communication: {
     contact_email: string | null;
     contact_phone: string | null;
+    /** Optional: empty means no group, and the student page shows nothing about one. */
     whatsapp_link: string | null;
     whatsapp_visibility: "after_completion" | "after_acceptance";
     reminder_days: number[];
@@ -152,13 +155,16 @@ export interface StudentDetail {
   started_at: string | null;
   current_step: string;
   info_original: Record<string, unknown>;
-  info_proposed: { name?: string; phone?: string; details?: Record<string, string> };
+  info_proposed: { name?: string; phone?: string; phone_change?: boolean; details?: Record<string, string> };
   info_review_status: string;
   form_responses: Record<string, unknown>;
   acceptance: { accepted_at: string | null; declined_at: string | null; decline_reason: string | null; terms_version: string | null; fee_snapshot: Record<string, string> | null; refund_terms: RefundTerms | null };
   refund_request: RefundRequestRecord | null;
   reopened: { at: string | null; reason: string | null; until: string | null };
-  documents: { id: string; key: string; version: number; status: string; filename: string; size_bytes: number; uploaded_at: string; review_note: string | null; sensitive: boolean; scan_status: "not_scanned" | "clean"; keep_until: string | null; removed_at: string | null }[];
+  /** The mobile number the student confirmed for payments, and until when their link works (null: not complete yet). */
+  payment_phone: string | null;
+  link_expires_at: string | null;
+  documents: { id: string; key: string; version: number; status: string; filename: string; content_type: string; viewable: boolean; size_bytes: number; uploaded_at: string; review_note: string | null; sensitive: boolean; scan_status: "not_scanned" | "clean"; keep_until: string | null; removed_at: string | null }[];
   payments: LedgerRow[] | null;
   events: { at: string; actor: string; event: string; detail: Record<string, unknown> }[];
 }
@@ -210,8 +216,12 @@ export const onboardingFlowApi = {
     apiClient.post<{ reopened: number; skipped: { name: string; reason: string }[] }>(`${flow(id)}/reopen`, body).then((r) => r.data),
   reviewInfo: (id: string, studentId: string, approve: boolean) =>
     apiClient.post(`${flow(id)}/students/${studentId}/info-review`, { approve }).then((r) => r.data),
+  /** A short-lived signed link that DOWNLOADS the file (the viewer's Download button). */
   previewDocument: (id: string, documentId: string) =>
     apiClient.get<{ url: string }>(`${flow(id)}/documents/${documentId}/preview`).then((r) => r.data.url),
+  /** The file's bytes, fetched with the reviewer's own login (never a public URL), for the in-page viewer. */
+  documentFile: (id: string, documentId: string) =>
+    apiClient.get<Blob>(`${flow(id)}/documents/${documentId}/file`, { responseType: "blob" }).then((r) => r.data),
   declineRefundRequest: (id: string, studentId: string, note: string) =>
     apiClient.post(`${flow(id)}/students/${studentId}/refund-request/decline`, { note }).then((r) => r.data),
   removeIdentityFile: (id: string, documentId: string) => apiClient.post(`${flow(id)}/documents/${documentId}/remove-file`).then((r) => r.data),
@@ -256,6 +266,8 @@ export interface PortalView {
     review: string;
     editable: boolean;
   };
+  /** The number used for payments: the one the student confirmed, else the one on their record. */
+  mobile: { number: string | null; confirmed: boolean; valid: boolean; record_review_pending: boolean; editable: boolean };
   form: { fields: FormFieldDef[]; answers: Record<string, unknown> };
   documents: (DocumentDef & { status: string; filename: string | null; note: string | null; accepting: boolean })[];
   identity_document_retention_days: number | null;
@@ -267,7 +279,9 @@ export interface PortalView {
     refund_policy_version: string | null;
     payment_terms_notice: string | null;
     refund_terms: RefundTerms | null;
-    fees: Record<string, string> | null; accepted_at: string | null; declined_at: string | null };
+    fees: Record<string, string> | null; accepted_at: string | null; declined_at: string | null;
+    /** Whether this internship lets students decline; the page shows no decline option otherwise. */
+    decline_allowed: boolean };
   payment: {
     required: boolean;
     open: boolean;
@@ -281,7 +295,7 @@ export interface PortalView {
     deadline: string | null;
   };
   refund: { requests_offered: boolean; can_request: boolean; until: string | null; request: RefundRequestRecord | null };
-  completion: { completed: boolean; next_steps: string; whatsapp_link: string | null; lms_status: string };
+  completion: { completed: boolean; next_steps: string; whatsapp_link: string | null; lms_status: string; link_expires_at: string | null };
   contact: { email: string | null; phone: string | null };
   financial_documents: FinancialDoc[];
 }
@@ -330,6 +344,8 @@ const h = (token: string) => ({ headers: { "X-Onboarding-Token": token } });
 
 export const portalApi = {
   view: (t: string) => apiClient.get<PortalView>(P, h(t)).then((r) => r.data),
+  /** Save the confirmed mobile number. `confirmed` is true only after the student pressed Confirm & Save. */
+  mobile: (t: string, phone: string, confirmed: boolean) => apiClient.put<PortalView>(`${P}/mobile`, { phone, confirmed }, h(t)).then((r) => r.data),
   save: (t: string, body: { step?: string; info?: Record<string, unknown>; answers?: Record<string, unknown> }) =>
     apiClient.put<{ errors: Record<string, string> }>(`${P}/draft`, body, h(t)).then((r) => r.data),
   upload: (t: string, key: string, file: File, onProgress?: (pct: number) => void) => {

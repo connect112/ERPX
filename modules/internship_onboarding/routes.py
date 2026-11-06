@@ -15,7 +15,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
@@ -40,6 +40,7 @@ from modules.internship_onboarding.schemas import (
     DeclineRequest,
     DraftRequest,
     LinkOut,
+    MobileRequest,
     CancelRequest,
     RecordPaymentRequest,
     RefundDecisionRequest,
@@ -251,6 +252,30 @@ async def preview_document(
 ):
     url = await ApplicationService(db).preview_url(await _internship(db, internship_id, organization_id), document_id, user)
     return {"url": url}
+
+
+@router.get("/{internship_id}/onboarding-flow/documents/{document_id}/file")
+async def view_document(
+    internship_id: uuid.UUID,
+    document_id: uuid.UUID,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The document itself, for the in-page viewer: the reviewer's own authenticated request returns the bytes (there is no public or
+    shareable URL), shown inline, never cached. The browser turns them into a temporary object URL that the viewer revokes on close."""
+    data, document = await ApplicationService(db).read_file(await _internship(db, internship_id, organization_id), document_id, user)
+    # the real filename can identify a person (and an identity document's name is restricted), so it is not echoed here
+    extension = {"application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png"}[document.content_type]
+    return Response(
+        content=data, media_type=document.content_type,
+        headers={
+            "Content-Disposition": f'inline; filename="document.{extension}"',
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.post("/{internship_id}/onboarding-flow/documents/{document_id}/remove-file")
@@ -667,6 +692,19 @@ async def portal_save(
 ):
     service = PortalService(db)
     return await service.save(await _context(db, x_onboarding_token), payload.step, payload.info, payload.answers)
+
+
+@public_router.put("/internship-onboarding/mobile")
+@limiter.limit("20/minute")
+async def portal_mobile(
+    request: Request, payload: MobileRequest, x_onboarding_token: str | None = Header(default=None), db: AsyncSession = Depends(get_db),
+):
+    """Save the mobile number the student confirmed (used for payments). Works for as long as the link does, also after the details
+    were submitted and after the deadline; it never changes an order, receipt or ledger entry that already exists."""
+    service = PortalService(db)
+    ctx = await _context(db, x_onboarding_token)
+    await service.set_mobile(ctx, payload.phone, payload.confirmed)
+    return await service.view(ctx)
 
 
 @public_router.post("/internship-onboarding/documents/{key}", status_code=status.HTTP_201_CREATED)

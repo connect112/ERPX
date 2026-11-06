@@ -102,7 +102,8 @@ class OnboardingApplication(TimestampedBase):
     )
     # The link token only ever exists as a hash here, and even that stays out of the audit trail; the acceptance's
     # network details are kept on the row (limited) but not copied into the audit table.
-    __audit_exclude_fields__ = {"token_hash", "pending_token_hash", "acceptance_meta", "last_activity_at", "updated_at"}
+    # (the student's confirmed mobile number is personal data: it stays out of the audit trail, which keeps the last four digits in the timeline)
+    __audit_exclude_fields__ = {"token_hash", "pending_token_hash", "acceptance_meta", "last_activity_at", "updated_at", "confirmed_phone"}
 
     organization_id: Mapped[uuid.UUID] = _org()
     internship_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("our_internships.id", ondelete="CASCADE"), nullable=False)
@@ -119,6 +120,13 @@ class OnboardingApplication(TimestampedBase):
     pending_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pending_token_issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pending_token_ref: Mapped[str | None] = mapped_column(String(80), nullable=True)  # not secret: which delivery it belongs to
+    # When the personal link stops working for the student: one hour after onboarding was completed (see ``link_window``). Empty
+    # while onboarding is not complete, so nothing expires while the student still has something to do.
+    link_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The mobile number the student confirmed in their portal (ten digits), used for NEW payment orders instead of the number on the
+    # student's record; and when it last CHANGED (a payment order created before that carries the older number).
+    confirmed_phone: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    phone_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # progress
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

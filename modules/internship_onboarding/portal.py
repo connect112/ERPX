@@ -11,17 +11,19 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import ConflictError, NotFoundError, ServiceUnavailableError, ValidationError
+from app.core.exceptions import AuthorizationError, ConflictError, ERPXException, NotFoundError, ServiceUnavailableError, ValidationError
 from modules.institutions.models import Institution, InstitutionStudent
 from modules.internship_onboarding import fees as fee_maths
 from modules.internship_onboarding.scan import scan
 from modules.internship_onboarding.accounts import PaymentAccountService, qr_png_data_url, upi_link
 from modules.internship_onboarding import forms, ledger, state
 from modules.internship_onboarding.config import OnboardingConfig
+from modules.internship_onboarding.phone import INVALID as INVALID_MOBILE
+from modules.internship_onboarding.phone import mask, normalize_mobile
 from modules.internship_onboarding.models import OnboardingApplication, OnboardingDocument, PaymentTransaction
 from modules.internship_onboarding.service import (
     ApplicationService,
@@ -40,6 +42,17 @@ STEPS = ("welcome", "information", "form", "documents", "acceptance", "payment",
 SIGNATURES = {"pdf": (b"%PDF-",), "jpg": (b"\xff\xd8\xff",), "png": (b"\x89PNG\r\n\x1a\n",)}
 CONTENT_TYPES = {"pdf": "application/pdf", "jpg": "image/jpeg", "png": "image/png"}
 GONE = "This onboarding link is not valid. It may have been replaced by a newer one; use the latest email you received."
+LINK_EXPIRED = (
+    "This onboarding link has expired. Your onboarding information has been saved. "
+    "Please contact the internship team if you need assistance."
+)
+
+
+class LinkExpiredError(ERPXException):
+    """The student's personal link was valid but its hour after completion is over (410 Gone)."""
+
+    status_code = 410
+    error_code = "onboarding_link_expired"
 
 
 @dataclass
@@ -116,9 +129,35 @@ class PortalService:
         _, config = await config_of(self.db, internship)
         if not config.modes.self_service:
             raise NotFoundError("Onboarding link", "")
+        # Every student endpoint resolves its link here, so this one check covers them all. It comes before a pending link is
+        # promoted: an expired link is never made the active one.
+        if await self._link_expired(application, selection, config):
+            raise LinkExpiredError(LINK_EXPIRED)
         if via_pending:
             await self.apps.promote_pending(application.id, digest, reason="first_use")
         return Context(application, selection, student, internship, config, effective_deadline(application, config))
+
+    async def _link_expired(self, application: OnboardingApplication, selection: InternshipSelection, config: OnboardingConfig) -> bool:
+        """Is the hour after completion over? The window is recorded on the server when onboarding is completed
+        (``link_expires_at``, set once, in the same statement as ``completed_at``), so a retry, a second tab or a second request
+        cannot move it. It ends the link only while the student still has nothing left to do: if a late fee, a refund or a document
+        sent back has made something outstanding again, the link keeps working, the window is cleared, and a fresh hour starts when
+        everything is met again (``completion.check``)."""
+        expires = application.link_expires_at
+        if expires is None or now() < expires:
+            return False
+        if state.overall_status(await self.apps.facts(config, selection, application)) == "completed":
+            return True
+        cleared = await self.db.execute(
+            update(OnboardingApplication)
+            .where(OnboardingApplication.id == application.id, OnboardingApplication.link_expires_at == expires)
+            .values(link_expires_at=None)
+            .execution_options(synchronize_session=False)
+        )  # fmt: skip  (compare-and-swap: a completion recorded meanwhile keeps its new window)
+        if cleared.rowcount == 1:
+            await self.db.refresh(application)
+            await event(self.db, application, "link_window_paused", actor="system", reason="something is outstanding again")
+        return False
 
     def _touch(self, ctx: Context, step: str | None = None) -> None:
         ctx.application.last_activity_at = now()
@@ -141,6 +180,21 @@ class PortalService:
             "phone": ctx.student.phone,
             "institution": institution.name if institution else None,
             "details": dict(ctx.student.details or {}),
+        }
+
+    def _mobile(self, ctx: Context) -> dict:
+        """The student's payment mobile number as the page shows it: the number they confirmed, or the one on their record, and
+        whether it is waiting for staff to update the record."""
+        app = ctx.application
+        usable = normalize_mobile(app.confirmed_phone) or normalize_mobile(ctx.student.phone)
+        proposed = app.info_proposed or {}
+        pending = app.info_review_status == "pending" and ("phone_change" in proposed or "phone" in proposed)
+        return {
+            "number": usable or ctx.student.phone,
+            "confirmed": app.confirmed_phone is not None,
+            "valid": usable is not None,  # a number Cashfree will accept
+            "record_review_pending": pending,
+            "editable": app.cancelled_at is None and ctx.selection.offer_response != OfferResponse.DECLINED,
         }
 
     # ---------------------------------------------------------------- payment methods and refund terms
@@ -241,6 +295,7 @@ class PortalService:
                 "current": await self._info(ctx), "proposed": app.info_proposed, "review": app.info_review_status,
                 "editable": cfg.modes.allow_info_edit,
             },
+            "mobile": self._mobile(ctx),
             "form": {
                 "fields": [fld.model_dump(mode="json") for fld in cfg.form],
                 "answers": app.form_responses,
@@ -265,6 +320,7 @@ class PortalService:
                 "refund_terms": app.refund_terms,
                 "fees": app.fee_snapshot or (fee_maths.snapshot(cfg.fees) if cfg.modes.require_payment else None),
                 "accepted_at": app.accepted_at, "declined_at": app.declined_at,
+                "decline_allowed": cfg.modes.allow_decline,
             },
             "payment": {
                 "required": cfg.modes.require_payment,
@@ -286,6 +342,8 @@ class PortalService:
                 "next_steps": cfg.communication.next_steps if completed else "",
                 "whatsapp_link": comms.whatsapp_link if show_whatsapp else None,
                 "lms_status": ctx.selection.lms_status.value,
+                # when this link stops working (one hour after completion); the server enforces it, the page only tells the student
+                "link_expires_at": app.link_expires_at if completed else None,
             },
             "contact": {"email": comms.contact_email, "phone": comms.contact_phone},
             "financial_documents": [
@@ -334,10 +392,7 @@ class PortalService:
         name = " ".join(str(info.get("name") or "").split())[:255]
         if name and name != current["name"]:
             out["name"] = name
-        if "phone" in info:
-            phone = " ".join(str(info.get("phone") or "").split())[:50]
-            if phone != (current["phone"] or "") and (not phone or forms._PHONE.match(phone)):
-                out["phone"] = phone
+        # (the mobile number is not corrected here: it has its own confirmed step, ``set_mobile``)
         details = {k: " ".join(str(v).split())[:255] for k, v in (info.get("details") or {}).items() if isinstance(k, str) and k in current["details"]}
         changed = {k: v for k, v in details.items() if v != current["details"].get(k)}
         if changed:
@@ -448,7 +503,50 @@ class PortalService:
 
         await check_and_queue(self.db, app)
 
+    # ---------------------------------------------------------------- the mobile number
+
+    async def set_mobile(self, ctx: Context, phone: str, confirmed: bool) -> None:
+        """Save the mobile number the student confirmed. It is used for NEW payment orders; orders already created, receipts and
+        ledger entries keep what they have. The record on the student's file changes only when staff approve (the usual review)."""
+        app = ctx.application
+        if not confirmed:
+            raise ValidationError("Confirm your mobile number to save it.")
+        if app.cancelled_at is not None or ctx.selection.offer_response == OfferResponse.DECLINED:
+            raise ConflictError("Onboarding is closed for you. Contact the internship team to update your mobile number.")
+        number = normalize_mobile(phone)
+        if number is None:
+            raise ValidationError(INVALID_MOBILE)
+        await self.db.execute(select(OnboardingApplication.id).where(OnboardingApplication.id == app.id).with_for_update())
+        await self.db.refresh(app)
+        record_number = normalize_mobile(ctx.student.phone)
+        before = normalize_mobile(app.confirmed_phone) or record_number
+        changed = number != before
+        app.confirmed_phone = number
+        if changed:
+            app.phone_changed_at = now()
+        # Staff decide whether the student's record changes. The review request is only a marker: the number itself lives in
+        # ``confirmed_phone``, which is kept out of the audit trail (``info_proposed`` is audited).
+        proposed = dict(app.info_proposed or {})
+        proposed.pop("phone", None)
+        if number != record_number:
+            proposed["phone_change"] = True
+        else:
+            proposed.pop("phone_change", None)
+        if proposed != (app.info_proposed or {}):
+            app.info_proposed = proposed
+            if proposed:
+                app.info_review_status = "pending"
+            elif app.info_review_status == "pending":
+                app.info_review_status = "none"  # nothing is left to review
+        self._touch(ctx)
+        await self.db.flush()
+        # only the last four digits ever reach the timeline
+        await event(self.db, app, "mobile_confirmed", actor="student", last4=mask(number)[-4:], changed=changed)
+
     async def decline(self, ctx: Context, reason: str | None) -> None:
+        if not ctx.config.modes.allow_decline:
+            # enforced here, not only in the page: a direct request cannot decline an offer the settings do not allow declining
+            raise AuthorizationError("Declining the offer is not available on this page. Please contact the internship team.")
         self._require_open(ctx)
         if ctx.selection.offer_response == OfferResponse.ACCEPTED:
             raise ConflictError("You have already accepted this offer. Contact the internship team to withdraw.")
