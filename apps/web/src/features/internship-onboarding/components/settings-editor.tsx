@@ -18,6 +18,7 @@ import {
   paymentAccountsApi,
 } from "@/features/internship-onboarding/api";
 import { fromLocalInput, money, slugKey, toLocalInput } from "@/features/internship-onboarding/lib/format";
+import { isIdentityDocument, sensitiveHelp } from "@/features/internship-onboarding/lib/sensitive";
 
 const selectClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";
 const FIELD_TYPES: [FieldType, string][] = [
@@ -37,10 +38,10 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
-function Check({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+function Check({ label, checked, onChange, disabled, describedBy }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; describedBy?: string }) {
   return (
     <label className="flex items-center gap-2 text-sm">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} aria-describedby={describedBy} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
   );
@@ -137,7 +138,11 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
           <Check label="Allow individual late onboarding" checked={s.modes.allow_late_onboarding} onChange={(v) => set("modes", { allow_late_onboarding: v })} />
           <Check label="Send reminders" checked={s.modes.reminders} onChange={(v) => set("modes", { reminders: v })} />
           <Check label="Email invoices" checked={s.modes.invoice_emails} onChange={(v) => set("modes", { invoice_emails: v })} />
+          <Check label="Allow students to decline the offer" checked={s.modes.allow_decline ?? false} onChange={(v) => set("modes", { allow_decline: v })} describedBy="decline-help" />
         </div>
+        <p id="decline-help" className="text-xs text-muted-foreground">
+          Off by default. When off, students see no decline option and the server refuses a decline request; staff can still cancel an onboarding.
+        </p>
         <div className="grid gap-2 sm:grid-cols-2">
           <select aria-label="When payment opens" className={selectClass} value={s.modes.payment_order} onChange={(e) => set("modes", { payment_order: e.target.value as OnboardingSettings["modes"]["payment_order"] })}>
             <option value="after_submission">Pay after submitting documents</option>
@@ -275,6 +280,11 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
       <Section title="Documents" hint={view.virus_scanning_available
         ? "Aadhaar is not requested by default. Mark identity documents as sensitive: only reviewers can open them, and set their retention under Policies."
         : "Identity documents (sensitive, e.g. Aadhaar) cannot be collected here until virus scanning is set up for this installation."}>
+        {!view.virus_scanning_available && (
+          <p className="rounded-md border border-amber-300 p-2 text-xs text-amber-800 dark:text-amber-300" role="note">
+            {sensitiveHelp.unavailable}
+          </p>
+        )}
         {s.documents.map((d, i) => (
           <div key={i} className="grid gap-2 rounded-md border p-2 sm:grid-cols-[1fr_auto]">
             <div className="space-y-2">
@@ -282,7 +292,13 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
               <Input aria-label="Instructions" placeholder="Instructions for the student" value={d.instructions ?? ""} onChange={(e) => setDoc(i, { instructions: e.target.value })} />
               <div className="flex flex-wrap gap-3">
                 <Check label="Required" checked={d.required ?? true} onChange={(v) => setDoc(i, { required: v })} />
-                <Check label="Sensitive" disabled={!view.virus_scanning_available && !d.sensitive} checked={d.sensitive ?? false} onChange={(v) => setDoc(i, { sensitive: v })} />
+                <Check
+                  label="Sensitive"
+                  disabled={!view.virus_scanning_available && !d.sensitive}
+                  checked={d.sensitive ?? false}
+                  describedBy={`sensitive-help-${i}`}
+                  onChange={(v) => setDoc(i, { sensitive: v })}
+                />
                 {(["pdf", "jpg", "png"] as const).map((t) => (
                   <Check key={t} label={t.toUpperCase()} checked={(d.types ?? ["pdf", "jpg", "png"]).includes(t)}
                     onChange={(v) => setDoc(i, { types: v ? [...new Set([...(d.types ?? []), t])] : (d.types ?? ["pdf", "jpg", "png"]).filter((x) => x !== t) })} />
@@ -292,6 +308,17 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
                   <Input className="w-16" type="number" min={1} max={15} value={d.max_mb ?? 5} onChange={(e) => setDoc(i, { max_mb: Number(e.target.value) || 5 })} />
                 </label>
               </div>
+              <p id={`sensitive-help-${i}`} className="text-xs text-muted-foreground">
+                {!view.virus_scanning_available && !d.sensitive
+                  ? sensitiveHelp.disabledHere
+                  : d.sensitive && s.policies.identity_document_retention_days == null
+                    ? sensitiveHelp.needsRetention
+                    : !d.sensitive && isIdentityDocument(d)
+                      ? sensitiveHelp.aadhaar
+                      : d.sensitive
+                        ? sensitiveHelp.on
+                        : sensitiveHelp.off}
+              </p>
             </div>
             <div className="flex gap-1 sm:flex-col">
               <Button size="sm" variant="ghost" aria-label="Move up" onClick={() => setS({ ...s, documents: move(s.documents, i, -1) })}><ArrowUp className="h-4 w-4" /></Button>
@@ -389,14 +416,15 @@ export function SettingsEditor({ internshipId, view }: { internshipId: string; v
         <div className="grid gap-2 sm:grid-cols-2">
           <Input aria-label="Contact email" placeholder="Contact email" value={s.communication.contact_email ?? ""} onChange={(e) => set("communication", { contact_email: e.target.value || null })} />
           <Input aria-label="Contact phone" placeholder="Contact phone" value={s.communication.contact_phone ?? ""} onChange={(e) => set("communication", { contact_phone: e.target.value || null })} />
-          <Input aria-label="WhatsApp group link" placeholder="https://chat.whatsapp.com/…" value={s.communication.whatsapp_link ?? ""} onChange={(e) => set("communication", { whatsapp_link: e.target.value || null })} />
-          <select aria-label="When to show the WhatsApp link" className={selectClass} value={s.communication.whatsapp_visibility} onChange={(e) => set("communication", { whatsapp_visibility: e.target.value as "after_completion" | "after_acceptance" })}>
+          <Input aria-label="WhatsApp group link (optional)" placeholder="WhatsApp group link (optional): https://chat.whatsapp.com/…" value={s.communication.whatsapp_link ?? ""} onChange={(e) => set("communication", { whatsapp_link: e.target.value.trim() || null })} />
+          <select aria-label="When to show the WhatsApp link" className={selectClass} disabled={!s.communication.whatsapp_link} value={s.communication.whatsapp_visibility} onChange={(e) => set("communication", { whatsapp_visibility: e.target.value as "after_completion" | "after_acceptance" })}>
             <option value="after_completion">Show the group link after onboarding is complete</option>
             <option value="after_acceptance">Show it once the offer is accepted</option>
           </select>
           <Input aria-label="Reminder days" placeholder="Reminder days before closing, e.g. 7, 3, 1" value={s.communication.reminder_days.join(", ")}
             onChange={(e) => set("communication", { reminder_days: e.target.value.split(",").map((d) => Number(d.trim())).filter((d) => d > 0) })} />
         </div>
+        <p className="text-xs text-muted-foreground">The WhatsApp group link is optional. Leave it empty and students see no group button or message.</p>
         <Textarea aria-label="Next steps" rows={3} placeholder="Next steps shown when onboarding is complete" value={s.communication.next_steps} onChange={(e) => set("communication", { next_steps: e.target.value })} />
       </Section>
 

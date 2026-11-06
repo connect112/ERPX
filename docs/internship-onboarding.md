@@ -108,3 +108,23 @@ an internship uses self-service onboarding. Readiness matrix: `docs/INTERN_ONBOA
 | H | Release and rollback scripts, browser E2E | done locally; sandbox E2E pending |
 
 Each PR states what was verified and what was not.
+
+## 6. Update: seven onboarding improvements (migration 0102)
+
+| # | Change | Where it is enforced |
+|---|---|---|
+| 1 | The WhatsApp group link is optional. Empty or blank is stored as `null`; the student page shows no button, placeholder or section when there is none. | `config.py` (`Communication`), `portal.py` (`completion.whatsapp_link`) |
+| 3 | **Sensitive** documents: unchanged rules (virus scanning on, retention period set, reviewer-only access). The settings page now says why the option is unavailable while `CLAMAV_ENABLED` is off, and what is missing when it is on. Nothing was relaxed. | `service.py` (`ConfigService.save`), `settings-editor.tsx` |
+| 4 | Staff view uploaded documents in the page (`GET .../documents/{id}/file`, inline, authenticated, reviewer permission, organization-scoped, never cached). The existing signed link remains the **Download** button. The browser's temporary object URL is revoked when the viewer closes. | `routes.py`, `service.py` (`read_file`), `document-viewer.tsx` |
+| 5 | `modes.allow_decline` ("Allow students to decline the offer"), **off by default**; settings saved earlier read as off. Off: no decline option in the page and `POST /public/internship-onboarding/decline` answers 403. Staff cancellation and recorded declines are untouched. | `portal.py` (`decline`) |
+| 6 | The student confirms a mobile number (`PUT /public/internship-onboarding/mobile`, after a confirmation dialog). New Cashfree orders use it; orders that already exist are never changed (an order created before the number changed is not resumed, a new one is created). The change to the student's record still goes through staff review. Only the last four digits reach the timeline. | `portal.py` (`set_mobile`), `payments.py` (`customer_phone`), `phone.py` |
+| 7 | The personal link stops working one hour after completion is recorded (`link_expires_at`, set in the same statement as `completed_at`). Enforced for every student endpoint in `PortalService.resolve` (HTTP 410, `onboarding_link_expired`). It never expires while something is outstanding; the hour restarts when everything is met again. | `portal.py` (`resolve`, `_link_expired`), `completion.py` (`check`) |
+
+Item 2 (the invoice PDF) is not in this repository; see the pull request.
+
+**Transition for students who are already complete:** migration 0102 gives each of them one last 24 hours from the moment the migration
+runs, so no completed student loses their link the minute the release starts; after that the one-hour rule applies. Students who are not
+complete get no expiry.
+
+**Rollback:** the three columns are nullable and unused by the previous release, so the previous images keep working on a database that
+is already at 0102 (they ignore the columns). Do not downgrade the database for a code rollback.
