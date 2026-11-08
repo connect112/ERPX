@@ -196,8 +196,11 @@ def build_details(ctx: Context, transaction: PaymentTransaction, kind: str, issu
 
 
 async def issue(db: AsyncSession, transaction: PaymentTransaction) -> FinancialDocument | None:
-    """The document for a confirmed payment or refund. Idempotent; None for anything else (charges, waivers, claims). It is made with the
-    design that applies right now and records that design in the document, so it can be looked at exactly as issued for ever."""
+    """The document for a confirmed payment or refund. Idempotent; None for anything else (charges, waivers, claims).
+
+    Until an administrator saves a receipt design (for the organization or for this internship) the document is drawn with the original
+    layout, exactly as before the Receipt Designer existed. Once a design is saved it is drawn with that design, and the design used is
+    recorded in the document so it can be looked at exactly as issued for ever."""
     from packages.storage.client import get_storage_client
 
     from modules.internship_onboarding.receipt_pdf import build_receipt_pdf
@@ -224,11 +227,13 @@ async def issue(db: AsyncSession, transaction: PaymentTransaction) -> FinancialD
         designs = ReceiptDesignService(db)
         async with db.begin_nested():
             resolved = await designs.resolve(internship.organization_id, internship.id)
-            snapshot = await designs.snapshot(internship.organization_id, resolved)
-            images = await designs.images_for(internship.organization_id, resolved.design)
-        details = build_details(ctx, transaction, kind, issued, against, design=snapshot)
-        pdf, pages = build_receipt_pdf(kind, number, details, resolved.design, images)
-        details["render"] = {"engine": "receipt_pdf", "pages": pages}
+            if resolved.source != "default":  # a design was saved: the designer's renderer; otherwise the original layout below
+                snapshot = await designs.snapshot(internship.organization_id, resolved)
+                images = await designs.images_for(internship.organization_id, resolved.design)
+        if resolved.source != "default":
+            details = build_details(ctx, transaction, kind, issued, against, design=snapshot)
+            pdf, pages = build_receipt_pdf(kind, number, details, resolved.design, images)
+            details["render"] = {"engine": "receipt_pdf", "pages": pages}
     except Exception:  # noqa: BLE001 - a design or rendering problem must never stop a confirmed payment from getting its document
         logger.warning("receipt_design_render_failed_using_legacy_layout", transaction_id=str(transaction.id), exc_info=True)
         pdf = None

@@ -53,7 +53,8 @@ export interface ReceiptTemplate {
 }
 
 export interface DesignerView {
-  effective: { design: ReceiptDesign; source: "internship" | "organization" | "default"; version: number };
+  /** layout "legacy": no design is saved yet, so documents are still issued with the original layout; "designer": a saved design is in force. */
+  effective: { design: ReceiptDesign; source: "internship" | "organization" | "default"; version: number; layout: "legacy" | "designer" };
   internship_design: { design: ReceiptDesign; version: number } | null;
   organization_design: { design: ReceiptDesign; version: number } | null;
   built_in: ReceiptDesign;

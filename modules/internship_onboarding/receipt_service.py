@@ -169,7 +169,9 @@ class ReceiptDesignService:
             )
         ).scalars().all()  # fmt: skip
         return {
-            "effective": {"design": dump(resolved.design), "source": resolved.source, "version": resolved.version},
+            # "legacy": no design has been saved, so documents are still issued with the original layout; "designer": a saved design is in force
+            "effective": {"design": dump(resolved.design), "source": resolved.source, "version": resolved.version,
+                          "layout": "legacy" if resolved.source == "default" else "designer"},  # fmt: skip
             "internship_design": {"design": own.design, "version": own.version} if own else None,
             "organization_design": {"design": default.design, "version": default.version} if default else None,
             "built_in": dump(default_design()),

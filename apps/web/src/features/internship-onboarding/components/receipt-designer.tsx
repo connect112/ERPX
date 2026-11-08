@@ -141,10 +141,17 @@ export function ReceiptDesigner({ internshipId, view }: { internshipId: string; 
     <div className="grid gap-4 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
       <div className="space-y-3 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pr-2">
         <div className="rounded-md bg-muted/40 p-3 text-sm">
-          <p>
-            Documents issued now use <strong>{sourceLabel(view.effective.source)}</strong>
-            {view.effective.version ? ` (version ${view.effective.version})` : ""}. Changing a design affects only documents issued afterwards; issued documents never change.
-          </p>
+          {view.effective.layout === "legacy" ? (
+            <p role="note" data-testid="legacy-notice">
+              <strong>No design has been saved yet.</strong> Receipts, tax invoices and credit notes are still issued with the original layout. The preview shows the
+              Receipt Designer layout; it is used for documents only after you save a design. Documents already issued never change.
+            </p>
+          ) : (
+            <p>
+              Documents issued now use <strong>{sourceLabel(view.effective.source)}</strong>
+              {view.effective.version ? ` (version ${view.effective.version})` : ""}. Changing a design affects only documents issued afterwards; issued documents never change.
+            </p>
+          )}
           {canEdit && (
             <div className="mt-2 space-y-1">
               <Label htmlFor="design-scope">Save this design for</Label>
@@ -257,7 +264,7 @@ export function ReceiptDesigner({ internshipId, view }: { internshipId: string; 
 
         {canEdit && (
           <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t bg-background py-3">
-            <Button type="button" disabled={save.isPending || blocked || !dirty} onClick={() => save.mutate()}>
+            <Button type="button" disabled={save.isPending || blocked || (!dirty && !!saved)} onClick={() => save.mutate()}>
               {save.isPending ? "Saving…" : "Save design"}
             </Button>
             <Button

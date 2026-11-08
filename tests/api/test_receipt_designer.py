@@ -80,6 +80,11 @@ async def design(client, headers, internship, data, scope="internship", expect=2
     return r
 
 
+async def use_designer(client, headers, internship, scope="organization", data=None):
+    """An administrator explicitly saves a design: from then on new documents are drawn with the designer."""
+    await design(client, headers, internship, data or {}, scope=scope)
+
+
 async def upload(client, headers, internship, kind="logo", data=None, name="logo.png", ctype="image/png"):
     return await client.post(f"{rd(internship)}/assets", data={"kind": kind}, files={"file": (name, data if data is not None else png(), ctype)}, headers=headers)
 
@@ -349,6 +354,7 @@ async def test_a_confirmed_payment_gets_one_single_page_receipt_in_the_saved_des
 
 async def test_a_tax_invoice_keeps_the_existing_gst_rules_and_a_credit_note_the_existing_refund_rules(client, auth_headers, db_session, organization, storage):
     internship, (s0, _) = await world(db_session, organization)
+    await use_designer(client, auth_headers, internship)
     token, tx = await paid_by_bank(client, auth_headers, db_session, internship, s0, _amount="5900.00", **TAX)
     invoice = await only_document(db_session)
     assert invoice.kind == "tax_invoice" and invoice.details["tax"] == {"label": "GST", "rate_percent": "18", "taxable": "5000.00", "tax": "900.00"}
@@ -360,7 +366,7 @@ async def test_a_tax_invoice_keeps_the_existing_gst_rules_and_a_credit_note_the_
     assert decided.json()["status"] == "confirmed"
     note = (await db_session.execute(select(FinancialDocument).where(FinancialDocument.kind == "credit_note"))).scalar_one()
     credit = storage.objects[note.storage_key]
-    assert pages_of(credit) == 1 and note.number.startswith("RCPT-CN-") and note.amount == Decimal("2000.00") and note.details["design"]["source"] == "default"
+    assert pages_of(credit) == 1 and note.number.startswith("RCPT-CN-") and note.amount == Decimal("2000.00") and note.details["design"]["source"] == "organization"
     text = pdf_text(credit)
     assert "CREDIT NOTE" in text and "Total refunded" in text and f"Receipt {invoice.number}" in text and "₹ 2,000.00" in text and "REFUNDED" in text
     assert (await db_session.get(PaymentTransaction, tx.id)).amount == Decimal("5900.00")  # the payment itself is never touched
@@ -382,6 +388,7 @@ async def test_the_mobile_number_is_in_the_document_only_when_the_design_shows_i
 
 async def test_a_duplicate_cashfree_notification_never_makes_a_second_document(client, auth_headers, db_session, organization, storage, gateway):
     internship, (s0, _) = await world(db_session, organization)
+    await use_designer(client, auth_headers, internship)
     token = await online(client, auth_headers, internship, s0)
     order_id = (await client.post(f"{PUBLIC}/payments/checkout", headers=tok(token))).json()["order_id"]
     raw, headers = signed(payment_event(order_id, payment_id=88))
@@ -450,6 +457,7 @@ async def test_a_design_or_rendering_problem_never_stops_a_confirmed_payment_fro
 
     monkeypatch.setattr(receipt_pdf, "build_receipt_pdf", broken)
     internship, (s0, _) = await world(db_session, organization)
+    await use_designer(client, auth_headers, internship)  # a design is saved, so the designer's renderer IS tried, and fails
     await paid_by_bank(client, auth_headers, db_session, internship, s0)
     doc = await only_document(db_session)
     assert doc.number.endswith("-000001") and doc.details["render"]["engine"] == "legacy" and "design" not in doc.details
@@ -495,6 +503,7 @@ async def test_changing_the_design_only_affects_documents_issued_afterwards(clie
 
 async def test_the_database_refuses_any_change_to_an_issued_document_but_allows_email_delivery_updates(client, auth_headers, db_session, organization, storage):
     internship, (s0, _) = await world(db_session, organization)
+    await use_designer(client, auth_headers, internship)
     await paid_by_bank(client, auth_headers, db_session, internship, s0)
     doc = await only_document(db_session)
     changes = {
@@ -509,7 +518,7 @@ async def test_the_database_refuses_any_change_to_an_issued_document_but_allows_
     doc.email_status, doc.email_attempts, doc.emailed_at = "sent", 1, datetime.now(timezone.utc)
     await db_session.flush()
     await db_session.refresh(doc)
-    assert doc.email_status == "sent" and doc.amount == Decimal("5000.00") and doc.details["design"]["source"] == "default"
+    assert doc.email_status == "sent" and doc.amount == Decimal("5000.00") and doc.details["design"]["source"] == "organization"
 
 
 async def test_there_is_no_endpoint_that_regenerates_or_replaces_an_issued_document(client, auth_headers, db_session, organization, storage):
@@ -530,6 +539,7 @@ async def test_there_is_no_endpoint_that_regenerates_or_replaces_an_issued_docum
 
 async def test_generated_receipts_can_be_listed_searched_filtered_viewed_and_traced(client, auth_headers, db_session, organization, storage):
     internship, (s0, s1) = await world(db_session, organization)
+    await use_designer(client, auth_headers, internship)
     _, tx0 = await paid_by_bank(client, auth_headers, db_session, internship, s0, **TAX, _amount="5900.00")
     await paid_by_bank(client, auth_headers, db_session, internship, s1, **TAX, _amount="5900.00")
     first = (await db_session.execute(select(FinancialDocument).order_by(FinancialDocument.number))).scalars().all()[0]
@@ -540,7 +550,7 @@ async def test_generated_receipts_can_be_listed_searched_filtered_viewed_and_tra
     assert everything["total"] == 3 and {i["kind"] for i in everything["items"]} == {"tax_invoice", "credit_note"}
     row = next(i for i in everything["items"] if i["number"] == first.number)
     assert row["student"] == "Student 0" and row["internship"] == "Cloud Internship 2026" and row["amount"] == "5900.00" and row["email_status"] in ("pending", "none", "sent", "failed")
-    assert row["transaction_id"] == str(tx0.id) and row["paid_on"] == date.today().isoformat() and row["pages"] == 1 and row["engine"] == "receipt_pdf" and row["design_source"] == "default"
+    assert row["transaction_id"] == str(tx0.id) and row["paid_on"] == date.today().isoformat() and row["pages"] == 1 and row["engine"] == "receipt_pdf" and row["design_source"] == "organization"
     assert (await client.get(url, params={"q": "student 1"}, headers=auth_headers)).json()["total"] == 1
     assert (await client.get(url, params={"q": first.number}, headers=auth_headers)).json()["total"] == 1
     assert (await client.get(url, params={"q": row["application"]}, headers=auth_headers)).json()["total"] >= 1
@@ -565,7 +575,7 @@ async def test_generated_receipts_can_be_listed_searched_filtered_viewed_and_tra
     history = (await client.get(f"{url}/{first.id}/history", headers=auth_headers)).json()
     assert history["document"]["number"] == first.number and history["document"]["sha256"] == first.sha256
     assert history["transaction"]["id"] == str(tx0.id) and history["transaction"]["method"] == "bank_transfer" and history["transaction"]["status"] == "confirmed"
-    assert history["design"]["source"] == "default" and history["design"]["pages"] == 1 and history["design"]["engine"] == "receipt_pdf"
+    assert history["design"]["source"] == "organization" and history["design"]["pages"] == 1 and history["design"]["engine"] == "receipt_pdf"
     assert [e["event"] for e in history["events"]] == ["document_issued"] and history["events"][0]["detail"]["number"] == first.number
     assert (await client.get(f"{url}/{uuid.uuid4()}/pdf", headers=auth_headers)).status_code == 404
 
@@ -626,3 +636,116 @@ async def test_the_guard_trigger_exists_and_the_receipt_tables_are_in_the_schema
     assert "trg_internship_financial_documents_immutable" in names
     tables = {r[0] for r in (await db_session.execute(text("select table_name from information_schema.tables where table_name like 'internship_receipt_%'"))).all()}
     assert tables == {"internship_receipt_designs", "internship_receipt_design_versions", "internship_receipt_assets"}
+
+
+# ------------------------------------------------------------------ the original layout stays in use until a design is saved
+
+
+def legacy_text(doc: FinancialDocument, storage) -> str:
+    return pdf_text(storage.objects[doc.storage_key])
+
+
+async def test_without_a_saved_design_every_document_type_is_drawn_with_the_original_layout(client, auth_headers, db_session, organization, storage):
+    internship, (s0, _) = await world(db_session, organization)
+    view = (await client.get(rd(internship), headers=auth_headers)).json()["effective"]
+    assert view["source"] == "default" and view["layout"] == "legacy"
+    token, tx = await paid_by_bank(client, auth_headers, db_session, internship, s0, _amount="5900.00", **TAX)
+    invoice = await only_document(db_session)
+    assert invoice.kind == "tax_invoice" and invoice.details["render"] == {"engine": "legacy", "pages": 1} and "design" not in invoice.details
+    text = legacy_text(invoice, storage)
+    assert "Tax Invoice" in text and "INR 5,900.00" in text and "INR 900.00" in text and "\u20b9" not in text  # the original wording and currency style
+    assert "TAX INVOICE" not in text and "GSTIN" in text
+    r = await client.post(f"{BASE}/{internship.id}/onboarding-flow/payments/{tx.id}/refund", json={"amount": "1000", "reason": "Goodwill"}, headers=auth_headers)
+    await client.post(f"{BASE}/{internship.id}/onboarding-flow/refunds/{r.json()['id']}/decide", json={"approve": True, "reference": "NEFT-1"}, headers=auth_headers)
+    note = (await db_session.execute(select(FinancialDocument).where(FinancialDocument.kind == "credit_note"))).scalar_one()
+    assert note.details["render"]["engine"] == "legacy" and "Credit Note" in legacy_text(note, storage) and "INR 1,000.00" in legacy_text(note, storage)
+    listed = (await client.get(f"{BASE}/{internship.id}/receipts", headers=auth_headers)).json()["items"]
+    assert {i["engine"] for i in listed} == {"legacy"} and {i["design_source"] for i in listed} == {None}
+    assert (await db_session.execute(select(func.count(ReceiptDesignRecord.id)))).scalar_one() == 0  # nothing was saved on anyone's behalf
+
+
+async def test_the_original_layout_is_byte_for_byte_what_the_original_renderer_draws(client, auth_headers, db_session, organization, storage, monkeypatch):
+    """The same facts through the original renderer, and through the issuing path with no design saved, give the same text and layout."""
+    from modules.internship_onboarding import receipt_pdf
+
+    called = []
+    monkeypatch.setattr(receipt_pdf, "build_receipt_pdf", lambda *a, **k: called.append(1))
+    internship, (s0, _) = await world(db_session, organization)
+    await paid_by_bank(client, auth_headers, db_session, internship, s0)
+    doc = await only_document(db_session)
+    assert called == []  # the designer's renderer is not even asked
+    again = financial.render_pdf(financial.TITLES[doc.kind], doc.number, doc.details)
+    one, two = PdfReader(io.BytesIO(storage.objects[doc.storage_key])), PdfReader(io.BytesIO(again))
+    assert [p.extract_text() for p in one.pages] == [p.extract_text() for p in two.pages]
+    assert [tuple(p.mediabox) for p in one.pages] == [tuple(p.mediabox) for p in two.pages]
+
+
+async def test_saving_a_design_switches_new_documents_only_and_resetting_returns_them_to_the_original_layout(client, auth_headers, db_session, organization, storage):
+    internship, (s0, s1, s2) = await world(db_session, organization, n=3)
+    await paid_by_bank(client, auth_headers, db_session, internship, s0)
+    before = await only_document(db_session)
+    kept = (storage.objects[before.storage_key], before.sha256, json.dumps(before.details, sort_keys=True), before.number)
+    assert before.details["render"]["engine"] == "legacy"
+
+    await use_designer(client, auth_headers, internship, data={"texts": {"thank_you": "Designer thanks"}})  # the explicit step
+    assert (await client.get(rd(internship), headers=auth_headers)).json()["effective"]["layout"] == "designer"
+    await paid_by_bank(client, auth_headers, db_session, internship, s1)
+    during = await only_document(db_session)
+    assert during.id != before.id and during.number.endswith("-000002") and during.details["render"]["engine"] == "receipt_pdf" and "Designer thanks" in legacy_text(during, storage)
+
+    assert (await client.delete(f"{rd(internship)}/design?scope=organization", headers=auth_headers)).status_code == 200
+    assert (await client.get(rd(internship), headers=auth_headers)).json()["effective"]["layout"] == "legacy"
+    await paid_by_bank(client, auth_headers, db_session, internship, s2)
+    after = await only_document(db_session)
+    assert after.number.endswith("-000003") and after.details["render"]["engine"] == "legacy"  # numbering carried on across the switches
+
+    for doc, expected in ((before, kept),):
+        await db_session.refresh(doc)
+        assert (storage.objects[doc.storage_key], doc.sha256, json.dumps(doc.details, sort_keys=True), doc.number) == expected  # never changed
+    await db_session.refresh(during)
+    assert during.details["render"]["engine"] == "receipt_pdf" and "Designer thanks" in legacy_text(during, storage)
+
+
+async def test_an_organization_design_covers_its_internships_and_an_internship_design_takes_precedence(client, auth_headers, db_session, organization, storage):
+    one, (a0, a1) = await world(db_session, organization)
+    two, (b0, b1) = await world(db_session, organization)
+    await use_designer(client, auth_headers, one, scope="organization", data={"texts": {"thank_you": "Organization wording"}})
+    await use_designer(client, auth_headers, two, scope="internship", data={"texts": {"thank_you": "Own wording"}})
+    for internship, student in ((one, a0), (two, b0)):
+        await paid_by_bank(client, auth_headers, db_session, internship, student)
+    from modules.internship_onboarding.models import OnboardingApplication
+
+    rows = (await db_session.execute(select(FinancialDocument, OnboardingApplication.internship_id).join(OnboardingApplication, OnboardingApplication.id == FinancialDocument.application_id))).all()
+    by_internship = {internship_id: d for d, internship_id in rows}  # (both internships share a title, so documents are told apart by their application)
+    first, second = by_internship[one.id], by_internship[two.id]
+    assert first.details["design"]["source"] == "organization" and "Organization wording" in legacy_text(first, storage)
+    assert second.details["design"]["source"] == "internship" and "Own wording" in legacy_text(second, storage) and "Organization wording" not in legacy_text(second, storage)
+    # a third internship of the organization, with no design of its own, follows the organization's
+    three, (c0,) = await world(db_session, organization, n=1)
+    await paid_by_bank(client, auth_headers, db_session, three, c0)
+    third = [d for d in (await db_session.execute(select(FinancialDocument).order_by(FinancialDocument.issued_at))).scalars().all() if d.id not in (first.id, second.id)][-1]
+    assert third.details["design"]["source"] == "organization"
+    # removing the internship's own design returns it to the organization's design (not to the original layout)
+    await client.delete(f"{rd(two)}/design?scope=internship", headers=auth_headers)
+    assert (await client.get(rd(two), headers=auth_headers)).json()["effective"]["source"] == "organization"
+
+
+async def test_a_designer_failure_falls_back_to_the_original_layout_and_a_default_organization_never_reaches_the_designer(client, auth_headers, db_session, organization, storage, monkeypatch):
+    from modules.internship_onboarding import receipt_pdf
+
+    attempts = []
+
+    def broken(*args, **kwargs):
+        attempts.append(1)
+        raise RuntimeError("designer renderer failed")
+
+    monkeypatch.setattr(receipt_pdf, "build_receipt_pdf", broken)
+    internship, (s0, s1) = await world(db_session, organization)
+    await paid_by_bank(client, auth_headers, db_session, internship, s0)
+    assert attempts == []  # nothing saved: not attempted
+    await use_designer(client, auth_headers, internship)
+    await paid_by_bank(client, auth_headers, db_session, internship, s1)
+    assert attempts == [1]  # a design is saved: attempted, failed
+    docs = (await db_session.execute(select(FinancialDocument).order_by(FinancialDocument.number))).scalars().all()
+    assert [d.details["render"]["engine"] for d in docs] == ["legacy", "legacy"] and docs[1].number.endswith("-000002")
+    assert all(storage.objects[d.storage_key].startswith(b"%PDF") for d in docs)

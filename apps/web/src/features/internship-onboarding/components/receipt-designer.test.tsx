@@ -37,7 +37,7 @@ const design = (over: Partial<ReceiptDesign> = {}): ReceiptDesign => ({
   ...over,
 });
 const view = (over: Partial<DesignerView> = {}): DesignerView => ({
-  effective: { design: design(), source: "default", version: 0 },
+  effective: { design: design(), source: "default", version: 0, layout: "legacy" },
   internship_design: null,
   organization_design: null,
   built_in: design(),
@@ -126,8 +126,27 @@ describe("the Receipt Designer", () => {
     expect(container.querySelector('[data-testid="page-count"]')?.textContent).toBe("1 page");
     expect(container.textContent).toContain("SAMPLE - NOT A VALID RECEIPT");
     expect(container.querySelector("iframe")?.getAttribute("src")).toMatch(/^blob:x\/1/);
-    expect(container.textContent).toContain("the built-in design");
+    expect(container.querySelector('[data-testid="legacy-notice"]')?.textContent).toContain("still issued with the original layout");
+    expect(container.textContent).toContain("Documents already issued never change");
+  });
+
+  it("explains that a saved design is what documents use, once one exists", async () => {
+    await show(view({ effective: { design: design(), source: "organization", version: 2, layout: "designer" }, organization_design: { design: design(), version: 2 } }));
+    expect(container.querySelector('[data-testid="legacy-notice"]')).toBeNull();
+    expect(container.textContent).toContain("the organization's default design (version 2)");
     expect(container.textContent).toContain("issued documents never change");
+  });
+
+  it("lets an administrator start using the designer by saving the unchanged design, once, explicitly", async () => {
+    await show(view());
+    expect(button(/Save design/).hasAttribute("disabled")).toBe(false); // nothing is saved yet, so the first save is always possible
+    await act(async () => button(/Save design/).click());
+    expect(api.save).toHaveBeenCalledWith("i1", "internship", expect.objectContaining({ signatory_label: "Authorized signatory" }), undefined);
+  });
+
+  it("does not offer to save an unchanged design that is already saved", async () => {
+    await show(view({ internship_design: { design: design(), version: 1 }, effective: { design: design(), source: "internship", version: 1, layout: "designer" } }));
+    expect(button(/Save design/).hasAttribute("disabled")).toBe(true);
   });
 
   it("redraws shortly after a change, with the draft design, and ignores an older answer that arrives late", async () => {
