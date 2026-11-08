@@ -40,9 +40,8 @@ never a page holding only the footer) for a long one.
 **Images** are PNG or JPG up to 2 MB, decoded, shrunk and re-saved as PNG (metadata dropped); SVG and everything else is refused. They are kept
 in the database, never under a public URL, and are immutable (a replacement is a new row), so a document can always be traced to the image it used.
 
-**Migration order.** The final sequence is 0101 -> 0102 (onboarding improvements) -> 0103 (this feature). While the onboarding PR is not merged,
-0103 branches from 0101 so that this PR builds on its own; **when the onboarding PR is merged, rebase this branch onto master and set 0103's
-`down_revision` to `"0102"`** (one line). `tests/unit/test_alembic_single_head.py` fails until that is done, so two heads cannot be merged.
+**Migration order.** 0101 -> 0102 (onboarding improvements) -> 0103 (this feature): one line of history. 0103 does not read or depend on anything 0102 adds.
+`tests/unit/test_alembic_single_head.py` fails if two heads ever exist.
 
 **Rollback.** The tables are new and unused by the previous release, and the guard trigger only forbids changes the previous code never made.
 Do not downgrade the database for a code rollback; if the trigger must go, `DROP TRIGGER trg_internship_financial_documents_immutable ON

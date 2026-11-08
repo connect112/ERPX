@@ -1,7 +1,7 @@
 """receipt designer: stored designs, their versions, uploaded images, and a guard that issued documents never change
 
 Revision ID: 0103
-Revises: 0101
+Revises: 0102
 Create Date: 2026-11-07
 
 Additive only. Three new tables (designs, design versions, images) and one trigger. No existing row is read, rewritten or deleted;
@@ -15,9 +15,9 @@ internship_financial_documents (receipts, tax invoices, credit notes) keeps ever
   amount, currency, parties, details, stored file and its checksum, issue time). Only the email delivery fields can change, as
   before. A correction is a credit note, never an edit.
 
-Revision order: this migration branches from 0101 so it does not depend on 0102 (pull request "onboarding: seven improvements").
-Whichever of the two reaches master second must set its down_revision to the other's revision (one line); until then
-`alembic heads` would list two heads. tests/unit/test_alembic_single_head.py fails if that is forgotten.
+Revision order: 0101 -> 0102 (onboarding: personal-link expiry and the confirmed mobile number) -> 0103 (this migration). It does not
+read or depend on anything 0102 adds; it follows it only so that the history is one line.
+tests/unit/test_alembic_single_head.py fails if two heads ever exist.
 """
 from typing import Sequence, Union
 
@@ -26,7 +26,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0103"
-down_revision: Union[str, None] = "0101"
+down_revision: Union[str, None] = "0102"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
