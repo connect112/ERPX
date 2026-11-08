@@ -41,15 +41,15 @@ describe("onboarding tabs", () => {
   });
 
   it("gives each permission its own settings sections", () => {
-    expect(settingsSections(admin)).toEqual(["general", "lms-course", "accounts", "templates"]);
+    expect(settingsSections(admin)).toEqual(["general", "lms-course", "accounts", "receipt-designer", "templates"]);
     expect(settingsSections(adminWithoutFinance)).toEqual(["general", "lms-course", "templates"]);
-    expect(settingsSections(financeOnly)).toEqual(["accounts"]);
+    expect(settingsSections(financeOnly)).toEqual(["accounts", "receipt-designer"]);
     expect(settingsSections(instructor)).toEqual([]);
   });
 
   it("shows payment checks only to finance staff", () => {
-    expect(operationSections(admin)).toEqual(["students", "payments", "manual"]);
-    expect(operationSections(financeViewer)).toEqual(["students", "payments", "manual"]);
+    expect(operationSections(admin)).toEqual(["students", "payments", "receipts", "manual"]);
+    expect(operationSections(financeViewer)).toEqual(["students", "payments", "receipts", "manual"]);
     expect(operationSections(adminWithoutFinance)).toEqual(["students", "manual"]);
     expect(operationSections(instructor)).toEqual(["students", "manual"]);
   });
