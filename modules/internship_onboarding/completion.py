@@ -10,21 +10,28 @@ import uuid
 from datetime import timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging_config import get_logger
 from modules.internship_onboarding import state
 from modules.internship_onboarding.models import OnboardingApplication, OnboardingEvent
-from modules.internship_onboarding.service import ApplicationService, config_of, event, now
+from modules.internship_onboarding.service import LINK_WINDOW, ApplicationService, config_of, event, now
 from modules.our_internships.models import InternshipSelection, LmsStatus, OurInternship, PaymentStatus
 
 logger = get_logger(__name__)
 
 
 async def check(db: AsyncSession, application: OnboardingApplication) -> bool:
-    """Record completion if every requirement is met. True when this call recorded it (the caller may enqueue follow-ups)."""
-    if application.completed_at is not None or application.cancelled_at is not None:
+    """Record completion if every requirement is met. True when this call recorded it (the caller may enqueue follow-ups).
+
+    Completion and the end of the student's link are recorded in ONE conditional statement (``completed_at IS NULL``): of any number
+    of concurrent or repeated calls exactly one records it, with a single server timestamp, and the student's link then works for
+    ``LINK_WINDOW`` after that moment. An application that was complete before and had its window cleared because something became
+    outstanding again gets a fresh window here, once everything is met again."""
+    if application.cancelled_at is not None:
+        return False
+    if application.completed_at is not None and application.link_expires_at is not None:
         return False
     internship = await db.get(OurInternship, application.internship_id)
     selection = await db.get(InternshipSelection, application.selection_id)
@@ -34,8 +41,28 @@ async def check(db: AsyncSession, application: OnboardingApplication) -> bool:
     facts = await ApplicationService(db).facts(config, selection, application)
     if state.overall_status(facts) != "completed":
         return False
-    application.completed_at = now()
-    await db.flush()
+    t = now()
+    if application.completed_at is not None:
+        result = await db.execute(
+            update(OnboardingApplication)
+            .where(OnboardingApplication.id == application.id, OnboardingApplication.link_expires_at.is_(None), OnboardingApplication.cancelled_at.is_(None))
+            .values(link_expires_at=t + LINK_WINDOW)
+            .execution_options(synchronize_session=False)
+        )  # fmt: skip
+        if result.rowcount == 1:
+            await db.refresh(application)
+            await event(db, application, "link_window_restarted", actor="system")
+        return False
+    result = await db.execute(
+        update(OnboardingApplication)
+        .where(OnboardingApplication.id == application.id, OnboardingApplication.completed_at.is_(None), OnboardingApplication.cancelled_at.is_(None))
+        .values(completed_at=t, link_expires_at=t + LINK_WINDOW)
+        .execution_options(synchronize_session=False)
+    )  # fmt: skip
+    if result.rowcount != 1:
+        await db.refresh(application)
+        return False  # another request recorded it first
+    await db.refresh(application)
     await event(db, application, "onboarding_completed", actor="system")
     return True
 
@@ -107,6 +134,15 @@ async def _completion_email(db: AsyncSession, internship, selection, application
     student = await db.get(InstitutionStudent, selection.student_id)
     if sent is not None or student is None or not student.email or not config.modes.self_service:
         return
+    if application.link_expires_at is not None and now() >= application.link_expires_at:
+        # the email would carry a link that has already expired (it was delayed for over an hour): do not mint a dead link, and note
+        # it once so the sweep does not look again
+        skipped = (
+            await db.execute(select(OnboardingEvent.id).where(OnboardingEvent.application_id == application.id, OnboardingEvent.event == "completion_email_skipped"))
+        ).first()
+        if skipped is None:
+            await event(db, application, "completion_email_skipped", actor="system", reason="the student's link had already expired")
+        return
     try:
         values = await onboarding_values(db, internship, selection, config)
         subject, text, html, meta = await render_email_full(
@@ -145,7 +181,7 @@ async def sweep(db: AsyncSession) -> dict[str, int]:
     ).scalars().all()
     configs: dict = {}
     for application in rows:
-        if application.completed_at is None and await check(db, application):
+        if (application.completed_at is None or application.link_expires_at is None) and await check(db, application):
             completed += 1
         if application.completed_at is not None:
             to_follow.append(application.id)

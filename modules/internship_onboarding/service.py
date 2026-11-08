@@ -46,6 +46,10 @@ PREVIEW_MINUTES = 3
 # How long a link that an email carries (or may carry) but that is not yet confirmed works. It is promoted to the active link
 # when the mail server accepts the message, or when the student first uses it. A provisional value (72 hours).
 PENDING_TOKEN_TTL = timedelta(hours=72)
+# How long a student's personal link keeps working after onboarding is complete (counted from the server-recorded completion time).
+LINK_WINDOW = timedelta(hours=1)
+# What the staff viewer may show in the page itself; anything else is offered as a download only.
+VIEWABLE_TYPES = ("application/pdf", "image/jpeg", "image/png")
 
 
 def now() -> datetime:
@@ -393,6 +397,12 @@ class ApplicationService:
         token = secrets.token_urlsafe(32)
         application = await self.install_link(application.id, hash_token(token))
         await event(self.db, application, "link_issued", actor="staff" if user_id else "system", user_id=user_id, reason=reason)
+        if user_id is not None and application.completed_at is not None:
+            # A staff member deliberately gave a student who is already complete a new link: it gets its own hour. Emails and other
+            # automatic issuing never do this, so an old link can never be kept alive by the system.
+            application.link_expires_at = now() + LINK_WINDOW
+            await self.db.flush()
+            await event(self.db, application, "link_window_renewed", actor="staff", user_id=user_id)
         return Issued(application, link_for(token))
 
     # ---- the application's link state changes under one row lock, with conditional writes: a staff action and an email that is
@@ -743,6 +753,9 @@ class ApplicationService:
             "info_original": application.info_original,
             "info_proposed": application.info_proposed,
             "info_review_status": application.info_review_status,
+            # the number the student confirmed for payments (staff already see the number on the student's record) and until when the link works
+            "payment_phone": application.confirmed_phone, "phone_changed_at": application.phone_changed_at,
+            "link_expires_at": application.link_expires_at,
             "form_responses": application.form_responses,
             "acceptance": {
                 "accepted_at": application.accepted_at, "declined_at": application.declined_at,
@@ -757,6 +770,7 @@ class ApplicationService:
                     "id": d.id, "key": d.requirement_key, "version": d.version, "status": d.status,
                     "filename": d.filename if (can_review or d.requirement_key not in sensitive) else "(restricted)",
                     "size_bytes": d.size_bytes, "uploaded_at": d.created_at, "review_note": d.review_note,
+                    "content_type": d.content_type, "viewable": d.content_type in VIEWABLE_TYPES,
                     "reviewed_at": d.reviewed_at, "sensitive": d.requirement_key in sensitive, "scan_status": d.scan_status,
                     "keep_until": keep_until if d.requirement_key in sensitive else None, "removed_at": d.removed_at,
                 }
@@ -865,6 +879,25 @@ class ApplicationService:
             document.storage_key, expires=timedelta(minutes=PREVIEW_MINUTES), download_name=document.filename
         )
 
+    async def read_file(self, internship: OurInternship, document_id: uuid.UUID, user: User) -> tuple[bytes, OnboardingDocument]:
+        """The bytes of one uploaded document, for the in-page viewer. Exactly the checks of ``preview_url`` (reviewer permission, the
+        document must belong to this internship and organization, an identity file whose retention period ended is gone), and the same
+        timeline entry. Only types the viewer can show are returned; everything else is a download."""
+        from packages.storage.client import get_storage_client
+
+        await require(self.db, user, REVIEW)
+        document, application = await self.document(internship, document_id)
+        if document.removed_at is not None:
+            raise ConflictError("This file was removed after its retention period.")
+        if document.content_type not in VIEWABLE_TYPES:
+            raise ConflictError("This type of file cannot be shown here. Download it instead.")
+        data = await get_storage_client().read_bytes(document.storage_key, max_bytes=16 * 1024 * 1024)
+        if len(data) > 16 * 1024 * 1024:
+            raise ConflictError("This file is too large to show here. Download it instead.")
+        await event(self.db, application, "document_viewed", user_id=user.id, document=document.requirement_key, version=document.version)
+        await self.db.flush()
+        return data, document
+
     async def review(self, internship: OurInternship, document_id: uuid.UUID, approve: bool, note: str | None, user: User) -> OnboardingDocument:
         await require(self.db, user, REVIEW)
         document, application = await self.document(internship, document_id)
@@ -920,6 +953,8 @@ class ApplicationService:
                 student.name = proposed["name"][:255]
             if "phone" in proposed:
                 student.phone = (proposed["phone"] or None) and proposed["phone"][:50]
+            if proposed.get("phone_change") and application.confirmed_phone:
+                student.phone = application.confirmed_phone  # the number the student confirmed (kept out of the audited proposal)
             extra = {k: v for k, v in (proposed.get("details") or {}).items() if isinstance(v, str)}
             if extra:
                 student.details = {**(student.details or {}), **{k: v[:255] for k, v in extra.items()}}

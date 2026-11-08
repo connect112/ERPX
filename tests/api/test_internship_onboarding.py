@@ -55,7 +55,8 @@ def iso(days: float) -> str:
 
 def settings(**over) -> dict:
     s = {
-        "modes": {"mode": "hybrid", "require_payment": True, "allow_info_edit": True},
+        # declining is off unless switched on (see test_internship_onboarding_seven_changes.py); these tests exercise it, so they opt in
+        "modes": {"mode": "hybrid", "require_payment": True, "allow_info_edit": True, "allow_decline": True},
         "fees": {"base_amount": "5000", "methods": ["bank_transfer"], "late_fee": {"mode": "fixed", "value": "500"}},
         "deadlines": {"opens_at": iso(-1), "closes_at": iso(10)},
         "payment_accounts": {"bank": BANK},

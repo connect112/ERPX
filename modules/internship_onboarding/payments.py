@@ -19,7 +19,7 @@ import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,7 @@ from modules.internship_onboarding.models import (
     PaymentWebhookEvent,
 )
 from modules.internship_onboarding.financial import issue_safely
+from modules.internship_onboarding.phone import normalize_mobile
 from modules.internship_onboarding.portal import CONTENT_TYPES, Context, PortalService, sniff
 from modules.internship_onboarding.providers import ProviderError, get_provider
 from modules.internship_onboarding.scan import scan
@@ -52,6 +53,12 @@ from modules.internship_onboarding.service import (
 from modules.our_internships.models import InternshipSelection, OurInternship, PaymentStatus
 
 logger = get_logger(__name__)
+
+
+def customer_phone(application: OnboardingApplication, student) -> str:
+    """The mobile number a NEW Cashfree order is created with: the one the student confirmed in their portal, else the one on their
+    record (exactly as before the student could confirm one). Orders that already exist are never given a different number."""
+    return normalize_mobile(application.confirmed_phone) or normalize_mobile(student.phone) or (student.phone or "")
 
 # Which local orders are still worth asking Cashfree about. A Cashfree order takes new payment attempts until it expires, so after a
 # FAILED or USER_DROPPED attempt the local order is "failed" (that is what lets the student start a fresh one) but another attempt on
@@ -291,12 +298,17 @@ class PaymentService:
         except ProviderError as exc:
             raise ServiceUnavailableError(str(exc)) from None
         await self.db.execute(select(OnboardingApplication.id).where(OnboardingApplication.id == ctx.application.id).with_for_update())
+        await self.db.refresh(ctx.application)  # (the mobile number may have been changed by another request just now)
+        # An order already created keeps the customer details it was created with (Cashfree holds them and the student may be paying it
+        # right now), so it is reused only when the mobile number has not changed since. After a change, a NEW order carries the new number.
+        changed_at = ctx.application.phone_changed_at
+        same_number = PaymentOrder.created_at >= changed_at if changed_at is not None else true()
         existing = (
             await self.db.execute(
                 select(PaymentOrder).where(
                     PaymentOrder.application_id == ctx.application.id, PaymentOrder.method == "cashfree",
                     PaymentOrder.status == "active", PaymentOrder.amount == totals.balance,
-                    PaymentOrder.expires_at > now() + timedelta(minutes=5),
+                    PaymentOrder.expires_at > now() + timedelta(minutes=5), same_number,
                 )
             )
         ).scalars().first()
@@ -308,6 +320,7 @@ class PaymentService:
             organization_id=ctx.application.organization_id, application_id=ctx.application.id, method="cashfree",
             amount=totals.balance, currency=ctx.config.fees.currency, status="created", merchant_order_id=merchant_order_id,
             provider="cashfree", expires_at=expires,
+            created_at=now(),  # the application's clock, the same one that dates a change of mobile number (the database's would be the transaction start)
         )  # fmt: skip
         self.db.add(order)
         await self.db.flush()
@@ -315,7 +328,7 @@ class PaymentService:
             created = await provider.create_order(
                 merchant_order_id=merchant_order_id, amount=totals.balance, currency=order.currency,
                 customer_id=ctx.application.reference, customer_name=ctx.student.name, customer_email=ctx.student.email,
-                customer_phone=ctx.student.phone or "", return_url=f"{settings.FRONTEND_URL.rstrip('/')}/internship-onboarding?order={merchant_order_id}",
+                customer_phone=customer_phone(ctx.application, ctx.student), return_url=f"{settings.FRONTEND_URL.rstrip('/')}/internship-onboarding?order={merchant_order_id}",
                 expires_at=expires, note=f"{ctx.internship.title} - {ctx.application.reference}",
             )  # fmt: skip
         except ProviderError as exc:

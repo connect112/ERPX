@@ -78,6 +78,12 @@ class DraftRequest(BaseModel):
     answers: dict | None = None
 
 
+class MobileRequest(BaseModel):
+    phone: str = Field(min_length=1, max_length=30)
+    # true only when the student pressed "Confirm & Save" in the confirmation dialog (the API will not save an unconfirmed number)
+    confirmed: bool = False
+
+
 class AcceptRequest(BaseModel):
     confirmed: bool
     terms_version: str = Field(max_length=20)

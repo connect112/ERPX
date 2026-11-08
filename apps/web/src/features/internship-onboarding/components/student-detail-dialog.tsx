@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Eye, Link2Off } from "lucide-react";
+import { Copy, Download, Eye, Link2Off } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { onboardingFlowApi } from "@/features/internship-onboarding/api";
+import { DocumentViewer } from "@/features/internship-onboarding/components/document-viewer";
 import { inZone, money, statusLabel, statusTone } from "@/features/internship-onboarding/lib/format";
 
 interface Props {
@@ -46,15 +47,38 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
     retry: false,
   });
   const act = useMutation({ mutationFn: (action: () => Promise<unknown>) => action(), onSuccess: () => (setError(null), refresh()), onError: fail });
-  const preview = async (id: string) => {
+  // Download: a short-lived signed link that saves the file. Viewing is separate (the in-page viewer below).
+  const download = async (id: string) => {
     try {
       window.open(await onboardingFlowApi.previewDocument(internshipId, id), "_blank", "noopener,noreferrer");
     } catch (e) {
       fail(e);
     }
   };
+  const [viewing, setViewing] = useState<string | null>(null);
 
   const d = detail.data;
+  const viewed = d?.documents.find((x) => x.id === viewing);
+  const reviewControls = (doc: NonNullable<typeof d>["documents"][number]) =>
+    (doc.status === "submitted" || doc.status === "verified") && (
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Input
+          className="max-w-sm"
+          placeholder="What needs to change (required to ask again)"
+          aria-label={`What needs to change in ${doc.key} version ${doc.version}`}
+          value={notes[doc.id] ?? ""}
+          onChange={(e) => setNotes({ ...notes, [doc.id]: e.target.value })}
+        />
+        {doc.status === "submitted" && (
+          <Button size="sm" disabled={review.isPending} onClick={() => review.mutate({ id: doc.id, approve: true })}>
+            Verify
+          </Button>
+        )}
+        <Button size="sm" variant="outline" disabled={!notes[doc.id]?.trim() || review.isPending} onClick={() => review.mutate({ id: doc.id, approve: false })}>
+          Ask for a new one
+        </Button>
+      </div>
+    );
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-4xl">
@@ -75,11 +99,20 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
               ))}
             </div>
 
+            <p className="text-xs text-muted-foreground">
+              Mobile on the record: {d.student.phone ?? "none"}
+              {d.payment_phone ? ` · confirmed by the student for payments: ${d.payment_phone}` : ""}
+              {d.info_review_status === "pending" && (d.info_proposed.phone_change || d.info_proposed.phone) ? " (the record change is waiting for review below)" : ""}
+            </p>
+
             {canManage && (
               <section className="space-y-2">
                 <h3 className="font-semibold">Personal link</h3>
                 <p className="text-muted-foreground">
                   {d.link_active ? `Active since ${inZone(d.link_issued_at, timezone)}.` : "No active link."} A new link replaces the old one.
+                  {d.link_expires_at
+                    ? ` The student's link ${new Date(d.link_expires_at) > new Date() ? "stops working at" : "stopped working at"} ${inZone(d.link_expires_at, timezone)} (one hour after onboarding was completed). A new link gets its own hour.`
+                    : ""}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => newLink.mutate()} disabled={newLink.isPending}>
@@ -107,7 +140,13 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
             {d.info_review_status === "pending" && (
               <section className="space-y-2 rounded-md border border-amber-300 p-3">
                 <h3 className="font-semibold">Proposed corrections</h3>
-                <pre className="whitespace-pre-wrap text-xs">{JSON.stringify(d.info_proposed, null, 2)}</pre>
+                <pre className="whitespace-pre-wrap text-xs">
+                  {JSON.stringify(
+                    { ...d.info_proposed, phone_change: undefined, phone: d.info_proposed.phone_change ? d.payment_phone : d.info_proposed.phone },
+                    null,
+                    2,
+                  )}
+                </pre>
                 {canManage && (
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => info.mutate(true)}>
@@ -133,8 +172,11 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
                     {doc.sensitive && <Badge variant="outline">sensitive</Badge>}
                     <Badge variant="outline">{doc.scan_status === "clean" ? "virus scan: clean" : "not virus-scanned"}</Badge>
                     {doc.removed_at && <Badge variant="secondary">file removed</Badge>}
-                    <Button size="sm" variant="ghost" disabled={!!doc.removed_at} onClick={() => void preview(doc.id)} aria-label={`Preview ${doc.key} version ${doc.version}`}>
+                    <Button size="sm" variant="ghost" disabled={!!doc.removed_at} onClick={() => setViewing(doc.id)} aria-label={`Preview ${doc.key} version ${doc.version}`}>
                       <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={!!doc.removed_at} onClick={() => void download(doc.id)} aria-label={`Download ${doc.key} version ${doc.version}`}>
+                      <Download className="h-4 w-4" />
                     </Button>
                   </div>
                   {doc.review_note && <p className="mt-1 text-xs text-muted-foreground">Note: {doc.review_note}</p>}
@@ -150,24 +192,7 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
                       )}
                     </div>
                   )}
-                  {(doc.status === "submitted" || doc.status === "verified") && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Input
-                        className="max-w-sm"
-                        placeholder="What needs to change (required to ask again)"
-                        value={notes[doc.id] ?? ""}
-                        onChange={(e) => setNotes({ ...notes, [doc.id]: e.target.value })}
-                      />
-                      {doc.status === "submitted" && (
-                        <Button size="sm" onClick={() => review.mutate({ id: doc.id, approve: true })}>
-                          Verify
-                        </Button>
-                      )}
-                      <Button size="sm" variant="outline" disabled={!notes[doc.id]?.trim()} onClick={() => review.mutate({ id: doc.id, approve: false })}>
-                        Ask for a new one
-                      </Button>
-                    </div>
-                  )}
+                  {reviewControls(doc)}
                 </div>
               ))}
             </section>
@@ -292,6 +317,12 @@ export function StudentDetailDialog({ internshipId, studentId, timezone, canMana
           </div>
         )}
       </DialogContent>
+      {viewed && (
+        <DocumentViewer internshipId={internshipId} document={viewed} onClose={() => setViewing(null)} onDownload={(id) => void download(id)}>
+          {viewed.review_note && <p className="text-xs text-muted-foreground">Note: {viewed.review_note}</p>}
+          {reviewControls(viewed)}
+        </DocumentViewer>
+      )}
     </Dialog>
   );
 }

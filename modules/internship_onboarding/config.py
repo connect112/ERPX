@@ -51,6 +51,9 @@ class Modes(_Strict):
     allow_late_onboarding: bool = True
     reminders: bool = True
     invoice_emails: bool = True
+    # Off unless an administrator switches it on (internships saved before this setting existed read as off): the student portal
+    # shows no decline option and the API refuses the request. Staff can still cancel an onboarding either way.
+    allow_decline: bool = False
 
     @property
     def self_service(self) -> bool:
@@ -302,6 +305,8 @@ class Communication(_Strict):
     @field_validator("whatsapp_link")
     @classmethod
     def _wa(cls, v: str | None) -> str | None:
+        # Optional: empty, blank or missing all mean "no group", stored as null. A link, when given, must be a WhatsApp group link.
+        v = (v or "").strip()
         if v and not v.startswith(WHATSAPP_PREFIX):
             raise ValueError(f"The WhatsApp link must start with {WHATSAPP_PREFIX}")
         return v or None
