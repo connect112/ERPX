@@ -58,7 +58,7 @@ def _phone(raw: str | None) -> str:
     if digits.startswith("91") and len(digits) == 12:
         digits = digits[2:]
     if len(digits) != 10:
-        raise ProviderError("A 10-digit mobile number is needed to pay online. Ask the internship team to update it.")
+        raise ProviderError("A 10-digit mobile number is needed to pay online. Enter and confirm your mobile number under Your details, then try again.")
     return digits
 
 

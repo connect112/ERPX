@@ -9,7 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { type FormFieldDef, type PortalView, portalApi } from "@/features/internship-onboarding/api";
+import { MobileField } from "@/features/internship-onboarding/components/mobile-field";
 import { inZone, money, statusLabel, statusTone, tokenFromHash } from "@/features/internship-onboarding/lib/format";
+import { EXPIRED_CODE, EXPIRED_TITLE, errorCode, msUntil } from "@/features/internship-onboarding/lib/link-expiry";
 
 const STORE = "erpx-onboarding-token";
 const selectClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";
@@ -56,7 +58,9 @@ export function OnboardingPortalPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [info, setInfo] = useState<{ name: string; phone: string }>({ name: "", phone: "" });
+  const [info, setInfo] = useState<{ name: string }>({ name: "" });
+  // set when the server says the personal link has expired (an hour after onboarding was completed); the page then shows only that
+  const [expired, setExpired] = useState<string | null>(null);
   const [declared, setDeclared] = useState(false);
   const [declineReason, setDeclineReason] = useState("");
   const [progress, setProgress] = useState<Record<string, number>>({});
@@ -76,7 +80,7 @@ export function OnboardingPortalPage() {
   const apply = useCallback((v: PortalView) => {
     setView(v);
     setAnswers(v.form.answers);
-    setInfo({ name: v.information.proposed.name ?? v.information.current.name, phone: v.information.proposed.phone ?? v.information.current.phone ?? "" });
+    setInfo({ name: v.information.proposed.name ?? v.information.current.name });
     setPay((p) => ({ ...p, amount: v.payment.balance, method: p.method || v.payment.methods.find((m) => m !== "cashfree") || "" }));
   }, []);
 
@@ -88,7 +92,8 @@ export function OnboardingPortalPage() {
         const v = await action();
         if (v) apply(v);
       } catch (e) {
-        setError(errorMessage(e, "Something went wrong. Please try again."));
+        if (errorCode(e) === EXPIRED_CODE) setExpired(errorMessage(e, EXPIRED_TITLE));
+        else setError(errorMessage(e, "Something went wrong. Please try again."));
       } finally {
         setBusy(null);
       }
@@ -102,6 +107,29 @@ export function OnboardingPortalPage() {
     void run("load", () => (returning ? portalApi.refresh(token) : portalApi.view(token)));
   }, [token, run]);
 
+  // Once complete, the page tells the student when their link ends and checks again at that moment (the server decides; this only
+  // saves them a confusing error on their next click).
+  const endsAt = view?.completion.link_expires_at ?? null;
+  useEffect(() => {
+    if (!endsAt || !token) return;
+    const wait = msUntil(endsAt);
+    if (wait === null) return;
+    const timer = setTimeout(() => void run("load", () => portalApi.view(token)), wait + 1500);
+    return () => clearTimeout(timer);
+  }, [endsAt, token, run]);
+
+  if (expired) {
+    return (
+      <Shell>
+        <Card role="alert">
+          <CardHeader>
+            <CardTitle>{EXPIRED_TITLE}</CardTitle>
+            <CardDescription>{expired}</CardDescription>
+          </CardHeader>
+        </Card>
+      </Shell>
+    );
+  }
   if (!token || (error && !view)) {
     return (
       <Shell>
@@ -133,7 +161,7 @@ export function OnboardingPortalPage() {
   const saveDraft = (step: string, withInfo: boolean) =>
     run("save", async () => {
       const body: Record<string, unknown> = { step, answers };
-      if (withInfo && v.information.editable) body.info = { name: info.name, phone: info.phone };
+      if (withInfo && v.information.editable) body.info = { name: info.name };
       const r = await portalApi.save(token, body);
       setFieldErrors(r.errors);
       setSaved(Object.keys(r.errors).length ? null : "Saved. You can come back to this link later.");
@@ -186,6 +214,11 @@ export function OnboardingPortalPage() {
             {v.payment.required && <p>Payment received: {money(v.payment.paid, v.payment.currency)}.</p>}
             {v.completion.next_steps && <p className="whitespace-pre-line">{v.completion.next_steps}</p>}
             <p>LMS access: {statusLabel(v.completion.lms_status)}.</p>
+            {v.completion.link_expires_at && (
+              <p className="text-xs text-muted-foreground">
+                For your security, this personal link stops working at {inZone(v.completion.link_expires_at, v.timezone)}. Your onboarding information stays saved.
+              </p>
+            )}
             {v.completion.whatsapp_link && (
               <a className="inline-block rounded-md bg-emerald-600 px-4 py-2 text-white" href={v.completion.whatsapp_link} target="_blank" rel="noopener noreferrer">
                 Join the WhatsApp group
@@ -214,18 +247,26 @@ export function OnboardingPortalPage() {
               <Label htmlFor="info-name">Full name</Label>
               <Input id="info-name" value={info.name} onChange={(e) => setInfo({ ...info, name: e.target.value })} />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="info-phone">Mobile number</Label>
-              <Input id="info-phone" inputMode="tel" value={info.phone} onChange={(e) => setInfo({ ...info, phone: e.target.value })} />
-            </div>
             <p className="text-xs text-muted-foreground sm:col-span-2">Changes are checked by the internship team before they replace your records.</p>
           </div>
         ) : (
-          <p className="text-sm">
-            {v.information.current.name} · {v.information.current.phone ?? "no phone"}
-          </p>
+          <p className="text-sm">{v.information.current.name}</p>
         )}
-        {v.information.review === "pending" && <p className="text-xs text-amber-700">Your corrections are waiting for review.</p>}
+        <MobileField
+          key={`${v.mobile.number ?? ""}|${v.mobile.confirmed}`}
+          mobile={v.mobile}
+          busy={busy !== null}
+          onSave={async (digits) => {
+            try {
+              apply(await portalApi.mobile(token, digits, true));
+              setSaved("Your mobile number was saved.");
+            } catch (e) {
+              if (errorCode(e) === EXPIRED_CODE) setExpired(errorMessage(e, EXPIRED_TITLE));
+              throw new Error(errorMessage(e, "The number could not be saved. Please try again."));
+            }
+          }}
+        />
+        {v.information.review === "pending" && v.information.proposed.name && <p className="text-xs text-amber-700">Your name correction is waiting for review.</p>}
       </Step>
 
       {v.form.fields.length > 0 && (
@@ -337,15 +378,17 @@ export function OnboardingPortalPage() {
                 {busy === "accept" ? "Accepting…" : "Accept the offer"}
               </Button>
             </div>
-            <details className="text-sm">
-              <summary className="cursor-pointer text-muted-foreground">Decline the offer</summary>
-              <div className="mt-2 space-y-2">
-                <Textarea placeholder="Reason (optional)" value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} />
-                <Button variant="outline" disabled={!editable || busy !== null} onClick={() => window.confirm("Decline this internship offer? This cannot be undone here.") && void run("decline", () => portalApi.decline(token, declineReason))}>
-                  Decline
-                </Button>
-              </div>
-            </details>
+            {v.acceptance.decline_allowed && (
+              <details className="text-sm">
+                <summary className="cursor-pointer text-muted-foreground">Decline the offer</summary>
+                <div className="mt-2 space-y-2">
+                  <Textarea placeholder="Reason (optional)" value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} />
+                  <Button variant="outline" disabled={!editable || busy !== null} onClick={() => window.confirm("Decline this internship offer? This cannot be undone here.") && void run("decline", () => portalApi.decline(token, declineReason))}>
+                    Decline
+                  </Button>
+                </div>
+              </details>
+            )}
           </>
         )}
       </Step>
@@ -413,6 +456,14 @@ export function OnboardingPortalPage() {
               {v.payment.methods.includes("cashfree") && (
                 <div className="space-y-2 rounded-md border p-3">
                   <div className="font-medium">Pay online</div>
+                  {!v.mobile.valid && (
+                    <p className="text-xs text-amber-700" role="note">
+                      Enter and save a valid mobile number under “Your details” first: the payment gateway needs it.
+                    </p>
+                  )}
+                  {v.mobile.valid && !v.mobile.confirmed && (
+                    <p className="text-xs text-muted-foreground">Please check the mobile number under “Your details” is correct before you pay.</p>
+                  )}
                   <Button disabled={busy !== null} onClick={() => void run("checkout", async () => {
                     const session = await portalApi.checkout(token);
                     await loadCashfree();

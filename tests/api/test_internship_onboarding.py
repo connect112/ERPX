@@ -35,6 +35,9 @@ class FakeStorage:
     async def delete_object(self, key):
         self.objects.pop(key, None)
 
+    async def read_bytes(self, key, max_bytes=20 * 1024 * 1024):
+        return self.objects[key]
+
     def presigned_download_url(self, key, expires=None, download_name=None):
         return f"https://files.example.test/{key}?sig=1&exp={int(expires.total_seconds()) if expires else 0}"
 
@@ -52,7 +55,8 @@ def iso(days: float) -> str:
 
 def settings(**over) -> dict:
     s = {
-        "modes": {"mode": "hybrid", "require_payment": True, "allow_info_edit": True},
+        # declining is off unless switched on (see test_internship_onboarding_seven_changes.py); these tests exercise it, so they opt in
+        "modes": {"mode": "hybrid", "require_payment": True, "allow_info_edit": True, "allow_decline": True},
         "fees": {"base_amount": "5000", "methods": ["bank_transfer"], "late_fee": {"mode": "fixed", "value": "500"}},
         "deadlines": {"opens_at": iso(-1), "closes_at": iso(10)},
         "payment_accounts": {"bank": BANK},
