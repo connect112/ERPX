@@ -11,6 +11,9 @@ import type { ReceiptRow } from "@/features/internship-onboarding/receipts-api";
 
 const api = vi.hoisted(() => ({ receipts: vi.fn(), receiptPdf: vi.fn(), history: vi.fn() }));
 vi.mock("@/features/internship-onboarding/receipts-api", () => ({ receiptsApi: api }));
+vi.mock("@/features/internship-onboarding/lib/pdf-render", () => ({
+  renderPdf: async (_b: Blob, host: HTMLElement) => (host.replaceChildren(document.createElement("canvas")), { pages: 1, destroy: () => undefined }),
+}));
 
 const row = (over: Partial<ReceiptRow> = {}): ReceiptRow => ({
   id: "d1", number: "RCPT-2026-000001", kind: "receipt", student: "Asha Rao", email: "asha@example.com", internship: "Cloud Internship", application: "ERPX-INT-2026-000001",
@@ -116,10 +119,10 @@ describe("GeneratedReceipts", () => {
     await act(async () => action(/View RCPT-2026-000001/).click());
     await settle(0);
     expect(api.receiptPdf).toHaveBeenCalledWith("i1", "d1");
-    expect(document.querySelector("iframe")?.getAttribute("src")).toMatch(/^blob:r\/1/);
+    expect(document.querySelector('[role="dialog"] canvas')).not.toBeNull(); // the stored PDF, drawn in the page
     expect(document.body.textContent).toContain("exactly as it was issued");
     await act(async () => (document.querySelector('[role="dialog"] button.absolute, [role="dialog"] button[class*="absolute"]') as HTMLButtonElement)?.click());
-    expect(URL.revokeObjectURL).toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"] canvas')).toBeNull(); // closed; nothing is held (the PDF is drawn from memory, no temporary link)
   });
 
   it("downloads the stored file under its document number", async () => {

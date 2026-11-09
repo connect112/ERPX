@@ -42,7 +42,16 @@ class SaveDesign(BaseModel):
     base_version: int | None = None
 
 
+class IssuerUpdate(BaseModel):
+    legal_name: str = Field(min_length=1, max_length=200)
+    address: str = Field(default="", max_length=500)
+    gstin: str | None = Field(default=None, pattern=r"^[0-9]{2}[A-Z0-9]{10}[0-9A-Z]{3}$")
+    receipt_prefix: str = Field(pattern=r"^[A-Z][A-Z0-9-]{1,11}$")
+    footer: str = Field(default="", max_length=500)
+
+
 class PreviewRequest(BaseModel):
+    sample: dict | None = None  # preview-only sample customer/payment details (never stored; sample previews only)
     design: dict | None = None  # the draft on screen (unsaved); empty: the design that applies now
     kind: Literal["receipt", "tax_invoice", "credit_note"] = "receipt"
     source: Literal["sample", "transaction"] = "sample"
@@ -117,6 +126,20 @@ async def reset_design(
     return {"message": "Reset to the default. Documents already issued are unchanged."}
 
 
+@router.put("/{internship_id}/receipt-designer/issuer")
+async def save_issuer(
+    internship_id: uuid.UUID,
+    payload: IssuerUpdate,
+    organization_id: uuid.UUID = Depends(get_current_user_organization_id),
+    user: User = Depends(internship_access("view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change the issuer's legal name, address, GSTIN, number prefix or footer through the versioned onboarding settings (finance
+    management permission). Affects only documents issued afterwards."""
+    version = await ReceiptDesignService(db).save_issuer(await _internship(db, internship_id, organization_id), user, payload.model_dump())
+    return {"settings_version": version, "message": "Saved in the finance settings. It applies to documents issued from now on; documents already issued are unchanged."}
+
+
 @router.post("/{internship_id}/receipt-designer/preview")
 async def preview(
     internship_id: uuid.UUID,
@@ -127,7 +150,7 @@ async def preview(
 ):
     """The draft design drawn as a PDF. Read-only: no number is taken, nothing is stored or sent. Every page is marked as a sample."""
     internship = await _internship(db, internship_id, organization_id)
-    pdf, pages, watermark = await ReceiptDesignService(db).preview(internship, user, payload.design, payload.kind, payload.source, payload.transaction_id)
+    pdf, pages, watermark = await ReceiptDesignService(db).preview(internship, user, payload.design, payload.kind, payload.source, payload.transaction_id, payload.sample)
     return Response(
         content=pdf, media_type="application/pdf",
         headers={**_SAFE_HEADERS, "Content-Disposition": 'inline; filename="receipt-preview.pdf"', "X-Page-Count": str(pages), "X-Watermark": watermark,

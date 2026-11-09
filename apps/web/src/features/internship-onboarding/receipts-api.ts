@@ -8,6 +8,7 @@ export type AssetKind = "logo" | "signature" | "stamp";
 export interface ImageSlot {
   show: boolean;
   asset_id: string | null;
+  align: "auto" | HeaderAlign;
   width_mm: number;
   height_mm: number;
 }
@@ -19,19 +20,90 @@ export interface ReceiptSections {
   programme: boolean;
   payment_method: boolean;
   issuer_contacts: boolean;
+  issuer_address: boolean;
   thank_you: boolean;
   footer: boolean;
 }
+
+/** Every fixed word on a document (modules/internship_onboarding/receipt_design.py, `Labels`). */
+export interface ReceiptLabels {
+  title_receipt: string;
+  title_tax_invoice: string;
+  title_credit_note: string;
+  subtitle_receipt: string;
+  subtitle_tax_invoice: string;
+  subtitle_credit_note: string;
+  number: string;
+  issue_date: string;
+  gstin: string;
+  mobile: string;
+  billed_to: string;
+  payment_details: string;
+  application: string;
+  programme: string;
+  payment_method: string;
+  transaction_ref: string;
+  payment_date: string;
+  against: string;
+  payment_status: string;
+  col_description: string;
+  col_amount: string;
+  total_received: string;
+  total_refunded: string;
+  status_paid: string;
+  status_refunded: string;
+  status_paid_word: string;
+  status_refunded_word: string;
+  system_line: string;
+  page: string;
+}
+
+export interface ReceiptStyle {
+  body_size: number;
+  title_size: number;
+  issuer_size: number;
+  section_gap_mm: number;
+  margin_x_mm: number;
+  table_borders: "lines" | "grid" | "none";
+  header_rule: boolean;
+}
+
+export type BodyPart = "details" | "items" | "thank_you" | "signature";
 
 export interface ReceiptDesign {
   branding: { brand_color: string; accent_color: string; header_align: HeaderAlign };
   contacts: { website: string; email: string; phone: string };
   sections: ReceiptSections;
-  texts: { thank_you: string; footer: string };
+  texts: { thank_you: string; footer: string; header_text: string; description_note: string; terms: string };
+  labels: ReceiptLabels;
+  style: ReceiptStyle;
   logo: ImageSlot;
   signature: ImageSlot;
   stamp: ImageSlot;
+  signature_align: HeaderAlign;
   signatory_label: string;
+  body_order: BodyPart[];
+}
+
+/** What a SAMPLE preview shows instead of a real customer and payment. Used for drawing the preview only: never saved. */
+export interface SampleData {
+  customer_name?: string;
+  customer_email?: string;
+  customer_mobile?: string;
+  amount?: string;
+  description?: string;
+  application_reference?: string;
+  programme?: string;
+  payment_method?: string;
+  transaction_reference?: string;
+}
+
+export interface IssuerIdentity {
+  legal_name: string;
+  address: string;
+  gstin: string | null;
+  receipt_prefix: string;
+  footer: string;
 }
 
 export interface ReceiptAssetInfo {
@@ -61,7 +133,7 @@ export interface DesignerView {
   templates: ReceiptTemplate[];
   assets: ReceiptAssetInfo[];
   can_edit: boolean;
-  issuer: { legal_name: string; address: string; gstin: string | null; receipt_prefix: string; footer: string };
+  issuer: IssuerIdentity;
   fee: { tax_mode: string; invoices_issued: boolean };
 }
 
@@ -120,7 +192,9 @@ export const receiptsApi = {
     apiClient.put<{ version: number; message: string }>(`${designer(id)}/design`, { scope, design, base_version: baseVersion }).then((r) => r.data),
   reset: (id: string, scope: "internship" | "organization") => apiClient.delete(`${designer(id)}/design`, { params: { scope } }).then((r) => r.data),
   /** Read-only: the PDF as the draft would draw it. Nothing is issued, numbered, stored or sent. */
-  preview: (id: string, body: { design?: ReceiptDesign; kind: ReceiptKind; source: "sample" | "transaction"; transaction_id?: string }) =>
+  /** The legal identity goes through the finance settings (`config.issuer`): same validation, versions and permission as Settings. */
+  saveIssuer: (id: string, body: IssuerIdentity) => apiClient.put<{ settings_version: number; message: string }>(`${designer(id)}/issuer`, body).then((r) => r.data),
+  preview: (id: string, body: { design?: ReceiptDesign; kind: ReceiptKind; source: "sample" | "transaction"; transaction_id?: string; sample?: SampleData }) =>
     apiClient.post<Blob>(`${designer(id)}/preview`, body, { responseType: "blob" }).then(
       (r): PreviewResult => ({ blob: r.data, pages: Number(r.headers["x-page-count"] ?? 1), watermark: String(r.headers["x-watermark"] ?? "") }),
     ),

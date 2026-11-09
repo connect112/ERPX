@@ -17,15 +17,20 @@ interface Props {
   assets: ReceiptAssetInfo[];
   canEdit: boolean;
   onChange: (patch: Partial<ImageSlot>) => void;
-  onUploaded: () => void;
+  /** The image that was just uploaded (already chosen for this slot): the designer adds it to its list without reloading anything. */
+  onUploaded: (asset: ReceiptAssetInfo) => void;
+  /** Offer the alignment choice (the logo). */
+  alignable?: boolean;
 }
 
-/** A thumbnail of a stored image, fetched with the staff member's own login and released when it is replaced or the panel closes. */
+/** A thumbnail of a stored image, fetched with the staff member's own login and released when it is replaced or the panel closes. The box has
+ *  a fixed size from the start, so the layout does not move when the picture arrives. */
 export function AssetThumb({ internshipId, assetId, alt }: { internshipId: string; assetId: string; alt: string }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     let made: string | null = null;
+    setUrl(null);
     receiptsApi
       .assetImage(internshipId, assetId)
       .then((blob) => {
@@ -39,18 +44,22 @@ export function AssetThumb({ internshipId, assetId, alt }: { internshipId: strin
       if (made) URL.revokeObjectURL(made);
     };
   }, [internshipId, assetId]);
-  return url ? <img src={url} alt={alt} className="max-h-16 max-w-[8rem] rounded border bg-white object-contain p-1" /> : <div className="h-12 w-20 rounded border bg-muted" aria-hidden />;
+  return (
+    <div className="flex h-16 w-28 shrink-0 items-center justify-center rounded border bg-white p-1">
+      {url ? <img src={url} alt={alt} className="max-h-full max-w-full object-contain" /> : <span className="h-8 w-16 rounded bg-muted" aria-hidden />}
+    </div>
+  );
 }
 
-export function ReceiptImageSlot({ internshipId, kind, label, slot, assets, canEdit, onChange, onUploaded }: Props) {
+export function ReceiptImageSlot({ internshipId, kind, label, slot, assets, canEdit, onChange, onUploaded, alignable }: Props) {
   const [problem, setProblem] = useState<string | null>(null);
   const mine = assets.filter((a) => a.kind === kind);
   const upload = useMutation({
     mutationFn: (file: File) => receiptsApi.uploadAsset(internshipId, kind, file),
     onSuccess: (asset) => {
       setProblem(null);
-      onUploaded();
-      onChange({ asset_id: asset.id, show: true });
+      onChange({ asset_id: asset.id, show: true }); // the new image is chosen for this slot straight away
+      onUploaded(asset);
     },
     onError: (e) => setProblem(errorMessage(e, "The image could not be uploaded.")),
   });
@@ -75,7 +84,7 @@ export function ReceiptImageSlot({ internshipId, kind, label, slot, assets, canE
           <>
             <label className="inline-flex cursor-pointer items-center gap-1 text-sm text-primary">
               <Upload className="h-4 w-4" />
-              {slot.asset_id ? "Replace" : "Upload"} (PNG or JPG, up to 2 MB)
+              {slot.asset_id ? "Upload another" : "Upload"} (PNG or JPG, up to 2 MB)
               <input
                 type="file"
                 className="sr-only"
@@ -97,12 +106,12 @@ export function ReceiptImageSlot({ internshipId, kind, label, slot, assets, canE
           </>
         )}
       </div>
-      {mine.length > 1 && canEdit && (
+      {mine.length >= 1 && canEdit && (
         <select
           aria-label={`Use a saved ${label.toLowerCase()}`}
           className="w-full rounded-md border bg-background px-2 py-1 text-sm"
           value={slot.asset_id ?? ""}
-          onChange={(e) => onChange({ asset_id: e.target.value || null })}
+          onChange={(e) => onChange({ asset_id: e.target.value || null, show: e.target.value ? true : slot.show })}
         >
           <option value="">Choose a saved image…</option>
           {mine.map((a) => (
@@ -120,7 +129,20 @@ export function ReceiptImageSlot({ internshipId, kind, label, slot, assets, canE
           </label>
         ))}
       </div>
-      {upload.isPending && <p className="text-xs text-muted-foreground">Uploading…</p>}
+      {alignable && (
+        <label className="block space-y-1 text-xs text-muted-foreground">
+          Alignment
+          <select aria-label={`${label} alignment`} className="w-full rounded-md border bg-background px-2 py-1 text-sm" value={slot.align} onChange={(e) => onChange({ align: e.target.value as ImageSlot["align"] })}>
+            <option value="auto">Follow the header alignment</option>
+            <option value="left">Left</option>
+            <option value="center">Centre</option>
+            <option value="right">Right</option>
+          </select>
+        </label>
+      )}
+      <p className="min-h-4 text-xs text-muted-foreground" aria-live="polite">
+        {upload.isPending ? "Uploading…" : ""}
+      </p>
       {problem && (
         <p className="text-xs text-destructive" role="alert">
           {problem}
