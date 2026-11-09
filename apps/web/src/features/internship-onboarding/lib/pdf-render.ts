@@ -14,14 +14,25 @@ export interface RenderedPdf {
 }
 
 type PdfJs = typeof import("pdfjs-dist");
-let loading: Promise<PdfJs> | null = null;
+interface Engine {
+  lib: PdfJs;
+  worker: InstanceType<PdfJs["PDFWorker"]>;
+}
+let loading: Promise<Engine> | null = null;
 
-function pdfjs(): Promise<PdfJs> {
+/**
+ * pdf.js and ONE background worker, created the first time a PDF is shown and kept for the life of the page.
+ *
+ * The worker is bundled by Vite as an ordinary script (`?worker`), so it is served as `assets/*.js` with a JavaScript type. It must not be
+ * loaded by URL as a `.mjs` file: the production nginx serves `.mjs` as application/octet-stream, which a browser refuses for a module
+ * worker (and for the fallback that pdf.js tries when the worker fails), so every preview ended in an error.
+ */
+function engine(): Promise<Engine> {
   loading ??= (async () => {
-    const lib = await import("pdfjs-dist");
-    lib.GlobalWorkerOptions.workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
-    return lib;
+    const [lib, { default: PdfWorker }] = await Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?worker")]);
+    return { lib, worker: new lib.PDFWorker({ port: new PdfWorker() as never }) }; // (pdf.js's bundled typings wrongly declare `port` as null only)
   })();
+  loading.catch(() => (loading = null)); // a failed start is tried again on the next preview, not remembered
   return loading;
 }
 
@@ -32,8 +43,9 @@ export interface RenderOptions {
 }
 
 export async function renderPdf(blob: Blob, host: HTMLElement, { zoom, signal }: RenderOptions): Promise<RenderedPdf> {
-  const lib = await pdfjs();
-  const doc = await lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+  const { lib, worker } = await engine();
+  // the shared worker is passed in, so destroying one document never stops the worker the next preview needs
+  const doc = await lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), worker }).promise;
   const stop = () => {
     void doc.destroy();
     throw new DOMException("The preview was replaced.", "AbortError");

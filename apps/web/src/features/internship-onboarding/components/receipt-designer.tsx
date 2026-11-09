@@ -10,6 +10,7 @@ import { onboardingFlowApi } from "@/features/internship-onboarding/api";
 import { PdfPane } from "@/features/internship-onboarding/components/pdf-pane";
 import { Block, Field, IssuerBlock, LayoutBlock, SampleBlock, TitlesBlock, WordingBlock } from "@/features/internship-onboarding/components/receipt-designer-fields";
 import { ReceiptImageSlot } from "@/features/internship-onboarding/components/receipt-image-slot";
+import { designerKey } from "@/features/internship-onboarding/lib/designer-key";
 import { KIND_LABELS, MANDATORY_PARTS, OPTIONAL_SECTIONS, brandColorProblem, sameDesign, sampleBody, sourceLabel, withPatch } from "@/features/internship-onboarding/lib/receipt-design";
 import {
   type DesignerView,
@@ -23,7 +24,6 @@ import {
 
 type Scope = "internship" | "organization";
 const selectClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";
-export const designerKey = (internshipId: string) => ["receipt-designer", internshipId] as const;
 
 function ColorField({ id, label, value, onChange, disabled }: { id: string; label: string; value: string; onChange: (v: string) => void; disabled: boolean }) {
   const problem = id === "brand-color" ? brandColorProblem(value) : null;
@@ -163,9 +163,10 @@ export function ReceiptDesigner({ internshipId, view }: { internshipId: string; 
   const blocked = brandColorProblem(draft.branding.brand_color) !== null;
   const rows = (payments.data ?? []).filter((p) => p.status === "confirmed" && (p.kind === "payment" || p.kind === "refund"));
 
+  // two columns only where the preview gets a useful width (a 1024px window leaves it under 300px); narrower windows stack them
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
-      <div className="space-y-3 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pr-2" data-testid="settings-panel">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
+      <div className="min-w-0 space-y-3 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto xl:pr-2" data-testid="settings-panel">
         <div className="rounded-md bg-muted/40 p-3 text-sm">
           {view.effective.layout === "legacy" ? (
             <p role="note" data-testid="legacy-notice">
@@ -314,7 +315,7 @@ export function ReceiptDesigner({ internshipId, view }: { internshipId: string; 
         )}
       </div>
 
-      <div className="space-y-3 lg:sticky lg:top-2 lg:self-start">
+      <div className="min-w-0 space-y-3 xl:sticky xl:top-2 xl:self-start">
         <div className="flex flex-wrap items-end gap-2">
           <Field id="preview-kind" label="Document">
             <select id="preview-kind" className={selectClass} value={kind} disabled={source === "transaction"} onChange={(e) => setKind(e.target.value as ReceiptKind)}>

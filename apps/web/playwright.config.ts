@@ -20,6 +20,7 @@ const JWT_SECRET_KEY =
  */
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: /receipts?-.*\.spec\.ts/, // those run from playwright.receipts.config.ts (production build, no backend)
   fullyParallel: false,
   workers: 1,
   retries: 0,
