@@ -14,6 +14,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -33,6 +36,31 @@ MAX_PIXELS = 25_000_000  # refuses a decompression bomb before it is decoded
 MAX_EDGE_PX = {"logo": 900, "signature": 700, "stamp": 600}
 MAX_TEMPLATES = 50
 SOURCES = ("internship", "organization", "default")
+
+
+class SampleData(BaseModel):
+    """What a SAMPLE preview shows in place of a real customer and payment. Used only to draw the preview: it is never stored, never part of a
+    design, and cannot be used with a real payment (whose amounts, references and dates always come from the verified records)."""
+
+    model_config = ConfigDict(extra="forbid")
+    customer_name: str | None = Field(default=None, max_length=120)
+    customer_email: str | None = Field(default=None, max_length=120)
+    customer_mobile: str | None = Field(default=None, max_length=30)
+    amount: Decimal | None = Field(default=None, gt=0, le=1_000_000, max_digits=9, decimal_places=2)
+    description: str | None = Field(default=None, max_length=200)
+    application_reference: str | None = Field(default=None, max_length=40)
+    programme: str | None = Field(default=None, max_length=200)
+    payment_method: str | None = Field(default=None, max_length=40)
+    transaction_reference: str | None = Field(default=None, max_length=60)
+
+    @field_validator("*")
+    @classmethod
+    def _plain(cls, v):
+        if isinstance(v, str):
+            if any(ord(c) < 32 and c not in "\t" for c in v):
+                raise ValueError("That text contains characters that cannot be printed.")
+            return " ".join(v.split()) or None
+        return v
 
 
 class AssetError(ValidationError):
@@ -285,6 +313,24 @@ class ReceiptDesignService:
         template.archived = True
         await self.db.flush()
 
+    # ---------------------------------------------------------------- the issuer (the legal identity: finance-controlled, versioned)
+
+    async def save_issuer(self, internship: OurInternship, user: User, data: dict) -> int:
+        """Change the issuer's display identity through the existing, versioned onboarding settings (``config.issuer``): the same validation,
+        version history, audit trail and finance permission as editing it under Settings. There is no second record of the legal identity.
+        Only documents issued afterwards are affected."""
+        from modules.internship_onboarding.service import ConfigService, config_of, dump as dump_config
+
+        await self._need_manage(user)
+        allowed = {"legal_name", "address", "gstin", "receipt_prefix", "footer"}
+        if set(data) - allowed:
+            raise ValidationError("Only the legal name, address, GSTIN, number prefix and footer can be changed here.")
+        _, config = await config_of(self.db, internship)
+        settings_doc = dump_config(config)
+        settings_doc["issuer"] = {**settings_doc["issuer"], **data}
+        record = await ConfigService(self.db).save(internship, user, settings_doc)
+        return record.version
+
     # ---------------------------------------------------------------- images
 
     async def assets(self, organization_id: uuid.UUID) -> list[ReceiptAsset]:
@@ -332,6 +378,7 @@ class ReceiptDesignService:
 
     async def preview(
         self, internship: OurInternship, user: User, design_data: dict | None, kind: str, source: str, transaction_id: uuid.UUID | None,
+        sample: dict | None = None,
     ) -> tuple[bytes, int, str]:  # fmt: skip
         """(PDF, pages, watermark) of a document as the draft design would draw it. Read-only: no document number is taken, nothing is
         stored or sent, no payment or ledger record is touched, and every page is marked as a sample or preview."""
@@ -343,6 +390,12 @@ class ReceiptDesignService:
 
         await self._need_view(user)
         org = internship.organization_id
+        if sample and source != "sample":
+            raise ValidationError("Sample data can only be used with a sample preview, never with a real payment.")
+        try:
+            overrides = SampleData.model_validate(sample or {})
+        except PydanticValidationError as exc:
+            raise ValidationError(first_error(exc)) from None
         design = await self.check(org, design_data) if design_data is not None else (await self.resolve(org, internship.id)).design
         images = await self.images_for(org, design)
         stub = {"design": dump(design)}
@@ -371,15 +424,18 @@ class ReceiptDesignService:
             rate, label = config.fees.tax_rate_percent, config.fees.tax_label
             if config.fees.tax_mode == "none" or rate <= 0:
                 rate, label = Decimal("18"), "GST"
-            amount = Decimal("5900.00")
+            amount = overrides.amount if overrides.amount is not None else Decimal("5900.00")
             issuer = config.issuer
             details = {
                 "kind": kind,
                 "issuer": {"name": issuer.legal_name or "Your organization", "address": issuer.address or "Sample address, City, State 000000",
                            "gstin": issuer.gstin or ("22AAAAA0000A1Z5" if kind == "tax_invoice" else None)},  # fmt: skip
-                "student": {"name": "Sample Student", "email": "student@example.com", **({"phone": "98765 43210"} if design.sections.student_mobile else {})},
-                "application_reference": "ERPX-INT-2026-000001", "internship": internship.title, "description": config.fees.description,
-                "method": "Online (Cashfree)", "transaction_reference": "SAMPLE-1234567890", "paid_on": now().date().isoformat(),
+                "student": {"name": overrides.customer_name or "Sample Student", "email": overrides.customer_email or "student@example.com",
+                            **({"phone": overrides.customer_mobile or "98765 43210"} if design.sections.student_mobile else {})},  # fmt: skip
+                "application_reference": overrides.application_reference or "ERPX-INT-2026-000001", "internship": overrides.programme or internship.title,
+                "description": overrides.description or config.fees.description,
+                "method": overrides.payment_method or "Online (Cashfree)", "transaction_reference": overrides.transaction_reference or "SAMPLE-1234567890",
+                "paid_on": now().date().isoformat(),
                 "issued_on": now().date().isoformat(), "currency": config.fees.currency, "amount": str(amount),
                 "tax": financial.tax_lines(amount, {"tax_mode": "inclusive", "tax_rate_percent": str(rate), "tax_label": label}) if kind == "tax_invoice" else None,
                 "against": "Receipt SAMPLE-0001" if kind == "credit_note" else None, "footer": issuer.footer,

@@ -30,7 +30,8 @@ export default defineConfig({
         // per-package) avoids request waterfalls / high fragmentation.
         // Per-route app code is already split via React.lazy in the router.
         manualChunks(id) {
-          if (id.includes("node_modules")) {
+          // pdf.js stays out of the shared chunk: it is large and only the receipt preview needs it (loaded on demand)
+          if (id.includes("node_modules") && !id.includes("pdfjs-dist")) {
             return "vendor";
           }
         },
