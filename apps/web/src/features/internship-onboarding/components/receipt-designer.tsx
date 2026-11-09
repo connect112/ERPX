@@ -163,10 +163,12 @@ export function ReceiptDesigner({ internshipId, view }: { internshipId: string; 
   const blocked = brandColorProblem(draft.branding.brand_color) !== null;
   const rows = (payments.data ?? []).filter((p) => p.status === "confirmed" && (p.kind === "payment" || p.kind === "refund"));
 
-  // two columns only where the preview gets a useful width (a 1024px window leaves it under 300px); narrower windows stack them
+  // From 1024px the settings and the preview sit side by side, each scrolling on its own inside a column as tall as the visible area below the
+  // top bar (4rem) and a small margin; the page itself then scrolls only by the height of the page header above the designer. Below 1024px
+  // everything stacks and the page scrolls normally.
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
-      <div className="min-w-0 space-y-3 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto xl:pr-2" data-testid="settings-panel">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+      <div className="min-w-0 space-y-3 lg:h-[calc(100vh-5rem)] lg:min-h-[26rem] lg:overflow-y-auto lg:pr-2" data-testid="settings-panel">
         <div className="rounded-md bg-muted/40 p-3 text-sm">
           {view.effective.layout === "legacy" ? (
             <p role="note" data-testid="legacy-notice">
@@ -315,7 +317,7 @@ export function ReceiptDesigner({ internshipId, view }: { internshipId: string; 
         )}
       </div>
 
-      <div className="min-w-0 space-y-3 xl:sticky xl:top-2 xl:self-start">
+      <div className="flex min-w-0 flex-col gap-3 lg:h-[calc(100vh-5rem)] lg:min-h-[26rem]">
         <div className="flex flex-wrap items-end gap-2">
           <Field id="preview-kind" label="Document">
             <select id="preview-kind" className={selectClass} value={kind} disabled={source === "transaction"} onChange={(e) => setKind(e.target.value as ReceiptKind)}>
@@ -356,6 +358,7 @@ export function ReceiptDesigner({ internshipId, view }: { internshipId: string; 
           filename={source === "sample" ? "receipt-sample.pdf" : "receipt-preview.pdf"}
           loading={draw.isPending}
           error={previewError}
+          fill
         />
         <p className="text-xs text-muted-foreground">The preview is read-only: no document number is used, nothing is saved or emailed, and every page is marked so it cannot be mistaken for a real receipt.</p>
       </div>

@@ -82,7 +82,9 @@ export function ReceiptImageSlot({ internshipId, kind, label, slot, assets, canE
         {slot.asset_id ? <AssetThumb internshipId={internshipId} assetId={slot.asset_id} alt={`${label} in use`} /> : <span className="text-xs text-muted-foreground">No image chosen.</span>}
         {canEdit && (
           <>
-            <label className="inline-flex cursor-pointer items-center gap-1 text-sm text-primary">
+            {/* "relative": the hidden file input is positioned inside this label. Without it the input is placed against the whole window, far below the
+                page, and gives the document thousands of pixels of blank scrolling. */}
+            <label className="relative inline-flex cursor-pointer items-center gap-1 text-sm text-primary">
               <Upload className="h-4 w-4" />
               {slot.asset_id ? "Upload another" : "Upload"} (PNG or JPG, up to 2 MB)
               <input

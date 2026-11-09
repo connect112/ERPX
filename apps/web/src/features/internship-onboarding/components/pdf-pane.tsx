@@ -16,6 +16,8 @@ interface Props {
   filename: string;
   loading?: boolean;
   error?: string | null;
+  /** From 1024px, fill the height of the column it sits in (instead of a fixed height) and scroll inside it. */
+  fill?: boolean;
 }
 
 /**
@@ -23,7 +25,7 @@ interface Props {
  * here takes focus or scrolls the page, the pane keeps a fixed height so the layout around it never changes size, and a new preview
  * replaces the old one only once it is ready, keeping the pane's own scroll position.
  */
-export function PdfPane({ title, blob, pages, note, filename, loading, error }: Props) {
+export function PdfPane({ title, blob, pages, note, filename, loading, error, fill }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState<number>(100);
   const [drawn, setDrawn] = useState<number | null>(null);
@@ -85,7 +87,7 @@ export function PdfPane({ title, blob, pages, note, filename, loading, error }: 
 
   const count = drawn ?? pages ?? null;
   return (
-    <div className="space-y-2">
+    <div className={`space-y-2 ${fill ? "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:space-y-0 lg:gap-2" : ""}`}>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-medium">{title}</span>
         {count != null && (
@@ -117,7 +119,7 @@ export function PdfPane({ title, blob, pages, note, filename, loading, error }: 
         </p>
       )}
       {/* a fixed-size pane: whatever happens inside it, the page around it keeps its size and position */}
-      <div className="relative h-[72vh] min-h-[22rem] overflow-hidden rounded-md border bg-muted/30">
+      <div className={`relative h-[72vh] min-h-[22rem] overflow-hidden rounded-md border bg-muted/30 ${fill ? "lg:h-auto lg:min-h-0 lg:flex-1" : ""}`}>
         <div ref={host} className="absolute inset-0 overflow-auto p-3" data-testid="pdf-pages" />
         {!blob && !error && (
           <p className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-sm text-muted-foreground">{loading ? "Drawing the preview…" : "No preview yet."}</p>
