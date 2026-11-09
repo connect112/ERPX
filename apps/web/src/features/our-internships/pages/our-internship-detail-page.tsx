@@ -193,7 +193,8 @@ export function OurInternshipDetailPage() {
       {select.isSuccess && <p className="text-sm text-emerald-700 dark:text-emerald-400">{select.data.message}</p>}
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        {/* a dozen tabs are wider than a laptop window: they wrap onto a second row instead of widening the whole page */}
+        <TabsList className="h-auto max-w-full flex-wrap justify-start">
           <TabsTrigger value="students">Students{board ? ` (${board.students.length})` : ""}</TabsTrigger>
           <TabsTrigger value="teams">Teams{board ? ` (${board.teams.filter((t) => t.team_id).length})` : ""}</TabsTrigger>
           <TabsTrigger value="selected">Selected ({i.selected_count})</TabsTrigger>

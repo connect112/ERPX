@@ -191,7 +191,7 @@ export function LayoutBlock({ design, canEdit, set }: { design: ReceiptDesign; c
   );
 }
 
-export const SAMPLE_FIELDS: { key: string; label: string }[] = [
+const SAMPLE_FIELDS: { key: string; label: string }[] = [
   { key: "customer_name", label: "Customer name" },
   { key: "customer_email", label: "Customer email" },
   { key: "customer_mobile", label: "Customer mobile" },

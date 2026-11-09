@@ -4,7 +4,8 @@ import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReceiptDesigner, designerKey } from "@/features/internship-onboarding/components/receipt-designer";
+import { ReceiptDesigner } from "@/features/internship-onboarding/components/receipt-designer";
+import { designerKey } from "@/features/internship-onboarding/lib/designer-key";
 import { asset, design, view } from "@/features/internship-onboarding/components/receipt-fixtures";
 import { brandColorProblem, contrastWithWhite, movePart, titleProblem } from "@/features/internship-onboarding/lib/receipt-design";
 import type { DesignerView } from "@/features/internship-onboarding/receipts-api";

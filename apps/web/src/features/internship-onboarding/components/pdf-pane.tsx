@@ -56,7 +56,10 @@ export function PdfPane({ title, blob, pages, note, filename, loading, error }: 
         setProblem(null);
       })
       .catch((e: unknown) => {
-        if ((e as { name?: string })?.name !== "AbortError") setProblem("The preview could not be shown here. You can still download it.");
+        if ((e as { name?: string })?.name === "AbortError") return; // replaced by a newer preview: not a failure
+        console.error("The PDF could not be drawn", e); // the real reason stays visible to whoever opens the console
+        const reason = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").slice(0, 140);
+        setProblem(`The preview could not be shown here${reason ? ` (${reason})` : ""}. You can still download it.`);
       });
     return () => {
       abort.abort();

@@ -111,9 +111,12 @@ describe("PdfPane", () => {
   });
 
   it("says so when a document cannot be drawn, and when a drawing is replaced meanwhile it stays quiet", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     render.renderPdf.mockRejectedValueOnce(new Error("broken pdf"));
     await show();
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("could not be shown here");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("(broken pdf)"); // the real reason is shown, not hidden
+    expect(console.error).toHaveBeenCalledWith("The PDF could not be drawn", expect.any(Error)); // and kept in the console for diagnosis
     render.renderPdf.mockRejectedValue(Object.assign(new Error("replaced"), { name: "AbortError" }));
     await show({ blob: pdf("another") });
     expect(container.querySelector('[role="alert"]')?.textContent ?? "").toContain("could not be shown here"); // (the earlier message is not repeated or doubled)

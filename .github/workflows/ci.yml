@@ -216,6 +216,15 @@ jobs:
         working-directory: apps/${{ matrix.app }}
         run: npm run build
 
+      # The receipt pages in a real browser: the production build (just built above) is served the way the nginx image serves it, and
+      # the real pdf.js draws genuine PDFs. Unit tests mock the PDF renderer, so only this step shows that previews really appear.
+      - name: Receipt Designer in a real browser
+        if: ${{ matrix.app == 'web' }}
+        working-directory: apps/web
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test -c playwright.receipts.config.ts
+
       - name: Run frontend tests
         working-directory: apps/${{ matrix.app }}
         # Only apps/web has a "test" script today (see
