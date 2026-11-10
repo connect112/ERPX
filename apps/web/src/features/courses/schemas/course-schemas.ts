@@ -9,6 +9,14 @@ export const courseLevelLabels: Record<CourseLevel, string> = {
   advanced: "Advanced",
 };
 
+export const courseTypeValues = ["regular", "internship"] as const;
+export type CourseTypeValue = (typeof courseTypeValues)[number];
+
+export const courseTypeLabels: Record<CourseTypeValue, string> = {
+  regular: "Regular Course",
+  internship: "Internship Course",
+};
+
 export const courseFormSchema = z.object({
   categoryId: z.string().optional().or(z.literal("")),
   title: z.string().min(2, "Title is required."),

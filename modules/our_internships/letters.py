@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.core.exceptions import NotFoundError, ServiceUnavailableError, ValidationError
+from modules.courses.repository import CourseRepository
 from modules.institutions.models import Institution, InstitutionStudent
 from modules.our_internships.letter_config import (
     ASSET_KINDS,
@@ -34,6 +35,7 @@ from modules.our_internships.letter_config import (
     fill,
     program_problems,
     unprintable,
+    uses_placeholder,
 )
 from modules.our_internships.letter_models import (
     DeliveryStatus,
@@ -102,8 +104,14 @@ def letter_filename(name: str, internship_id: uuid.UUID, version: int) -> str:
     return f"OfferLetter_{safe[:60]}_{internship_id.hex[:8].upper()}{suffix}.pdf"
 
 
-def student_hash(settings_hash: str, facts: StudentFacts, reference: str) -> str:
-    payload = json.dumps([settings_hash, facts.__dict__, reference], sort_keys=True)
+def student_hash(settings_hash: str, facts: StudentFacts, reference: str, course_name: str | None = None) -> str:
+    """What a generated letter was made from. ``course_name`` joins the hash only for a letter whose printed text uses
+    ``{{lms_course_name}}`` (None otherwise), so letters that do not mention the course keep exactly the hash they always had and
+    linking or renaming a course never marks them outdated."""
+    parts: list[Any] = [settings_hash, facts.__dict__, reference]
+    if course_name is not None:
+        parts.append({"lms_course_name": course_name})
+    payload = json.dumps(parts, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -117,6 +125,12 @@ class Loaded:
     approved_hash: str | None
     approved_at: datetime | None
     settings_hash: str
+    course_name: str = ""  # the linked LMS course's title now (blank when none is linked)
+    uses_course: bool = False  # the letter's printed text uses {{lms_course_name}}
+
+    @property
+    def course_for_hash(self) -> str | None:
+        return self.course_name if self.uses_course else None
 
 
 @dataclass
@@ -188,6 +202,10 @@ class LetterService:
             for k, r in chosen.items()
         }
         hashes = {k: r.sha256 for k, r in chosen.items()}
+        course_name = ""
+        if internship.lms_course_id is not None:
+            course = await CourseRepository(self.db).get_by_id(internship.lms_course_id, internship.organization_id)
+            course_name = course.title if course else ""
         # the approval lives with the internship's own row when it has one, otherwise with the organisation's
         holder = own_row if own_row and own_row.approved_hash else org_row
         approved_hash = holder.approved_hash if holder else None
@@ -200,6 +218,8 @@ class LetterService:
             approved_hash=approved_hash,
             approved_at=holder.approved_at if holder else None,
             settings_hash=config_hash(config, hashes),
+            course_name=course_name,
+            uses_course=uses_placeholder(config, "lms_course_name"),
         )
 
     async def save_config(self, internship: OurInternship, config: LetterConfig, scope: str, user_id: uuid.UUID) -> None:
@@ -281,6 +301,18 @@ class LetterService:
     def problems(self, internship: OurInternship, loaded: Loaded) -> list[str]:
         return program_problems(loaded.config, internship.title)
 
+    def notes(self, internship: OurInternship, loaded: Loaded) -> list[str]:
+        """Things worth knowing that do not stop anything. A letter never needs a course to be released."""
+        if not loaded.course_name and uses_placeholder(loaded.config, "lms_course_name", in_email=True):
+            return ["The wording uses the LMS course name, but no LMS course is linked to this internship, so it will be left blank."]
+        return []
+
+    async def course_name_of(self, internship: OurInternship) -> str:
+        if internship.lms_course_id is None:
+            return ""
+        course = await CourseRepository(self.db).get_by_id(internship.lms_course_id, internship.organization_id)
+        return course.title if course else ""
+
     async def approve_design(self, internship: OurInternship, user_id: uuid.UUID) -> None:
         loaded = await self.load(internship)
         problems = self.problems(internship, loaded)
@@ -329,7 +361,7 @@ class LetterService:
             stale = bool(
                 letter
                 and letter.status in (LetterStatus.READY.value, LetterStatus.APPROVED.value, LetterStatus.RELEASED.value)
-                and letter.data_hash != student_hash(loaded.settings_hash, facts, reference)
+                and letter.data_hash != student_hash(loaded.settings_hash, facts, reference, loaded.course_for_hash)
             )
             out.append(
                 {
@@ -421,7 +453,7 @@ class LetterService:
                     current.student_name, current.student_email, current.institution_name = facts.name, facts.email, facts.institution
                     created.append(current.id)
                     continue
-                outdated = current.data_hash != student_hash(loaded.settings_hash, facts, current.reference)
+                outdated = current.data_hash != student_hash(loaded.settings_hash, facts, current.reference, loaded.course_for_hash)
                 # regenerating is a deliberate act: named students are redone, and with no names only the outdated ones
                 if not regenerate or (student_ids is None and not outdated):
                     skipped += 1
@@ -488,14 +520,14 @@ class LetterService:
             when = datetime.now(timezone.utc)
             pdf, pages = build_letter_pdf(
                 loaded.config, facts, loaded.assets, internship.title, letter.reference, letter_date_text(loaded.config, when),
-                title=f"Internship offer letter - {facts.name}",
+                title=f"Internship offer letter - {facts.name}", course_name=loaded.course_name,
             )
             letter.student_name, letter.student_email, letter.institution_name = facts.name, facts.email, facts.institution
             letter.pdf_data = pdf
             letter.pdf_size = len(pdf)
             letter.page_count = pages
             letter.filename = letter_filename(facts.name, internship.id, letter.version)
-            letter.data_hash = student_hash(loaded.settings_hash, facts, letter.reference)
+            letter.data_hash = student_hash(loaded.settings_hash, facts, letter.reference, loaded.course_for_hash)
             letter.status = LetterStatus.READY.value
             letter.error = None
             letter.generated_at = when
@@ -538,7 +570,7 @@ class LetterService:
         bad = student_issues(facts)
         if bad:
             raise ValidationError("This student's letter cannot be made yet: " + " ".join(bad))
-        pdf, pages = build_letter_pdf(config, facts, loaded.assets, internship.title, reference, letter_date_text(config), title="Offer letter preview")
+        pdf, pages = build_letter_pdf(config, facts, loaded.assets, internship.title, reference, letter_date_text(config), title="Offer letter preview", course_name=loaded.course_name)
         return pdf, pages, sample
 
     # ------------------------------------------------------------------ approving
@@ -591,7 +623,7 @@ class LetterService:
             raise ValidationError(f"{exc}. Nothing was queued. Fix it in Email Studio, or release again choosing the legacy email.") from exc
         loaded = await self.load(internship)
         if plan.source == "studio":  # the template must work before anything is queued
-            sample = {**self.email_values(loaded.config, SAMPLE_FACTS, internship.title, "OFR-PREFLIGHT-000"), **await preview_onboarding_values(self.db, internship, None)}
+            sample = {**self.email_values(loaded.config, SAMPLE_FACTS, internship.title, "OFR-PREFLIGHT-000", course_name=loaded.course_name), **await preview_onboarding_values(self.db, internship, None)}
             try:
                 await self.render_offer(internship, loaded.config, sample, plan)
             except TemplateRenderFailed as exc:
@@ -657,7 +689,7 @@ class LetterService:
         if chosen is None:
             return None
         selection, student, institution = chosen
-        values = self.email_values(config, facts_of(student, institution), internship.title, letter.reference, letter.generated_at)
+        values = self.email_values(config, facts_of(student, institution), internship.title, letter.reference, letter.generated_at, course_name=await self.course_name_of(internship))
         values.update(await preview_onboarding_values(self.db, internship, selection))
         try:
             await self.render_offer(internship, config, values, plan)
@@ -678,8 +710,8 @@ class LetterService:
 
     # ------------------------------------------------------------------ the email
 
-    def email_values(self, config: LetterConfig, facts: StudentFacts, internship_title: str, reference: str, when: datetime | None = None) -> dict[str, str]:
-        return letter_values(config, facts, internship_title, reference, letter_date_text(config, when))
+    def email_values(self, config: LetterConfig, facts: StudentFacts, internship_title: str, reference: str, when: datetime | None = None, course_name: str = "") -> dict[str, str]:
+        return letter_values(config, facts, internship_title, reference, letter_date_text(config, when), course_name)
 
     def render_email(self, config: LetterConfig, values: dict[str, str]) -> tuple[str, str, str]:
         from html import escape
@@ -754,7 +786,7 @@ class LetterService:
         from modules.internship_onboarding.service import config_of
 
         _, onboarding = await config_of(self.db, internship)
-        values = self.email_values(loaded.config, facts, internship.title, reference)
+        values = self.email_values(loaded.config, facts, internship.title, reference, course_name=loaded.course_name)
         # a preview only READS: no application, reference number or link is created, and the link shown is a plain sample
         values.update(await preview_onboarding_values(self.db, internship, selection if student_id is not None else None, onboarding))
         out: dict[str, Any] = {
@@ -787,7 +819,7 @@ class LetterService:
 
         loaded = await self.load(internship)
         pdf, _, _ = await self.preview(internship, None, None)
-        values = self.email_values(loaded.config, SAMPLE_FACTS, internship.title, "OFR-TEST-000")
+        values = self.email_values(loaded.config, SAMPLE_FACTS, internship.title, "OFR-TEST-000", course_name=loaded.course_name)
         values.update(await preview_onboarding_values(self.db, internship, None))  # a sample link: a test never issues a real one
         try:
             subject, text, html, note = await self.render_offer_email(internship, loaded.config, values)

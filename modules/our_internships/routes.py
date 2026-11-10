@@ -398,8 +398,8 @@ async def lms_courses(
     db: AsyncSession = Depends(get_db),
 ):
     """The courses a student can be enrolled in when given LMS access."""
-    await OurInternshipService(db).get(internship_id, organization_id)
-    return [CourseOption(id=c.id, title=c.title, is_published=c.is_published) for c in await OnboardingService(db).courses(organization_id)]
+    internship = await OurInternshipService(db).get(internship_id, organization_id)
+    return [CourseOption(**o) for o in await OnboardingService(db).course_options(internship)]
 
 
 @router.patch("/{internship_id}/selected/{student_id}/onboarding", response_model=SelectedStudent)

@@ -66,6 +66,7 @@ class SettingsOut(BaseModel):
     design_state: Literal["not_approved", "approved", "changed"]
     design_approved_at: datetime | None = None
     problems: list[str]
+    notes: list[str] = []
     placeholders: dict[str, str]
     internship_title: str
     counts: dict[str, int]
@@ -245,6 +246,7 @@ async def get_letter_settings(
         design_state=service.design_state(loaded),
         design_approved_at=loaded.approved_at,
         problems=service.problems(internship, loaded),
+        notes=service.notes(internship, loaded),
         placeholders=PLACEHOLDERS,
         internship_title=internship.title,
         counts=await service.counts(internship),

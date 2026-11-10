@@ -78,6 +78,7 @@ _CATEGORY_OF_KEY = {
     "internship_onboarding_receipt": "Internship Onboarding",
     "internship_onboarding_completed": "Internship Onboarding",
     "internship_welcome": "Internship Onboarding",
+    "internship_account_welcome": "Internship Onboarding",
     "internship_completion_certificate": "Internship Certificates",
     "internship_participation_certificate": "Internship Certificates",
     "workshop_exam_invite": "Workshop Notifications",
@@ -630,8 +631,8 @@ class StudioService:
             raise NotFoundError("Selected student", student_id)
         selection, student, institution = rows[0]
         facts = facts_of(student, institution)
-        values: dict[str, object] = dict(letter_values(loaded.config, facts, internship.title, selection.offer_reference or "OFR-PREVIEW", letter_date_text(loaded.config)))
-        values.update(full_name=facts.name, internship_title=internship.title, course_title=internship.title, login_url=values.get("login_url", ""))
+        values: dict[str, object] = dict(letter_values(loaded.config, facts, internship.title, selection.offer_reference or "OFR-PREVIEW", letter_date_text(loaded.config), loaded.course_name))
+        values.update(full_name=facts.name, internship_title=internship.title, course_title=loaded.course_name or internship.title, login_url=values.get("login_url", ""))
         return values
 
     def _draft_from(self, request_draft: DraftPayload, source_type: str) -> Draft:

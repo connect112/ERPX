@@ -2,6 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiClient } from "@/api/client";
 
+/** The LMS course linked to the student's internship. ``accessible``: their enrolment is live, so it can be opened. */
+export interface MyCourseRef {
+  id: string;
+  title: string;
+  level: string | null;
+  duration_hours: number | null;
+  accessible: boolean;
+}
+
 export interface MyInternship {
   id: string;
   selection_id: string;
@@ -10,6 +19,9 @@ export interface MyInternship {
   status: string;
   open_assignments: number;
   open_exams: number;
+  /** granted, or revoked when access was withdrawn (the internship is still listed, but nothing of it opens) */
+  lms_status: "granted" | "revoked";
+  course: MyCourseRef | null;
 }
 
 export interface StoredFile {

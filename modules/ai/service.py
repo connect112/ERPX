@@ -35,6 +35,7 @@ from modules.ai.repository import (
     MessageRepository,
 )
 from modules.attendance.repository import AttendanceRepository
+from modules.courses.models import CourseType
 from modules.courses.repository import CourseRepository
 from modules.crm.leads.repository import LeadRepository
 from modules.examinations.question_bank.repository import QuestionRepository
@@ -480,8 +481,9 @@ class CourseRecommendationService:
         enrollments = await self.enrollment_repo.list_for_student(student_id)
         enrolled_course_ids = {e.course_id for e in enrollments}
 
+        # only standalone courses are recommended: an internship course is part of an internship and is not something to enrol in alone
         catalog, _ = await self.course_repo.list_for_organization(
-            organization_id, is_published=True, skip=0, limit=200
+            organization_id, is_published=True, skip=0, limit=200, course_type=CourseType.REGULAR
         )
         available_catalog = [c for c in catalog if c.id not in enrolled_course_ids]
         if not available_catalog:

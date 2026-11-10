@@ -14,7 +14,7 @@ from sqlalchemy import func, select, text
 from modules.batches.models import Batch, BatchEnrollment, BatchStatus
 from modules.courses.chapters.repository import ChapterRepository
 from modules.courses.lessons.repository import LessonRepository
-from modules.courses.models import Course
+from modules.courses.models import Course, CourseType
 from modules.lms.enrollment.models import Enrollment, EnrollmentStatus
 from modules.lms.enrollment.repository import EnrollmentRepository
 from modules.organizations.repository import OrganizationRepository
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.api
 
 
 async def course_in(db, organization, *, published=True, chapters=1, title="Cloud Basics") -> Course:
-    course = Course(organization_id=organization.id, title=title, slug=f"c-{uuid.uuid4().hex[:8]}", is_published=published)
+    course = Course(organization_id=organization.id, title=title, slug=f"c-{uuid.uuid4().hex[:8]}", is_published=published, course_type=CourseType.INTERNSHIP)
     db.add(course)
     await db.flush()
     for i in range(chapters):
@@ -388,3 +388,31 @@ async def test_revoking_removes_the_batches_of_that_course_only_and_granting_aga
     assert await states() == {mine.id: "removed", other.id: "active"}  # live classes of this course stop; the other course is untouched
     assert (await grant(client, auth_headers, internship, s0)).status_code == 200
     assert await states() == {mine.id: "active", other.id: "active"}
+
+
+# ------------------------------------------------------------ two grants for the same person arriving together
+
+
+async def test_a_grant_that_loses_the_race_for_the_same_enrolment_finds_it_instead_of_failing(client, auth_headers, db_session, organization, rbac_seeded, monkeypatch):
+    first, (s0, _) = await world(db_session, organization)
+    second, (t0, _) = await world(db_session, organization)
+    course = await course_in(db_session, organization)
+    first.lms_course_id = second.lms_course_id = course.id
+    t0.email = s0.email
+    await db_session.flush()
+    await ready(db_session, first, s0)
+    assert (await grant(client, auth_headers, first, s0)).status_code == 200  # the winner made the enrolment
+    await ready(db_session, second, t0)
+
+    real = EnrollmentRepository.get_by_student_and_course
+    calls = {"n": 0}
+
+    async def stale_first_look(self, student_id, course_id):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else await real(self, student_id, course_id)  # the loser looked before the winner's row was visible
+
+    monkeypatch.setattr(EnrollmentRepository, "get_by_student_and_course", stale_first_look)
+    assert (await grant(client, auth_headers, second, t0)).status_code == 200  # no error, no second row
+    monkeypatch.undo()
+    assert len(await enrolments(db_session, course)) == 1
+    assert {s.lms_status for s in (await db_session.execute(select(InternshipSelection).where(InternshipSelection.lms_course_id == course.id))).scalars()} == {LmsStatus.GRANTED}

@@ -191,6 +191,16 @@ export interface CourseOption {
   id: string;
   title: string;
   is_published: boolean;
+  course_type: "regular" | "internship";
+  level: string | null;
+  duration_hours: number | null;
+  /** the course this internship uses now */
+  is_current: boolean;
+  /** published and with content: students can be enrolled in it */
+  ready: boolean;
+  problem: string | null;
+  /** other internships that use it */
+  also_used_by: string[];
 }
 
 export interface GrantResult {

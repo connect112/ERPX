@@ -343,6 +343,13 @@ class CourseOption(BaseModel):
     id: uuid.UUID
     title: str
     is_published: bool = True
+    course_type: str = "internship"
+    level: str | None = None
+    duration_hours: int | None = None
+    is_current: bool = False
+    ready: bool = True
+    problem: str | None = None
+    also_used_by: list[str] = Field(default_factory=list)
 
 
 class GrantLmsRequest(BaseModel):

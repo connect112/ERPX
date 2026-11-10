@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -27,7 +28,8 @@ from modules.authorization.service import AuthorizationService
 from modules.batches.models import Batch, BatchEnrollment, BatchEnrollmentStatus, BatchStatus
 from modules.batches.repository import BatchEnrollmentRepository, BatchRepository
 from modules.courses.chapters.repository import ChapterRepository
-from modules.courses.models import Course
+from modules.courses.chapters.models import Chapter
+from modules.courses.models import Course, CourseType
 from modules.courses.repository import CourseRepository
 from modules.institutions.models import InstitutionStudent
 from modules.lms.enrollment.models import EnrollmentStatus
@@ -158,6 +160,44 @@ class OnboardingService:
         courses, _ = await CourseRepository(self.db).list_for_organization(organization_id, limit=200)
         return courses
 
+    async def course_options(self, internship: OurInternship) -> list[dict]:
+        """The courses this internship can use: the organization's internship courses, plus the one it already uses (a regular
+        course linked before course types existed stays selectable so the screen can show it). Each says whether it is ready to
+        enrol students in, and which other internships use it."""
+        from modules.our_internships.course_links import linked_internships
+
+        repo = CourseRepository(self.db)
+        courses, _ = await repo.list_for_organization(internship.organization_id, limit=200, course_type=CourseType.INTERNSHIP)
+        current = internship.lms_course_id
+        if current is not None and all(c.id != current for c in courses):
+            existing = await repo.get_by_id(current, internship.organization_id)
+            if existing is not None:
+                courses = [existing, *courses]
+        counts = dict(
+            (
+                await self.db.execute(
+                    select(Chapter.course_id, func.count()).where(Chapter.course_id.in_([c.id for c in courses])).group_by(Chapter.course_id)
+                )
+            ).all()
+        ) if courses else {}
+        links = await linked_internships(self.db, internship.organization_id, [c.id for c in courses])
+        out = []
+        for c in courses:
+            problem = None
+            if not c.is_published:
+                problem = "Not published yet."
+            elif not counts.get(c.id):
+                problem = "Has no chapters yet."
+            out.append(
+                {
+                    "id": c.id, "title": c.title, "is_published": c.is_published, "course_type": c.course_type.value,
+                    "level": c.level.value, "duration_hours": c.duration_hours, "is_current": c.id == current,
+                    "ready": problem is None, "problem": problem,
+                    "also_used_by": [i.title for i in links.get(c.id, []) if i.id != internship.id],
+                }
+            )
+        return out
+
     async def course_problem(self, internship: OurInternship) -> str | None:
         """What stops students being enrolled in this internship's course, or None when it is ready: it must exist, be published
         and have at least one chapter."""
@@ -186,6 +226,8 @@ class OnboardingService:
         """Choose (or clear) the course. Linking a first course is always allowed. Replacing or clearing one needs the caller's
         confirmation, and is refused outright while students hold access through it: they would be left in the old course with
         nothing in ERPX pointing at it. Nobody is ever moved between courses silently."""
+        # one change at a time, and never while a grant is part-way: grants hold this row shared, this holds it exclusively
+        await self.db.refresh(internship, with_for_update=True)
         if course_id == internship.lms_course_id:
             return
         course = None
@@ -193,6 +235,11 @@ class OnboardingService:
             course = await CourseRepository(self.db).get_by_id(course_id, internship.organization_id)
             if course is None:
                 raise NotFoundError("Course", course_id)
+            if course.course_type != CourseType.INTERNSHIP:
+                raise ValidationError(
+                    f'"{course.title}" is a regular course. Only an Internship Course can be linked to an internship: '
+                    "change its type on the course's edit screen, or create an internship course."
+                )
         if internship.lms_course_id is not None:
             current = await CourseRepository(self.db).get_by_id(internship.lms_course_id, internship.organization_id)
             name = f'"{current.title}"' if current else "the current course"
@@ -277,6 +324,7 @@ class OnboardingService:
         # a manual grant and the automatic one can arrive together: take this student's row first, then look again, so two of
         # them never both create the enrolment
         await self.db.refresh(selection, with_for_update=True)
+        await self.db.refresh(internship, with_for_update={"read": True})  # the course cannot be changed while this grant is in flight
         blockers = grant_blockers(internship, selection, await self.course_problem(internship))
         if blockers:
             raise ValidationError(" ".join(blockers))
@@ -330,16 +378,7 @@ class OnboardingService:
         # the student role may be missing even on an existing account (a hackathon participant has only the restricted one)
         await AuthorizationService(self.db).assign_role(user.id, student_role.id, organization_id, user_id)
 
-        enrollments = EnrollmentRepository(self.db)
-        enrollment = await enrollments.get_by_student_and_course(erpx_student.id, course.id)
-        new_enrollment = enrollment is None
-        reactivated = False
-        if enrollment is None:
-            await enrollments.create(student_id=erpx_student.id, course_id=course.id, enrolled_on=date.today())
-        elif enrollment.status == EnrollmentStatus.DROPPED:
-            await enrollments.set_status(enrollment, EnrollmentStatus.ACTIVE)  # access given again; a finished course stays finished
-            reactivated = True
-        if new_enrollment or reactivated:
+        if await self._ensure_enrolment(erpx_student.id, course.id):
             await self._join_batch(organization_id, course.id, erpx_student.id)
 
         if created:
@@ -354,6 +393,27 @@ class OnboardingService:
         selection.lms_granted_by_user_id = user_id
         await self.db.flush()
         return GrantOutcome(created_account=created, email=email, full_name=student.name, reset_token=reset_token, course_title=course.title, internship_title=internship.title)
+
+    async def _ensure_enrolment(self, student_id: uuid.UUID, course_id: uuid.UUID) -> bool:
+        """Make sure the student has a live enrolment in the course, without ever making a second one. True when this call created it or
+        brought a dropped one back (a live or finished one is left as it is). Two grants for the same person (two internships, or a manual
+        and an automatic one) can arrive together: the database allows one enrolment per student and course, so the loser of the race
+        finds the winner's row instead of failing."""
+        enrollments = EnrollmentRepository(self.db)
+        enrollment = await enrollments.get_by_student_and_course(student_id, course_id)
+        if enrollment is None:
+            try:
+                async with self.db.begin_nested():
+                    await enrollments.create(student_id=student_id, course_id=course_id, enrolled_on=date.today())
+                return True
+            except IntegrityError:
+                enrollment = await enrollments.get_by_student_and_course(student_id, course_id)
+                if enrollment is None:
+                    raise
+        if enrollment.status == EnrollmentStatus.DROPPED:
+            await enrollments.set_status(enrollment, EnrollmentStatus.ACTIVE)  # access given again; a finished course stays finished
+            return True
+        return False
 
     async def _existing_unlinked_student(self, organization_id: uuid.UUID, email: str) -> Student | None:
         from sqlalchemy import func
@@ -404,6 +464,7 @@ class OnboardingService:
         """Withdraw LMS access: the enrolment in the course THIS student was given is dropped (the account itself is left alone, it
         may be used for other things), however the internship has been linked since. If the same student also holds access to
         that course through another internship, their enrolment stays. Access can be granted again afterwards."""
+        await self.db.refresh(selection, with_for_update=True)
         if selection.lms_status != LmsStatus.GRANTED:
             raise ValidationError("This student does not have LMS access.")
         course_id = selection.lms_course_id or internship.lms_course_id  # (the fallback is for access granted before the column existed)
@@ -446,7 +507,11 @@ async def notify_access(outcome: GrantOutcome) -> None:
     try:
         if outcome.created_account and outcome.reset_token:
             link = f"{settings.STUDENT_PORTAL_URL.rstrip('/')}/reset-password?token={outcome.reset_token}"
-            send_password_reset_email_task.delay(outcome.email, outcome.full_name, link, "account_invite")
+            # one email, not two: the secure set-password link, inside a welcome that names the internship and the course
+            send_password_reset_email_task.delay(
+                outcome.email, outcome.full_name, link, "internship_access",
+                {"internship_title": outcome.internship_title, "course_title": outcome.course_title, "login_url": login_url, "link_valid_hours": SET_PASSWORD_TOKEN_TTL_HOURS},
+            )
             return
         from app.db.session import get_db_context
         from modules.email_templates.render import render_email

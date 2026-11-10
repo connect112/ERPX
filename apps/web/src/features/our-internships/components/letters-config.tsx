@@ -105,6 +105,15 @@ export function LettersConfig({
           </div>
           {saved && !dirty && <p className="text-sm text-emerald-700 dark:text-emerald-400">{saved}</p>}
           {(save.isError || reset.isError) && <p className="text-sm text-destructive">{errorMessage(save.error ?? reset.error, "Could not save.")}</p>}
+          {(settings.notes ?? []).length > 0 && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground" data-testid="letter-notes">
+              <ul className="list-disc pl-5">
+                {(settings.notes ?? []).map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {settings.problems.length > 0 && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
               <p className="font-medium">Still to do before letters can be made:</p>
@@ -198,6 +207,14 @@ export function LettersConfig({
           <CardDescription>
             The wording. Placeholders such as {"{{student_name}}"} are replaced for each student. Only what you write here is printed:
             nothing is added about money, rules or results.
+            {settings.placeholders.lms_course_name && (
+              <>
+                {" "}
+                <span data-testid="course-placeholder-hint">
+                  Use {"{{lms_course_name}}"} (for example in "About the program") to print the LMS course linked to this internship; it is left blank when none is linked.
+                </span>
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
