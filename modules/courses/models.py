@@ -27,6 +27,13 @@ class CourseLevel(str, enum.Enum):
     ADVANCED = "advanced"
 
 
+class CourseType(str, enum.Enum):
+    # A standalone course (its own price). An internship course is part of an internship: its fee is the internship's, set in the
+    # internship's onboarding settings, never a price of the course.
+    REGULAR = "regular"
+    INTERNSHIP = "internship"
+
+
 def _values(enum_cls):
     return [m.value for m in enum_cls]
 
@@ -58,3 +65,14 @@ class Course(TimestampedBase, SoftDeleteMixin):
     price: Mapped[float] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)
 
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    course_type: Mapped[CourseType] = mapped_column(
+        SAEnum(CourseType, name="course_type", values_callable=_values),
+        default=CourseType.REGULAR,
+        server_default=CourseType.REGULAR.value,
+        nullable=False,
+        index=True,
+    )
+    # Internship courses only: whether course screens show the linked internship's fee (read from its onboarding settings, to people
+    # allowed to see finance). Hidden by default; there is no price of the course itself to show.
+    show_internship_fee: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)

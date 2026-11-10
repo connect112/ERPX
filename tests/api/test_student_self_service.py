@@ -151,6 +151,8 @@ async def test_student_can_mark_own_lesson_complete_and_see_progress(client, db_
     lesson = await LessonRepository(db_session).create(
         chapter_id=chapter.id, title="Quicksort", order_index=1
     )
+    # progress counts only on a course the student is enrolled in (see tests/api/test_internship_lms_integrity.py for the refusals)
+    await EnrollmentRepository(db_session).create(student_id=student.id, course_id=course.id, enrolled_on=date.today())
     await db_session.flush()
 
     complete_response = await client.post(

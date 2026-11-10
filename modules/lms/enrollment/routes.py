@@ -10,6 +10,7 @@ from modules.lms.enrollment.schemas import (
     EnrollmentCreateRequest,
     EnrollmentPublic,
     EnrollmentStatusChangeRequest,
+    MyEnrollmentPublic,
 )
 from modules.lms.enrollment.service import EnrollmentService
 from modules.students.dependencies import get_current_student
@@ -19,13 +20,19 @@ from modules.users.dependencies import get_current_user_organization_id
 router = APIRouter()
 
 
-@router.get("/me", response_model=list[EnrollmentPublic])
+@router.get("/me", response_model=list[MyEnrollmentPublic])
 async def list_my_enrollments(
     student: Student = Depends(get_current_student), db: AsyncSession = Depends(get_db)
 ):
+    from modules.our_internships.course_links import internships_for_enrollments
+
     service = EnrollmentService(db)
     enrollments = await service.list_for_student(student.id, student.organization_id)
-    return [EnrollmentPublic.model_validate(e) for e in enrollments]
+    links = await internships_for_enrollments(db, student, [e.course_id for e in enrollments])
+    return [
+        MyEnrollmentPublic.model_validate({**EnrollmentPublic.model_validate(e).model_dump(), "internships": links.get(e.course_id, [])})
+        for e in enrollments
+    ]
 
 
 @router.post("", response_model=EnrollmentPublic, status_code=status.HTTP_201_CREATED)

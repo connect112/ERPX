@@ -7,6 +7,7 @@ import {
   useMyChapters,
   useMyCourse,
   useMyCourseProgress,
+  useMyEnrollments,
 } from "@/features/courses/api/courses-hooks";
 
 export function CourseDetailPage() {
@@ -15,6 +16,8 @@ export function CourseDetailPage() {
   const { data: course, isLoading: courseLoading } = useMyCourse(courseId);
   const { data: chapters, isLoading: chaptersLoading } = useMyChapters(courseId);
   const { data: progress, isLoading: progressLoading } = useMyCourseProgress(courseId);
+  const { data: enrollments } = useMyEnrollments();
+  const internships = enrollments?.find((e) => e.course_id === courseId)?.internships ?? [];
 
   const completedLessonIds = new Set(progress?.completed_lesson_ids ?? []);
 
@@ -25,6 +28,11 @@ export function CourseDetailPage() {
           <Skeleton className="h-8 w-80" />
         ) : (
           <h1 className="text-2xl font-semibold">{course?.title}</h1>
+        )}
+        {internships.length > 0 && (
+          <p className="text-sm text-muted-foreground" data-testid="course-internships">
+            Part of: {internships.map((i) => i.title).join(", ")}
+          </p>
         )}
         {course?.short_description && (
           <p className="text-sm text-muted-foreground">{course.short_description}</p>

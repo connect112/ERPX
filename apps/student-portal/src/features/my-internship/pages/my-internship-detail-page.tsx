@@ -9,6 +9,7 @@ import { AssignmentsSection } from "@/features/my-internship/components/assignme
 import { AwardsSection } from "@/features/my-internship/components/awards-section";
 import { ProjectsSection } from "@/features/my-internship/components/projects-section";
 import { ExamsSection } from "@/features/my-internship/components/exams-section";
+import { LearningCourse } from "@/features/my-internship/components/learning-course";
 
 export function MyInternshipDetailPage() {
   const { internshipId = "" } = useParams();
@@ -46,6 +47,9 @@ export function MyInternshipDetailPage() {
         )}
         <h1 className="mt-1 text-2xl font-semibold">{internship.title}</h1>
         {internship.description && <p className="mt-2 max-w-3xl whitespace-pre-wrap text-sm text-muted-foreground">{internship.description}</p>}
+        <div className="mt-3 max-w-3xl">
+          <LearningCourse course={internship.course} lmsStatus={internship.lms_status ?? "granted"} />
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

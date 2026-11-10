@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { errorMessage } from "@/features/institutions/lib/format";
 import { OnboardingSettingsPanel } from "@/features/internship-onboarding/components/flow-panel";
@@ -7,14 +10,26 @@ import { type OurInternship, onboardingApi, ourInternshipsKeys } from "@/feature
 
 const selectClass = "rounded-md border bg-background px-3 py-2 text-sm";
 
-/** The internship's LMS course: students given LMS access are enrolled in it. Chosen once for the whole internship. */
+/**
+ * The internship's LMS course: students given LMS access are enrolled in it. Chosen from the organization's internship courses, or
+ * created here (the course form opens with this internship selected, and brings you back). The internship's own setting is the only
+ * link: nothing about the course is copied anywhere.
+ */
 function LmsCourseCard({ internship }: { internship: OurInternship }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const courses = useQuery({ queryKey: ["our-internships", "courses", internship.id], queryFn: () => onboardingApi.courses(internship.id) });
   const setCourse = useMutation({
-    mutationFn: (courseId: string | null) => onboardingApi.setCourse(internship.id, courseId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ourInternshipsKeys.all }),
+    mutationFn: (courseId: string | null) => onboardingApi.setCourse(internship.id, courseId, !!internship.lms_course_id),
+    onSuccess: () => {
+      // the internship, the course lists and every student view read the link live, so all of them are refreshed
+      void queryClient.invalidateQueries({ queryKey: ourInternshipsKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ["courses"] });
+    },
   });
+  const current = courses.data?.find((c) => c.is_current);
+  const chosen = courses.data?.find((c) => c.id === (internship.lms_course_id ?? ""));
+  const createHere = `/courses?new=internship&internship=${internship.id}&return=${encodeURIComponent(`/our-internships/${internship.id}?tab=onboarding-settings&section=lms-course`)}`;
   return (
     <Card>
       <CardHeader>
@@ -24,31 +39,54 @@ function LmsCourseCard({ internship }: { internship: OurInternship }) {
           Settings (LMS access).
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-2">
-        <select
-          aria-label="LMS course"
-          className={`${selectClass} w-full max-w-md`}
-          value={internship.lms_course_id ?? ""}
-          disabled={setCourse.isPending}
-          onChange={(e) => setCourse.mutate(e.target.value || null)}
-        >
-          <option value="">Choose a course...</option>
-          {courses.data?.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.title}
-              {c.is_published ? "" : " (not published)"}
-            </option>
-          ))}
-        </select>
-        {courses.data?.length === 0 && <p className="text-xs text-muted-foreground">There are no courses yet. Create one under Courses first.</p>}
+      <CardContent className="space-y-3">
+        {internship.lms_course_id && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 p-3 text-sm" data-testid="current-course">
+            <span className="font-medium">{internship.lms_course_title ?? current?.title ?? "Linked course"}</span>
+            {current && <Badge variant={current.is_published ? "success" : "secondary"}>{current.is_published ? "Published" : "Draft"}</Badge>}
+            {current && !current.ready && <span className="text-amber-700 dark:text-amber-400">{current.problem} Students cannot be given access until it is ready.</span>}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label="LMS course"
+            className={`${selectClass} w-full max-w-md`}
+            value={internship.lms_course_id ?? ""}
+            disabled={setCourse.isPending}
+            onChange={(e) => {
+              const next = e.target.value || null;
+              const now = internship.lms_course_title ?? "the current course";
+              // changing a course that is already chosen is asked about first; the server still refuses it once students are enrolled
+              if (internship.lms_course_id && next !== internship.lms_course_id && !window.confirm(`This internship already uses "${now}". Replace it?`)) return;
+              setCourse.mutate(next);
+            }}
+          >
+            <option value="">Choose a course...</option>
+            {courses.data?.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+                {c.is_published ? "" : " (not published)"}
+              </option>
+            ))}
+          </select>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigate(createHere)}>
+            Create a new internship course
+          </Button>
+        </div>
+        {chosen && chosen.also_used_by.length > 0 && <p className="text-xs text-muted-foreground">Also used by: {chosen.also_used_by.join(", ")}.</p>}
+        {courses.data?.length === 0 && <p className="text-xs text-muted-foreground">There are no internship courses yet. Create one with the button above.</p>}
         {!internship.lms_course_id && <p className="text-xs text-amber-700 dark:text-amber-400">Choose the course before granting access.</p>}
-        {setCourse.isError && <p className="text-sm text-destructive">{errorMessage(setCourse.error, "Could not save the course.")}</p>}
+        {setCourse.isError && (
+          <p className="text-sm text-destructive" role="alert">
+            {errorMessage(setCourse.error, "Could not save the course.")}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
 }
 
 /** How this internship onboards: mode, fees, payment methods and accounts, refunds, form, documents, deadlines, LMS, templates. */
-export function OnboardingSettingsTab({ internship, isAdmin }: { internship: OurInternship; isAdmin: boolean }) {
-  return <OnboardingSettingsPanel internshipId={internship.id} isAdmin={isAdmin} lmsCourse={<LmsCourseCard internship={internship} />} />;
+export function OnboardingSettingsTab({ internship, isAdmin, initialSection }: { internship: OurInternship; isAdmin: boolean; initialSection?: string }) {
+  return <OnboardingSettingsPanel internshipId={internship.id} isAdmin={isAdmin} initialSection={initialSection} lmsCourse={<LmsCourseCard internship={internship} />} />;
 }

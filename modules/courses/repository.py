@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.courses.models import Course
+from modules.courses.models import Course, CourseType
 
 
 class CourseRepository:
@@ -63,6 +63,7 @@ class CourseRepository:
         is_published: bool | None = None,
         skip: int = 0,
         limit: int = 50,
+        course_type: CourseType | None = None,
     ) -> tuple[list[Course], int]:
         from sqlalchemy import func
 
@@ -71,6 +72,8 @@ class CourseRepository:
             conditions.append(Course.category_id == category_id)
         if is_published is not None:
             conditions.append(Course.is_published == is_published)
+        if course_type is not None:
+            conditions.append(Course.course_type == course_type)
 
         count_result = await self.db.execute(
             select(func.count()).select_from(Course).where(*conditions)

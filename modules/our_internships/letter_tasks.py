@@ -222,7 +222,7 @@ async def _begin(letter_id: uuid.UUID) -> _Attempt | bool:
                 institution = await db.get(Institution, student.institution_id)
                 if institution is not None:
                     facts = facts_of(student, institution)
-            values = service.email_values(loaded.config, facts, internship.title, letter.reference, letter.generated_at)
+            values = service.email_values(loaded.config, facts, internship.title, letter.reference, letter.generated_at, course_name=loaded.course_name)
             # a dry run with sample onboarding values: does the wording work, and does it use the link at all?
             dry = await service.render_offer(internship, loaded.config, {**values, **await preview_onboarding_values(db, internship, selection, onboarding)}, plan)
             if plan.source == "studio" and _LINK_PLACEHOLDER in dry.used and selection is not None:

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,9 @@ export function OurInternshipDetailPage() {
   const { internshipId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState("students");
+  const [searchParams] = useSearchParams();
+  // coming back from creating a course lands on this tab and its LMS course section
+  const [tab, setTab] = useState(searchParams.get("tab") ?? "students");
   const [search, setSearch] = useState("");
   const [institutionId, setInstitutionId] = useState("");
   const [eventId, setEventId] = useState("");
@@ -245,7 +247,7 @@ export function OurInternshipDetailPage() {
         </TabsContent>
         {settingsTab && (
           <TabsContent value="onboarding-settings">
-            <OnboardingSettingsTab internship={i} isAdmin={isAdmin} />
+            <OnboardingSettingsTab internship={i} isAdmin={isAdmin} initialSection={searchParams.get("section") ?? undefined} />
           </TabsContent>
         )}
         <TabsContent value="exams">

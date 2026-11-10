@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,22 +23,29 @@ import {
 import { useCategories } from "@/features/courses/categories/api/categories-hooks";
 import { useCoursesList } from "@/features/courses/api/courses-hooks";
 import { CourseFormDialog } from "@/features/courses/components/course-form-dialog";
+import { CourseTypeBadge } from "@/features/courses/components/course-type-badge";
+import { feeText } from "@/features/courses/lib/fee";
 import { CourseStatusBadge } from "@/features/courses/components/course-status-badge";
-import { courseLevelLabels } from "@/features/courses/schemas/course-schemas";
+import { courseLevelLabels, courseTypeLabels, courseTypeValues } from "@/features/courses/schemas/course-schemas";
 
 const PAGE_SIZE = 20;
 
 export function CoursesListPage() {
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
   const { data: categories } = useCategories();
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [categoryId, setCategoryId] = useState<string>("all");
   const [publishedFilter, setPublishedFilter] = useState<string>("all");
   const [skip, setSkip] = useState(0);
-  const [formOpen, setFormOpen] = useState(false);
+  // Our Internships -> Onboarding Settings -> LMS course opens this page ready to create an internship course for that internship
+  const startedFromInternship = params.get("new") === "internship";
+  const [formOpen, setFormOpen] = useState(startedFromInternship);
 
   const { data, isLoading, isError } = useCoursesList({
     category_id: categoryId === "all" ? undefined : categoryId,
     is_published: publishedFilter === "all" ? undefined : publishedFilter === "published",
+    course_type: typeFilter === "all" ? undefined : (typeFilter as "regular" | "internship"),
     skip,
     limit: PAGE_SIZE,
   });
@@ -92,6 +99,25 @@ export function CoursesListPage() {
               </SelectContent>
             </Select>
             <Select
+              value={typeFilter}
+              onValueChange={(value) => {
+                setTypeFilter(value);
+                setSkip(0);
+              }}
+            >
+              <SelectTrigger className="sm:w-48" aria-label="Filter by course type">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {courseTypeValues.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {courseTypeLabels[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
               value={publishedFilter}
               onValueChange={(value) => {
                 setPublishedFilter(value);
@@ -132,9 +158,10 @@ export function CoursesListPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Level</TableHead>
-                  <TableHead>Price</TableHead>
+                  <TableHead>Price / internship</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -146,6 +173,9 @@ export function CoursesListPage() {
                     onClick={() => navigate(`/courses/${course.id}`)}
                   >
                     <TableCell className="font-medium">{course.title}</TableCell>
+                    <TableCell>
+                      <CourseTypeBadge type={course.course_type} />
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {categoryName(course.category_id)}
                     </TableCell>
@@ -153,7 +183,20 @@ export function CoursesListPage() {
                       {courseLevelLabels[course.level]}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {course.price > 0 ? `₹${course.price}` : "Free"}
+                      {course.course_type === "regular" ? (
+                        course.price > 0 ? `₹${course.price}` : "Free"
+                      ) : course.linked_internships.length === 0 ? (
+                        <span>Not linked to an internship</span>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {course.linked_internships.map((i) => (
+                            <div key={i.id}>
+                              {i.title}
+                              {i.fee && <span className="block text-xs">{feeText(i.fee)}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <CourseStatusBadge isPublished={course.is_published} />
@@ -192,7 +235,18 @@ export function CoursesListPage() {
         </CardContent>
       </Card>
 
-      <CourseFormDialog open={formOpen} onOpenChange={setFormOpen} />
+      <CourseFormDialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          setFormOpen(open);
+          if (!open && startedFromInternship) setParams({}, { replace: true });
+        }}
+        defaults={
+          startedFromInternship
+            ? { courseType: "internship", internshipId: params.get("internship") ?? undefined, returnTo: params.get("return") ?? undefined }
+            : undefined
+        }
+      />
     </div>
   );
 }

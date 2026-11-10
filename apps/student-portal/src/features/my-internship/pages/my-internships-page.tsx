@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMyInternshipList } from "@/features/my-internship/api/my-internship-api";
+import { LearningCourse } from "@/features/my-internship/components/learning-course";
 
 /** Every internship the student has been given access to. With just one, it opens straight away. */
 export function MyInternshipsPage() {
@@ -18,7 +19,8 @@ export function MyInternshipsPage() {
     );
   }
   if (isError) return <p className="p-6 text-sm text-destructive">Could not load your internships.</p>;
-  if (data?.length === 1) return <Navigate to={`/my-internship/${data[0].id}`} replace />;
+  // with just one (and its access in place) it opens straight away; a withdrawn one is shown with its status instead
+  if (data?.length === 1 && data[0].lms_status === "granted") return <Navigate to={`/my-internship/${data[0].id}`} replace />;
 
   return (
     <div className="space-y-6 p-6">
@@ -33,22 +35,37 @@ export function MyInternshipsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {data.map((i) => (
-            <Link key={i.id} to={`/my-internship/${i.id}`}>
-              <Card className="h-full transition-colors hover:bg-muted/40">
-                <CardHeader>
-                  <CardTitle className="text-base">{i.title}</CardTitle>
-                  {i.description && <CardDescription className="line-clamp-2">{i.description}</CardDescription>}
-                </CardHeader>
-                <CardContent className="flex flex-wrap gap-2">
-                  <Badge variant={i.open_assignments ? "warning" : "secondary"}>
-                    {i.open_assignments} open assignment{i.open_assignments === 1 ? "" : "s"}
-                  </Badge>
-                  <Badge variant={i.open_exams ? "info" : "secondary"}>
-                    {i.open_exams} exam{i.open_exams === 1 ? "" : "s"} to take
-                  </Badge>
-                </CardContent>
-              </Card>
-            </Link>
+            <Card key={i.id} className="h-full">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {i.lms_status === "granted" ? (
+                    <Link to={`/my-internship/${i.id}`} className="hover:underline">
+                      {i.title}
+                    </Link>
+                  ) : (
+                    i.title
+                  )}
+                </CardTitle>
+                {i.description && <CardDescription className="line-clamp-2">{i.description}</CardDescription>}
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <LearningCourse course={i.course} lmsStatus={i.lms_status} />
+                <div className="flex flex-wrap gap-2">
+                  {i.lms_status === "revoked" ? (
+                    <Badge variant="secondary">Access withdrawn</Badge>
+                  ) : (
+                    <>
+                      <Badge variant={i.open_assignments ? "warning" : "secondary"}>
+                        {i.open_assignments} open assignment{i.open_assignments === 1 ? "" : "s"}
+                      </Badge>
+                      <Badge variant={i.open_exams ? "info" : "secondary"}>
+                        {i.open_exams} exam{i.open_exams === 1 ? "" : "s"} to take
+                      </Badge>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}

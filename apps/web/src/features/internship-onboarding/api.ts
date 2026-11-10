@@ -253,6 +253,8 @@ export const onboardingFlowApi = {
 export interface PortalView {
   organization: string;
   internship: { title: string; description: string | null };
+  /** The LMS course linked to the internship (title, description, level, duration; never a price). Null when none is linked. */
+  learning_course: { title: string; description: string | null; level: string; duration_hours: number | null; accessible: boolean; lms_url: string | null } | null;
   student_name: string;
   reference: string;
   deadline: string | null;

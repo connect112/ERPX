@@ -99,7 +99,7 @@ async def follow_up(db: AsyncSession, application_id: uuid.UUID) -> str:
         selection.payment_reference = "No fee"
         selection.payment_confirmed_at = now()
         await event(db, application, "payment_not_required", actor="system")
-    blockers = grant_blockers(internship, selection)
+    blockers = grant_blockers(internship, selection, await OnboardingService(db).course_problem(internship))
     if blockers:
         reason = " ".join(blockers)[:300]
         last = (

@@ -1,6 +1,26 @@
 import { apiClient } from "@/api/client";
 import type { CourseLevel } from "@/features/courses/schemas/course-schemas";
 
+export type CourseType = "regular" | "internship";
+
+/** An internship's fee as onboarding would charge it (only for people who may see finance, and only for a course set to show it). */
+export interface InternshipFee {
+  currency: string;
+  total: string;
+  base: string;
+  discount: string;
+  tax_mode: "none" | "inclusive" | "exclusive";
+  tax_label: string;
+  tax: string;
+}
+
+export interface LinkedInternship {
+  id: string;
+  title: string;
+  status: string;
+  fee: InternshipFee | null;
+}
+
 export interface CoursePublic {
   id: string;
   organization_id: string;
@@ -14,6 +34,10 @@ export interface CoursePublic {
   duration_hours: number | null;
   price: number;
   is_published: boolean;
+  course_type: CourseType;
+  show_internship_fee: boolean;
+  /** The internships that use this course (present for staff who may see internships). */
+  linked_internships: LinkedInternship[];
   created_at: string;
 }
 
@@ -27,6 +51,7 @@ export interface CourseListResponse {
 export interface CourseListParams {
   category_id?: string;
   is_published?: boolean;
+  course_type?: CourseType;
   skip?: number;
   limit?: number;
 }
@@ -41,6 +66,8 @@ export interface CourseCreatePayload {
   level: CourseLevel;
   duration_hours?: number;
   price?: number;
+  course_type?: CourseType;
+  show_internship_fee?: boolean;
 }
 
 export interface CourseUpdatePayload {
@@ -53,6 +80,8 @@ export interface CourseUpdatePayload {
   duration_hours?: number;
   price?: number;
   is_published?: boolean;
+  course_type?: CourseType;
+  show_internship_fee?: boolean;
 }
 
 export const coursesApi = {

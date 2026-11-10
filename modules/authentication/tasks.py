@@ -32,11 +32,17 @@ def send_verification_email_task(self, to_email: str, full_name: str, verificati
 
 @celery_app.task(name="authentication.send_password_reset_email", bind=True, max_retries=3)
 def send_password_reset_email_task(
-    self, to_email: str, full_name: str, reset_url: str, kind: str = "password_reset"
+    self, to_email: str, full_name: str, reset_url: str, kind: str = "password_reset", extra: dict | None = None
 ) -> None:
     """`kind` "account_invite" is the email for an account an administrator created (set your password); the
-    default is the user-requested reset. Both carry a set-password link; they are separate, editable templates."""
-    if kind == "account_invite":
+    default is the user-requested reset. Both carry a set-password link; they are separate, editable templates.
+    "internship_access" is the same secure link inside the LMS welcome for a student whose account an internship just created: it
+    says which internship and course the account is for (``extra``), and replaces the generic invite for that case."""
+    if kind == "internship_access":
+        subject, text, html = render_email_sync(
+            "internship_account_welcome", {"full_name": full_name, "set_password_url": reset_url, **(extra or {})}, recipient_email=to_email
+        )
+    elif kind == "account_invite":
         subject, text, html = render_email_sync(
             "account_invite", {"full_name": full_name, "set_password_url": reset_url}, recipient_email=to_email
         )

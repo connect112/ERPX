@@ -120,6 +120,8 @@ export interface LetterSettings {
   design_state: DesignState;
   design_approved_at: string | null;
   problems: string[];
+  /** Things worth knowing that never stop anything (for example: the wording uses the course name but no course is linked). */
+  notes?: string[];
   placeholders: Record<string, string>;
   internship_title: string;
   counts: Record<string, number>;

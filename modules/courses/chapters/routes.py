@@ -3,7 +3,6 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AuthorizationError
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
@@ -14,7 +13,7 @@ from modules.courses.chapters.schemas import (
     MessageResponse,
 )
 from modules.courses.chapters.service import ChapterService
-from modules.lms.enrollment.repository import EnrollmentRepository
+from modules.lms.enrollment.access import require_live_enrollment
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
 from modules.users.dependencies import get_current_user_organization_id
@@ -28,9 +27,7 @@ async def list_my_chapters(
     student: Student = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
-    enrollment = await EnrollmentRepository(db).get_by_student_and_course(student.id, course_id)
-    if not enrollment:
-        raise AuthorizationError("You are not enrolled in this course.")
+    await require_live_enrollment(db, student, course_id)
     service = ChapterService(db)
     chapters = await service.list_chapters(course_id, student.organization_id)
     return [ChapterPublic.model_validate(c) for c in chapters]

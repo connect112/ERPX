@@ -17,6 +17,8 @@ import { useCategories } from "@/features/courses/categories/api/categories-hook
 import { useCourse, useDeleteCourse, useTogglePublishCourse } from "@/features/courses/api/courses-hooks";
 import { ChaptersPanel } from "@/features/courses/chapters/components/chapters-panel";
 import { CourseFormDialog } from "@/features/courses/components/course-form-dialog";
+import { CourseInternshipsCard } from "@/features/courses/components/course-internships-card";
+import { CourseTypeBadge } from "@/features/courses/components/course-type-badge";
 import { CourseStatusBadge } from "@/features/courses/components/course-status-badge";
 import { courseLevelLabels } from "@/features/courses/schemas/course-schemas";
 import { ExamsPanel } from "@/features/examinations/exams/components/exams-panel";
@@ -73,6 +75,7 @@ export function CourseDetailPage() {
             <h1 className="text-2xl font-semibold tracking-tight">{course.title}</h1>
             <div className="mt-1 flex items-center gap-2">
               <span className="text-xs text-muted-foreground">{course.slug}</span>
+              <CourseTypeBadge type={course.course_type} />
               <CourseStatusBadge isPublished={course.is_published} />
             </div>
           </div>
@@ -111,7 +114,7 @@ export function CourseDetailPage() {
               label="Duration"
               value={course.duration_hours ? `${course.duration_hours} hours` : "—"}
             />
-            <DetailRow label="Price" value={course.price > 0 ? `₹${course.price}` : "Free"} />
+            {course.course_type === "regular" && <DetailRow label="Price" value={course.price > 0 ? `₹${course.price}` : "Free"} />}
             {course.description && (
               <div className="pt-3">
                 <p className="text-sm text-muted-foreground">Description</p>
@@ -121,6 +124,8 @@ export function CourseDetailPage() {
           </CardContent>
         </Card>
 
+        <div className="space-y-6">
+        <CourseInternshipsCard course={course} />
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Thumbnail</CardTitle>
@@ -137,6 +142,7 @@ export function CourseDetailPage() {
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
 
       <Tabs defaultValue="curriculum">

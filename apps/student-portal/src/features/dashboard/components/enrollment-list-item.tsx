@@ -20,7 +20,14 @@ export function EnrollmentListItem({ enrollment }: EnrollmentListItemProps) {
         {isLoading ? (
           <Skeleton className="h-4 w-40" />
         ) : (
-          <span className="text-sm font-medium">{course?.title ?? "Untitled course"}</span>
+          <div>
+            <span className="text-sm font-medium">{course?.title ?? "Untitled course"}</span>
+            {enrollment.internships && enrollment.internships.length > 0 && (
+              <p className="text-xs text-muted-foreground" data-testid="course-internships">
+                Internship: {enrollment.internships.map((i) => i.title).join(", ")}
+              </p>
+            )}
+          </div>
         )}
       </div>
       <div className="flex items-center gap-3">

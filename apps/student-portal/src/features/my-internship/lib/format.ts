@@ -53,3 +53,9 @@ export function isWebAddress(value: string): boolean {
     return false;
   }
 }
+
+/** "Beginner · 40 hours": a linked course's level and length, for the line under its title. */
+export function describeCourse(course: { level: string | null; duration_hours: number | null }): string {
+  const level = course.level ? course.level[0].toUpperCase() + course.level.slice(1) : null;
+  return [level, course.duration_hours ? `${course.duration_hours} hours` : null].filter(Boolean).join(" · ");
+}
