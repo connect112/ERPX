@@ -202,8 +202,9 @@ export interface GrantResult {
 
 export const onboardingApi = {
   courses: (id: string) => apiClient.get<CourseOption[]>(`/our-internships/${id}/lms/courses`).then((r) => r.data),
-  setCourse: (id: string, courseId: string | null) =>
-    apiClient.patch<OurInternship>(`/our-internships/${id}`, { lms_course_id: courseId }).then((r) => r.data),
+  /** Replacing or clearing a course that is already chosen needs ``confirmReplace``; the server refuses it outright once students are enrolled. */
+  setCourse: (id: string, courseId: string | null, confirmReplace = false) =>
+    apiClient.patch<OurInternship>(`/our-internships/${id}`, { lms_course_id: courseId, confirm_replace: confirmReplace }).then((r) => r.data),
   student: (id: string, studentId: string) => apiClient.get<SelectedStudent>(`/our-internships/${id}/selected/${studentId}`).then((r) => r.data),
   update: (id: string, studentId: string, payload: OnboardingUpdate) =>
     apiClient.patch<SelectedStudent>(`/our-internships/${id}/selected/${studentId}/onboarding`, payload).then((r) => r.data),

@@ -184,6 +184,11 @@ class InternshipSelection(TimestampedBase):
     lms_student_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("students.id", ondelete="SET NULL"), nullable=True
     )
+    # The course this student was enrolled in when access was granted. Revoking drops THIS enrolment, even if the internship has
+    # been linked to another course since.
+    lms_course_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("courses.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     lms_granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lms_granted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

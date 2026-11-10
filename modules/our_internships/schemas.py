@@ -60,6 +60,8 @@ class InternshipUpdateRequest(BaseModel):
     status: OurInternshipStatus | None = None
     # The LMS course students are enrolled in when given LMS access. Sent as null to clear it.
     lms_course_id: uuid.UUID | None = None
+    # Replacing (or clearing) a course that is already chosen needs this to be true; it is never enough while students are enrolled.
+    confirm_replace: bool = False
 
     _trim_title = field_validator("title", mode="before")(_trim)
     _blank = field_validator("description", mode="before")(_blank_to_none)

@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -24,8 +24,9 @@ from modules.authentication.repository import AuthRepository
 from modules.authentication.tasks import send_password_reset_email_task
 from modules.authorization.repository import AuthorizationRepository
 from modules.authorization.service import AuthorizationService
-from modules.batches.models import BatchEnrollment
+from modules.batches.models import Batch, BatchEnrollment, BatchEnrollmentStatus, BatchStatus
 from modules.batches.repository import BatchEnrollmentRepository, BatchRepository
+from modules.courses.chapters.repository import ChapterRepository
 from modules.courses.models import Course
 from modules.courses.repository import CourseRepository
 from modules.institutions.models import InstitutionStudent
@@ -90,13 +91,16 @@ def stage_of(selection: InternshipSelection) -> str:
     return "selected"
 
 
-def grant_blockers(internship: OurInternship, selection: InternshipSelection) -> list[str]:
-    """Everything that currently stops LMS access being granted, in words (empty means it can be granted)."""
+def grant_blockers(internship: OurInternship, selection: InternshipSelection, course_problem: str | None = None) -> list[str]:
+    """Everything that currently stops LMS access being granted, in words (empty means it can be granted). ``course_problem`` is
+    what is wrong with the chosen course itself (not published, no chapters), found once with ``OnboardingService.course_problem``."""
     blockers: list[str] = []
     if selection.lms_status == LmsStatus.GRANTED:
         return ["LMS access has already been granted."]
     if internship.lms_course_id is None:
         blockers.append("Choose the LMS course for this internship first.")
+    elif course_problem:
+        blockers.append(course_problem)
     if selection.offer_response == OfferResponse.DECLINED:
         blockers.append("The student declined the offer.")
     if selection.verification_status != VerificationStatus.VERIFIED:
@@ -154,11 +158,55 @@ class OnboardingService:
         courses, _ = await CourseRepository(self.db).list_for_organization(organization_id, limit=200)
         return courses
 
-    async def set_course(self, internship: OurInternship, course_id: uuid.UUID | None) -> None:
+    async def course_problem(self, internship: OurInternship) -> str | None:
+        """What stops students being enrolled in this internship's course, or None when it is ready: it must exist, be published
+        and have at least one chapter."""
+        if internship.lms_course_id is None:
+            return None
+        course = await CourseRepository(self.db).get_by_id(internship.lms_course_id, internship.organization_id)
+        if course is None:
+            return "The LMS course for this internship no longer exists. Choose another."
+        if not course.is_published:
+            return f"The LMS course \"{course.title}\" is not published yet. Publish it first."
+        if not await ChapterRepository(self.db).list_for_course(course.id):
+            return f"The LMS course \"{course.title}\" has no chapters yet. Add its content first."
+        return None
+
+    async def enrolled_count(self, internship: OurInternship) -> int:
+        """Students on this internship whose LMS access is currently granted (each holds a live enrolment in the course)."""
+        return (
+            await self.db.execute(
+                select(func.count()).select_from(InternshipSelection).where(
+                    InternshipSelection.internship_id == internship.id, InternshipSelection.lms_status == LmsStatus.GRANTED
+                )
+            )
+        ).scalar_one()
+
+    async def set_course(self, internship: OurInternship, course_id: uuid.UUID | None, *, confirm_replace: bool = False) -> None:
+        """Choose (or clear) the course. Linking a first course is always allowed. Replacing or clearing one needs the caller's
+        confirmation, and is refused outright while students hold access through it: they would be left in the old course with
+        nothing in ERPX pointing at it. Nobody is ever moved between courses silently."""
+        if course_id == internship.lms_course_id:
+            return
+        course = None
         if course_id is not None:
             course = await CourseRepository(self.db).get_by_id(course_id, internship.organization_id)
             if course is None:
                 raise NotFoundError("Course", course_id)
+        if internship.lms_course_id is not None:
+            current = await CourseRepository(self.db).get_by_id(internship.lms_course_id, internship.organization_id)
+            name = f'"{current.title}"' if current else "the current course"
+            held = await self.enrolled_count(internship)
+            if held:
+                raise ConflictError(
+                    f"{held} student{'s' if held != 1 else ''} already {'have' if held != 1 else 'has'} LMS access through {name}. "
+                    "The course cannot be changed while students are enrolled: revoke their access first, or keep this course.",
+                    details={"code": "course_in_use", "enrolled": held},
+                )
+            if not confirm_replace:
+                raise ConflictError(
+                    f"This internship already uses {name}. Confirm to replace it.", details={"code": "confirm_replace", "current_course_id": str(internship.lms_course_id)}
+                )
         internship.lms_course_id = course_id
         await self.db.flush()
 
@@ -226,7 +274,10 @@ class OnboardingService:
     async def grant(
         self, internship: OurInternship, selection: InternshipSelection, student: InstitutionStudent, user_id: uuid.UUID
     ) -> GrantOutcome:
-        blockers = grant_blockers(internship, selection)
+        # a manual grant and the automatic one can arrive together: take this student's row first, then look again, so two of
+        # them never both create the enrolment
+        await self.db.refresh(selection, with_for_update=True)
+        blockers = grant_blockers(internship, selection, await self.course_problem(internship))
         if blockers:
             raise ValidationError(" ".join(blockers))
         organization_id = internship.organization_id
@@ -282,18 +333,21 @@ class OnboardingService:
         enrollments = EnrollmentRepository(self.db)
         enrollment = await enrollments.get_by_student_and_course(erpx_student.id, course.id)
         new_enrollment = enrollment is None
+        reactivated = False
         if enrollment is None:
             await enrollments.create(student_id=erpx_student.id, course_id=course.id, enrolled_on=date.today())
-        elif enrollment.status != EnrollmentStatus.ACTIVE:
-            await enrollments.set_status(enrollment, EnrollmentStatus.ACTIVE)
-        if new_enrollment:
-            await self._join_first_batch(organization_id, course.id, erpx_student.id)
+        elif enrollment.status == EnrollmentStatus.DROPPED:
+            await enrollments.set_status(enrollment, EnrollmentStatus.ACTIVE)  # access given again; a finished course stays finished
+            reactivated = True
+        if new_enrollment or reactivated:
+            await self._join_batch(organization_id, course.id, erpx_student.id)
 
         if created:
             token = await auth_repo.create_password_reset_token(user.id, ttl_hours=SET_PASSWORD_TOKEN_TTL_HOURS)
             reset_token = token.token
 
         selection.lms_status = LmsStatus.GRANTED
+        selection.lms_course_id = course.id  # remembered, so revoking later drops THIS course even if the internship is relinked
         selection.lms_user_id = user.id
         selection.lms_student_id = erpx_student.id
         selection.lms_granted_at = datetime.now(timezone.utc)
@@ -315,32 +369,72 @@ class OnboardingService:
             )
         ).scalars().first()
 
-    async def _join_first_batch(self, organization_id: uuid.UUID, course_id: uuid.UUID, student_id: uuid.UUID) -> None:
-        """Put a newly enrolled student in the course's first batch, if it has one, so the timetable and live classes have
-        something to show straight away. No batch yet is fine: the enrolment alone unlocks the course."""
-        batches, _ = await BatchRepository(self.db).list_for_organization(organization_id, course_id=course_id, limit=1)
-        if not batches:
+    async def _join_batch(self, organization_id: uuid.UUID, course_id: uuid.UUID, student_id: uuid.UUID) -> None:
+        """Put a newly enrolled student in the batch they should start with, if the course has one, so the timetable and live
+        classes have something to show straight away: the soonest batch that has not started yet, else the one that started most
+        recently and has not ended. Finished and cancelled batches are never chosen. No batch is fine: the enrolment alone unlocks
+        the course."""
+        today = date.today()
+        open_batches = (
+            await self.db.execute(
+                select(Batch).where(
+                    Batch.organization_id == organization_id,
+                    Batch.course_id == course_id,
+                    Batch.status.in_([BatchStatus.UPCOMING, BatchStatus.ONGOING]),
+                    or_(Batch.end_date.is_(None), Batch.end_date >= today),
+                ).order_by(Batch.start_date.asc())
+            )
+        ).scalars().all()
+        upcoming = [b for b in open_batches if b.status == BatchStatus.UPCOMING]
+        ongoing = [b for b in open_batches if b.status == BatchStatus.ONGOING]
+        batch = upcoming[0] if upcoming else (ongoing[-1] if ongoing else None)
+        if batch is None:
             return
         already = (
-            await self.db.execute(
-                select(BatchEnrollment.id).where(BatchEnrollment.batch_id == batches[0].id, BatchEnrollment.student_id == student_id)
-            )
-        ).first()
+            await self.db.execute(select(BatchEnrollment).where(BatchEnrollment.batch_id == batch.id, BatchEnrollment.student_id == student_id))
+        ).scalars().first()
         if already is None:
             await BatchEnrollmentRepository(self.db).create(
-                organization_id=organization_id, batch_id=batches[0].id, student_id=student_id, enrolled_at=date.today()
+                organization_id=organization_id, batch_id=batch.id, student_id=student_id, enrolled_at=date.today()
             )
+        elif already.status != BatchEnrollmentStatus.ACTIVE:
+            already.status = BatchEnrollmentStatus.ACTIVE  # access given again after a revoke
 
     async def revoke(self, internship: OurInternship, selection: InternshipSelection) -> None:
-        """Withdraw LMS access: the course enrolment is dropped (the account itself is left alone, it may be used for other
-        things). Access can be granted again afterwards."""
+        """Withdraw LMS access: the enrolment in the course THIS student was given is dropped (the account itself is left alone, it
+        may be used for other things), however the internship has been linked since. If the same student also holds access to
+        that course through another internship, their enrolment stays. Access can be granted again afterwards."""
         if selection.lms_status != LmsStatus.GRANTED:
             raise ValidationError("This student does not have LMS access.")
-        if selection.lms_student_id and internship.lms_course_id:
+        course_id = selection.lms_course_id or internship.lms_course_id  # (the fallback is for access granted before the column existed)
+        if selection.lms_student_id and course_id:
+            also_through_another = (
+                await self.db.execute(
+                    select(func.count()).select_from(InternshipSelection).where(
+                        InternshipSelection.id != selection.id,
+                        InternshipSelection.lms_student_id == selection.lms_student_id,
+                        InternshipSelection.lms_course_id == course_id,
+                        InternshipSelection.lms_status == LmsStatus.GRANTED,
+                    )
+                )
+            ).scalar_one()
             enrollments = EnrollmentRepository(self.db)
-            enrollment = await enrollments.get_by_student_and_course(selection.lms_student_id, internship.lms_course_id)
-            if enrollment is not None:
+            enrollment = await enrollments.get_by_student_and_course(selection.lms_student_id, course_id)
+            if enrollment is not None and not also_through_another and enrollment.status != EnrollmentStatus.DROPPED:
                 await enrollments.set_status(enrollment, EnrollmentStatus.DROPPED)
+            if not also_through_another:
+                # the timetable and live classes follow batch membership, so the batches OF THIS COURSE go with the enrolment
+                # (their batches for other courses are left alone)
+                await self.db.execute(
+                    update(BatchEnrollment)
+                    .where(
+                        BatchEnrollment.student_id == selection.lms_student_id,
+                        BatchEnrollment.status == BatchEnrollmentStatus.ACTIVE,
+                        BatchEnrollment.batch_id.in_(select(Batch.id).where(Batch.course_id == course_id)),
+                    )
+                    .values(status=BatchEnrollmentStatus.REMOVED)
+                    .execution_options(synchronize_session=False)
+                )
         selection.lms_status = LmsStatus.REVOKED
         await self.db.flush()
 

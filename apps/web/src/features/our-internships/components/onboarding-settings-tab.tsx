@@ -12,7 +12,7 @@ function LmsCourseCard({ internship }: { internship: OurInternship }) {
   const queryClient = useQueryClient();
   const courses = useQuery({ queryKey: ["our-internships", "courses", internship.id], queryFn: () => onboardingApi.courses(internship.id) });
   const setCourse = useMutation({
-    mutationFn: (courseId: string | null) => onboardingApi.setCourse(internship.id, courseId),
+    mutationFn: (courseId: string | null) => onboardingApi.setCourse(internship.id, courseId, !!internship.lms_course_id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ourInternshipsKeys.all }),
   });
   return (
@@ -30,7 +30,13 @@ function LmsCourseCard({ internship }: { internship: OurInternship }) {
           className={`${selectClass} w-full max-w-md`}
           value={internship.lms_course_id ?? ""}
           disabled={setCourse.isPending}
-          onChange={(e) => setCourse.mutate(e.target.value || null)}
+          onChange={(e) => {
+            const next = e.target.value || null;
+            const current = internship.lms_course_title ?? "the current course";
+            // changing a course that is already chosen is asked about first; the server still refuses it once students are enrolled
+            if (internship.lms_course_id && next !== internship.lms_course_id && !window.confirm(`This internship already uses "${current}". Replace it?`)) return;
+            setCourse.mutate(next);
+          }}
         >
           <option value="">Choose a course...</option>
           {courses.data?.map((c) => (
