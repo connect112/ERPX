@@ -1,6 +1,7 @@
-import { LogOut, Moon, Settings, Sun } from "lucide-react";
+import { Download, LogOut, Moon, Settings, Sun } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+import { MobileNav, MobileSearchButton } from "@/components/navigation/mobile-nav";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,8 +37,11 @@ export function AppTopbar() {
   };
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-card px-6">
-      <div />
+    <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 sm:px-6">
+      <div className="flex items-center">
+        <MobileNav />
+        <MobileSearchButton />
+      </div>
       <div className="flex items-center gap-2">
         <NotificationBell />
         <Button
@@ -63,6 +67,10 @@ export function AppTopbar() {
           <DropdownMenuContent align="end">
             <DropdownMenuLabel>{user?.email}</DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => navigate("/administration/bulk-downloads")}>
+              <Download className="mr-2 h-4 w-4" />
+              My downloads
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/account-settings")}>
               <Settings className="mr-2 h-4 w-4" />
               Account settings
