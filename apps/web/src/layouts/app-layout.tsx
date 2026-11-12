@@ -1,15 +1,19 @@
 import { Suspense } from "react";
 
-import { AppSidebar } from "@/components/app-sidebar";
 import { AppTopbar } from "@/components/app-topbar";
+import { NavLayoutProvider } from "@/components/navigation/nav-state";
+import { NavSidebar } from "@/components/navigation/nav-sidebar";
+import { useNavShortcut } from "@/components/navigation/use-nav-shortcut";
 import { PageLoader } from "@/components/ui/page-loader";
 import { RouteGuard } from "@/router/route-guard";
 
-export function AppLayout() {
+function Shell() {
+  useNavShortcut();
   return (
     <div className="flex h-screen overflow-hidden">
-      <AppSidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      {/* pinned: the page makes room for the full sidebar; collapsed: only for the icon rail. A hovered rail opens OVER the page. */}
+      <NavSidebar />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <AppTopbar />
         <main className="flex-1 overflow-y-auto bg-muted/20">
           {/* Single Suspense boundary for every lazily-loaded route rendered
@@ -23,5 +27,13 @@ export function AppLayout() {
         </main>
       </div>
     </div>
+  );
+}
+
+export function AppLayout() {
+  return (
+    <NavLayoutProvider>
+      <Shell />
+    </NavLayoutProvider>
   );
 }
