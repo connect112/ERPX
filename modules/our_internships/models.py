@@ -10,7 +10,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, Numeric, String, Text, UniqueConstraint, false
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, deferred, mapped_column
@@ -189,6 +189,10 @@ class InternshipSelection(TimestampedBase):
     lms_course_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("courses.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # True when the student already had a live enrolment in the course when access was granted (they got it some other way), so this
+    # grant did not create it and revoking this access must leave it alone. False (the default, and what every access granted before
+    # this column existed has) means the grant created or restored the enrolment, as revoking has always assumed.
+    lms_enrolment_preexisting: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     lms_granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lms_granted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

@@ -26,6 +26,19 @@ const ALIGN = [
 /** Where a change is saved: only this internship (an override), or as the default every internship starts from. */
 type Scope = "internship" | "defaults";
 
+/** The sentence that tells staff the LMS course name can be printed on the letter; shown only when the server offers that placeholder. */
+export function CoursePlaceholderHint({ settings }: { settings: Pick<LetterSettings, "placeholders"> }) {
+  if (!settings.placeholders.lms_course_name) return null;
+  return (
+    <>
+      {" "}
+      <span data-testid="course-placeholder-hint">
+        Use {"{{lms_course_name}}"} (for example in "About the program") to print the LMS course linked to this internship; it is left blank when none is linked.
+      </span>
+    </>
+  );
+}
+
 export function LettersConfig({
   internshipId,
   settings,
@@ -207,14 +220,7 @@ export function LettersConfig({
           <CardDescription>
             The wording. Placeholders such as {"{{student_name}}"} are replaced for each student. Only what you write here is printed:
             nothing is added about money, rules or results.
-            {settings.placeholders.lms_course_name && (
-              <>
-                {" "}
-                <span data-testid="course-placeholder-hint">
-                  Use {"{{lms_course_name}}"} (for example in "About the program") to print the LMS course linked to this internship; it is left blank when none is linked.
-                </span>
-              </>
-            )}
+            <CoursePlaceholderHint settings={settings} />
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

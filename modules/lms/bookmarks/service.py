@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.logging_config import get_logger
-from modules.courses.lessons.repository import LessonRepository
+from modules.courses.repository import CourseRepository
+from modules.lms.enrollment.access import course_of_lesson, require_live_enrollment
 from modules.lms.bookmarks.repository import BookmarkRepository
 from modules.lms.bookmarks.schemas import BookmarkPublic
 from modules.students.models import Student
@@ -16,12 +17,14 @@ class BookmarkService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repo = BookmarkRepository(db)
-        self.lesson_repo = LessonRepository(db)
 
     async def add_bookmark(self, student: Student, lesson_id: uuid.UUID) -> None:
-        lesson = await self.lesson_repo.get_by_id(lesson_id)
-        if not lesson:
+        # a student bookmarks only lessons of a course of their own organization that they are enrolled in now. A lesson that does not
+        # exist, or belongs to another organization, is simply "not found"; one in a course they are not in says so, as the course itself would.
+        course_id = await course_of_lesson(self.db, lesson_id)
+        if await CourseRepository(self.db).get_by_id(course_id, student.organization_id) is None:
             raise NotFoundError("Lesson", lesson_id)
+        await require_live_enrollment(self.db, student, course_id)
 
         existing = await self.repo.get(student.id, lesson_id)
         if existing:

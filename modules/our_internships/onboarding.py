@@ -378,7 +378,8 @@ class OnboardingService:
         # the student role may be missing even on an existing account (a hackathon participant has only the restricted one)
         await AuthorizationService(self.db).assign_role(user.id, student_role.id, organization_id, user_id)
 
-        if await self._ensure_enrolment(erpx_student.id, course.id):
+        made_or_restored = await self._ensure_enrolment(erpx_student.id, course.id)
+        if made_or_restored:
             await self._join_batch(organization_id, course.id, erpx_student.id)
 
         if created:
@@ -387,6 +388,8 @@ class OnboardingService:
 
         selection.lms_status = LmsStatus.GRANTED
         selection.lms_course_id = course.id  # remembered, so revoking later drops THIS course even if the internship is relinked
+        # a live enrolment that was already there is not this grant's to take away: revoking must leave it (and its batches) alone
+        selection.lms_enrolment_preexisting = not made_or_restored
         selection.lms_user_id = user.id
         selection.lms_student_id = erpx_student.id
         selection.lms_granted_at = datetime.now(timezone.utc)
@@ -462,28 +465,42 @@ class OnboardingService:
 
     async def revoke(self, internship: OurInternship, selection: InternshipSelection) -> None:
         """Withdraw LMS access: the enrolment in the course THIS student was given is dropped (the account itself is left alone, it
-        may be used for other things), however the internship has been linked since. If the same student also holds access to
-        that course through another internship, their enrolment stays. Access can be granted again afterwards."""
+        may be used for other things), however the internship has been linked since. The enrolment stays when it is not this grant's to
+        withdraw: the student already had it before this access was granted (``lms_enrolment_preexisting``), or they also hold access
+        to that course through another internship. Access can be granted again afterwards."""
         await self.db.refresh(selection, with_for_update=True)
         if selection.lms_status != LmsStatus.GRANTED:
             raise ValidationError("This student does not have LMS access.")
         course_id = selection.lms_course_id or internship.lms_course_id  # (the fallback is for access granted before the column existed)
         if selection.lms_student_id and course_id:
-            also_through_another = (
+            others = (
                 await self.db.execute(
-                    select(func.count()).select_from(InternshipSelection).where(
+                    select(InternshipSelection).where(
                         InternshipSelection.id != selection.id,
                         InternshipSelection.lms_student_id == selection.lms_student_id,
                         InternshipSelection.lms_course_id == course_id,
                         InternshipSelection.lms_status == LmsStatus.GRANTED,
-                    )
+                    ).with_for_update()
                 )
-            ).scalar_one()
+            ).scalars().all()
+            also_through_another = bool(others)
+            if selection.lms_enrolment_preexisting:
+                # the student had this enrolment before the internship gave them access to it (an administrator enrolled them, or they
+                # bought the course): the internship did not create it, so withdrawing the internship withdraws nothing here
+                keep = True
+            elif also_through_another:
+                keep = True
+                # this access created the enrolment, and another internship still relies on it: from now on that one owns it, so
+                # withdrawing the other one later does drop it
+                for other in others:
+                    other.lms_enrolment_preexisting = False
+            else:
+                keep = False
             enrollments = EnrollmentRepository(self.db)
             enrollment = await enrollments.get_by_student_and_course(selection.lms_student_id, course_id)
-            if enrollment is not None and not also_through_another and enrollment.status != EnrollmentStatus.DROPPED:
+            if enrollment is not None and not keep and enrollment.status != EnrollmentStatus.DROPPED:
                 await enrollments.set_status(enrollment, EnrollmentStatus.DROPPED)
-            if not also_through_another:
+            if not keep:
                 # the timetable and live classes follow batch membership, so the batches OF THIS COURSE go with the enrolment
                 # (their batches for other courses are left alone)
                 await self.db.execute(

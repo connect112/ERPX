@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /(receipts?|courses?)-.*\.spec\.ts/,
+  testMatch: /(receipts?-|courses?-|navigation).*\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   retries: 0,

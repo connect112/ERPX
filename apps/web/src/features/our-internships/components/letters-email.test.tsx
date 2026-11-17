@@ -50,6 +50,20 @@ describe("the offer letter email card", () => {
     expect(html).not.toContain('id="em-subject"');
   });
 
+  it("offers the course name among the placeholders of the built-in wording, next to the programme name", () => {
+    const withCourse = { config: draft, placeholders: { student_name: "The student's name", internship_name: "The internship", lms_course_name: "The LMS course" } } as unknown as LetterSettings;
+    const preview = { data: { ...base, source: "legacy", template: null, uses_link: false }, isError: false, isFetching: false, refetch: () => Promise.resolve() } as unknown as UseQueryResult<EmailPreview>;
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <LettersEmail internshipId="i-1" settings={withCourse} draft={draft} onDraft={() => undefined} dirty={false} rows={[]} preview={preview} previewFor="" onPreviewFor={() => undefined} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(html).toContain("{{internship_name}}");
+    expect(html).toContain("{{lms_course_name}}");
+  });
+
   it("explains the legacy fallback and keeps its wording editable when no template is assigned", () => {
     const html = draw({ ...base, source: "legacy", template: null, uses_link: false });
     expect(html).toContain("No Email Studio template is assigned.");

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.courses.chapters.models import Chapter
 from modules.courses.lessons.models import Lesson
 from modules.courses.models import Course
+from modules.lms.enrollment.models import Enrollment, EnrollmentStatus
 from modules.lms.bookmarks.models import LessonBookmark
 
 
@@ -33,11 +34,20 @@ class BookmarkRepository:
         await self.db.flush()
 
     async def list_for_student(self, student_id: uuid.UUID) -> list[tuple[LessonBookmark, Lesson, Course]]:
+        """The student's bookmarks in courses they are in NOW. A bookmark in a course whose enrolment was dropped (for example when
+        LMS access through an internship was withdrawn) is kept but not shown, so it cannot reveal the course's lesson or course titles;
+        it comes back if the enrolment is restored."""
         result = await self.db.execute(
             select(LessonBookmark, Lesson, Course)
             .join(Lesson, Lesson.id == LessonBookmark.lesson_id)
             .join(Chapter, Chapter.id == Lesson.chapter_id)
             .join(Course, Course.id == Chapter.course_id)
+            .join(
+                Enrollment,
+                (Enrollment.course_id == Course.id)
+                & (Enrollment.student_id == student_id)
+                & (Enrollment.status.in_([EnrollmentStatus.ACTIVE, EnrollmentStatus.COMPLETED])),
+            )
             .where(LessonBookmark.student_id == student_id)
             .order_by(LessonBookmark.created_at.desc())
         )
