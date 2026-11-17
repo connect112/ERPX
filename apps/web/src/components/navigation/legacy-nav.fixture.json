@@ -1,0 +1,498 @@
+{
+ "_note": "The admin sidebar as it was before the grouped navigation (apps/web/src/components/nav-config.ts on master at that time): every entry's route and gate. The tests check that each one is still reachable, with the same gate.",
+ "entries": [
+  {
+   "label": "Dashboard",
+   "href": "/"
+  },
+  {
+   "label": "Calendar",
+   "href": "/events"
+  },
+  {
+   "label": "My Batches",
+   "href": "/my/batches",
+   "ownership": "trainer"
+  },
+  {
+   "label": "My Live Classes",
+   "href": "/my/live-classes",
+   "ownership": "trainer"
+  },
+  {
+   "label": "My Announcements",
+   "href": "/my/announcements",
+   "ownership": "trainer"
+  },
+  {
+   "label": "My Messages",
+   "href": "/my/messages",
+   "ownership": "trainer"
+  },
+  {
+   "label": "My Attendance",
+   "href": "/my/attendance",
+   "ownership": "employee"
+  },
+  {
+   "label": "My Leave",
+   "href": "/my/leave",
+   "ownership": "employee"
+  },
+  {
+   "label": "My Payslips",
+   "href": "/my/payslips",
+   "ownership": "employee"
+  },
+  {
+   "label": "My Expenses",
+   "href": "/my/expenses",
+   "ownership": "employee"
+  },
+  {
+   "label": "My Schedule",
+   "href": "/my/schedule",
+   "ownership": "student"
+  },
+  {
+   "label": "Organizations",
+   "href": "/organizations",
+   "superuserOnly": true
+  },
+  {
+   "label": "Users",
+   "href": "/administration/users",
+   "permission": "users.view"
+  },
+  {
+   "label": "Roles",
+   "href": "/administration/roles",
+   "permission": "authorization.roles.view"
+  },
+  {
+   "label": "Audit Logs",
+   "href": "/administration/audit-logs",
+   "permission": "audit.view"
+  },
+  {
+   "label": "Broadcast Notification",
+   "href": "/administration/broadcast",
+   "permission": "notifications.manage"
+  },
+  {
+   "label": "Database Backups",
+   "href": "/administration/backups",
+   "superuserOnly": true
+  },
+  {
+   "label": "Storage Manager",
+   "href": "/administration/storage",
+   "permission": "storage.view",
+   "alsoSuperuser": true
+  },
+  {
+   "label": "Bulk Downloads",
+   "href": "/administration/bulk-downloads"
+  },
+  {
+   "label": "Email Studio",
+   "href": "/administration/email-templates",
+   "permission": "email_templates.view"
+  },
+  {
+   "label": "Integrations",
+   "href": "/administration/integrations",
+   "permission": "integrations.view"
+  },
+  {
+   "label": "System Health",
+   "href": "/administration/monitoring",
+   "superuserOnly": true
+  },
+  {
+   "label": "Overview",
+   "href": "/pentrix-ops/overview",
+   "permission": "pentrix_ops.overview.view"
+  },
+  {
+   "label": "Registrations",
+   "href": "/pentrix-ops/registrations",
+   "permission": "pentrix_ops.registrations.view"
+  },
+  {
+   "label": "Assessments",
+   "href": "/pentrix-ops/assessments",
+   "permission": "pentrix_ops.assessments.view"
+  },
+  {
+   "label": "Bookings",
+   "href": "/pentrix-ops/bookings",
+   "permission": "pentrix_ops.bookings.view"
+  },
+  {
+   "label": "Payments",
+   "href": "/pentrix-ops/payments",
+   "permission": "pentrix_ops.payments.view"
+  },
+  {
+   "label": "Daily Summary",
+   "href": "/pentrix-ops/payments/daily",
+   "permission": "pentrix_ops.payments.view"
+  },
+  {
+   "label": "Marketing",
+   "href": "/pentrix-ops/marketing",
+   "permission": "pentrix_ops.marketing.view"
+  },
+  {
+   "label": "Booking Settings",
+   "href": "/pentrix-ops/availability",
+   "permission": "pentrix_ops.bookings.view"
+  },
+  {
+   "label": "My Assigned Bookings",
+   "href": "/pentrix-ops/my-bookings",
+   "permission": "pentrix_ops.bookings.assigned"
+  },
+  {
+   "label": "Leads",
+   "href": "/crm/leads",
+   "permission": "crm.leads.view"
+  },
+  {
+   "label": "Admissions",
+   "href": "/crm/admissions",
+   "permission": "crm.admissions.view"
+  },
+  {
+   "label": "Students",
+   "href": "/students",
+   "permission": "students.view"
+  },
+  {
+   "label": "Courses",
+   "href": "/courses",
+   "permission": "courses.view"
+  },
+  {
+   "label": "Batches",
+   "href": "/batches",
+   "permission": "batches.view"
+  },
+  {
+   "label": "Trainers",
+   "href": "/trainers",
+   "permission": "trainers.view"
+  },
+  {
+   "label": "Classrooms",
+   "href": "/classrooms",
+   "permission": "classrooms.view"
+  },
+  {
+   "label": "Announcements",
+   "href": "/lms/announcements",
+   "permission": "lms.announcements.view"
+  },
+  {
+   "label": "Badges",
+   "href": "/lms/badges",
+   "permission": "lms.badges.view"
+  },
+  {
+   "label": "Student-Trainer Messages",
+   "href": "/messaging",
+   "permission": "messaging.view_all"
+  },
+  {
+   "label": "Question Bank",
+   "href": "/examinations/question-bank",
+   "permission": "examinations.question_bank.view"
+  },
+  {
+   "label": "Pentrix Labs",
+   "href": "/pentrix/labs",
+   "permission": "pentrix.labs.view"
+  },
+  {
+   "label": "Pentrix Challenges",
+   "href": "/pentrix/challenges",
+   "permission": "pentrix.challenges.view"
+  },
+  {
+   "label": "Pentrix Leaderboard",
+   "href": "/pentrix/leaderboard",
+   "permission": "pentrix.leaderboard.view"
+  },
+  {
+   "label": "Pentrix Achievements",
+   "href": "/pentrix/achievements",
+   "permission": "pentrix.achievements.view"
+  },
+  {
+   "label": "Chart of Accounts",
+   "href": "/accounting/ledger",
+   "permission": "accounting.ledger.view"
+  },
+  {
+   "label": "Journals",
+   "href": "/accounting/journals",
+   "permission": "accounting.journals.view"
+  },
+  {
+   "label": "Customers",
+   "href": "/accounting/customers",
+   "permission": "accounting.customers.view"
+  },
+  {
+   "label": "Vendors",
+   "href": "/accounting/vendors",
+   "permission": "accounting.vendors.view"
+  },
+  {
+   "label": "Invoices",
+   "href": "/accounting/invoices",
+   "permission": "accounting.invoices.view"
+  },
+  {
+   "label": "Receipts",
+   "href": "/accounting/receipts",
+   "permission": "accounting.receipts.view"
+  },
+  {
+   "label": "Expenses",
+   "href": "/accounting/expenses",
+   "permission": "accounting.expenses.view"
+  },
+  {
+   "label": "Payments",
+   "href": "/accounting/payments",
+   "permission": "accounting.payments.view"
+  },
+  {
+   "label": "Bank Accounts",
+   "href": "/accounting/bank",
+   "permission": "accounting.bank.view"
+  },
+  {
+   "label": "GST",
+   "href": "/accounting/gst",
+   "permission": "accounting.gst.view"
+  },
+  {
+   "label": "TDS",
+   "href": "/accounting/tds",
+   "permission": "accounting.tds.view"
+  },
+  {
+   "label": "Financial Reports",
+   "href": "/accounting/reports",
+   "permission": "accounting.reports.view"
+  },
+  {
+   "label": "Employees",
+   "href": "/employees",
+   "permission": "employees.view"
+  },
+  {
+   "label": "Departments & Designations",
+   "href": "/hr/departments-designations",
+   "permission": "hr.departments.view"
+  },
+  {
+   "label": "Attendance",
+   "href": "/attendance",
+   "permission": "attendance.view"
+  },
+  {
+   "label": "Leave Types",
+   "href": "/leave/types",
+   "permission": "leave.types.view"
+  },
+  {
+   "label": "Leave Applications",
+   "href": "/leave/applications",
+   "permission": "leave.applications.view"
+  },
+  {
+   "label": "Expense Claims",
+   "href": "/expense-claims",
+   "permission": "expense_claims.view"
+  },
+  {
+   "label": "Salary Components",
+   "href": "/payroll/components",
+   "permission": "payroll.components.view"
+  },
+  {
+   "label": "Payroll Runs",
+   "href": "/payroll/runs",
+   "permission": "payroll.runs.view"
+  },
+  {
+   "label": "Item Categories & Warehouses",
+   "href": "/inventory/settings",
+   "permission": "inventory.items.view"
+  },
+  {
+   "label": "Inventory Items",
+   "href": "/inventory/items",
+   "permission": "inventory.items.view"
+  },
+  {
+   "label": "Asset Categories",
+   "href": "/assets/categories",
+   "permission": "assets.view"
+  },
+  {
+   "label": "Fixed Assets",
+   "href": "/assets",
+   "permission": "assets.view"
+  },
+  {
+   "label": "Depreciation Runs",
+   "href": "/assets/depreciation-runs",
+   "permission": "assets.depreciation.view"
+  },
+  {
+   "label": "Purchase Orders",
+   "href": "/procurement/purchase-orders",
+   "permission": "procurement.purchase_orders.view"
+  },
+  {
+   "label": "Clients",
+   "href": "/corporate/clients",
+   "permission": "corporate.clients.view"
+  },
+  {
+   "label": "Corporate Reports",
+   "href": "/corporate/reports",
+   "permission": "corporate.reports.view"
+  },
+  {
+   "label": "Campaigns",
+   "href": "/marketing/campaigns",
+   "permission": "marketing.campaigns.view"
+  },
+  {
+   "label": "Coupons",
+   "href": "/marketing/coupons",
+   "permission": "marketing.coupons.view"
+  },
+  {
+   "label": "Landing Pages",
+   "href": "/marketing/landing-pages",
+   "permission": "marketing.landing_pages.view"
+  },
+  {
+   "label": "Referral Programs",
+   "href": "/marketing/referrals/programs",
+   "permission": "marketing.referrals.view"
+  },
+  {
+   "label": "Referrals",
+   "href": "/marketing/referrals",
+   "permission": "marketing.referrals.view"
+  },
+  {
+   "label": "Marketing Overview",
+   "href": "/marketing/analytics",
+   "permission": "marketing.analytics.view"
+  },
+  {
+   "label": "Social Media",
+   "href": "/social-media",
+   "permission": "social_media.view"
+  },
+  {
+   "label": "Workshops",
+   "href": "/workshops",
+   "permission": "workshops.view"
+  },
+  {
+   "label": "Workshop Exams",
+   "href": "/workshop-exams",
+   "permission": "workshops.view"
+  },
+  {
+   "label": "Hackathons",
+   "href": "/hackathons",
+   "permission": "hackathons.view"
+  },
+  {
+   "label": "Institutions",
+   "href": "/institutions",
+   "permission": "institutions.view"
+  },
+  {
+   "label": "Placement Companies",
+   "href": "/placements/companies",
+   "permission": "placements.view"
+  },
+  {
+   "label": "Job Postings",
+   "href": "/placements/postings",
+   "permission": "placements.view"
+  },
+  {
+   "label": "Job Feed",
+   "href": "/placements/job-feed",
+   "permission": "placements.view"
+  },
+  {
+   "label": "Internship Postings",
+   "href": "/internships/postings",
+   "permission": "internships.view"
+  },
+  {
+   "label": "Active Internships",
+   "href": "/internships",
+   "permission": "internships.view"
+  },
+  {
+   "label": "Our Internships",
+   "href": "/our-internships",
+   "permission": "our_internships.view"
+  },
+  {
+   "label": "Alumni Profiles",
+   "href": "/alumni/profiles",
+   "permission": "alumni.view"
+  },
+  {
+   "label": "Alumni Events",
+   "href": "/alumni/events",
+   "permission": "alumni.view"
+  },
+  {
+   "label": "Job Referrals",
+   "href": "/alumni/referrals",
+   "permission": "alumni.view"
+  },
+  {
+   "label": "Media Gallery",
+   "href": "/media/albums",
+   "permission": "media.view"
+  },
+  {
+   "label": "Communication Log",
+   "href": "/communication/logs",
+   "permission": "communication.view"
+  },
+  {
+   "label": "Approval Workflows",
+   "href": "/workflow/workflows",
+   "permission": "workflow.view"
+  },
+  {
+   "label": "Approval Requests",
+   "href": "/workflow/requests",
+   "permission": "workflow.view"
+  },
+  {
+   "label": "My Approvals",
+   "href": "/workflow/my-approvals",
+   "permission": "workflow.view"
+  }
+ ]
+}

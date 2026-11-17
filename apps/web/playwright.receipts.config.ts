@@ -15,11 +15,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /receipts?-.*\.spec\.ts/,
+  testMatch: /(receipts?-|navigation).*\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   retries: 0,
   timeout: 30_000,
+  // a slow shared CI runner can take longer than the default 5s to draw a page that is waiting for a (stubbed) account request
+  expect: { timeout: 10_000 },
   reporter: [["list"]],
   use: { baseURL: process.env.E2E_BASE_URL ?? "http://127.0.0.1:4173", trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], channel: process.env.PW_CHANNEL || undefined } }],

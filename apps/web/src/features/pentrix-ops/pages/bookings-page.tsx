@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,11 +49,17 @@ export function BookingsPage() {
             Pentrix, so the candidate sees them straight away.
           </p>
         </div>
-        {perms.canManage && (
-          <Button variant="outline" disabled={sync.isPending} onClick={() => sync.mutate()}>
-            <RefreshCw className={`h-4 w-4 ${sync.isPending ? "animate-spin" : ""}`} /> Refresh from Pentrix
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Booking Settings has no sidebar entry of its own; it is reached from here (and found by the navigation search) */}
+          <Button asChild variant="outline">
+            <Link to="/pentrix-ops/availability">Booking settings</Link>
           </Button>
-        )}
+          {perms.canManage && (
+            <Button variant="outline" disabled={sync.isPending} onClick={() => sync.mutate()}>
+              <RefreshCw className={`h-4 w-4 ${sync.isPending ? "animate-spin" : ""}`} /> Refresh from Pentrix
+            </Button>
+          )}
+        </div>
       </div>
       {sync.isError && <p role="alert" className="text-sm text-destructive">{errorMessage(sync.error, "Could not reach Pentrix.")}</p>}
 
