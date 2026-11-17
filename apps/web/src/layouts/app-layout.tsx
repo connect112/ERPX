@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { AppTopbar } from "@/components/app-topbar";
+import { NavFavoritesProvider } from "@/components/navigation/favorites-state";
 import { NavLayoutProvider } from "@/components/navigation/nav-state";
 import { NavSidebar } from "@/components/navigation/nav-sidebar";
 import { useNavShortcut } from "@/components/navigation/use-nav-shortcut";
@@ -33,7 +34,9 @@ function Shell() {
 export function AppLayout() {
   return (
     <NavLayoutProvider>
-      <Shell />
+      <NavFavoritesProvider>
+        <Shell />
+      </NavFavoritesProvider>
     </NavLayoutProvider>
   );
 }

@@ -62,6 +62,8 @@ async def test_get_my_roles_requires_no_permission_and_reflects_actual_grants(
     assert empty_response.json()["roles"] == []
     assert empty_response.json()["effective_permissions"] == []
     assert empty_response.json()["is_superuser"] is False
+    # the caller's organization comes back too (clients keep per-user, per-organization browser preferences apart with it)
+    assert empty_response.json()["organization_id"] == str(organization.id)
 
     staff_role = await authz_repo.get_role_by_slug("staff")
     await authz_service.assign_role(user.id, staff_role.id, organization.id, assigned_by_user_id=None)

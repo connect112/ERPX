@@ -38,8 +38,8 @@ function score(label: string, group: string, keywords: string[], query: string, 
   return null;
 }
 
-/** Instant, local search over the entries a user may open. Ordered by how well they match, then by menu order; at most `limit` results. */
-export function searchNav(entries: SearchEntry[], rawQuery: string, limit = 12): SearchResult[] {
+/** Instant, local search over the entries a user may open. Ordered by how well they match, then pinned pages first, then menu order; at most `limit` results. */
+export function searchNav(entries: SearchEntry[], rawQuery: string, limit = 12, pinned?: ReadonlySet<string>): SearchResult[] {
   const query = normalise(rawQuery.trim());
   if (!query) return [];
   const words = query.split(/\s+/).filter(Boolean);
@@ -48,7 +48,9 @@ export function searchNav(entries: SearchEntry[], rawQuery: string, limit = 12):
     const hit = score(entry.item.label, entry.groupTitle ?? "", entry.item.keywords ?? [], query, words);
     if (hit) results.push({ entry, score: hit.score, ranges: hit.ranges, order });
   });
-  return results.sort((a, b) => b.score - a.score || a.order - b.order).slice(0, limit);
+  // a pinned page comes first among equally good matches; each page is still listed once
+  const isPinned = (r: SearchResult) => (pinned?.has(r.entry.item.href) ? 1 : 0);
+  return results.sort((a, b) => b.score - a.score || isPinned(b) - isPinned(a) || a.order - b.order).slice(0, limit);
 }
 
 /** Splits a label into plain and highlighted pieces for rendering. */

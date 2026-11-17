@@ -1,9 +1,10 @@
 /* eslint-disable react-refresh/only-export-components -- the hooks and constants live beside the component that provides them */
-import { Search } from "lucide-react";
+import { Search, Star } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { SearchEntry } from "@/components/navigation/access";
+import { useNavFavorites } from "@/components/navigation/favorites-state";
 import { useNavLayout } from "@/components/navigation/nav-state";
 import { type SearchResult, highlight, searchNav } from "@/components/navigation/search";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -13,7 +14,8 @@ import { cn } from "@/lib/utils";
 export function useNavSearch(entries: SearchEntry[], onOpen: (href: string) => void) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const results = useMemo(() => searchNav(entries, query), [entries, query]);
+  const { ids } = useNavFavorites();
+  const results = useMemo(() => searchNav(entries, query, 12, new Set(ids)), [entries, query, ids]);
   useEffect(() => setActive(0), [query]);
   const open = (r: SearchResult | undefined) => {
     if (!r) return;
@@ -72,6 +74,7 @@ export function NavSearchInput({ scope, state, inputRef, className }: { scope: s
 }
 
 export function NavSearchResults({ scope, state, onPicked }: { scope: string; state: NavSearchState; onPicked?: () => void }) {
+  const { isPinned } = useNavFavorites();
   if (!state.query.trim()) return null;
   if (state.results.length === 0) {
     return (
@@ -108,6 +111,12 @@ export function NavSearchResults({ scope, state, onPicked }: { scope: string; st
                 </span>
                 {r.entry.groupTitle && <span className="block truncate text-xs text-muted-foreground">{r.entry.groupTitle}</span>}
               </span>
+              {isPinned(r.entry.item.href) && (
+                <>
+                  <Star className="h-3.5 w-3.5 shrink-0 fill-current text-amber-500" aria-hidden />
+                  <span className="sr-only">Pinned to Favorites</span>
+                </>
+              )}
             </button>
           </li>
         );

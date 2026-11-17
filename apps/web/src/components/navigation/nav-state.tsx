@@ -3,6 +3,7 @@ import { type ReactNode, createContext, useCallback, useContext, useEffect, useM
 import { useLocation } from "react-router-dom";
 
 import { activeEntry } from "@/components/navigation/access";
+import { FAVORITES_GROUP_ID } from "@/components/navigation/favorites";
 
 /** Saved with the user's browser: how they left the sidebar. Hovering never changes it. */
 export type SidebarMode = "pinned" | "collapsed";
@@ -20,7 +21,9 @@ export function readMode(): SidebarMode {
 }
 export function readGroups(): string[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(GROUPS_KEY) ?? "[]") as unknown;
+    const saved = localStorage.getItem(GROUPS_KEY);
+    if (saved === null) return [FAVORITES_GROUP_ID]; // nothing saved yet: Favorites starts open (its empty state explains how to pin)
+    const raw = JSON.parse(saved) as unknown;
     return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
   } catch {
     return [];

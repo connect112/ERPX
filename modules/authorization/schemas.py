@@ -73,6 +73,9 @@ class UserRolesResponse(BaseModel):
     # use even without holding their (deliberately ungrantable) permission
     # codes. See modules/authorization/service.py's _PLATFORM_ONLY_PERMISSIONS.
     is_superuser: bool
+    # The caller's organization, when they belong to one (None for a platform superuser without a profile). Clients only use it to keep
+    # per-user, per-organization browser preferences (such as the navigation Favorites) apart. Filled by GET /authorization/me only.
+    organization_id: uuid.UUID | None = None
 
 
 class MessageResponse(BaseModel):

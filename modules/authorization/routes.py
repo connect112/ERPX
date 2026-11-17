@@ -26,6 +26,7 @@ from modules.authorization.schemas import (
 )
 from modules.authorization.service import AuthorizationService
 from modules.users.dependencies import get_current_user_organization_id
+from modules.users.repository import UserProfileRepository
 
 router = APIRouter()
 
@@ -52,11 +53,13 @@ async def get_my_roles(
 
         if await InstructorService(db).is_instructor(user):
             permissions.append("our_internships.view")
+    profile = await UserProfileRepository(db).get_by_user_id(user.id)
     return UserRolesResponse(
         user_id=user.id,
         roles=[RolePublic.model_validate(r) for r in result["roles"]],
         effective_permissions=permissions,
         is_superuser=user.is_superuser,
+        organization_id=profile.organization_id if profile else None,
     )
 
 
