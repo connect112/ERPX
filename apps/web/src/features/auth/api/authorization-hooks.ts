@@ -14,6 +14,8 @@ interface MyRolesResponse {
   roles: RolePublic[];
   effective_permissions: string[];
   is_superuser: boolean;
+  /** the caller's organization; absent from an older server (the navigation Favorites then use the user alone) */
+  organization_id?: string | null;
 }
 
 // This admin app never self-gated on the caller's own roles/permissions
