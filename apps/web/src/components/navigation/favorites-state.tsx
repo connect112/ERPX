@@ -11,6 +11,8 @@ interface FavoritesApi {
   toggle: (id: string, label: string) => boolean;
   /** a sentence for screen readers describing the last change */
   announcement: string;
+  /** false until this account's favorites have been read (so the list is not shown as empty while the account is still loading) */
+  ready: boolean;
 }
 
 const Ctx = createContext<FavoritesApi | null>(null);
@@ -65,6 +67,7 @@ export function NavFavoritesProvider({ children }: { children: ReactNode }) {
     [key, fs]
   );
 
-  const value = useMemo<FavoritesApi>(() => ({ ids, isPinned: (id) => ids.includes(id), toggle, announcement }), [ids, toggle, announcement]);
+  const ready = key !== null && state.key === key;
+  const value = useMemo<FavoritesApi>(() => ({ ids, isPinned: (id) => ids.includes(id), toggle, announcement, ready }), [ids, toggle, announcement, ready]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

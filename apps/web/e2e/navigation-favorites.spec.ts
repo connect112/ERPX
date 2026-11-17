@@ -13,7 +13,8 @@ const json = (body: unknown, status = 200) => ({ status, contentType: "applicati
 
 interface Account {
   userId: string;
-  orgId: string | null;
+  /** null: the server says there is no organization; undefined: an older server that does not send the field at all */
+  orgId: string | null | undefined;
   permissions: string[];
   superuser?: boolean;
 }
@@ -32,9 +33,11 @@ async function signIn(page: Page, initial: Account = ADMIN, storage: Record<stri
     },
     [initial, storage] as const,
   );
-  await page.route("**/api/v1/**", (route) => {
+  await page.route("**/api/v1/**", async (route) => {
     const p = new URL(route.request().url()).pathname.replace(/^\/api\/v1/, "");
-    if (p === "/authorization/me") return route.fulfill(json({ user_id: account.userId, roles: [], effective_permissions: account.permissions, is_superuser: !!account.superuser, organization_id: account.orgId }));
+    // a real server is not instant: the page must cope with the account arriving a moment after it first draws (slow CI machines do this)
+    if (p === "/authorization/me") await new Promise((r) => setTimeout(r, 250));
+    if (p === "/authorization/me") return route.fulfill(json({ user_id: account.userId, roles: [], effective_permissions: account.permissions, is_superuser: !!account.superuser, ...(account.orgId === undefined ? {} : { organization_id: account.orgId }) }));
     if (/^\/(trainers|employees|students)\/me$/.test(p)) return route.fulfill(json({ detail: "none" }, 404));
     if (p.startsWith("/notifications")) return route.fulfill(json({ items: [], total: 0, page: 1, page_size: 20, unread_count: 0, count: 0 }));
     return route.fulfill(json({ items: [], total: 0, detail: "stub" }, 404));
@@ -54,9 +57,18 @@ async function switchTo(page: Page, account: Account, next: Account) {
 
 const sidebar = (page: Page) => page.getByTestId("sidebar");
 // its accessible name is "Favorites", plus the count once something is pinned
+// "nothing is pinned" is only meaningful once the account has loaded; before that the list is empty for every user
+const expectNoFavorites = async (page: Page) => {
+  await expect(page.getByTestId("favorites-section")).toHaveAttribute("data-ready", "true");
+  await expect(favLinks(page)).toHaveCount(0);
+};
 const favButton = (page: Page) => page.locator("#nav-favorites-button");
 const favLinks = (page: Page) => page.locator("#nav-favorites a");
-const favNames = (page: Page) => favLinks(page).allTextContents();
+// waits until the account's favorites have been read, so a test never looks at the list while the page is still loading
+const favNames = async (page: Page) => {
+  await expect(page.getByTestId("favorites-section")).toHaveAttribute("data-ready", "true");
+  return favLinks(page).allTextContents();
+};
 const group = (page: Page, name: string) => sidebar(page).getByRole("button", { name, exact: true });
 const stored = (page: Page, key: string) => page.evaluate((k) => localStorage.getItem(k), key);
 const pinBtn = (page: Page, label: string) => page.getByRole("button", { name: `Pin ${label} to Favorites` });
@@ -78,6 +90,7 @@ test.describe("desktop", () => {
   test("Favorites sits under Dashboard and Calendar, above the groups, open and empty at first", async ({ page }) => {
     await signIn(page);
     await page.goto("/");
+    await expect(group(page, "Workspace")).toBeVisible(); // the groups arrive with the account
     const order = await sidebar(page).locator("nav").evaluate((nav) => {
       const at = (sel: string) => nav.querySelector(sel)!.getBoundingClientRect().top;
       const dash = [...nav.querySelectorAll("a")].find((a) => a.textContent?.trim() === "Dashboard")!.getBoundingClientRect().top;
@@ -87,12 +100,13 @@ test.describe("desktop", () => {
     expect(order.fav).toBeLessThan(order.first);
     await expect(favButton(page)).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByTestId("favorites-empty")).toHaveText("No favorites yet. Use the star beside any page to pin it here.");
-    await expect(favLinks(page)).toHaveCount(0);
+    await expectNoFavorites(page);
   });
 
   test("every listed page has a Pin action; Dashboard does not", async ({ page }) => {
     await signIn(page);
     await page.goto("/");
+    await favNames(page); // the account has loaded
     await expect(sidebar(page).getByRole("button", { name: /^Pin Dashboard/ })).toHaveCount(0);
     await expect(pinBtn(page, "Calendar")).toHaveCount(1);
     for (const g of ["Workspace", "Finance", "Pentrix", "Administration"]) {
@@ -119,7 +133,7 @@ test.describe("desktop", () => {
     await page.goto("/");
     await pin(page, "Finance", "Invoices");
     await sidebar(page).locator("#nav-group-finance").getByRole("button", { name: "Unpin Invoices from Favorites" }).click();
-    await expect(favLinks(page)).toHaveCount(0);
+    await expectNoFavorites(page);
     await expect(page.getByTestId("favorites-empty")).toBeVisible();
     await expect(page.getByRole("status").filter({ hasText: "Unpinned Invoices from Favorites." })).toBeAttached();
     await expect(sidebar(page).locator("#nav-group-finance").getByRole("link", { name: "Invoices", exact: true })).toBeVisible();
@@ -186,7 +200,7 @@ test.describe("desktop", () => {
     await page.goto("/");
     await pin(page, "Finance", "Invoices");
     await favButton(page).click();
-    await expect(favLinks(page)).toHaveCount(0);
+    await expectNoFavorites(page);
     await page.reload();
     await expect(favButton(page)).toHaveAttribute("aria-expanded", "false");
     await favButton(page).click();
@@ -206,7 +220,7 @@ test.describe("desktop", () => {
       await expect(favLinks(page)).toHaveText(["Invoices"]);
       await expect(sidebar(page).locator("#nav-group-finance").getByRole("button", { name: "Unpin Invoices from Favorites" })).toBeFocused();
       await page.keyboard.press("Space");
-      await expect(favLinks(page)).toHaveCount(0);
+      await expectNoFavorites(page);
       await expect(sidebar(page).locator("#nav-group-finance").getByRole("button", { name: "Pin Invoices to Favorites" })).toBeFocused();
     });
 
@@ -243,7 +257,7 @@ test.describe("desktop", () => {
       await page.goto("/");
       await pin(page, "Finance", "Invoices");
       await switchTo(page, acct, { ...ADMIN, userId: "user-b" });
-      await expect(favLinks(page)).toHaveCount(0);
+      await expectNoFavorites(page);
       await expect(page.getByTestId("favorites-empty")).toBeVisible();
       await pin(page, "Students & Learning", "Courses");
       expect(await favNames(page)).toEqual(["Courses"]);
@@ -256,7 +270,7 @@ test.describe("desktop", () => {
       await page.goto("/");
       await pin(page, "Finance", "Invoices");
       await switchTo(page, acct, { ...ADMIN, orgId: "org-2" });
-      await expect(favLinks(page)).toHaveCount(0);
+      await expectNoFavorites(page);
       await switchTo(page, acct, ADMIN);
       expect(await favNames(page)).toEqual(["Invoices"]);
     });
@@ -264,7 +278,7 @@ test.describe("desktop", () => {
     test("favorites saved under another account are never read, even if they are in storage", async ({ page }) => {
       await signIn(page, ADMIN, { [KEY({ userId: "someone-else", orgId: "org-1" })]: JSON.stringify(["/courses"]) });
       await page.goto("/");
-      await expect(favLinks(page)).toHaveCount(0);
+      await expectNoFavorites(page);
     });
   });
 
@@ -294,7 +308,7 @@ test.describe("desktop", () => {
     test("a user with no access to anything sees the empty state, whatever was saved", async ({ page }) => {
       await signIn(page, { ...ADMIN, permissions: [] }, { [KEY(ADMIN)]: JSON.stringify(["/accounting/invoices", "/courses"]) });
       await page.goto("/");
-      await expect(favLinks(page)).toHaveCount(0);
+      await expectNoFavorites(page);
       await expect(page.getByTestId("favorites-empty")).toBeVisible();
     });
 
@@ -424,6 +438,59 @@ test.describe("desktop", () => {
       return { right: r.right, btnRight: b.right };
     });
     expect(box.btnRight).toBeLessThanOrEqual(box.right + 1);
+  });
+});
+
+test.describe("an older API without organization_id, and accounts without an organization", () => {
+  test.use({ viewport: { width: 1366, height: 768 } });
+  const OLD: Account = { ...ADMIN, orgId: undefined };
+
+  test("favorites work: pinned, kept after a reload, saved under 'none', nothing breaks", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await signIn(page, OLD);
+    await page.goto("/");
+    await expect(favButton(page)).toBeVisible();
+    await pin(page, "Finance", "Invoices");
+    await pin(page, "Students & Learning", "Courses");
+    expect(await favNames(page)).toEqual(["Invoices", "Courses"]);
+    await page.reload();
+    expect(await favNames(page)).toEqual(["Invoices", "Courses"]);
+    expect(JSON.parse((await stored(page, KEY(OLD)))!)).toEqual(["/accounting/invoices", "/courses"]);
+    expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("erpx.nav.favorites")))).toEqual(["erpx.nav.favorites.v1:none:user-a"]);
+    expect(errors).toEqual([]);
+  });
+
+  test("still never shows another user's pins, and still filters by permission", async ({ page }) => {
+    const acct = await signIn(page, OLD, { [KEY({ userId: "user-a", orgId: undefined })]: JSON.stringify(["/accounting/invoices", "/administration/users"]) });
+    await page.goto("/");
+    expect(await favNames(page)).toEqual(["Invoices", "Users"]);
+    await switchTo(page, acct, { ...OLD, userId: "user-b" });
+    await expectNoFavorites(page);
+    await switchTo(page, acct, { ...OLD, permissions: roles.roles.staff.filter((c) => !c.startsWith("users.")) });
+    expect(await favNames(page)).not.toContain("Users");
+  });
+
+  test("when the API starts sending organization_id, favorites are scoped by it from then on (the 'none' pins are not shown to an organization)", async ({ page }) => {
+    const acct = await signIn(page, OLD, { [KEY(OLD)]: JSON.stringify(["/courses"]) });
+    await page.goto("/");
+    expect(await favNames(page)).toEqual(["Courses"]);
+    await switchTo(page, acct, ADMIN); // the API was updated: same user, now with an organization
+    await expectNoFavorites(page); // a one-time reset; never someone else's pins
+    await pin(page, "Finance", "Invoices");
+    expect(await favNames(page)).toEqual(["Invoices"]);
+    expect(await stored(page, KEY(OLD))).toBe('["/courses"]'); // the old ones are left alone
+  });
+
+  test("an account with no organization (organization_id null, e.g. a platform superuser) gets working favorites", async ({ page }) => {
+    const SUPER: Account = { userId: "platform-1", orgId: null, permissions: [], superuser: true };
+    await signIn(page, SUPER);
+    await page.goto("/");
+    await pin(page, "Platform", "Database Backups");
+    expect(await favNames(page)).toEqual(["Database Backups"]);
+    await page.reload();
+    expect(await favNames(page)).toEqual(["Database Backups"]);
+    expect(JSON.parse((await stored(page, KEY(SUPER)))!)).toEqual(["/administration/backups"]);
   });
 });
 

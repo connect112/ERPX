@@ -3,8 +3,13 @@ API tests asserting role-based access control actually gates endpoints —
 not just that endpoints exist and return data for a superuser.
 """
 
+import uuid
+
 import pytest
 
+from app.core.security import create_access_token, hash_password
+from modules.authentication.models import UserStatus
+from modules.authentication.repository import AuthRepository
 from modules.authorization.repository import AuthorizationRepository
 from modules.authorization.service import AuthorizationService
 
@@ -115,3 +120,37 @@ async def test_staff_role_does_not_grant_manage_permission(
         },
     )
     assert response.status_code == 403
+
+
+async def test_get_my_roles_returns_the_organization_of_a_normal_administrator(
+    client, staff_headers, staff_user, organization, db_session, rbac_seeded
+):
+    """organization_id is what the web app scopes per-user browser preferences (the navigation Favorites) by."""
+    user, _ = staff_user
+    role = await AuthorizationRepository(db_session).get_role_by_slug("administrator")
+    await AuthorizationService(db_session).assign_role(user.id, role.id, organization.id, assigned_by_user_id=None)
+    response = await client.get("/api/v1/authorization/me", headers=staff_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["organization_id"] == str(organization.id)
+    assert body["is_superuser"] is False
+    assert any(r["slug"] == "administrator" for r in body["roles"])
+    assert len(body["effective_permissions"]) > 100  # the rest of the response is exactly what it was
+
+
+async def test_get_my_roles_for_a_platform_superuser_without_a_profile(client, db_session, rbac_seeded):
+    """A platform superuser may have no organization profile at all: the request still succeeds, with organization_id null."""
+    user = await AuthRepository(db_session).create_user(
+        email=f"platform-{uuid.uuid4().hex[:8]}@erpx.example.com", hashed_password=hash_password("Test1234!"), full_name="Platform Admin"
+    )
+    user.status = UserStatus.ACTIVE
+    user.is_email_verified = True
+    user.is_superuser = True
+    await db_session.flush()
+    response = await client.get("/api/v1/authorization/me", headers={"Authorization": f"Bearer {create_access_token(str(user.id))}"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_superuser"] is True
+    assert body["organization_id"] is None
+    assert body["roles"] == []
+    assert body["user_id"] == str(user.id)

@@ -41,7 +41,7 @@ function PinButton({ item, pinned, onToggle, onDark, always }: { item: NavItem; 
 export function NavTree({ ctx, expanded, onNavigate, onGroupIconClick }: { ctx: NavContext; expanded: boolean; onNavigate?: () => void; onGroupIconClick?: (groupId: string) => void }) {
   const { pathname } = useLocation();
   const { openGroups, toggleGroup, openGroup } = useNavLayout();
-  const { ids, isPinned, toggle, announcement } = useNavFavorites();
+  const { ids, isPinned, toggle, announcement, ready: favoritesReady } = useNavFavorites();
   const { top, groups } = visibleNav(ctx);
   const active = activeEntry(pathname);
   const favorites = resolveFavorites(ids, ctx);
@@ -82,7 +82,8 @@ export function NavTree({ ctx, expanded, onNavigate, onGroupIconClick }: { ctx: 
         {top.map((item) => {
           const Icon = item.icon;
           const isActive = active?.item.href === item.href;
-          const canPin = expanded && isPinnable(item.href);
+          // no star until the account's favorites are read: a press before that could not be saved
+          const canPin = expanded && favoritesReady && isPinnable(item.href);
           return (
             <li key={item.href} className="group relative">
               <Link to={item.href} onClick={onNavigate} aria-current={isActive ? "page" : undefined} aria-label={expanded ? undefined : item.label} title={expanded ? undefined : item.label} className={cn(itemClass(isActive), canPin && "pr-10")}>
@@ -95,7 +96,7 @@ export function NavTree({ ctx, expanded, onNavigate, onGroupIconClick }: { ctx: 
         })}
       </ul>
 
-      <div className="pt-1" data-testid="favorites-section">
+      <div className="pt-1" data-testid="favorites-section" data-ready={favoritesReady ? "true" : "false"}>
         <button
           type="button"
           id="nav-favorites-button"
@@ -116,7 +117,7 @@ export function NavTree({ ctx, expanded, onNavigate, onGroupIconClick }: { ctx: 
         </button>
         {expanded && favoritesOpen && (
           <ul id="nav-favorites" aria-labelledby="nav-favorites-button" className="ml-5 mt-1 space-y-0.5 border-l pl-3">
-            {favorites.length === 0 ? (
+            {!favoritesReady ? null : favorites.length === 0 ? (
               <li className="px-3 py-2 text-xs text-muted-foreground" data-testid="favorites-empty">
                 No favorites yet. Use the star beside any page to pin it here.
               </li>
@@ -174,7 +175,7 @@ export function NavTree({ ctx, expanded, onNavigate, onGroupIconClick }: { ctx: 
                         <Link to={item.href} onClick={onNavigate} aria-current={isActive ? "page" : undefined} className={rowLinkClass(isActive)}>
                           {item.label}
                         </Link>
-                        <PinButton item={item} pinned={isPinned(item.href)} onToggle={() => pin(item)} onDark={isActive} />
+                        {favoritesReady && <PinButton item={item} pinned={isPinned(item.href)} onToggle={() => pin(item)} onDark={isActive} />}
                       </li>
                     );
                   })}
