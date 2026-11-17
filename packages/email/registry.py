@@ -213,6 +213,7 @@ TEMPLATES: tuple[TemplateDef, ...] = (
             Variable("institution_name", "The student's institution", "Apollo University"),
             Variable("institution_location", "Where the institution is", "Tirupati"),
             Variable("internship_name", "The internship programme", "Pentrix Cyber Internship"),
+            Variable("lms_course_name", "The LMS course linked to the internship (blank when none is linked)", "DevSecOps Level-1"),
             Variable("internship_position", "The position offered", "Intern"),
             Variable("internship_duration", "How long it runs", "3 months"),
             Variable("internship_start_date", "The start date", "13-03-2026"),
@@ -316,9 +317,9 @@ TEMPLATES: tuple[TemplateDef, ...] = (
         subject="Your Pentrix LMS access is ready",
         body=(
             "# Welcome, {{full_name}}\n\n"
-            "Your access to the Pentrix LMS is ready. You are now enrolled in {{course_title}}.\n\n"
+            "Your access to the Pentrix LMS is ready. For **{{internship_title}}** you are now enrolled in {{course_title}}.\n\n"
             "[Sign in]({{login_url}})\n\n"
-            "> Sign in with your existing account."
+            "> Sign in with your existing account, then open **My Courses** to find {{course_title}}."
         ),
         variables=(
             _NAME,
@@ -327,6 +328,30 @@ TEMPLATES: tuple[TemplateDef, ...] = (
             Variable("login_url", "The sign-in page", "https://lms.example.com/login"),
         ),
         required=("login_url",),
+    ),
+    TemplateDef(
+        key="internship_account_welcome",
+        name="Internship welcome (new LMS account)",
+        category="Internships",
+        description="Tells a student whose LMS account was just created which internship and course it is for, and how to activate it.",
+        when_sent="When LMS access is granted for an internship and the student had no account yet. It replaces the generic password email for that case.",
+        subject="Your Pentrix LMS account is ready: {{internship_title}}",
+        body=(
+            "# Welcome, {{full_name}}\n\n"
+            "Your LMS access for **{{internship_title}}** is ready. You are enrolled in {{course_title}}.\n\n"
+            "First choose a password: [Set your password]({{set_password_url}})\n\n"
+            "The link works for {{link_valid_hours}} hours. After that, sign in at {{login_url}} and open **My Courses** to start {{course_title}}.\n\n"
+            "> If the link has expired, use \"Forgot password\" on the sign-in page with this email address."
+        ),
+        variables=(
+            _NAME,
+            Variable("internship_title", "The internship's title", "Pentrix Cyber Internship"),
+            Variable("course_title", "The course they are enrolled in", "Cyber Security Fundamentals"),
+            Variable("set_password_url", "The link to choose a password", "https://lms.example.com/reset-password?token=abc123"),
+            Variable("link_valid_hours", "How long the password link works, in hours", "72"),
+            Variable("login_url", "The sign-in page", "https://lms.example.com/login"),
+        ),
+        required=("set_password_url",),
     ),
     TemplateDef(
         key="workshop_exam_invite",

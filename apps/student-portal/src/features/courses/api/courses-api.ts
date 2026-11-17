@@ -7,6 +7,8 @@ export interface EnrollmentPublic {
   enrolled_on: string;
   status: "active" | "completed" | "dropped" | "on_hold";
   created_at: string;
+  /** The student's own internships that gave them this course (empty for an ordinary course). */
+  internships?: { id: string; title: string }[];
 }
 
 export interface CoursePublic {

@@ -27,5 +27,16 @@ class EnrollmentPublic(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MyInternshipRef(BaseModel):
+    id: uuid.UUID
+    title: str
+
+
+class MyEnrollmentPublic(EnrollmentPublic):
+    """A student's own enrolment, with the internships (their own) that gave them this course; empty for an ordinary course."""
+
+    internships: list[MyInternshipRef] = []
+
+
 class MessageResponse(BaseModel):
     message: str

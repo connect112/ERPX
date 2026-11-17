@@ -17,6 +17,7 @@ const EXPIRED_TEXT =
 function view(over: Partial<PortalView> = {}): PortalView {
   const base = {
     organization: "GIR Technologies",
+    learning_course: null,
     internship: { title: "Cloud Internship", description: null },
     student_name: "Asha Rao",
     reference: "ERPX-INT-2026-000001",
@@ -65,6 +66,34 @@ async function show(v: PortalView | Error) {
 const completed = (link: string | null): Partial<PortalView> => ({
   statuses: { offer: "accepted", documents: "verified", payment: "not_required", overall: "completed" },
   completion: { completed: true, next_steps: "Orientation on Monday.", whatsapp_link: link, lms_status: "granted", link_expires_at: "2099-01-01T00:00:00Z" },
+});
+
+const course = { title: "DevSecOps Level-1", description: "Hands-on DevSecOps", level: "beginner", duration_hours: 40, accessible: false, lms_url: null };
+
+describe("the learning course on the student onboarding page", () => {
+  it("shows the linked course under the internship, with no price and no way in before access is granted", async () => {
+    await show(view({ learning_course: course }));
+    const block = container.querySelector('[data-testid="learning-course"]')!;
+    expect(block.textContent).toContain("Learning Course");
+    expect(block.textContent).toContain("DevSecOps Level-1");
+    expect(block.textContent).toContain("Hands-on DevSecOps");
+    expect(block.textContent).toContain("Beginner · 40 hours");
+    expect(block.textContent).not.toMatch(/₹|Free|price/i);
+    expect(block.querySelector("a")).toBeNull();
+    expect(block.textContent).toContain("You get access once your onboarding is complete.");
+  });
+
+  it("points at the LMS only once access is granted", async () => {
+    await show(view({ learning_course: { ...course, accessible: true, lms_url: "https://lms.example.com/courses/c1" } }));
+    const link = container.querySelector('[data-testid="learning-course"] a') as HTMLAnchorElement;
+    expect(link.href).toBe("https://lms.example.com/courses/c1");
+  });
+
+  it("leaves the section out when no course is linked", async () => {
+    await show(view());
+    expect(container.querySelector('[data-testid="learning-course"]')).toBeNull();
+    expect(container.textContent).not.toContain("Learning Course");
+  });
 });
 
 describe("the student onboarding page", () => {

@@ -354,9 +354,12 @@ async def test_completion_is_recorded_once_and_automatic_lms_access_follows(clie
 
     # no course chosen yet: access waits, nothing half-created
     assert await follow_up(db_session, application.id) == "blocked"
-    course = Course(organization_id=organization.id, title="Cloud Basics", slug=f"cloud-{application.id.hex[:6]}")
+    course = Course(organization_id=organization.id, title="Cloud Basics", slug=f"cloud-{application.id.hex[:6]}", is_published=True)
     db_session.add(course)
     await db_session.flush()
+    from modules.courses.chapters.repository import ChapterRepository
+
+    await ChapterRepository(db_session).create(course_id=course.id, title="Start here", order_index=1)  # a course must be ready to be granted
     internship.lms_course_id = course.id
     await db_session.flush()
     assert await follow_up(db_session, application.id) == "granted"

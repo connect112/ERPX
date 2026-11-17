@@ -23,6 +23,7 @@ PLACEHOLDERS: dict[str, str] = {
     "student_email": "The student's email address",
     "registration_id": "The student's registration or roll number (blank when we do not have one)",
     "internship_name": "The internship programme's name",
+    "lms_course_name": "The LMS course linked to this internship (left blank when no course is linked)",
     "internship_position": "The position offered",
     "internship_duration": "The duration, for example 3 months",
     "internship_start_date": "The start date",
@@ -206,13 +207,17 @@ class LetterConfig(BaseModel):
             raise ValueError("The end date must not be before the start date.")
         return value
 
-    @model_validator(mode="after")
-    def _placeholders_are_known(self):
+    def letter_texts(self) -> list[str]:
+        """Every text that is printed on the letter PDF (not the email)."""
         c = self.content
         texts = [c.subject, c.introduction, c.documents_intro, c.confirmation, c.closing, c.acceptance, c.guardian_acceptance,
-                 self.email.subject, self.email.body, self.branding.header_text, self.branding.footer_text, *c.documents, *c.terms, *c.notes,
+                 self.branding.header_text, self.branding.footer_text, *c.documents, *c.terms, *c.notes,
                  c.financial_note.purpose, c.financial_note.payment_conditions, c.financial_note.refund_terms, self.programme.description]
-        texts += [p.title for p in self.programme.phases]
+        return texts + [p.title for p in self.programme.phases]
+
+    @model_validator(mode="after")
+    def _placeholders_are_known(self):
+        texts = [*self.letter_texts(), self.email.subject, self.email.body]
         bad = unknown_placeholders(*texts)
         if bad:
             raise ValueError(
@@ -268,6 +273,13 @@ def difference(base: dict[str, Any], full: dict[str, Any]) -> dict[str, Any]:
 def effective(default_json: dict[str, Any] | None, override_json: dict[str, Any] | None) -> LetterConfig:
     merged = deep_merge(deep_merge(code_defaults(), default_json or {}), override_json or {})
     return LetterConfig.model_validate(merged)
+
+
+def uses_placeholder(config: LetterConfig, name: str, *, in_email: bool = False) -> bool:
+    """Whether the letter's printed text (and, when asked, its email wording) uses ``{{name}}``."""
+    texts = config.letter_texts() + ([config.email.subject, config.email.body] if in_email else [])
+    pattern = re.compile(r"\{\{\s*" + re.escape(name) + r"\s*\}\}")
+    return any(pattern.search(t or "") for t in texts)
 
 
 def config_hash(config: LetterConfig, asset_hashes: dict[str, str]) -> str:

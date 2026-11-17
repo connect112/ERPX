@@ -47,6 +47,17 @@ describe("placeholders", () => {
     expect(groupPlaceholders(list, "nothing")).toEqual([]);
   });
   it("writes a token", () => expect(token("student_name")).toBe("{{student_name}}"));
+  it("finds the LMS course name by what it is called or what it does, next to the internship name", () => {
+    const withCourse: Placeholder[] = [
+      { name: "internship_name", group: "Internship", description: "The internship's title", sample: "Pentrix Cyber Internship" },
+      { name: "lms_course_name", group: "Internship", description: "The LMS course linked to the internship (blank when none is linked)", sample: "DevSecOps Level-1" },
+    ];
+    expect(groupPlaceholders(withCourse, "course").map(([g, p]) => [g, p.map((x) => x.name)])).toEqual([["Internship", ["lms_course_name"]]]);
+    expect(groupPlaceholders(withCourse, "lms_course").length).toBe(1);
+    expect(groupPlaceholders(withCourse, "").map(([, p]) => p.map((x) => x.name))).toEqual([["internship_name", "lms_course_name"]]);
+    expect(token("lms_course_name")).toBe("{{lms_course_name}}");
+    expect(htmlIssues("<p>Your course: {{lms_course_name}}</p>")).toEqual([]);
+  });
 });
 
 describe("htmlIssues", () => {

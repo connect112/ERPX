@@ -9,7 +9,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError, ServiceUnavailableError, ValidationError
+from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError, ServiceUnavailableError, ValidationError
 from app.core.logging_config import get_logger
 from app.db.session import get_db
 from modules.authentication.models import User
@@ -112,7 +112,11 @@ async def update_internship(
     db: AsyncSession = Depends(get_db),
 ):
     service = OurInternshipService(db)
-    internship = await service.update(await service.get(internship_id, organization_id), payload.model_dump(exclude_unset=True))
+    fields = payload.model_dump(exclude_unset=True)
+    if "lms_course_id" in fields and not await InstructorService(db).has_global(user, "manage"):
+        # the screen offers the course choice to internship administrators only; an assigned instructor may not change it either
+        raise AuthorizationError("Only an internship administrator can choose or change the LMS course.")
+    internship = await service.update(await service.get(internship_id, organization_id), fields)
     return (await _out(service, [internship]))[0]
 
 
@@ -394,8 +398,8 @@ async def lms_courses(
     db: AsyncSession = Depends(get_db),
 ):
     """The courses a student can be enrolled in when given LMS access."""
-    await OurInternshipService(db).get(internship_id, organization_id)
-    return [CourseOption(id=c.id, title=c.title, is_published=c.is_published) for c in await OnboardingService(db).courses(organization_id)]
+    internship = await OurInternshipService(db).get(internship_id, organization_id)
+    return [CourseOption(**o) for o in await OnboardingService(db).course_options(internship)]
 
 
 @router.patch("/{internship_id}/selected/{student_id}/onboarding", response_model=SelectedStudent)

@@ -36,6 +36,7 @@ from modules.internship_onboarding.service import (
     pending_is_alive,
 )
 from modules.organizations.models import Organization
+from modules.our_internships.course_links import learning_course_for_portal
 from modules.our_internships.models import InternshipSelection, OfferResponse, OurInternship
 
 STEPS = ("welcome", "information", "form", "documents", "acceptance", "payment", "done")
@@ -281,6 +282,8 @@ class PortalService:
         return {
             "organization": org.name if org else "",
             "internship": {"title": ctx.internship.title, "description": ctx.internship.description},
+            # the linked LMS course (title, description, level, duration), read live; absent when none is linked. Never a price.
+            "learning_course": await learning_course_for_portal(self.db, ctx.internship, ctx.selection),
             "student_name": ctx.student.name,
             "reference": app.reference,
             "deadline": ctx.deadline,

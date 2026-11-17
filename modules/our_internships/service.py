@@ -60,8 +60,9 @@ class OurInternshipService:
         for key in ("title", "status"):
             if key in fields and fields[key] is None:
                 raise ValidationError(f"{key.capitalize()} cannot be empty.")
+        confirm_replace = bool(fields.pop("confirm_replace", False))
         if "lms_course_id" in fields:
-            await OnboardingService(self.db).set_course(internship, fields.pop("lms_course_id"))
+            await OnboardingService(self.db).set_course(internship, fields.pop("lms_course_id"), confirm_replace=confirm_replace)
         for key, value in fields.items():
             setattr(internship, key, value)
         await self.db.flush()
@@ -237,6 +238,7 @@ class OurInternshipService:
         standings: dict[uuid.UUID, list] = {}
         for s in board.students:
             standings.setdefault(s.student_id, []).append(s)
+        course_problem = await OnboardingService(self.db).course_problem(internship)
         return [
             SelectedStudent(
                 student_id=student.id,
@@ -265,7 +267,7 @@ class OurInternshipService:
                 lms_granted_at=selection.lms_granted_at,
                 stage=stage_of(selection),
                 stage_label=STAGE_LABELS[stage_of(selection)],
-                grant_blockers=grant_blockers(internship, selection),
+                grant_blockers=grant_blockers(internship, selection, course_problem),
                 standings=standings.get(student.id, []),
             )
             for selection, student, institution in rows

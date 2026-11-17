@@ -187,6 +187,25 @@ export function OnboardingPortalPage() {
               ))}
             </div>
           </div>
+          {v.learning_course && (
+            <div className="mt-3 rounded-md bg-muted/40 p-3 text-sm" data-testid="learning-course">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Learning Course</p>
+              <p className="font-medium">{v.learning_course.title}</p>
+              {v.learning_course.description && <p className="text-muted-foreground">{v.learning_course.description}</p>}
+              <p className="text-xs text-muted-foreground">
+                {[v.learning_course.level && v.learning_course.level[0].toUpperCase() + v.learning_course.level.slice(1), v.learning_course.duration_hours ? `${v.learning_course.duration_hours} hours` : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              {v.learning_course.accessible && v.learning_course.lms_url ? (
+                <a className="mt-1 inline-block text-primary underline" href={v.learning_course.lms_url}>
+                  Open in the LMS
+                </a>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">You get access once your onboarding is complete.</p>
+              )}
+            </div>
+          )}
         </CardHeader>
       </Card>
 

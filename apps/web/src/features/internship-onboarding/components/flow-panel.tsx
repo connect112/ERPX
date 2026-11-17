@@ -61,14 +61,14 @@ export function OnboardingOperationsPanel({ internshipId, isAdmin }: { internshi
 }
 
 /** "Onboarding Settings" tab: how this internship onboards. ``lmsCourse`` is the internship's LMS course picker. */
-export function OnboardingSettingsPanel({ internshipId, isAdmin, lmsCourse }: { internshipId: string; isAdmin: boolean; lmsCourse: ReactNode }) {
+export function OnboardingSettingsPanel({ internshipId, isAdmin, lmsCourse, initialSection }: { internshipId: string; isAdmin: boolean; lmsCourse: ReactNode; initialSection?: string }) {
   const config = useOnboardingConfig(internshipId);
   const sections = settingsSections(onboardingAccess(isAdmin, config.data));
 
   if (config.isError) return <p className="text-sm text-destructive">{errorMessage(config.error, "Could not load the onboarding settings.")}</p>;
   if (!config.data) return null;
   return (
-    <Tabs defaultValue={sections[0]}>
+    <Tabs defaultValue={initialSection && (sections as string[]).includes(initialSection) ? initialSection : sections[0]}>
       <TabsList className="h-auto flex-wrap justify-start">
         {sections.includes("general") && <TabsTrigger value="general">Settings</TabsTrigger>}
         {sections.includes("lms-course") && <TabsTrigger value="lms-course">LMS course</TabsTrigger>}

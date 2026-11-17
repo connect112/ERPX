@@ -321,14 +321,17 @@ async def my_internships(
         .join(OurInternship, OurInternship.id == InternshipSelection.internship_id)
         .where(
             InternshipSelection.lms_student_id == student.id,
-            InternshipSelection.lms_status == LmsStatus.GRANTED,
+            InternshipSelection.lms_status == LmsStatus.GRANTED,  # withdrawn access shows nothing, as it always did
             InternshipSelection.organization_id == student.organization_id,
         )
         .order_by(OurInternship.created_at.desc())
     )
     service = InternshipLearningService(db)
     out = []
+    from modules.our_internships.course_links import course_ref_for_student
+
     for selection, internship in rows.all():
+        course = await course_ref_for_student(db, student, selection, internship)
         assignments = await service.list_assignments(internship.id, student.organization_id, published_only=True)
         open_assignments = 0
         for a in assignments:
@@ -344,6 +347,7 @@ async def my_internships(
                 status=internship.status.value,
                 open_assignments=open_assignments,
                 open_exams=sum(1 for e, a in exams if a.submitted_at is None and e.status.value == "open"),
+                course=course,
             )
         )
     return out
@@ -358,12 +362,15 @@ async def my_internship(
     service = InternshipLearningService(db)
     selection = await service.selection_for_student(student, internship_id)
     internship = await OurInternshipService(db).get(internship_id, student.organization_id)
+    from modules.our_internships.course_links import course_ref_for_student
+
     return MyInternship(
         id=internship.id,
         selection_id=selection.id,
         title=internship.title,
         description=internship.description,
         status=internship.status.value,
+        course=await course_ref_for_student(db, student, selection, internship),
     )
 
 

@@ -162,6 +162,14 @@ class ExamResultRow(BaseModel):
 # ---------------- student side ----------------
 
 
+class MyCourseRef(BaseModel):
+    id: uuid.UUID
+    title: str
+    level: str | None = None
+    duration_hours: int | None = None
+    accessible: bool = False  # the student's enrolment is live: the course can be opened
+
+
 class MyInternship(BaseModel):
     id: uuid.UUID
     selection_id: uuid.UUID
@@ -170,6 +178,8 @@ class MyInternship(BaseModel):
     status: str
     open_assignments: int = 0
     open_exams: int = 0
+    lms_status: str = "granted"  # only internships with access in place are listed
+    course: MyCourseRef | None = None
 
 
 class MyExam(BaseModel):

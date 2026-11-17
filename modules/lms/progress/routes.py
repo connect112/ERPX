@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.lms.enrollment.access import course_of_lesson, require_live_enrollment
 from modules.lms.progress.schemas import (
     CourseProgressResponse,
     LessonProgressPublic,
@@ -26,6 +27,7 @@ async def get_my_course_progress(
     student: Student = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
+    await require_live_enrollment(db, student, course_id)
     service = ProgressService(db)
     return await service.get_course_progress(student.organization_id, student.id, course_id)
 
@@ -36,6 +38,8 @@ async def mark_my_lesson_complete(
     student: Student = Depends(get_current_student),
     db: AsyncSession = Depends(get_db),
 ):
+    # progress counts only on a course the student is really enrolled in (not a dropped one, and not another organization's)
+    await require_live_enrollment(db, student, await course_of_lesson(db, lesson_id))
     service = ProgressService(db)
     record = await service.mark_lesson_complete(student.organization_id, student.id, lesson_id)
     return LessonProgressPublic.model_validate(record)

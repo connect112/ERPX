@@ -181,7 +181,7 @@ def _draw_asset(c, asset: Asset, x: float, y: float, w_max: float, h_max: float,
 # ------------------------------------------------------------------ the words
 
 
-def letter_values(config: LetterConfig, facts: StudentFacts, internship_title: str, reference: str, letter_date: str) -> dict[str, str]:
+def letter_values(config: LetterConfig, facts: StudentFacts, internship_title: str, reference: str, letter_date: str, course_name: str = "") -> dict[str, str]:
     p, c = config.programme, config.company
 
     def day(value: date | None) -> str:
@@ -194,6 +194,7 @@ def letter_values(config: LetterConfig, facts: StudentFacts, internship_title: s
         "student_email": facts.email,
         "registration_id": facts.registration_id,
         "internship_name": p.name.strip() or internship_title,
+        "lms_course_name": course_name,
         "internship_position": p.position,
         "internship_duration": p.duration,
         "internship_start_date": day(p.start_date),
@@ -445,10 +446,11 @@ def build_letter_pdf(
     reference: str,
     letter_date: str,
     title: str | None = None,
+    course_name: str = "",
 ) -> tuple[bytes, int]:
-    """(the PDF, its page count)."""
+    """(the PDF, its page count). ``course_name`` is the linked LMS course's title at the moment of generation (blank when none)."""
     b = config.branding
-    values = letter_values(config, facts, internship_title, reference, letter_date)
+    values = letter_values(config, facts, internship_title, reference, letter_date, course_name)
     page_w, page_h = A4
     left, right = b.margin_left_mm * mm, b.margin_right_mm * mm
     top, bottom = b.margin_top_mm * mm, b.margin_bottom_mm * mm

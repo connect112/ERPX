@@ -80,6 +80,7 @@ def test_every_default_renders_with_its_sample_values_and_uses_only_its_own_plac
         "internship_onboarding_receipt",
         "internship_onboarding_completed",
         "internship_welcome",
+        "internship_account_welcome",
         "workshop_exam_invite",
         "workshop_certificate",
         "announcement",
