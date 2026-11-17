@@ -28,6 +28,8 @@ interface Course {
 
 export interface CoursesMock {
   courses: Course[];
+  /** what the Learning workspace is told about the caller (an instructor cannot delete or edit the curriculum) */
+  learning: { instructor: boolean; roster: { selection_id: string; name: string; lms_status: string; provenance: string | null }[] };
   internships: Internship[];
   /** what the page sent */
   created: Record<string, unknown>[];
@@ -61,7 +63,7 @@ export function seed(): Pick<CoursesMock, "courses" | "internships"> {
 
 /** A small, stateful stand-in for the courses and internships APIs (the page's own code is real; only the server is replaced). */
 export async function mockCourses(page: Page): Promise<CoursesMock> {
-  const state: CoursesMock = { ...seed(), created: [], updated: [], links: [], failNextLink: false, unhandled: [] };
+  const state: CoursesMock = { ...seed(), learning: { instructor: false, roster: [] }, created: [], updated: [], links: [], failNextLink: false, unhandled: [] };
   await page.addInitScript(() => {
     localStorage.setItem(
       "erpx-auth",
@@ -94,6 +96,35 @@ export async function mockCourses(page: Page): Promise<CoursesMock> {
     if (p === "/notifications/me") return json(route, { items: [], total: 0 });
     if (p === "/notifications/me/unread-count") return json(route, { unread_count: 0 });
     if (p === "/courses/categories") return json(route, []);
+
+    // the shared Learning workspace: the same seven tabs whichever page asks, and what the caller may do
+    if (p === "/learning/context") {
+      const courseId = query.get("course_id") ?? state.internships.find((i) => i.id === query.get("internship_id"))?.lms_course_id ?? null;
+      const course = state.courses.find((c) => c.id === courseId) ?? null;
+      const linked = query.get("internship_id") ? state.internships.filter((i) => i.id === query.get("internship_id")) : state.internships.filter((i) => i.lms_course_id === courseId);
+      const inst = state.learning.instructor;
+      return json(route, {
+        tabs: ["Curriculum", "Enrollments", "Evaluations", "Projects", "Discussions", "Practicals", "Viva"].map((label) => ({ key: label.toLowerCase(), label })),
+        course: course && { id: course.id, title: course.title, course_type: course.course_type, is_published: course.is_published },
+        internships: linked.map((i) => ({ id: i.id, title: i.title, status: i.status, can_view: true, can_manage: true, can_delete: !inst })),
+        needs_selector: !query.get("internship_id") && linked.length > 1,
+        course_caps: { curriculum_view: true, curriculum_manage: !inst, enrollments_view: true, enrollments_manage: !inst, assignments_view: true, assignments_manage: !inst, assessments_view: true, assessments_manage: !inst, exams_view: true, exams_manage: !inst, practicals_view: true, practicals_manage: !inst, viva_view: true, viva_manage: !inst, discussions_participate: true },
+      });
+    }
+    if (p === "/learning/enrollments") {
+      return json(route, {
+        internship_id: query.get("internship_id"), course_id: null, independent: [],
+        rows: state.learning.roster.map((r) => ({
+          selection_id: r.selection_id, student_id: `st-${r.selection_id}`, lms_student_id: `lms-${r.selection_id}`, name: r.name, email: `${r.selection_id}@example.com`, stage_label: "Selected",
+          lms_status: r.lms_status, lms_granted_at: null, has_account: true, enrollment_id: null, enrollment_status: r.lms_status === "granted" ? "active" : "dropped", enrolled_on: null,
+          provenance: r.provenance, grant_blockers: [], progress_percent: null, completed_lessons: null, total_lessons: null,
+        })),
+      });
+    }
+    if (p === "/students") return json(route, { items: [], total: 0, skip: 0, limit: 100 });
+    if (p === "/learning/results") return json(route, { internship_id: query.get("internship_id"), course_id: null, rows: [], included: ["exam", "assignment", "assessment", "project", "practical", "viva"] });
+    if (/^\/our-internships\/[^/]+\/(assignments|exams|projects|project-selections)$/.test(p)) return json(route, []);
+    if (/^\/examinations\//.test(p)) return json(route, []);
 
     if (p === "/courses" && m === "GET") {
       let items = state.courses;

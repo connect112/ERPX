@@ -5,6 +5,7 @@ import { Controller, useForm } from "react-hook-form";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useCurriculumAccess } from "@/features/courses/lib/curriculum-access";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +45,7 @@ interface LessonsPanelProps {
 export function LessonsPanel({ courseId, chapterId }: LessonsPanelProps) {
   const { data: lessons, isLoading } = useLessons(courseId, chapterId);
   const createLesson = useCreateLesson(courseId, chapterId);
+  const { canManage } = useCurriculumAccess();
   const deleteLesson = useDeleteLesson(courseId, chapterId);
   const [formOpen, setFormOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -105,10 +107,12 @@ export function LessonsPanel({ courseId, chapterId }: LessonsPanelProps) {
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Lessons
         </p>
-        <Button variant="ghost" size="sm" onClick={() => setFormOpen(true)}>
-          <Plus className="h-3 w-3" />
-          Add lesson
-        </Button>
+        {canManage && (
+          <Button variant="ghost" size="sm" onClick={() => setFormOpen(true)}>
+            <Plus className="h-3 w-3" />
+            Add lesson
+          </Button>
+        )}
       </div>
 
       {isLoading && <Skeleton className="h-8 w-full" />}
@@ -139,14 +143,17 @@ export function LessonsPanel({ courseId, chapterId }: LessonsPanelProps) {
                   </span>
                 )}
               </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={() => deleteLesson.mutate(lesson.id)}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
+              {canManage && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  aria-label={`Delete lesson ${lesson.title}`}
+                  onClick={() => deleteLesson.mutate(lesson.id)}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              )}
             </div>
             {expanded.has(lesson.id) && (
               <div className="mt-2">

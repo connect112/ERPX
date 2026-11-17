@@ -577,6 +577,9 @@ class WorkshopExamService:
         attendee, or None if that email is already registered for this
         exam (the caller then re-sends the existing personal link by
         email rather than creating, or revealing, anything)."""
+        if exam.internship_id is not None and exam.award is None:
+            # the people on an internship's exam are its students, added by the internship team: the shared link never adds anyone
+            raise ValidationError("This exam is assigned by the internship team. Use the personal link you were emailed.")
         if exam.status != WorkshopExamStatus.OPEN:
             raise ValidationError("Registration isn't open for this exam right now.")
         name = " ".join(name.split())
@@ -661,7 +664,42 @@ class WorkshopExamService:
         exam = (
             await self.db.execute(select(WorkshopExam).where(WorkshopExam.id == attendee.exam_id))
         ).scalar_one()
+        if not await self.internship_access_is_current(attendee, exam):
+            # a link issued for an internship exam stops working with the student's LMS access: same answer as for an unknown link
+            raise NotFoundError("Exam link")
         return attendee, exam
+
+    async def internship_access_is_current(self, attendee: WorkshopExamAttendee, exam: WorkshopExam) -> bool:
+        """For an exam that belongs to an internship (not its certificates): the attendee must be a student whose LMS access on that
+        internship is granted right now. Standalone, workshop, event and hackathon exams are not affected."""
+        if exam.internship_id is None or exam.award is not None or attendee.certificate_only:
+            return True
+        from modules.institutions.models import InstitutionStudent
+        from modules.our_internships.models import InternshipSelection, LmsStatus
+
+        if attendee.selection_id is not None:
+            selection = (
+                await self.db.execute(
+                    select(InternshipSelection.lms_status).where(
+                        InternshipSelection.id == attendee.selection_id, InternshipSelection.internship_id == exam.internship_id
+                    )
+                )
+            ).scalar_one_or_none()
+            return selection == LmsStatus.GRANTED
+        # an attendee from before the reference existed: matched by e-mail to a student with granted access on this internship
+        match = (
+            await self.db.execute(
+                select(InternshipSelection.id)
+                .join(InstitutionStudent, InstitutionStudent.id == InternshipSelection.student_id)
+                .where(
+                    InternshipSelection.internship_id == exam.internship_id,
+                    InternshipSelection.lms_status == LmsStatus.GRANTED,
+                    func.lower(func.btrim(InstitutionStudent.email)) == attendee.email,
+                )
+                .limit(1)
+            )
+        ).first()
+        return match is not None
 
     @staticmethod
     def _deadline(attendee: WorkshopExamAttendee, exam: WorkshopExam) -> datetime | None:

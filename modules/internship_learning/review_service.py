@@ -78,7 +78,7 @@ class ReviewService:
 
     async def rows(self, project: InternshipProject) -> list[dict]:
         """Every enrolled student who handed this project in, with reviews and result."""
-        enrolled = await self.learning.enrolled(project.internship_id)
+        enrolled = await self.learning.enrolled(project.internship_id, include_revoked=True)
         submissions = {
             s.selection_id: s
             for s in (await self.db.execute(select(ProjectSubmission).where(ProjectSubmission.project_id == project.id))).scalars()
@@ -96,6 +96,7 @@ class ReviewService:
                     "selection_id": selection.id,
                     "student_name": person.name,
                     "student_email": person.email,
+                    "access_status": selection.lms_status.value,
                     "method": sub.method,
                     "submitted_at": sub.submitted_at,
                     "is_late": sub.is_late,
@@ -306,7 +307,9 @@ class AwardService:
                 .order_by(InternshipAward.created_at)
             )
         ).scalars().all()
-        people = {s.id: p for s, p in await self.learning.enrolled(internship_id)}
+        enrolled = await self.learning.enrolled(internship_id, include_revoked=True)
+        people = {s.id: p for s, p in enrolled}
+        access = {s.id: s.lms_status.value for s, _ in enrolled}
         grants: dict[uuid.UUID, list[AwardGrant]] = {}
         if awards:
             for g in (
@@ -325,11 +328,12 @@ class AwardService:
                         "selection_id": g.selection_id,
                         "student_name": people[g.selection_id].name,
                         "student_email": people[g.selection_id].email,
+                        "access_status": access[g.selection_id],
                         "note": g.note,
                         "granted_at": g.granted_at,
                     }
                     for g in grants.get(a.id, [])
-                    # a student whose access was taken away no longer appears, though the grant is kept
+                    # a student whose access was taken away stays in the history, marked as revoked
                     if g.selection_id in people
                 ],
             }

@@ -337,7 +337,7 @@ async def my_internships(
         for a in assignments:
             if service.can_submit(a, await service.my_submission(a.id, selection.id)):
                 open_assignments += 1
-        exams = await service.my_exams(internship.id, student.organization_id, student.email or "")
+        exams = await service.my_exams(internship.id, student.organization_id, student.email or "", selection.id)
         out.append(
             MyInternship(
                 id=internship.id,
@@ -381,9 +381,9 @@ async def my_exams(
     db: AsyncSession = Depends(get_db),
 ):
     service = InternshipLearningService(db)
-    await service.selection_for_student(student, internship_id)
+    selection = await service.selection_for_student(student, internship_id)
     out = []
-    for exam, attendee in await service.my_exams(internship_id, student.organization_id, student.email or ""):
+    for exam, attendee in await service.my_exams(internship_id, student.organization_id, student.email or "", selection.id):
         state = "submitted" if attendee.submitted_at else "in_progress" if attendee.started_at else "not_started"
         shown = attendee.submitted_at is not None and exam.show_result
         out.append(

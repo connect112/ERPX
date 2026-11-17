@@ -75,6 +75,42 @@ class EnrollmentService:
         self, enrollment_id: uuid.UUID, organization_id: uuid.UUID, status: EnrollmentStatus
     ) -> Enrollment:
         enrollment = await self.get_enrollment(enrollment_id, organization_id)
+        await self._assert_not_internship_managed(enrollment, status)
         updated = await self.repo.set_status(enrollment, status)
         logger.info("enrollment_status_changed", enrollment_id=str(enrollment_id), status=status.value)
         return updated
+
+    async def _assert_not_internship_managed(self, enrollment: Enrollment, new_status: EnrollmentStatus) -> None:
+        """A course screen must not bypass the internship's own access rules. While a student holds internship-granted access to the course
+        the enrolment cannot be dropped here (revoke the internship access instead), and an enrolment an internship withdrew cannot be
+        brought back here (grant the internship access again). Independent enrolments, and finishing a course, stay course-managed."""
+        from sqlalchemy import select
+
+        from modules.our_internships.models import InternshipSelection, LmsStatus, OurInternship
+
+        rows = (
+            await self.db.execute(
+                select(InternshipSelection.lms_status, InternshipSelection.lms_enrolment_preexisting, OurInternship.title)
+                .join(OurInternship, OurInternship.id == InternshipSelection.internship_id)
+                .where(
+                    InternshipSelection.lms_student_id == enrollment.student_id,
+                    InternshipSelection.lms_course_id == enrollment.course_id,
+                    InternshipSelection.lms_status.in_([LmsStatus.GRANTED, LmsStatus.REVOKED]),
+                )
+            )
+        ).all()
+        if not rows:
+            return
+        granted = [title for st, _, title in rows if st == LmsStatus.GRANTED]
+        withdrawn_by_internship = [title for st, pre, title in rows if st == LmsStatus.REVOKED and not pre]
+        if new_status == EnrollmentStatus.DROPPED and granted:
+            raise ConflictError(
+                f"This student has LMS access through {', '.join(granted)}. Withdraw it there (Revoke access); that keeps any enrolment "
+                "they hold independently.",
+                details={"code": "managed_by_internship", "internships": granted},
+            )
+        if enrollment.status == EnrollmentStatus.DROPPED and new_status != EnrollmentStatus.DROPPED and withdrawn_by_internship and not granted:
+            raise ConflictError(
+                f"LMS access through {', '.join(withdrawn_by_internship)} was withdrawn. Grant it again there to restore this enrolment.",
+                details={"code": "managed_by_internship", "internships": withdrawn_by_internship},
+            )

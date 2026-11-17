@@ -181,7 +181,7 @@ class ProjectService:
 
     async def selection_rows(self, internship_id: uuid.UUID, only_project: uuid.UUID | None = None) -> list[dict]:
         """Every enrolled student with the project they chose and what they handed in."""
-        enrolled = await self.learning.enrolled(internship_id)
+        enrolled = await self.learning.enrolled(internship_id, include_revoked=True)
         choices = {
             c.selection_id: c
             for c in (await self.db.execute(select(ProjectChoice).where(ProjectChoice.internship_id == internship_id))).scalars()
@@ -213,6 +213,7 @@ class ProjectService:
                     "selection_id": selection.id,
                     "student_name": person.name,
                     "student_email": person.email,
+                    "access_status": selection.lms_status.value,
                     "project_id": project.id if project else None,
                     "project_title": project.title if project else None,
                     "chosen_at": choice.chosen_at if choice else None,

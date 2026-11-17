@@ -9,7 +9,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
@@ -59,14 +59,16 @@ class InternshipLearningService:
 
     # ---------------- who is enrolled ----------------
 
-    async def enrolled(self, internship_id: uuid.UUID) -> list[tuple[InternshipSelection, InstitutionStudent]]:
+    async def enrolled(
+        self, internship_id: uuid.UUID, *, include_revoked: bool = False
+    ) -> list[tuple[InternshipSelection, InstitutionStudent]]:
+        """The students with LMS access on this internship. ``include_revoked`` adds those whose access was withdrawn, for the staff
+        views that show history (marks, submissions): a student never disappears from the results because access was taken away."""
+        states = [LmsStatus.GRANTED, LmsStatus.REVOKED] if include_revoked else [LmsStatus.GRANTED]
         rows = await self.db.execute(
             select(InternshipSelection, InstitutionStudent)
             .join(InstitutionStudent, InstitutionStudent.id == InternshipSelection.student_id)
-            .where(
-                InternshipSelection.internship_id == internship_id,
-                InternshipSelection.lms_status == LmsStatus.GRANTED,
-            )
+            .where(InternshipSelection.internship_id == internship_id, InternshipSelection.lms_status.in_(states))
             .order_by(InstitutionStudent.name)
         )
         return [(s, p) for s, p in rows.all()]
@@ -204,7 +206,7 @@ class InternshipLearningService:
         await self.db.flush()
 
     async def submission_rows(self, assignment: InternshipAssignment) -> list[dict]:
-        enrolled = await self.enrolled(assignment.internship_id)
+        enrolled = await self.enrolled(assignment.internship_id, include_revoked=True)
         submissions = {
             s.selection_id: s
             for s in (
@@ -224,6 +226,7 @@ class InternshipLearningService:
                     "selection_id": selection.id,
                     "student_name": person.name,
                     "student_email": person.email,
+                    "access_status": selection.lms_status.value,
                     "submitted": sub is not None,
                     "submitted_at": sub.submitted_at if sub else None,
                     "is_late": sub.is_late if sub else False,
@@ -486,11 +489,13 @@ class InternshipLearningService:
         added = existing = 0
         invite_ids: list[uuid.UUID] = []
         now = _now()
-        for _, person in await self.enrolled(exam.internship_id):
+        for selection, person in await self.enrolled(exam.internship_id):
             email = person.email.strip().lower()
             attendee = present.get(email)
             if attendee is not None:
                 existing += 1
+                if attendee.selection_id is None:
+                    attendee.selection_id = selection.id  # an attendee added before the reference existed, now matched exactly
             else:
                 attendee = WorkshopExamAttendee(
                     exam_id=exam.id,
@@ -498,6 +503,7 @@ class InternshipLearningService:
                     email=email,
                     access_token=secrets.token_urlsafe(24),
                     added_manually=True,
+                    selection_id=selection.id,
                 )
                 self.db.add(attendee)
                 present[email] = attendee
@@ -510,16 +516,17 @@ class InternshipLearningService:
         return added, existing, invite_ids
 
     async def exam_results(self, exam: WorkshopExam) -> list[dict]:
-        by_email = {
-            a.email: a
-            for a in (
-                await self.db.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.exam_id == exam.id))
-            ).scalars()
-        }
+        attendees = (
+            await self.db.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.exam_id == exam.id))
+        ).scalars().all()
+        by_selection = {a.selection_id: a for a in attendees if a.selection_id is not None}
+        by_email = {a.email: a for a in attendees if a.selection_id is None}
         rows = []
-        for selection, person in await self.enrolled(exam.internship_id):
-            attendee = by_email.get(person.email.strip().lower())
-            rows.append(self._result_row(selection.id, person, attendee))
+        for selection, person in await self.enrolled(exam.internship_id, include_revoked=True):
+            attendee = by_selection.get(selection.id) or by_email.get(person.email.strip().lower())
+            row = self._result_row(selection.id, person, attendee)
+            row["access_status"] = selection.lms_status.value
+            rows.append(row)
         return rows
 
     @staticmethod
@@ -544,9 +551,18 @@ class InternshipLearningService:
             "submitted_at": attendee.submitted_at if attendee else None,
         }
 
-    async def my_exams(self, internship_id: uuid.UUID, organization_id: uuid.UUID, email: str) -> list[tuple]:
-        """The internship's exams this student is on, as (exam, attendee) pairs; draft exams stay hidden."""
+    async def my_exams(
+        self, internship_id: uuid.UUID, organization_id: uuid.UUID, email: str, selection_id: uuid.UUID | None = None
+    ) -> list[tuple]:
+        """The internship's exams this student is on, as (exam, attendee) pairs; draft exams stay hidden. An attendee is this student
+        when it carries their selection, or (an attendee from before that reference existed) has their e-mail and no selection."""
         email = email.strip().lower()
+        identity = WorkshopExamAttendee.email == email
+        if selection_id is not None:
+            identity = or_(
+                WorkshopExamAttendee.selection_id == selection_id,
+                and_(WorkshopExamAttendee.selection_id.is_(None), WorkshopExamAttendee.email == email),
+            )
         rows = await self.db.execute(
             select(WorkshopExam, WorkshopExamAttendee)
             .join(WorkshopExamAttendee, WorkshopExamAttendee.exam_id == WorkshopExam.id)
@@ -555,7 +571,7 @@ class InternshipLearningService:
                 WorkshopExam.organization_id == organization_id,
                 WorkshopExam.status != WorkshopExamStatus.DRAFT,
                 WorkshopExam.award.is_(None),
-                WorkshopExamAttendee.email == email,
+                identity,
                 WorkshopExamAttendee.certificate_only.is_(False),
             )
             .order_by(WorkshopExam.created_at.desc())

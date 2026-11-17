@@ -171,3 +171,8 @@ class WorkshopExamAttendee(TimestampedBase):
     added_manually: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # An admin chose to send this (manually added) person a certificate although they did not sit the exam.
     certificate_forced: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # For an exam that belongs to an internship: the selection this attendee is. Before this column an attendee was matched to a student
+    # by e-mail only. Set when the exam is assigned, and backfilled only where exactly one selection matched. Null = not matched.
+    selection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("our_internship_selections.id", ondelete="SET NULL"), nullable=True, index=True
+    )

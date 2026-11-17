@@ -1,6 +1,6 @@
 import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,22 +12,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCategories } from "@/features/courses/categories/api/categories-hooks";
 import { useCourse, useDeleteCourse, useTogglePublishCourse } from "@/features/courses/api/courses-hooks";
-import { ChaptersPanel } from "@/features/courses/chapters/components/chapters-panel";
 import { CourseFormDialog } from "@/features/courses/components/course-form-dialog";
 import { CourseInternshipsCard } from "@/features/courses/components/course-internships-card";
 import { CourseTypeBadge } from "@/features/courses/components/course-type-badge";
 import { CourseStatusBadge } from "@/features/courses/components/course-status-badge";
 import { courseLevelLabels } from "@/features/courses/schemas/course-schemas";
-import { ExamsPanel } from "@/features/examinations/exams/components/exams-panel";
-import { PracticalsPanel } from "@/features/examinations/practicals/components/practicals-panel";
-import { VivaPanel } from "@/features/examinations/viva/components/viva-panel";
-import { AssessmentsPanel } from "@/features/lms/assessments/components/assessments-panel";
-import { AssignmentsPanel } from "@/features/lms/assignments/components/assignments-panel";
-import { DiscussionsPanel } from "@/features/lms/discussions/components/discussions-panel";
-import { EnrollmentsByCoursePanel } from "@/features/lms/enrollment/components/enrollments-by-course-panel";
+import { LearningWorkspace } from "@/features/learning/components/learning-workspace";
+import { learningTabFromParam } from "@/features/learning/lib/tabs";
 
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -41,6 +34,7 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
 export function CourseDetailPage() {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: course, isLoading } = useCourse(courseId);
   const { data: categories } = useCategories();
   const togglePublish = useTogglePublishCourse(courseId ?? "");
@@ -145,44 +139,11 @@ export function CourseDetailPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="curriculum">
-        <div className="overflow-x-auto">
-          <TabsList>
-            <TabsTrigger value="curriculum">Curriculum</TabsTrigger>
-            <TabsTrigger value="enrollments">Enrollments</TabsTrigger>
-            <TabsTrigger value="assignments">Assignments</TabsTrigger>
-            <TabsTrigger value="assessments">Assessments</TabsTrigger>
-            <TabsTrigger value="discussions">Discussions</TabsTrigger>
-            <TabsTrigger value="exams">Exams</TabsTrigger>
-            <TabsTrigger value="practicals">Practicals</TabsTrigger>
-            <TabsTrigger value="viva">Viva</TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent value="curriculum">
-          <ChaptersPanel courseId={course.id} />
-        </TabsContent>
-        <TabsContent value="enrollments">
-          <EnrollmentsByCoursePanel courseId={course.id} />
-        </TabsContent>
-        <TabsContent value="assignments">
-          <AssignmentsPanel courseId={course.id} />
-        </TabsContent>
-        <TabsContent value="assessments">
-          <AssessmentsPanel courseId={course.id} />
-        </TabsContent>
-        <TabsContent value="discussions">
-          <DiscussionsPanel courseId={course.id} />
-        </TabsContent>
-        <TabsContent value="exams">
-          <ExamsPanel courseId={course.id} />
-        </TabsContent>
-        <TabsContent value="practicals">
-          <PracticalsPanel courseId={course.id} />
-        </TabsContent>
-        <TabsContent value="viva">
-          <VivaPanel courseId={course.id} />
-        </TabsContent>
-      </Tabs>
+      <LearningWorkspace
+        courseId={course.id}
+        tab={learningTabFromParam(searchParams.get("tab")) ?? "curriculum"}
+        onTabChange={(tab) => setSearchParams((prev) => { const next = new URLSearchParams(prev); next.set("tab", tab); return next; }, { replace: true })}
+      />
 
       <CourseFormDialog open={editOpen} onOpenChange={setEditOpen} course={course} />
 

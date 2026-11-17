@@ -5,6 +5,7 @@ import { Controller, useForm } from "react-hook-form";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useCurriculumAccess } from "@/features/courses/lib/curriculum-access";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,7 @@ interface ResourcesPanelProps {
 export function ResourcesPanel({ courseId, chapterId, lessonId }: ResourcesPanelProps) {
   const { data: resources, isLoading } = useResources(courseId, chapterId, lessonId);
   const createResource = useCreateResource(courseId, chapterId, lessonId);
+  const { canManage } = useCurriculumAccess();
   const deleteResource = useDeleteResource(courseId, chapterId, lessonId);
   const [formOpen, setFormOpen] = useState(false);
 
@@ -80,10 +82,12 @@ export function ResourcesPanel({ courseId, chapterId, lessonId }: ResourcesPanel
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Resources
         </p>
-        <Button variant="ghost" size="sm" onClick={() => setFormOpen(true)}>
-          <Plus className="h-3 w-3" />
-          Add resource
-        </Button>
+        {canManage && (
+          <Button variant="ghost" size="sm" onClick={() => setFormOpen(true)}>
+            <Plus className="h-3 w-3" />
+            Add resource
+          </Button>
+        )}
       </div>
 
       {isLoading && <Skeleton className="h-8 w-full" />}
@@ -106,14 +110,17 @@ export function ResourcesPanel({ courseId, chapterId, lessonId }: ResourcesPanel
               <span className="text-[10px] text-muted-foreground">(view only)</span>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => deleteResource.mutate(resource.id)}
-          >
-            <Trash2 className="h-3 w-3" />
-          </Button>
+          {canManage && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              aria-label={`Delete resource ${resource.title}`}
+              onClick={() => deleteResource.mutate(resource.id)}
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          )}
         </div>
       ))}
 

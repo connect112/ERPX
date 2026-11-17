@@ -2,6 +2,7 @@ import { useParams } from "react-router-dom";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CourseLearning } from "@/features/course-learning/components/course-learning";
 import { ChapterLessons } from "@/features/courses/components/chapter-lessons";
 import {
   useMyChapters,
@@ -89,6 +90,8 @@ export function CourseDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {courseId && <CourseLearning courseId={courseId} />}
     </div>
   );
 }

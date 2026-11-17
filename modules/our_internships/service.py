@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError, ValidationError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from modules.institutions.models import EventRegistration, Institution, InstitutionEvent, InstitutionStudent
 from modules.our_internships.models import InternshipScope, InternshipSelection, OurInternship
 from modules.courses.models import Course
@@ -196,8 +196,48 @@ class OurInternshipService:
         ).scalar_one_or_none()
         if selection is None:
             raise NotFoundError("Selected student", student_id)
+        reasons = await self.history_of(selection)
+        if reasons:
+            # deleting the selection would cascade away everything hanging off it (submissions, project choices, grants, exam results)
+            raise ConflictError(
+                "This student cannot be removed from the selected list because " + ", ".join(reasons) + ". Their records are kept; "
+                "withdraw their LMS access instead (a revoked student stays in the history).",
+                details={"code": "has_history", "reasons": reasons},
+            )
         await self.db.delete(selection)
         await self.db.flush()
+
+    async def history_of(self, selection: InternshipSelection) -> list[str]:
+        """What the student has done or been given on this internship, in words. Empty means nothing would be lost by removing them."""
+        from modules.internship_learning.certificate_models import CertificateEligibility
+        from modules.internship_learning.award_models import AwardGrant
+        from modules.internship_learning.models import AssignmentSubmission
+        from modules.internship_learning.project_models import ProjectChoice, ProjectSubmission
+        from modules.our_internships.models import LmsStatus, PaymentStatus
+        from modules.workshop_exams.models import WorkshopExamAttendee
+
+        async def count(model, *where) -> int:
+            return (await self.db.execute(select(func.count()).select_from(model).where(*where))).scalar_one()
+
+        reasons = []
+        if selection.lms_status == LmsStatus.GRANTED:
+            reasons.append("they currently have LMS access (revoke it first)")
+        elif selection.lms_status == LmsStatus.REVOKED:
+            reasons.append("their LMS access was granted and withdrawn (that history is kept)")
+        if selection.payment_status == PaymentStatus.PAID:
+            reasons.append("a payment is recorded for them")
+        sid = selection.id
+        for label, model, column in (
+            ("they have assignment submissions", AssignmentSubmission, AssignmentSubmission.selection_id),
+            ("they have chosen a project", ProjectChoice, ProjectChoice.selection_id),
+            ("they have project submissions", ProjectSubmission, ProjectSubmission.selection_id),
+            ("they have been given an award", AwardGrant, AwardGrant.selection_id),
+            ("they have a certificate decision", CertificateEligibility, CertificateEligibility.selection_id),
+            ("they are on an exam", WorkshopExamAttendee, WorkshopExamAttendee.selection_id),
+        ):
+            if await count(model, column == sid):
+                reasons.append(label)
+        return reasons
 
     async def set_note(self, internship: OurInternship, student_id: uuid.UUID, note: str | None) -> None:
         selection = (
