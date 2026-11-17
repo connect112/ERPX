@@ -386,6 +386,7 @@ test.describe("desktop", () => {
       for (let i = 0; i < 10 && !(await favButton(page).evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press("Tab");
       await expect(sidebar(page)).toHaveAttribute("data-overlay", "true"); // keyboard focus opened the overlay
       await expect(favButton(page)).toBeFocused();
+      await expect(favLinks(page).first()).toBeVisible(); // the overlay has drawn the list (a Tab pressed before that would pass it by)
       await page.keyboard.press("Tab");
       await expect(favLinks(page).first()).toBeFocused();
       await page.keyboard.press("Enter");
