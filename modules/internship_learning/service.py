@@ -477,25 +477,45 @@ class InternshipLearningService:
             raise NotFoundError("Exam", exam_id)
         return exam
 
-    async def assign_exam(self, exam: WorkshopExam, send_invites: bool) -> tuple[int, int, list[uuid.UUID]]:
-        """Put every enrolled student on the exam (each gets their own link). Returns (added, already there, invite
-        ids to email)."""
-        present = {
-            a.email: a
-            for a in (
-                await self.db.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.exam_id == exam.id))
-            ).scalars()
-        }
-        added = existing = 0
+    async def shared_emails(self, internship_id: uuid.UUID) -> set[str]:
+        """E-mail addresses that more than one selected student of this internship has (granted, withdrawn or never granted). An exam
+        place is identified by the selection; for an attendee that only has an e-mail, an address two students share names neither of them."""
+        rows = await self.db.execute(
+            select(func.lower(func.btrim(InstitutionStudent.email)))
+            .join(InternshipSelection, InternshipSelection.student_id == InstitutionStudent.id)
+            .where(InternshipSelection.internship_id == internship_id, InstitutionStudent.email.is_not(None))
+            .group_by(func.lower(func.btrim(InstitutionStudent.email)))
+            .having(func.count() > 1)
+        )
+        return {e for (e,) in rows.all()}
+
+    async def assign_exam(self, exam: WorkshopExam, send_invites: bool) -> tuple[int, int, list[uuid.UUID], int]:
+        """Put every enrolled student on the exam (each gets their own link tied to their selection). Returns (added, already there, invite
+        ids to email, skipped because the student's e-mail is shared with another student). A shared address cannot name one student, and an
+        exam keeps one place per address, so those students are left for staff to sort out rather than guessed at."""
+        attendees = (await self.db.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.exam_id == exam.id))).scalars().all()
+        by_selection = {a.selection_id: a for a in attendees if a.selection_id is not None}
+        unlinked = {a.email: a for a in attendees if a.selection_id is None}
+        taken = {a.email for a in attendees}
+        shared = await self.shared_emails(exam.internship_id)
+        added = existing = skipped = 0
         invite_ids: list[uuid.UUID] = []
         now = _now()
         for selection, person in await self.enrolled(exam.internship_id):
             email = person.email.strip().lower()
-            attendee = present.get(email)
+            attendee = by_selection.get(selection.id)
+            if attendee is None and email in shared:
+                skipped += 1
+                continue
+            if attendee is None:
+                attendee = unlinked.get(email)
+                if attendee is not None:
+                    attendee.selection_id = selection.id  # an attendee added before the reference existed, matched by an e-mail only this student has
             if attendee is not None:
                 existing += 1
-                if attendee.selection_id is None:
-                    attendee.selection_id = selection.id  # an attendee added before the reference existed, now matched exactly
+            elif email in taken:
+                skipped += 1  # that address already holds a place that is not this student's
+                continue
             else:
                 attendee = WorkshopExamAttendee(
                     exam_id=exam.id,
@@ -506,21 +526,23 @@ class InternshipLearningService:
                     selection_id=selection.id,
                 )
                 self.db.add(attendee)
-                present[email] = attendee
+                taken.add(email)
                 added += 1
+            by_selection[selection.id] = attendee
             if send_invites and attendee.invited_at is None and attendee.submitted_at is None:
                 await self.db.flush()
                 attendee.invited_at = now
                 invite_ids.append(attendee.id)
         await self.db.flush()
-        return added, existing, invite_ids
+        return added, existing, invite_ids, skipped
 
     async def exam_results(self, exam: WorkshopExam) -> list[dict]:
         attendees = (
             await self.db.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.exam_id == exam.id))
         ).scalars().all()
         by_selection = {a.selection_id: a for a in attendees if a.selection_id is not None}
-        by_email = {a.email: a for a in attendees if a.selection_id is None}
+        shared = await self.shared_emails(exam.internship_id)
+        by_email = {a.email: a for a in attendees if a.selection_id is None and a.email not in shared}  # an address two students share is no one's
         rows = []
         for selection, person in await self.enrolled(exam.internship_id, include_revoked=True):
             attendee = by_selection.get(selection.id) or by_email.get(person.email.strip().lower())
@@ -559,10 +581,11 @@ class InternshipLearningService:
         email = email.strip().lower()
         identity = WorkshopExamAttendee.email == email
         if selection_id is not None:
-            identity = or_(
-                WorkshopExamAttendee.selection_id == selection_id,
-                and_(WorkshopExamAttendee.selection_id.is_(None), WorkshopExamAttendee.email == email),
-            )
+            identity = WorkshopExamAttendee.selection_id == selection_id
+            if email not in await self.shared_emails(internship_id):  # an e-mail-only attendee is this student's only if no one else has the address
+                identity = or_(identity, and_(WorkshopExamAttendee.selection_id.is_(None), WorkshopExamAttendee.email == email))
+        elif email in await self.shared_emails(internship_id):
+            identity = WorkshopExamAttendee.id.is_(None)
         rows = await self.db.execute(
             select(WorkshopExam, WorkshopExamAttendee)
             .join(WorkshopExamAttendee, WorkshopExamAttendee.exam_id == WorkshopExam.id)

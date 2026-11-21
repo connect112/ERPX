@@ -421,10 +421,10 @@ async def test_assigning_an_exam_adds_each_enrolled_student_once_and_invites_the
     exam = await _exam(client, auth_headers, internship)
     url = f"{_INTERN}/{internship['id']}/exams/{exam['id']}/assign"
     first = await client.post(url, json={"send_invites": True}, headers=auth_headers)
-    assert first.status_code == 200 and first.json() == {"added": 2, "already_on_exam": 0, "invited": 2}
+    assert first.status_code == 200 and first.json() == {"added": 2, "already_on_exam": 0, "invited": 2, "skipped_shared_email": 0}
     assert len(invites) == 2
     again = await client.post(url, json={"send_invites": True}, headers=auth_headers)
-    assert again.json() == {"added": 0, "already_on_exam": 2, "invited": 0}
+    assert again.json() == {"added": 0, "already_on_exam": 2, "invited": 0, "skipped_shared_email": 0}
     attendees = (await db_session.execute(select(WorkshopExamAttendee).where(WorkshopExamAttendee.exam_id == uuid.UUID(exam["id"])))).scalars().all()
     assert {a.email for a in attendees} == {"asha@example.com", "meera@example.com"}  # ravi has no LMS access, so he is not on it
 

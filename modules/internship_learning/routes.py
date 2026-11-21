@@ -118,11 +118,11 @@ async def assign_exam(
     internship = await _internship(db, internship_id, organization_id)
     service = InternshipLearningService(db)
     exam = await service.linked_exam(internship, exam_id)
-    added, existing, invite_ids = await service.assign_exam(exam, payload.send_invites)
+    added, existing, invite_ids, skipped = await service.assign_exam(exam, payload.send_invites)
     # Queue only after the rows are committed, so a worker never reads a row that is not there yet.
     await db.commit()
     enqueue_invites(invite_ids)
-    return ExamAssignResponse(added=added, already_on_exam=existing, invited=len(invite_ids))
+    return ExamAssignResponse(added=added, already_on_exam=existing, invited=len(invite_ids), skipped_shared_email=skipped)
 
 
 @router.get("/{internship_id}/exams/{exam_id}/results", response_model=list[ExamResultRow])

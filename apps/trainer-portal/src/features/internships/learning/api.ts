@@ -67,9 +67,11 @@ export interface Thread { id: string; internship_id: string | null; author_name:
 export interface Reply { id: string; author_name: string | null; body: string }
 export interface Chapter { id: string; title: string; order_index: number; description: string | null }
 export interface Lesson { id: string; title: string; content_type: string; order_index: number }
+export interface Resource { id: string; title: string; file_url: string; is_upload: boolean; is_downloadable: boolean; original_filename: string | null }
 
 const I = (id: string) => `/our-internships/${id}`;
 const C = (id: string) => `/lms/courses/${id}`;
+const K = (id: string) => `/courses/${id}`;
 const E = (kind: string, id: string) => `/examinations/courses/${id}/${kind}`;
 
 export const learningApi = {
@@ -78,6 +80,8 @@ export const learningApi = {
   results: (internshipId: string, kind?: string) => apiClient.get<{ rows: ResultRow[] }>("/learning/results", { params: { internship_id: internshipId, kind: kind || undefined } }).then((r) => r.data.rows),
   chapters: (courseId: string) => apiClient.get<Chapter[]>(`/courses/${courseId}/chapters`).then((r) => r.data),
   lessons: (courseId: string, chapterId: string) => apiClient.get<Lesson[]>(`/courses/${courseId}/chapters/${chapterId}/lessons`).then((r) => r.data),
+  resources: (courseId: string, chapterId: string, lessonId: string) => apiClient.get<Resource[]>(`${K(courseId)}/chapters/${chapterId}/lessons/${lessonId}/resources`).then((r) => r.data),
+  resourceLink: (courseId: string, chapterId: string, lessonId: string, id: string) => apiClient.get<{ url: string }>(`${K(courseId)}/chapters/${chapterId}/lessons/${lessonId}/resources/${id}/download`).then((r) => r.data),
   assignments: (id: string) => apiClient.get<Assignment[]>(`${I(id)}/assignments`).then((r) => r.data),
   submissions: (id: string, aid: string) => apiClient.get<SubmissionRow[]>(`${I(id)}/assignments/${aid}/submissions`).then((r) => r.data),
   grade: (id: string, aid: string, sel: string, body: { score: number; feedback?: string }) => apiClient.put(`${I(id)}/assignments/${aid}/submissions/${sel}/grade`, body).then((r) => r.data),

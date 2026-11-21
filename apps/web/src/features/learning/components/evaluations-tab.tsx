@@ -21,6 +21,35 @@ function Section({ title, hint, children, testId }: { title: string; hint: strin
   );
 }
 
+/**
+ * A course's own exams and assignments are shared by everyone enrolled in the course; they are not an internship's activities (those are made
+ * above, through the internship's own workflow, and are graded and reported with it). On a course that serves internships they are tucked
+ * away, clearly labelled and closed by default, so nobody creates one by mistake thinking it belongs to the internship. On a regular course
+ * nothing changes: they are shown as before.
+ */
+function CourseWide({ serving, title, hint, testId, children }: { serving: boolean; title: string; hint: string; testId: string; children: React.ReactNode }) {
+  if (!serving) {
+    return (
+      <Section title={title} hint={hint} testId={testId}>
+        {children}
+      </Section>
+    );
+  }
+  return (
+    <details className="rounded-md border bg-muted/20 p-3" data-testid={testId}>
+      <summary className="cursor-pointer text-sm font-semibold">
+        {title} <span className="ml-1 text-xs font-normal text-muted-foreground">(course-wide, not part of any internship)</span>
+      </summary>
+      <div className="mt-3 space-y-2">
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          {hint} Anything added here is for everyone enrolled in the course. It is <strong>not</strong> an internship activity: it is not assigned to an internship's students, graded or reported with an internship. To add work for an internship, use the internship sections above.
+        </p>
+        {children}
+      </div>
+    </details>
+  );
+}
+
 const ASK = <p className="text-sm text-muted-foreground">Choose an internship above to see its own activities.</p>;
 
 /**
@@ -32,6 +61,7 @@ export function EvaluationsTab(props: TabProps) {
   const { courseId, internship, needsChoice, ctx } = props;
   const [sub, setSub] = useState("exams");
   const caps = ctx.course_caps;
+  const serving = ctx.internships.length > 0; // the course is linked to at least one internship
   const internshipSection = (render: (i: NonNullable<TabProps["internship"]>) => React.ReactNode) => (internship ? render(internship) : needsChoice ? ASK : null);
 
   return (
@@ -50,9 +80,9 @@ export function EvaluationsTab(props: TabProps) {
           </Section>
         ))}
         {courseId && caps.exams_view && (
-          <Section title="Course exams" hint="The course's own exams, shared by everyone enrolled in the course." testId="course-exams">
+          <CourseWide serving={serving} title="Course exams" hint="The course's own exams." testId="course-exams">
             <ExamsPanel courseId={courseId} />
-          </Section>
+          </CourseWide>
         )}
       </TabsContent>
 
@@ -63,9 +93,9 @@ export function EvaluationsTab(props: TabProps) {
           </Section>
         ))}
         {courseId && caps.assignments_view && (
-          <Section title="Course assignments" hint="The course's own assignments, shared by everyone enrolled in the course." testId="course-assignments">
+          <CourseWide serving={serving} title="Course assignments" hint="The course's own assignments." testId="course-assignments">
             <AssignmentsPanel courseId={courseId} />
-          </Section>
+          </CourseWide>
         )}
       </TabsContent>
 

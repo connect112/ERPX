@@ -92,3 +92,22 @@ test("an instructor can read the curriculum but is offered no way to edit or del
   await expect(workspace.getByRole("button", { name: /Add chapter|New chapter/i })).toHaveCount(0);
   await expect(workspace.getByRole("button", { name: /Delete/i })).toHaveCount(0);
 });
+
+test("on a course that serves an internship, course-wide exams and assignments are tucked away and labelled; a regular course is unchanged", async ({ page }) => {
+  await page.goto("/courses/c-old?tab=evaluations");
+  await page.getByTestId("cohort-selector").getByRole("combobox").selectOption("int-1");
+  // the internship's own section is the working one; the course-wide one is closed, with a warning that it is not an internship activity
+  await expect(page.getByTestId("internship-exams")).toBeVisible();
+  const wide = page.getByTestId("course-exams");
+  await expect(wide).toContainText("course-wide, not part of any internship");
+  await expect(wide.locator("details, summary").first()).toBeAttached();
+  expect(await wide.evaluate((el) => el.tagName === "DETAILS" && !(el as HTMLDetailsElement).open)).toBe(true);
+  await wide.locator("summary").click();
+  await expect(wide).toContainText("not an internship activity");
+  // a regular course has no internship: its exams are shown as before, not hidden
+  await page.goto("/courses/c-py?tab=evaluations");
+  const regular = page.getByTestId("course-exams");
+  await expect(regular).toBeVisible();
+  await expect(regular).not.toContainText("not part of any internship");
+  expect(await regular.evaluate((el) => el.tagName)).toBe("SECTION");
+});

@@ -686,20 +686,21 @@ class WorkshopExamService:
                 )
             ).scalar_one_or_none()
             return selection == LmsStatus.GRANTED
-        # an attendee from before the reference existed: matched by e-mail to a student with granted access on this internship
-        match = (
+        # An attendee from before the reference existed (or that migration 0107 could not link) is matched by e-mail, and only when that
+        # e-mail names exactly ONE selected student of this internship. Two students sharing an address are ambiguous: granted access for
+        # one must never open the other's link, so the link is refused (the attendee, their attempt and result are all kept) until the
+        # internship team re-assigns the exam, which links the attendee to the right selection.
+        matches = (
             await self.db.execute(
-                select(InternshipSelection.id)
+                select(InternshipSelection.lms_status)
                 .join(InstitutionStudent, InstitutionStudent.id == InternshipSelection.student_id)
                 .where(
                     InternshipSelection.internship_id == exam.internship_id,
-                    InternshipSelection.lms_status == LmsStatus.GRANTED,
                     func.lower(func.btrim(InstitutionStudent.email)) == attendee.email,
                 )
-                .limit(1)
             )
-        ).first()
-        return match is not None
+        ).scalars().all()
+        return len(matches) == 1 and matches[0] == LmsStatus.GRANTED
 
     @staticmethod
     def _deadline(attendee: WorkshopExamAttendee, exam: WorkshopExam) -> datetime | None:

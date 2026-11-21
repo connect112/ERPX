@@ -2,6 +2,7 @@ import { Bookmark, BookmarkCheck, CheckCircle2, Circle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LessonResources } from "@/features/courses/components/lesson-resources";
 import { useMarkLessonComplete, useMyLessons } from "@/features/courses/api/courses-hooks";
 import type { ChapterPublic } from "@/features/courses/api/courses-api";
 import {
@@ -37,8 +38,9 @@ export function ChapterLessons({ courseId, chapter, completedLessonIds }: Chapte
             return (
               <li
                 key={lesson.id}
-                className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-muted/50"
+                className="rounded-md px-2 py-1.5 hover:bg-muted/50"
               >
+                <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {isComplete ? (
                     <CheckCircle2 className="h-4 w-4 text-primary" />
@@ -76,6 +78,8 @@ export function ChapterLessons({ courseId, chapter, completedLessonIds }: Chapte
                     </Button>
                   )}
                 </div>
+                </div>
+                <LessonResources courseId={courseId} chapterId={chapter.id} lessonId={lesson.id} />
               </li>
             );
           })}

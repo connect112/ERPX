@@ -148,6 +148,8 @@ class ExamAssignResponse(BaseModel):
     added: int
     already_on_exam: int
     invited: int
+    # students left off because their e-mail address is shared with another selected student (an exam place is one per address)
+    skipped_shared_email: int = 0
 
 
 class ExamResultRow(BaseModel):

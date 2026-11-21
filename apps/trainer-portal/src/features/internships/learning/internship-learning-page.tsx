@@ -30,6 +30,32 @@ function Curriculum({ courseId }: { courseId: string | null }) {
   );
 }
 
+function LessonFiles({ courseId, chapterId, lessonId }: { courseId: string; chapterId: string; lessonId: string }) {
+  const files = useQ(key("resources", lessonId), () => learningApi.resources(courseId, chapterId, lessonId));
+  if (!files.data || files.data.length === 0) return null;
+  const open = async (id: string) => {
+    const { url } = await learningApi.resourceLink(courseId, chapterId, lessonId, id);
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+  return (
+    <ul className="ml-4 list-none text-xs">
+      {files.data.map((r) => (
+        <li key={r.id}>
+          {r.is_upload ? (
+            <button type="button" className="text-primary hover:underline" onClick={() => void open(r.id)}>
+              {r.title} ({r.original_filename})
+            </button>
+          ) : (
+            <a className="text-primary hover:underline" href={r.file_url} target="_blank" rel="noreferrer">
+              {r.title}
+            </a>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ChapterItem({ courseId, id, title }: { courseId: string; id: string; title: string }) {
   const lessons = useQ(key("lessons", id), () => learningApi.lessons(courseId, id));
   return (
@@ -39,6 +65,7 @@ function ChapterItem({ courseId, id, title }: { courseId: string; id: string; ti
         {(lessons.data ?? []).sort((a, b) => a.order_index - b.order_index).map((l) => (
           <li key={l.id}>
             {l.title} <span className="text-xs">({l.content_type})</span>
+            <LessonFiles courseId={courseId} chapterId={id} lessonId={l.id} />
           </li>
         ))}
         {lessons.data?.length === 0 && <li className="list-none text-xs">No lessons yet.</li>}

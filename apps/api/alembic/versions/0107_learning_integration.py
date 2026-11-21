@@ -12,6 +12,8 @@ listed by ops/preflight/0107_learning_integration.sql.
   every existing row, which keeps it course-wide exactly as it was.
 - lms_assessment_questions: multiple-choice questions for an assessment. lms_assessments.show_result (true), lms_assessment_attempts.answers
   and total_marks: what a server-scored attempt needs. Existing attempts keep their score and have empty answers.
+- course_resources: storage_key / original_filename / content_type / size_bytes / uploaded_by_user_id (all null for the existing link
+  resources): what an uploaded file needs.
 - workshop_exam_attendees.selection_id: the stable reference to the internship selection (null = not matched).
 """
 from typing import Sequence, Union
@@ -66,6 +68,12 @@ def upgrade() -> None:
     )
     op.create_index("ix_lms_assessment_questions_assessment_id", "lms_assessment_questions", ["assessment_id"])
 
+    op.add_column("course_resources", sa.Column("storage_key", sa.String(512), nullable=True))
+    op.add_column("course_resources", sa.Column("original_filename", sa.String(255), nullable=True))
+    op.add_column("course_resources", sa.Column("content_type", sa.String(150), nullable=True))
+    op.add_column("course_resources", sa.Column("size_bytes", sa.Integer(), nullable=True))
+    op.add_column("course_resources", sa.Column("uploaded_by_user_id", sa.UUID(), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True))
+
     op.add_column(
         "workshop_exam_attendees",
         sa.Column("selection_id", sa.UUID(), sa.ForeignKey("our_internship_selections.id", ondelete="SET NULL"), nullable=True),
@@ -75,6 +83,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    for column in ("uploaded_by_user_id", "size_bytes", "content_type", "original_filename", "storage_key"):
+        op.drop_column("course_resources", column)
     op.drop_index("ix_workshop_exam_attendees_selection_id", table_name="workshop_exam_attendees")
     op.drop_column("workshop_exam_attendees", "selection_id")
     op.drop_index("ix_lms_assessment_questions_assessment_id", table_name="lms_assessment_questions")

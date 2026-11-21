@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.db.session import get_db
 from modules.authentication.models import User
-from modules.authorization.dependencies import require_permissions
+from modules.authentication.dependencies import get_current_active_user
 from modules.learning.scope import authorize_internship, has_permission, student_internship_ids
 from modules.lms.discussions.models import DiscussionThread
 from modules.lms.discussions.schemas import (
@@ -40,6 +40,16 @@ async def _may_reach_internship(db: AsyncSession, user: User, organization_id: u
         return False
 
 
+async def _may_participate(db: AsyncSession, user: User, organization_id: uuid.UUID, course_id: uuid.UUID, internship_id: uuid.UUID | None) -> None:
+    """Take part in discussions: the course permission (students hold it) for anything course-wide; for an internship's own thread, staff
+    with Our Internships access to that internship (an instructor needs no course permission) or a student with the permission."""
+    if await has_permission(db, user, PARTICIPATE):
+        return
+    if internship_id is not None and await StudentRepository(db).get_by_user_id(user.id) is None and await _may_reach_internship(db, user, organization_id, course_id, internship_id):
+        return
+    raise AuthorizationError(f"This action requires the following permission(s): {PARTICIPATE}")
+
+
 async def _reachable_thread(db, user, organization_id, course_id, thread_id) -> DiscussionThread:
     """The thread, if the caller may see it. A cohort thread that is not theirs is "not found": its existence is not revealed."""
     service = DiscussionService(db)
@@ -64,11 +74,12 @@ async def create_thread(
     course_id: uuid.UUID,
     payload: ThreadCreateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions(PARTICIPATE)),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     if payload.internship_id is not None and not await _may_reach_internship(db, user, organization_id, course_id, payload.internship_id):
         raise NotFoundError("Internship", payload.internship_id)
+    await _may_participate(db, user, organization_id, course_id, payload.internship_id)
     service = DiscussionService(db)
     thread = await service.create_thread(course_id, organization_id, user.id, **payload.model_dump())
     return (await _out_threads(service, [thread]))[0]
@@ -80,17 +91,21 @@ async def list_threads(
     internship_id: uuid.UUID | None = Query(default=None, description="One internship's private threads (and, with include_course, the course-wide ones)"),
     include_course: bool = False,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions(PARTICIPATE)),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     service = DiscussionService(db)
     student = await StudentRepository(db).get_by_user_id(user.id)
+    can_participate = await has_permission(db, user, PARTICIPATE)
     if student is not None and not await has_permission(db, user, MODERATE):
+        await _may_participate(db, user, organization_id, course_id, None)
         threads = await service.list_threads(course_id, organization_id, internship_ids=await student_internship_ids(db, student, course_id))
     else:
         if internship_id is not None and not await _may_reach_internship(db, user, organization_id, course_id, internship_id):
             raise NotFoundError("Internship", internship_id)
-        threads = await service.list_threads(course_id, organization_id, internship_id=internship_id, include_course=include_course)
+        if internship_id is None:
+            await _may_participate(db, user, organization_id, course_id, None)  # the course-wide list needs the course permission
+        threads = await service.list_threads(course_id, organization_id, internship_id=internship_id, include_course=include_course and can_participate)
     return await _out_threads(service, threads)
 
 
@@ -100,11 +115,12 @@ async def create_reply(
     thread_id: uuid.UUID,
     payload: ReplyCreateRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions(PARTICIPATE)),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     service = DiscussionService(db)
     thread = await _reachable_thread(db, user, organization_id, course_id, thread_id)
+    await _may_participate(db, user, organization_id, course_id, thread.internship_id)
     reply = await service.reply(thread, user.id, payload.body)
     item = ReplyPublic.model_validate(reply)
     item.author_name = (await service.author_names({user.id})).get(user.id)
@@ -116,11 +132,12 @@ async def list_replies(
     course_id: uuid.UUID,
     thread_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions(PARTICIPATE)),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     service = DiscussionService(db)
     thread = await _reachable_thread(db, user, organization_id, course_id, thread_id)
+    await _may_participate(db, user, organization_id, course_id, thread.internship_id)
     replies = await service.list_replies(thread)
     names = await service.author_names({r.created_by_user_id for r in replies})
     out = []
@@ -137,7 +154,7 @@ async def lock_thread(
     thread_id: uuid.UUID,
     payload: LockRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions(PARTICIPATE)),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Lock or unlock a thread: the course permission for a course-wide thread, Our Internships manage access for an internship's own."""

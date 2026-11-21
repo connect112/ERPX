@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import AuthorizationError, NotFoundError
 from app.db.session import get_db
 from modules.authentication.dependencies import get_current_active_user
 from modules.authentication.models import User
@@ -82,17 +82,25 @@ async def list_assessments(
     internship_id: uuid.UUID | None = Query(default=None, description="One internship's own assessments (and, with include_course, the course-wide ones)"),
     include_course: bool = False,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions(VIEW)),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     service = AssessmentService(db)
     student = await StudentRepository(db).get_by_user_id(user.id)
+    can_view_course = await has_permission(db, user, VIEW)
     if student is not None and not await has_permission(db, user, MANAGE):
+        if not can_view_course:
+            raise AuthorizationError(f"This action requires the following permission(s): {VIEW}")
         assessments = await service.list_for_student(course_id, student, await student_internship_ids(db, student, course_id))
+    elif internship_id is not None:
+        # an internship's own assessments are reached through Our Internships access to that internship (an instructor needs no course
+        # permission); the course-wide ones beside them only with the course permission
+        await authorize_internship(db, user, organization_id, internship_id, "view", course_id=course_id)
+        assessments = await service.list_assessments(course_id, organization_id, internship_id=internship_id, include_course=include_course and can_view_course)
     else:
-        if internship_id is not None:
-            await authorize_internship(db, user, organization_id, internship_id, "view", course_id=course_id)
-        assessments = await service.list_assessments(course_id, organization_id, internship_id=internship_id, include_course=include_course)
+        if not can_view_course:
+            raise AuthorizationError(f"This action requires the following permission(s): {VIEW}")
+        assessments = await service.list_assessments(course_id, organization_id, internship_id=None, include_course=include_course)
     return [AssessmentPublic.model_validate(a) for a in assessments]
 
 
@@ -101,13 +109,14 @@ async def get_assessment(
     course_id: uuid.UUID,
     assessment_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions(VIEW)),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     service = AssessmentService(db)
     assessment = await service.get_assessment(assessment_id, course_id, organization_id)
     student = await StudentRepository(db).get_by_user_id(user.id)
     if student is not None and not await has_permission(db, user, MANAGE):
+        await require_permission(db, user, VIEW)
         await _student_may_take(db, student, assessment)
     else:
         await _authorize(db, user, organization_id, course_id, assessment, "view")
@@ -282,13 +291,14 @@ async def start_attempt(
     assessment_id: uuid.UUID,
     payload: StartAttemptRequest,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("lms.assessments.attempt")),
+    user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     service = AssessmentService(db)
     assessment = await service.get_assessment(assessment_id, course_id, organization_id)
     actor = await resolve_actor(db, user, organization_id, payload.student_id, {MANAGE})
     if actor.user_id == user.id:
+        await require_permission(db, user, "lms.assessments.attempt")  # a student attempting as themselves needs the student permission
         await _student_may_take(db, actor, assessment)  # as themselves: only what a student may reach
     else:
         await _authorize(db, user, organization_id, course_id, assessment, "manage")

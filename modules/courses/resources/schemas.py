@@ -27,6 +27,10 @@ class ResourcePublic(BaseModel):
     resource_type: ResourceType
     file_url: str
     is_downloadable: bool
+    # an uploaded file (downloaded through the authenticated route) rather than a link
+    is_upload: bool = False
+    original_filename: str | None = None
+    size_bytes: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -34,3 +38,10 @@ class ResourcePublic(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class ResourceDownload(BaseModel):
+    """A short-lived link to the stored file."""
+
+    url: str
+    filename: str
