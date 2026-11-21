@@ -8,6 +8,7 @@ const MyBatchesPage = lazy(() => import("@/features/batches/pages/my-batches-pag
 const BatchDetailPage = lazy(() => import("@/features/batches/pages/batch-detail-page").then((m) => ({ default: m.BatchDetailPage })));
 const AssignmentGradingPage = lazy(() => import("@/features/batches/pages/assignment-grading-page").then((m) => ({ default: m.AssignmentGradingPage })));
 const MyInternshipsPage = lazy(() => import("@/features/internships/pages/my-internships-page").then((m) => ({ default: m.MyInternshipsPage })));
+const InternshipLearningPage = lazy(() => import("@/features/internships/learning/internship-learning-page").then((m) => ({ default: m.InternshipLearningPage })));
 const AttendancePage = lazy(() => import("@/features/attendance/pages/attendance-page").then((m) => ({ default: m.AttendancePage })));
 const MyLiveClassesPage = lazy(() => import("@/features/live-classes/pages/my-live-classes-page").then((m) => ({ default: m.MyLiveClassesPage })));
 const AnnouncementsPage = lazy(() => import("@/features/announcements/pages/announcements-page").then((m) => ({ default: m.AnnouncementsPage })));
@@ -32,6 +33,7 @@ export const router = createBrowserRouter([
       { path: "batches/:batchId", element: <BatchDetailPage /> },
       { path: "batches/:batchId/assignments/:assignmentId", element: <AssignmentGradingPage /> },
       { path: "internships", element: <MyInternshipsPage /> },
+      { path: "internships/:internshipId", element: <InternshipLearningPage /> },
       { path: "attendance", element: <AttendancePage /> },
       { path: "live-classes", element: <MyLiveClassesPage /> },
       { path: "announcements", element: <AnnouncementsPage /> },

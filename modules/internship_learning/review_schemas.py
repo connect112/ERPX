@@ -35,6 +35,8 @@ class ReviewOut(BaseModel):
 
 
 class ReviewRow(BaseModel):
+    # "granted", or "revoked" for a student whose LMS access was withdrawn: their history stays visible to staff, marked as such.
+    access_status: str = "granted"
     """A student who handed in a project, with the reviews written for it and the final result."""
 
     selection_id: uuid.UUID
@@ -84,6 +86,8 @@ class GrantRequest(BaseModel):
 
 
 class GrantOut(BaseModel):
+    # "granted", or "revoked" for a student whose LMS access was withdrawn: their history stays visible to staff, marked as such.
+    access_status: str = "granted"
     selection_id: uuid.UUID
     student_name: str
     student_email: str

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from modules.authentication.models import User
 from modules.authorization.dependencies import require_permissions
+from modules.learning.access import course_read_access
 from modules.courses.chapters.schemas import (
     ChapterCreateRequest,
     ChapterPublic,
@@ -52,7 +53,7 @@ async def create_chapter(
 async def list_chapters(
     course_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("courses.view")),
+    user: User = Depends(course_read_access),
     db: AsyncSession = Depends(get_db),
 ):
     service = ChapterService(db)
@@ -65,7 +66,7 @@ async def get_chapter(
     course_id: uuid.UUID,
     chapter_id: uuid.UUID,
     organization_id: uuid.UUID = Depends(get_current_user_organization_id),
-    user: User = Depends(require_permissions("courses.view")),
+    user: User = Depends(course_read_access),
     db: AsyncSession = Depends(get_db),
 ):
     service = ChapterService(db)

@@ -11,7 +11,7 @@ still satisfies every one of those use cases via `resource_type`.
 import enum
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,3 +47,14 @@ class Resource(TimestampedBase):
     )
     file_url: Mapped[str] = mapped_column(String(512), nullable=False)
     is_downloadable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # An uploaded file (as opposed to a link): its bytes live in object storage under ``storage_key``; ``file_url`` then holds the
+    # authenticated download route, never a public address.
+    storage_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    @property
+    def is_upload(self) -> bool:
+        return self.storage_key is not None

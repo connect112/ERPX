@@ -94,6 +94,8 @@ class AssignmentOut(BaseModel):
 
 
 class SubmissionRow(BaseModel):
+    # "granted", or "revoked" for a student whose LMS access was withdrawn: their history stays visible to staff, marked as such.
+    access_status: str = "granted"
     """One enrolled student against one assignment (``submitted`` False when nothing has been handed in yet)."""
 
     selection_id: uuid.UUID
@@ -146,9 +148,13 @@ class ExamAssignResponse(BaseModel):
     added: int
     already_on_exam: int
     invited: int
+    # students left off because their e-mail address is shared with another selected student (an exam place is one per address)
+    skipped_shared_email: int = 0
 
 
 class ExamResultRow(BaseModel):
+    # "granted", or "revoked" for a student whose LMS access was withdrawn: their history stays visible to staff, marked as such.
+    access_status: str = "granted"
     selection_id: uuid.UUID
     student_name: str
     student_email: str

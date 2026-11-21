@@ -35,8 +35,10 @@ pyotp==2.9.0
 qrcode==7.4.2
 aiosmtplib==3.0.2
 openpyxl==3.1.5
-reportlab==4.2.5
-svglib==1.5.1
+# svglib 2.3.1 fixes GHSA-555j-qj3j-c8jv / CVE-2026-132275 (HIGH: an SVG of ~1 KB with nested <use> references made svg2rlg expand without limit; offer-letter
+# logos are uploaded SVGs). 2.3.1 needs reportlab>=4.4.3, so the two move together; 4.4.3 is the lowest reportlab it accepts.
+reportlab==4.4.3
+svglib==2.3.1
 nh3==0.3.7
 tree-sitter==0.23.2
 tree-sitter-typescript==0.23.2

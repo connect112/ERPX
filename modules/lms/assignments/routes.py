@@ -129,12 +129,15 @@ async def submit_assignment(
     user: User = Depends(require_permissions("lms.assignments.submit")),
     db: AsyncSession = Depends(get_db),
 ):
+    from modules.students.actor import resolve_actor
+
+    student = await resolve_actor(db, user, organization_id, payload.student_id, {"lms.assignments.manage"})
     service = AssignmentService(db)
     submission = await service.submit(
         assignment_id,
         course_id,
         organization_id,
-        payload.student_id,
+        student,
         payload.content_url,
         payload.content_text,
     )

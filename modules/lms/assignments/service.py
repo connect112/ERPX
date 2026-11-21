@@ -73,14 +73,16 @@ class AssignmentService:
         assignment_id: uuid.UUID,
         course_id: uuid.UUID,
         organization_id: uuid.UUID,
-        student_id: uuid.UUID,
+        student,
         content_url: str | None,
         content_text: str | None,
     ) -> AssignmentSubmission:
+        """``student`` is already resolved: the caller themselves, or for staff a student of the organization. They must be in the course."""
+        from modules.lms.enrollment.access import require_live_enrollment
+
         assignment = await self._get_owned_assignment(assignment_id, course_id, organization_id)
-        student = await self.student_repo.get_by_id(student_id, organization_id)
-        if not student:
-            raise NotFoundError("Student", student_id)
+        await require_live_enrollment(self.db, student, course_id)
+        student_id = student.id
 
         existing = await self.submission_repo.get_by_assignment_and_student(assignment_id, student_id)
         if existing:

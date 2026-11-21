@@ -6,6 +6,8 @@ import { LoginPage } from "@/features/auth/pages/login-page";
 import { ResetPasswordPage } from "@/features/auth/pages/reset-password-page";
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/dashboard-page").then((m) => ({ default: m.DashboardPage })));
 const MyCoursesPage = lazy(() => import("@/features/courses/pages/my-courses-page").then((m) => ({ default: m.MyCoursesPage })));
+const AssessmentTakePage = lazy(() => import("@/features/course-learning/pages/assessment-take-page").then((m) => ({ default: m.AssessmentTakePage })));
+const CourseDiscussionsPage = lazy(() => import("@/features/course-learning/pages/course-discussions-page").then((m) => ({ default: m.CourseDiscussionsPage })));
 const CourseDetailPage = lazy(() => import("@/features/courses/pages/course-detail-page").then((m) => ({ default: m.CourseDetailPage })));
 const MyBookmarksPage = lazy(() => import("@/features/bookmarks/pages/my-bookmarks-page").then((m) => ({ default: m.MyBookmarksPage })));
 const MyTranscriptPage = lazy(() => import("@/features/transcripts/pages/my-transcript-page").then((m) => ({ default: m.MyTranscriptPage })));
@@ -53,6 +55,8 @@ export const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: "courses", element: <MyCoursesPage /> },
       { path: "courses/:courseId", element: <CourseDetailPage /> },
+      { path: "courses/:courseId/assessments/:assessmentId", element: <AssessmentTakePage /> },
+      { path: "courses/:courseId/discussions", element: <CourseDiscussionsPage /> },
       { path: "my-internship", element: <MyInternshipsPage /> },
       { path: "my-internship/:internshipId", element: <MyInternshipDetailPage /> },
       { path: "bookmarks", element: <MyBookmarksPage /> },
