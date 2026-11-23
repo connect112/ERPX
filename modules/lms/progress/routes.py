@@ -14,11 +14,15 @@ from modules.lms.progress.schemas import (
     MessageResponse,
 )
 from modules.lms.progress.service import ProgressService
+from modules.students.actor import ensure_own_or_staff
 from modules.students.dependencies import get_current_student
 from modules.students.models import Student
 from modules.users.dependencies import get_current_user_organization_id
 
 router = APIRouter()
+
+# staff who may read any student's progress (they can also mark lessons complete for a student)
+STAFF = {"lms.progress.manage"}
 
 
 @router.get("/me/course/{course_id}", response_model=CourseProgressResponse)
@@ -79,5 +83,7 @@ async def get_course_progress(
     user: User = Depends(require_permissions("lms.progress.view")),
     db: AsyncSession = Depends(get_db),
 ):
+    # a student reads their own progress only; staff read any student's of their organization (the service looks the student up inside it)
+    await ensure_own_or_staff(db, user, student_id, STAFF)
     service = ProgressService(db)
     return await service.get_course_progress(organization_id, student_id, course_id)

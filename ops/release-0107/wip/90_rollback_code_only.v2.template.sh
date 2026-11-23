@@ -303,6 +303,12 @@ restore_images() {
         docker stop -t "$API_GRACE" erpx_api > /dev/null
         die "the previous api was stopped because the guard is not confirmed. Nothing else was started. Fix the cause or run MODE=forward." 7
       fi
+      # last line of defence against a late writer: if an internship-private record became visible between the hold and now, stop the api again
+      if [ "$(qnum "$PRIVATE_VISIBLE_SQL" || echo X)" != 0 ]; then
+        echo "!! internship-private records are visible although the hold finished (a writer outside this script?): STOPPING THE API (fail closed)."
+        docker stop -t "$API_GRACE" erpx_api > /dev/null || true
+        die "the previous api was stopped: private records are visible. Find what wrote to the database (see the checklist, part 4.3), then run MODE=full again." 8
+      fi
     fi
   done
   sset RESTORED_AT "$(date -u +%Y%m%dT%H%M%SZ)"; sset GUARD_IMAGE "$GUARD_IMAGE"
@@ -388,7 +394,12 @@ case "$MODE" in
     record_new_images
     if [ "$DRY_RUN" != 1 ] && [ "$(ctr_image erpx_api)" = "$GUARD_IMAGE" ] && ctr_running erpx_api; then
       echo "== the previous api is already running from the guarded image: resuming (checking the hold, restoring whatever is left, verifying)"
-      [ "$(rev)" != 0107 ] || [ "$(qnum "$PRIVATE_VISIBLE_SQL")" = 0 ] || die "the previous api is running while internship-private records are still visible: stopping it now" 8
+      if [ "$(rev)" = 0107 ] && [ "$(qnum "$PRIVATE_VISIBLE_SQL")" != 0 ]; then
+        echo "!! the previous api is running while internship-private records are still visible: STOPPING IT NOW (fail closed)"
+        docker stop -t "$API_GRACE" erpx_api > /dev/null || true
+        ctr_running erpx_api && die "the previous api is STILL RUNNING over visible internship-private records and could not be stopped: stop it by hand (docker stop erpx_api) before anything else" 9
+        die "the previous api was stopped because internship-private records were visible. Run MODE=full again: it will stop the writers, hold the records and restore." 8
+      fi
     else
       quiesce
       hold

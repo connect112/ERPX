@@ -63,11 +63,13 @@ async def test_a_student_cannot_read_another_students_progress(client, db_sessio
     assert "completed_lessons" not in r.text and "percentage" not in r.text
 
 
-async def test_the_unguarded_route_in_this_tree_still_answers_the_other_student(client, db_session, organization, rbac_seeded, guard):
-    """Control: the same request on the route as shipped (no guard) succeeds for the other student, so the 403 above is the guard's doing."""
-    a, _, _, b_headers, course = await two_students(client, db_session, organization)
-    r = await client.get(f"/api/v1/lms/progress/{a.id}/course/{course.id}", headers=b_headers)
-    assert r.status_code == 200, r.text
+async def test_the_current_route_and_the_guard_answer_alike(client, db_session, organization, rbac_seeded, guard):
+    """Release 0107 fixed the same gap in the application (tests/api/test_lms_progress_access.py); the guard gives every caller the same status."""
+    a, a_headers, _, b_headers, course = await two_students(client, db_session, organization)
+    for headers in (a_headers, b_headers):
+        now = await client.get(f"/api/v1/lms/progress/{a.id}/course/{course.id}", headers=headers)
+        guarded = await client.get(url(a, course), headers=headers)
+        assert now.status_code == guarded.status_code
 
 
 async def test_staff_with_progress_manage_can_read_any_students_progress(client, db_session, organization, rbac_seeded, guard):

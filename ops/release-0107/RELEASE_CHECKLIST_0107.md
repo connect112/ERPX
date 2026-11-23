@@ -158,6 +158,15 @@ Modes: `full` (the rollback), `forward` (stop the writers, release the hold, sta
 
 **Verified by execution:** the stub tests (`tests/unit/test_rollback_90.py`) show that at the moment the dump and the hold SQL reach the database the api, worker and beat are all stopped, that remaining sessions block the hold, that a wrong previous image changes nothing, that unconfirmed guards stop the api again, that an interrupted run resumes, and that `forward` stops the writers before releasing. `tests/unit/test_rollback_real_image.py` runs the **real previous image** (built from `3a722a6`) with and without the guards over real HTTP against a scratch copy of the 0107 database.
 
+**Exit codes of `full`:** 2 a precondition failed, nothing changed; 3 not enough disk; 5 application sessions still open, hold not run; 6 hold or dump failed its own check; 7 guards not confirmed, api stopped again; 8 private records visible while the previous api was up, api stopped; 9 same, but the api **could not be stopped** (stop it by hand first).
+
+**Races the script cannot remove (read before approving the rollback)**
+- **The zero-session check is a snapshot.** It proves no connection of `APP_DB_USER` exists at that instant, and the stopped containers are not restarted by docker (a manual `docker stop` is not restarted). A writer that connects *afterwards* and before the hold commits (a second host running the api, a person with `psql` as that user or as `postgres`, a cron job under another database user, a manual `docker compose up`) cannot be excluded by a script. The hold locks the rows it moves and its transaction checks its own result; a record created by such a writer just after the hold keeps its `internship_id` and stays visible.
+- **What the script does about it:** after the hold it re-counts visible private records, and again right after the previous api starts; if any is visible it **stops the api** (exit 8). That closes the detectable window. A record that appears and is read between those two checks (seconds) is not prevented.
+- **Sessions of other database users** (administrators, backup jobs, pgbouncer pools showing a different user) are not counted. Before approving: make sure nobody is connected by hand, and that no other host runs the application.
+- **Optional hardening (not implemented, needs your decision):** `ALTER ROLE erpx NOLOGIN` plus `pg_terminate_backend` for the window would block late application writers completely, at the price of a procedure that changes a role and must be undone.
+- **Not rehearsed on a real compose stack.** The ordering is proven against a stub docker and the guards against the real previous image; the first real run of `90` is the staging rehearsal. Do it before relying on it.
+
 **After a rollback**, remember:
 - Any later `docker compose up` of the api while on the old image **must** use the override: `docker compose -f docker-compose.prod.yml -f /opt/backups/pre-release/rollback-api-override.yml up -d --no-deps --no-build api`.
 - Content created by the 0107 features is hidden, not deleted. The old screens have no Learning workspace.
@@ -169,7 +178,7 @@ Modes: `full` (the rollback), `forward` (stop the writers, release the hold, sta
 
 ### 4.5 The two guards
 `ops/release-0107/rollback_guard/results_routes.py` and `progress_routes.py` replace the previous release's route files inside the derived image. Rule for both: the caller is the student concerned, a superuser, or staff (results: grading / exam management permissions; progress: `lms.progress.manage`); everyone else gets 403; if the student record or permissions cannot be read the request fails and returns nothing. Both are embedded in `90_…` and a test keeps the embedded copies, hashes and SQL equal to the files; regenerate with `python ops/release-0107/wip/build_90_v2.py` after changing any of them.
-The current (0107) progress route has the same cross-student gap as the previous one; it is **not** changed in this PR (feature area of the LMS owners) and is listed as a follow-up.
+The current (0107) progress route had the same gap and is fixed in the application as well (own / superuser / `lms.progress.manage`; `tests/api/test_lms_progress_access.py`), so a roll-forward does not bring it back.
 
 ---
 

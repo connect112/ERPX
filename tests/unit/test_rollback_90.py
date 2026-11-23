@@ -97,6 +97,7 @@ if cmd == "run":   # sha256 of a route file inside an image (throw-away containe
     out((RESULTS_GUARD if guarded else RESULTS_PREV) + "  " + path)
 if cmd == "stop":
     name = args[-1]
+    if s.get("stop_fails"): sys.exit(1)
     if name in s["containers"]: s["containers"][name]["running"] = False
     save(s); out(name)
 if cmd == "compose":
@@ -105,6 +106,7 @@ if cmd == "compose":
         if s.get("compose_fails") and svc == "api" and not s.get("compose_failed_once"):
             s["compose_failed_once"] = True; save(s); print("stub: compose up failed", file=sys.stderr); sys.exit(1)
         s["containers"]["erpx_" + svc] = {"running": True, "image": s["images"].get(f"erpx-{svc}:latest", "sha256:old-" + svc)}
+        if svc == "api": s["api_started"] = True
         note(f"START {svc} (running before: {running_now()})")
         save(s)
     if "ps" in args: out("erpx_api  Up")
@@ -135,7 +137,7 @@ if cmd == "exec":
         if "ops_0107_rollback_hold where released_at is null" in sql and "table_name" not in sql: out("0")
         if "ops_0107_rollback_hold where table_name" in sql: out("2")
         if "count(*) from lms_assessments) ||" in sql: out("2|2|2|2")
-        if "deleted_at is null" in sql: out("0")
+        if "deleted_at is null" in sql: out(str(s.get("private_visible", 0) if not s.get("late_private") else (s["late_private"] if s.get("api_started") else 0)))
         if "internship_id is not null" in sql: out("2")
         out("0" if "count(*)" in sql else "")
     if target in ("erpx_api", "erpx_celery_worker"):
@@ -272,6 +274,39 @@ def test_an_interrupted_rollback_is_completed_by_running_it_again(host):
     assert host.index("HOLD-SQL") is not None
     rc2, out2 = host.run("full")
     assert rc2 == 0 and "RESULT: the rolled-back state is confirmed" in out2, out2
+
+
+def test_resuming_with_the_previous_api_running_over_visible_private_records_stops_the_api(host):
+    """Fail closed: the guarded previous api is up but internship-private records are visible (a half-finished or undone hold)."""
+    host.set_state(private_visible=3)
+    containers = json.loads((host.state / "state.json").read_text())["containers"]
+    containers["erpx_api"] = {"running": True, "image": "sha256:guarded"}
+    host.set_state(containers=containers)
+    rc, out = host.run("full")
+    assert rc == 8 and "STOPPING IT NOW" in out, out
+    calls = host.calls()
+    assert host.index("docker stop -t 1 erpx_api") is not None, calls          # it really was stopped, not just announced
+    assert json.loads((host.state / "state.json").read_text())["containers"]["erpx_api"]["running"] is False
+    assert host.index("HOLD-SQL") is None and host.index("START ") is None, calls   # and nothing else happened
+
+
+def test_if_the_api_cannot_be_stopped_the_failure_says_so_loudly(host):
+    host.set_state(private_visible=3, stop_fails=True)
+    containers = json.loads((host.state / "state.json").read_text())["containers"]
+    containers["erpx_api"] = {"running": True, "image": "sha256:guarded"}
+    host.set_state(containers=containers)
+    rc, out = host.run("full")
+    assert rc == 9 and "STILL RUNNING" in out, out
+
+
+def test_a_record_that_becomes_visible_after_the_hold_stops_the_freshly_started_api(host):
+    """A writer outside the script slipped a private record in after the hold: the api that was just started is stopped again."""
+    host.set_state(late_private=1)
+    rc, out = host.run("full")
+    assert rc == 8 and "STOPPING THE API" in out, out
+    calls = host.calls()
+    assert host.index("docker stop -t 1 erpx_api", host.index("START api")) is not None, calls
+    assert host.index("START celery_worker") is None, calls
 
 
 def test_roll_forward_stops_the_writers_before_it_releases_the_hold(host):

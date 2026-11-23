@@ -131,7 +131,7 @@ if not c.bucket_exists(b):
     c.make_bucket(b)
 print("bucket", b, "ready")
 PY
-  .venv/bin/python -m pytest tests/unit tests/api/test_rollback_results_guard.py tests/api/test_rollback_progress_guard.py tests/api/test_learning_preflight.py -q -p no:cacheprovider
+  .venv/bin/python -m pytest tests/unit tests/api/test_rollback_results_guard.py tests/api/test_rollback_progress_guard.py tests/api/test_lms_progress_access.py tests/api/test_learning_preflight.py -q -p no:cacheprovider
   say "frontend checks (web app): typecheck + eslint + unit tests"
   (cd apps/web && { [ -d node_modules ] || npm ci --no-audit --no-fund > /dev/null; } && npx tsc -b && npx eslint src && npx vitest run 2>&1 | tail -5)
 }
