@@ -140,6 +140,8 @@ class ProjectOut(BaseModel):
 
 
 class ProjectSelectionRow(BaseModel):
+    # "granted", or "revoked" for a student whose LMS access was withdrawn: their history stays visible to staff, marked as such.
+    access_status: str = "granted"
     """One enrolled student: the project they chose (if any) and what they handed in."""
 
     selection_id: uuid.UUID

@@ -14,12 +14,14 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_model import TimestampedBase
 from modules.courses.models import Course  # noqa: F401
+from modules.our_internships import models as _internship_models  # noqa: F401  (internship_id points at its table)
 from modules.students.models import Student  # noqa: F401
 
 
@@ -45,6 +47,11 @@ class Assessment(TimestampedBase):
     course_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Set for an activity that belongs to ONE internship (a cohort): only that internship's granted students and staff reach it. Null
+    # (every record that existed before) means course-wide, exactly as before.
+    internship_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("our_internships.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     assessment_type: Mapped[AssessmentType] = mapped_column(
         SAEnum(AssessmentType, name="assessment_type", values_callable=_values),
@@ -56,6 +63,8 @@ class Assessment(TimestampedBase):
     passing_marks: Mapped[int] = mapped_column(Integer, default=40, server_default="40", nullable=False)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # When true a student sees their score as soon as they submit; otherwise staff release it by recording the result.
+    show_result: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
 
 class AssessmentAttempt(TimestampedBase):
@@ -73,9 +82,31 @@ class AssessmentAttempt(TimestampedBase):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # {question_id: [chosen option indexes]}, saved while answering. The score of an attempt that has questions is worked out from
+    # these on the server when it is submitted; a student never supplies a score.
+    answers: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}", nullable=False)
+    total_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[AttemptStatus] = mapped_column(
         SAEnum(AttemptStatus, name="attempt_status", values_callable=_values),
         default=AttemptStatus.IN_PROGRESS,
         server_default=AttemptStatus.IN_PROGRESS.value,
         nullable=False,
     )
+
+
+class AssessmentQuestion(TimestampedBase):
+    """A multiple-choice question of an assessment (a quiz, mock test or coding test). The correct options never leave the server
+    while a student is answering."""
+
+    __tablename__ = "lms_assessment_questions"
+
+    assessment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lms_assessments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[list] = mapped_column(JSONB, nullable=False)
+    # Indexes into ``options``; a multiple-answer question is right only when exactly this set is chosen.
+    correct_indices: Mapped[list] = mapped_column(JSONB, nullable=False)
+    allow_multiple: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    marks: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)

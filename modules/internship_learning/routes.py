@@ -118,11 +118,11 @@ async def assign_exam(
     internship = await _internship(db, internship_id, organization_id)
     service = InternshipLearningService(db)
     exam = await service.linked_exam(internship, exam_id)
-    added, existing, invite_ids = await service.assign_exam(exam, payload.send_invites)
+    added, existing, invite_ids, skipped = await service.assign_exam(exam, payload.send_invites)
     # Queue only after the rows are committed, so a worker never reads a row that is not there yet.
     await db.commit()
     enqueue_invites(invite_ids)
-    return ExamAssignResponse(added=added, already_on_exam=existing, invited=len(invite_ids))
+    return ExamAssignResponse(added=added, already_on_exam=existing, invited=len(invite_ids), skipped_shared_email=skipped)
 
 
 @router.get("/{internship_id}/exams/{exam_id}/results", response_model=list[ExamResultRow])
@@ -337,7 +337,7 @@ async def my_internships(
         for a in assignments:
             if service.can_submit(a, await service.my_submission(a.id, selection.id)):
                 open_assignments += 1
-        exams = await service.my_exams(internship.id, student.organization_id, student.email or "")
+        exams = await service.my_exams(internship.id, student.organization_id, student.email or "", selection.id)
         out.append(
             MyInternship(
                 id=internship.id,
@@ -381,9 +381,9 @@ async def my_exams(
     db: AsyncSession = Depends(get_db),
 ):
     service = InternshipLearningService(db)
-    await service.selection_for_student(student, internship_id)
+    selection = await service.selection_for_student(student, internship_id)
     out = []
-    for exam, attendee in await service.my_exams(internship_id, student.organization_id, student.email or ""):
+    for exam, attendee in await service.my_exams(internship_id, student.organization_id, student.email or "", selection.id):
         state = "submitted" if attendee.submitted_at else "in_progress" if attendee.started_at else "not_started"
         shown = attendee.submitted_at is not None and exam.show_result
         out.append(

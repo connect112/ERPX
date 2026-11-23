@@ -212,3 +212,44 @@ def test_an_svg_logo_is_accepted_and_drawn():
     assert "GIR Technologies" in pages[0]
     with pytest.raises(AssetError):
         validate_asset("logo", b"<svg><not-closed")
+
+
+def _nested_use_svg(fan: int, levels: int) -> bytes:
+    """Each group holds ``fan`` references to the group below it: ~1.4 KB at fan 10 and 5 levels, 10**5 elements if expanded in full."""
+    parts = ['<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="50"><defs><g id="g0"><rect width="1" height="1"/></g>']
+    for level in range(1, levels + 1):
+        parts.append(f'<g id="g{level}">' + "".join(f'<use xlink:href="#g{level - 1}"/>' for _ in range(fan)) + "</g>")
+    parts.append(f'</defs><use xlink:href="#g{levels}"/></svg>')
+    return "".join(parts).encode()
+
+
+def test_svglib_is_a_release_that_limits_nested_use_expansion():
+    """GHSA-555j-qj3j-c8jv / CVE-2026-132275: svglib before 2.3.1 expanded nested <use> references without limit."""
+    from importlib.metadata import version
+
+    installed = tuple(int(part) for part in version("svglib").split(".")[:3])
+    assert installed >= (2, 3, 1), f"svglib {installed} is affected by GHSA-555j-qj3j-c8jv"
+
+
+def test_a_nested_use_svg_cannot_tie_up_the_server():
+    """An SVG logo whose references multiply per level is handled in bounded time (before the fix each extra level cost ~10x more)."""
+    import time
+
+    bomb = _nested_use_svg(fan=10, levels=6)  # ~1.7 KB; the unpatched library needs minutes and gigabytes for this
+    start = time.perf_counter()
+    try:
+        validate_asset("logo", bomb)
+    except AssetError:
+        pass  # refusing it is as good as accepting it; what matters is that it comes back
+    assert time.perf_counter() - start < 60
+
+
+def test_a_logo_that_reuses_a_shape_with_use_still_draws():
+    svg = (
+        b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="50">'
+        b'<defs><rect id="bar" width="20" height="50" fill="#1f3a8a"/></defs>'
+        b'<use xlink:href="#bar" x="0"/><use xlink:href="#bar" x="40"/><use xlink:href="#bar" x="80"/></svg>'
+    )
+    assert validate_asset("logo", svg) == "image/svg+xml"
+    pages, pdf = make(config(), assets={"logo": Asset("logo", "image/svg+xml", svg)})
+    assert "GIR Technologies" in pages[0] and pdf.startswith(b"%PDF")

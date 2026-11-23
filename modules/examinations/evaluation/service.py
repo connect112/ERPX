@@ -22,30 +22,44 @@ class EvaluationService:
         self.exam_repo = ExamRepository(db)
         self.student_repo = StudentRepository(db)
 
-    async def start_attempt(
-        self, exam_id: uuid.UUID, organization_id: uuid.UUID, student_id: uuid.UUID
-    ) -> ExamAttempt:
+    async def start_attempt(self, exam_id: uuid.UUID, organization_id: uuid.UUID, student) -> ExamAttempt:
+        """Start an attempt for ``student`` (already resolved: the caller themselves, or for staff a student of the organization)."""
+        from modules.courses.repository import CourseRepository
+        from modules.lms.enrollment.access import require_live_enrollment
+
         exam = await self.exam_repo.get_by_id(exam_id)
-        if not exam:
+        # the exam must belong to a course of the caller's organization, and the student must be in that course now
+        if not exam or await CourseRepository(self.db).get_by_id(exam.course_id, organization_id) is None:
             raise NotFoundError("Exam", exam_id)
         if exam.status != ExamStatus.SCHEDULED:
             raise ValidationError(
                 f"This exam is not open for attempts (current status: '{exam.status.value}')."
             )
+        await require_live_enrollment(self.db, student, exam.course_id)
 
-        student = await self.student_repo.get_by_id(student_id, organization_id)
-        if not student:
-            raise NotFoundError("Student", student_id)
-
-        existing = await self.attempt_repo.get_by_exam_and_student(exam_id, student_id)
+        existing = await self.attempt_repo.get_by_exam_and_student(exam_id, student.id)
         if existing:
             raise ConflictError("This student has already attempted this exam.")
 
         attempt = await self.attempt_repo.create(
-            exam_id=exam_id, student_id=student_id, started_at=datetime.now(timezone.utc)
+            exam_id=exam_id, student_id=student.id, started_at=datetime.now(timezone.utc)
         )
         logger.info("exam_attempt_started", attempt_id=str(attempt.id))
         return attempt
+
+    async def attempt_in_org(self, attempt_id: uuid.UUID, organization_id: uuid.UUID) -> ExamAttempt:
+        """An attempt of a student of this organization, or "not found" (an id from another organization says nothing)."""
+        attempt = await self.attempt_repo.get_by_id(attempt_id)
+        if not attempt or await self.student_repo.get_by_id(attempt.student_id, organization_id) is None:
+            raise NotFoundError("Attempt", attempt_id)
+        return attempt
+
+    async def answer_in_org(self, answer_id: uuid.UUID, organization_id: uuid.UUID) -> ExamAnswer:
+        answer = await self.answer_repo.get_by_id(answer_id)
+        if not answer:
+            raise NotFoundError("Answer", answer_id)
+        await self.attempt_in_org(answer.attempt_id, organization_id)
+        return answer
 
     async def _get_attempt_in_progress(self, attempt_id: uuid.UUID) -> ExamAttempt:
         attempt = await self.attempt_repo.get_by_id(attempt_id)

@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,11 +49,14 @@ export function MyInternshipsPage() {
                     <Badge variant="outline" className="capitalize">
                       {i.status}
                     </Badge>
+                    <Link to={`/internships/${i.id}`} className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+                      Open learning
+                    </Link>
                     <a
                       href={`${PORTAL_URLS.admin}/our-internships/${i.id}`}
-                      className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
                     >
-                      Open
+                      Full site
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   </div>

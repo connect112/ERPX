@@ -12,6 +12,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -273,7 +274,7 @@ def test_the_committed_archive_files_are_what_the_generator_produces():
         return (SSM / n).read_bytes().replace(b"\r\n", b"\n")
 
     before = {n: read(n) for n in names}
-    subprocess.run(["python", str(SSM / "build_archive_doc.py")], check=True, capture_output=True)
+    subprocess.run([sys.executable, str(SSM / "build_archive_doc.py")], check=True, capture_output=True)
     assert {n: read(n) for n in names} == before
 
 
@@ -325,7 +326,7 @@ def run_gate(marker, sizes):
     code = code.replace('subprocess.run(["aws","s3api","head-object","--bucket","pentrix-erpx-backups-373384939117","--key",key,'
                         '"--query","ContentLength","--output","text"],capture_output=True,text=True,check=True)',
                         "type('R',(),{'stdout':str(SIZES[key])})()")
-    result = subprocess.run(["python", "-c", f"SIZES={sizes!r}\n{code}"], input=json.dumps(marker), capture_output=True, text=True)
+    result = subprocess.run([sys.executable, "-c", f"SIZES={sizes!r}\n{code}"], input=json.dumps(marker), capture_output=True, text=True)
     return result.returncode, result.stdout + result.stderr
 
 

@@ -235,7 +235,7 @@ async def test_students_see_their_awards_in_the_internship_and_on_their_profile(
     assert (await client.get("/api/v1/my-internship-awards", headers=asha)).json() == []
 
 
-async def test_a_student_with_access_taken_away_loses_the_awards_from_view(client, auth_headers, db_session, organization):
+async def test_a_student_with_access_taken_away_loses_the_awards_but_staff_keep_the_history_marked(client, auth_headers, db_session, organization):
     from sqlalchemy import select
 
     from modules.our_internships.models import InternshipSelection, LmsStatus
@@ -248,7 +248,9 @@ async def test_a_student_with_access_taken_away_loses_the_awards_from_view(clien
     row = (await db_session.execute(select(InternshipSelection).where(InternshipSelection.id == uuid.UUID(sel)))).scalar_one()
     row.lms_status = LmsStatus.REVOKED
     await db_session.flush()
-    assert (await client.get(base, headers=auth_headers)).json()[0]["grants"] == []
+    # the student no longer sees it, but the staff record is kept and marked rather than silently dropped
+    grants = (await client.get(base, headers=auth_headers)).json()[0]["grants"]
+    assert [(g["selection_id"], g["access_status"]) for g in grants] == [(sel, "revoked")]
     assert (await client.get("/api/v1/my-internship-awards", headers=people["asha@example.com"][1])).json() == []
 
 

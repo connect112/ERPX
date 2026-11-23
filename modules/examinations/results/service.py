@@ -34,8 +34,15 @@ class ResultsService:
         self.viva_repo = VivaRepository(db)
 
     async def get_student_course_result(
-        self, student_id: uuid.UUID, course_id: uuid.UUID, organization_id: uuid.UUID
+        self,
+        student_id: uuid.UUID,
+        course_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        internship_ids: set[uuid.UUID] | None = None,
     ) -> StudentCourseResultResponse:
+        """The student's results in the course. An internship's own practicals and viva count only for the internships in
+        ``internship_ids`` (the ones the caller may see); none of them leak into a course-wide result."""
+        allowed = internship_ids or set()
         student = await self.student_repo.get_by_id(student_id, organization_id)
         if not student:
             raise NotFoundError("Student", student_id)
@@ -62,6 +69,8 @@ class ResultsService:
             )
 
         for practical in await self.practical_repo.list_for_course(course_id):
+            if practical.internship_id is not None and practical.internship_id not in allowed:
+                continue
             result_row = await self.practical_repo.get_result(practical.id, student_id)
             score = result_row.score if result_row else None
             components.append(
@@ -77,6 +86,8 @@ class ResultsService:
             )
 
         for viva in await self.viva_repo.list_for_course(course_id):
+            if viva.internship_id is not None and viva.internship_id not in allowed:
+                continue
             result_row = await self.viva_repo.get_result(viva.id, student_id)
             score = result_row.score if result_row else None
             components.append(

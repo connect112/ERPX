@@ -7,7 +7,8 @@ from modules.examinations.evaluation.models import AttemptStatus
 
 
 class StartExamAttemptRequest(BaseModel):
-    student_id: uuid.UUID
+    # A student always acts as themselves (this is then ignored or must be their own id); staff recording for a student name them here.
+    student_id: uuid.UUID | None = None
 
 
 class SubmitAnswerRequest(BaseModel):

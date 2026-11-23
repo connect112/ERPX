@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -273,7 +274,7 @@ def test_the_document_embeds_exactly_the_reviewed_code():
 
 def test_the_committed_document_is_what_the_generator_produces():
     before = (SSM / "pentrix-op-delete-old-dumps.json").read_text(encoding="utf-8")
-    subprocess.run(["python", str(SSM / "build_delete_doc.py")], check=True, capture_output=True)
+    subprocess.run([sys.executable, str(SSM / "build_delete_doc.py")], check=True, capture_output=True)
     assert (SSM / "pentrix-op-delete-old-dumps.json").read_text(encoding="utf-8") == before
 
 

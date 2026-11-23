@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
+import { useCurriculumAccess } from "@/features/courses/lib/curriculum-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -25,6 +26,7 @@ import { LessonsPanel } from "@/features/courses/lessons/components/lessons-pane
 
 export function ChaptersPanel({ courseId }: { courseId: string }) {
   const { data: chapters, isLoading } = useChapters(courseId);
+  const { canManage } = useCurriculumAccess();
   const createChapter = useCreateChapter(courseId);
   const deleteChapter = useDeleteChapter(courseId);
   const [formOpen, setFormOpen] = useState(false);
@@ -69,10 +71,12 @@ export function ChaptersPanel({ courseId }: { courseId: string }) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">Curriculum</CardTitle>
-        <Button size="sm" onClick={() => setFormOpen(true)}>
-          <Plus className="h-4 w-4" />
-          Add chapter
-        </Button>
+        {canManage && (
+          <Button size="sm" onClick={() => setFormOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Add chapter
+          </Button>
+        )}
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading && <Skeleton className="h-16 w-full" />}
@@ -98,13 +102,16 @@ export function ChaptersPanel({ courseId }: { courseId: string }) {
                   {chapter.order_index}. {chapter.title}
                 </span>
               </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => deleteChapter.mutate(chapter.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              {canManage && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Delete chapter ${chapter.title}`}
+                  onClick={() => deleteChapter.mutate(chapter.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
             </div>
             {chapter.description && (
               <p className="mt-1 pl-6 text-xs text-muted-foreground">{chapter.description}</p>

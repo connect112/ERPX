@@ -27,6 +27,14 @@ export function useCreateResource(courseId: string, chapterId: string, lessonId:
   });
 }
 
+export function useUploadResource(courseId: string, chapterId: string, lessonId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof resourcesApi.upload>[3]) => resourcesApi.upload(courseId, chapterId, lessonId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: resourcesKey(courseId, chapterId, lessonId) }),
+  });
+}
+
 export function useUpdateResource(courseId: string, chapterId: string, lessonId: string) {
   const queryClient = useQueryClient();
   return useMutation({

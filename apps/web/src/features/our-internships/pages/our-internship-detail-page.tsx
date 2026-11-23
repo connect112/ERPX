@@ -13,10 +13,9 @@ import { useDebounced } from "@/features/institutions/lib/use-debounced";
 import { type InternshipStatus, ourInternshipsApi, ourInternshipsKeys } from "@/features/our-internships/api/our-internships-api";
 import { useMyAccess } from "@/features/our-internships/api/instructors-api";
 import { useDestinations } from "@/features/our-internships/api/students-api";
-import { AssignmentsTab } from "@/features/our-internships/components/assignments-tab";
+import { LearningWorkspace } from "@/features/learning/components/learning-workspace";
+import { learningTabFromParam } from "@/features/learning/lib/tabs";
 import { InstructorsTab } from "@/features/our-internships/components/instructors-tab";
-import { ExamsTab } from "@/features/our-internships/components/exams-tab";
-import { ProjectsTab } from "@/features/our-internships/components/projects-tab";
 import { CertificatesTab } from "@/features/our-internships/components/certificates-tab";
 import { AwardsTab } from "@/features/our-internships/components/awards-tab";
 import { OfferLettersTab } from "@/features/our-internships/components/offer-letters-tab";
@@ -38,7 +37,11 @@ export function OurInternshipDetailPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   // coming back from creating a course lands on this tab and its LMS course section
-  const [tab, setTab] = useState(searchParams.get("tab") ?? "students");
+  // old links to the Exams, Assignments and Projects tabs land on the same content inside Learning
+  const requestedTab = searchParams.get("tab");
+  const legacyLearning = requestedTab === "exams" || requestedTab === "assignments" || requestedTab === "projects";
+  const [tab, setTab] = useState(legacyLearning ? "learning" : (requestedTab ?? "students"));
+  const [learningTab, setLearningTab] = useState(learningTabFromParam(searchParams.get("learning")) ?? (requestedTab === "projects" ? "projects" : requestedTab === "exams" || requestedTab === "assignments" ? "evaluations" : "curriculum"));
   const [search, setSearch] = useState("");
   const [institutionId, setInstitutionId] = useState("");
   const [eventId, setEventId] = useState("");
@@ -203,9 +206,7 @@ export function OurInternshipDetailPage() {
           {isAdmin && <TabsTrigger value="offers">Offer letters</TabsTrigger>}
           <TabsTrigger value="onboarding">Onboarding</TabsTrigger>
           {settingsTab && <TabsTrigger value="onboarding-settings">Onboarding Settings</TabsTrigger>}
-          <TabsTrigger value="exams">Exams</TabsTrigger>
-          <TabsTrigger value="assignments">Assignments</TabsTrigger>
-          <TabsTrigger value="projects">Projects</TabsTrigger>
+          <TabsTrigger value="learning" data-testid="internship-tab-learning">Learning</TabsTrigger>
           <TabsTrigger value="awards">Awards</TabsTrigger>
           <TabsTrigger value="certificates">Certificates</TabsTrigger>
           {isAdmin && <TabsTrigger value="instructors">Instructors</TabsTrigger>}
@@ -250,14 +251,8 @@ export function OurInternshipDetailPage() {
             <OnboardingSettingsTab internship={i} isAdmin={isAdmin} initialSection={searchParams.get("section") ?? undefined} />
           </TabsContent>
         )}
-        <TabsContent value="exams">
-          <ExamsTab internshipId={internshipId} canManage />
-        </TabsContent>
-        <TabsContent value="assignments">
-          <AssignmentsTab internshipId={internshipId} canManage />
-        </TabsContent>
-        <TabsContent value="projects">
-          <ProjectsTab internshipId={internshipId} canManage />
+        <TabsContent value="learning">
+          <LearningWorkspace internshipId={internshipId} tab={learningTab} onTabChange={setLearningTab} />
         </TabsContent>
         <TabsContent value="awards">
           <AwardsTab internshipId={internshipId} canManage />

@@ -53,6 +53,8 @@ from modules.institutions.routes import students_router as institution_students_
 from modules.internship_learning.review_routes import my_awards_router as my_internship_awards_router
 from modules.internship_learning.routes import my_router as my_internships_router
 from modules.internship_learning.routes import router as internship_learning_router
+from modules.learning.routes import my_router as my_learning_router
+from modules.learning.routes import router as learning_router
 from modules.integrations.routes import router as integrations_router
 from modules.inventory.routes import router as inventory_router
 from modules.leave.routes import router as leave_router
@@ -159,6 +161,8 @@ api_router.include_router(our_internships_router, prefix="/our-internships", tag
 api_router.include_router(internship_learning_router, prefix="/our-internships", tags=["Our Internships"])
 api_router.include_router(my_internships_router, prefix="/my-internships", tags=["My Internships"])
 api_router.include_router(my_internship_awards_router, prefix="/my-internship-awards", tags=["My Internships"])
+api_router.include_router(learning_router, prefix="/learning", tags=["Learning"])
+api_router.include_router(my_learning_router, prefix="/my-learning", tags=["Learning"])
 api_router.include_router(instructing_internships_router, prefix="/instructing-internships", tags=["Our Internships"])
 api_router.include_router(email_templates_router, prefix="/email-templates", tags=["Email templates"])
 api_router.include_router(email_studio_router, prefix="/email-studio", tags=["Email Studio"])
