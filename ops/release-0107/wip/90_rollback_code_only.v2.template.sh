@@ -49,12 +49,15 @@ OVERRIDE=$PRE_DIR/rollback-api-override.yml
 GUARD_DIR=$PRE_DIR/rollback-guard
 SERVICES="api celery_worker celery_beat web student_portal trainer_portal"
 REPLACES_SHA256=@@REPLACES_SHA256@@       # the previous release's modules/examinations/results/routes.py
-GUARD_SHA256=@@GUARD_SHA256@@         # the guard file embedded below
+GUARD_SHA256=@@GUARD_SHA256@@         # the results guard file embedded below
 ROUTES=/app/modules/examinations/results/routes.py
+P_REPLACES_SHA256=@@P_REPLACES_SHA256@@   # the previous release's modules/lms/progress/routes.py
+P_GUARD_SHA256=@@P_GUARD_SHA256@@     # the progress guard file embedded below
+P_ROUTES=/app/modules/lms/progress/routes.py
 PHASE=preflight; DONE=0
 PASS=0; WARN=0; FAIL=0
 
-run() { if [ "$DRY_RUN" = 1 ]; then echo "+ $*"; else "$@"; fi; }
+run() { if [ "$DRY_RUN" = 1 ]; then echo "+ $*" >&2; else "$@"; fi; }   # the + line goes to stderr so a `> /dev/null` on the call cannot hide it
 say() { printf '  [%s] %s\n' "$1" "$2"; case "$1" in PASS) PASS=$((PASS+1));; WARN) WARN=$((WARN+1));; FAIL) FAIL=$((FAIL+1));; esac; }
 die() { echo "!! $*"; exit "${2:-1}"; }
 q()   { docker exec -i shared_postgres psql -X -U postgres -d erpx -v ON_ERROR_STOP=1 "$@"; }
@@ -93,40 +96,46 @@ write_guard_context() {
   cat > "$GUARD_DIR/routes.py" <<'GUARD_PY_EOF'
 @@GUARD_PY@@
 GUARD_PY_EOF
-  [ "$(sha256sum "$GUARD_DIR/routes.py" | cut -d' ' -f1)" = "$GUARD_SHA256" ] || die "the guard file was damaged when it was written (hash differs); nothing was built" 2
+  cat > "$GUARD_DIR/progress_routes.py" <<'PROGRESS_PY_EOF'
+@@PROGRESS_PY@@
+PROGRESS_PY_EOF
+  [ "$(sha256sum "$GUARD_DIR/routes.py" | cut -d' ' -f1)" = "$GUARD_SHA256" ] || die "the results guard file was damaged when it was written (hash differs); nothing was built" 2
+  [ "$(sha256sum "$GUARD_DIR/progress_routes.py" | cut -d' ' -f1)" = "$P_GUARD_SHA256" ] || die "the progress guard file was damaged when it was written (hash differs); nothing was built" 2
   cat > "$GUARD_DIR/Dockerfile" <<DOCKERFILE_EOF
 FROM erpx-rollback/api:previous-0107
 LABEL erpx.rollback.results-guard="0107"
 COPY --chown=erpx:erpx routes.py $ROUTES
-RUN python -B -c "import ast, hashlib; b = open('$ROUTES', 'rb').read(); ast.parse(b); assert hashlib.sha256(b).hexdigest() == '$GUARD_SHA256', 'guard file differs'"
+COPY --chown=erpx:erpx progress_routes.py $P_ROUTES
+RUN python -B -c "import ast, hashlib; [(ast.parse(b), (hashlib.sha256(b).hexdigest() == h) or exit('guard file differs')) for f, h in (('$ROUTES', '$GUARD_SHA256'), ('$P_ROUTES', '$P_GUARD_SHA256')) for b in [open(f, 'rb').read()]]"
 DOCKERFILE_EOF
 }
 
 # the routes.py inside an image, by hash (a throw-away container: no network, read-only filesystem; no existing container is touched)
-image_routes_sha() { docker run --rm --network none --read-only --entrypoint sha256sum "$1" "$ROUTES" 2>/dev/null | cut -d' ' -f1; }
+image_routes_sha() { docker run --rm --network none --read-only --entrypoint sha256sum "$1" "${2:-$ROUTES}" 2>/dev/null | cut -d' ' -f1; }
 
 prepare_guard() {
   echo "== GUARD: the results endpoint of the previous release lets any student read any other student's results. Preparing the protected previous api image."
-  local base had; base=$(load api_OLD_ID)
+  local base had phad; base=$(load api_OLD_ID)
   [ -n "$base" ] || die "api_OLD_ID is not in $ENVF" 2
   if [ "$DRY_RUN" = 1 ]; then
     echo "+ docker run --rm --network none --read-only --entrypoint sha256sum $base $ROUTES   (must equal $REPLACES_SHA256, or already be the guard $GUARD_SHA256)"
+    echo "+ the same for $P_ROUTES   (must equal $P_REPLACES_SHA256, or already be the guard $P_GUARD_SHA256)"
     echo "+ write $GUARD_DIR/{Dockerfile,routes.py}; docker tag $base erpx-rollback/api:previous-0107; docker build -t erpx-rollback/api:guard-0107 $GUARD_DIR"
     GUARD_IMAGE=$base; return 0
   fi
-  had=$(image_routes_sha "$base")
-  if [ "$had" = "$GUARD_SHA256" ]; then
+  had=$(image_routes_sha "$base"); phad=$(image_routes_sha "$base" "$P_ROUTES")
+  if [ "$had" = "$GUARD_SHA256" ] && [ "$phad" = "$P_GUARD_SHA256" ]; then
     echo "the saved api image already carries the guard (an earlier rollback): using it as it is"
     GUARD_IMAGE=$base
-  elif [ "$had" = "$REPLACES_SHA256" ]; then
-    echo "the previous api image has exactly the results route this guard replaces ($had): building the guarded image"
+  elif { [ "$had" = "$REPLACES_SHA256" ] || [ "$had" = "$GUARD_SHA256" ]; } && { [ "$phad" = "$P_REPLACES_SHA256" ] || [ "$phad" = "$P_GUARD_SHA256" ]; }; then
+    echo "the previous api image has exactly the results and progress routes these guards replace: building the guarded image"
     write_guard_context
     docker tag "$base" erpx-rollback/api:previous-0107
     docker build -q -t erpx-rollback/api:guard-0107 "$GUARD_DIR" > /dev/null
     GUARD_IMAGE=$(docker image inspect -f '{{.Id}}' erpx-rollback/api:guard-0107)
-    [ "$(image_routes_sha "$GUARD_IMAGE")" = "$GUARD_SHA256" ] || die "the guarded image was built but its route file is not the guard; nothing was changed" 2
+    { [ "$(image_routes_sha "$GUARD_IMAGE")" = "$GUARD_SHA256" ] && [ "$(image_routes_sha "$GUARD_IMAGE" "$P_ROUTES")" = "$P_GUARD_SHA256" ]; } || die "the guarded image was built but its route files are not the guards; nothing was changed" 2
   else
-    die "the results route inside the saved previous api image is '${had:-unreadable}', not the version this guard was written and tested for ($REPLACES_SHA256). The protection cannot be guaranteed, so NOTHING was changed and the previous image will not be restored. Decide with a developer (roll forward / fix forward instead)." 2
+    die "the results route ('${had:-unreadable}') or the progress route ('${phad:-unreadable}') inside the saved previous api image is not the version the guards were written and tested for ($REPLACES_SHA256 / $P_REPLACES_SHA256). The protection cannot be guaranteed, so NOTHING was changed and the previous image will not be restored. Decide with a developer (roll forward / fix forward instead)." 2
   fi
   say PASS "guarded previous api image ready: $GUARD_IMAGE"
 }
@@ -145,6 +154,15 @@ import inspect
 ok = routes.ROLLBACK_GUARD == 'results-0107' and len(r) == 1 and '_ensure_own_or_staff' in inspect.getsource(r[0].endpoint)
 print('GUARDED' if ok else 'NOT-GUARDED')" 2>&1 | tail -1 || true)
   [ "$code" = GUARDED ] && say PASS "the route that answers /examinations/results/{student_id}/course/{course_id} in the running api calls the own-or-staff check" || say FAIL "the running api's results route is not confirmed guarded ('${code:0:80}')"
+  inside=$(docker exec -e PYTHONDONTWRITEBYTECODE=1 $c sha256sum $P_ROUTES 2>/dev/null | cut -d' ' -f1 || true)
+  [ "$inside" = "$P_GUARD_SHA256" ] && say PASS "the progress route file inside the running container is the guard (sha256 matches)" || say FAIL "the progress route file inside erpx_api is '${inside:-unreadable}', not the guard"
+  code=$(docker exec -e PYTHONDONTWRITEBYTECODE=1 $c python -B -c "
+from modules.lms.progress import routes
+import inspect
+r = [x for x in routes.router.routes if x.path == '/{student_id}/course/{course_id}']
+ok = routes.ROLLBACK_GUARD == 'progress-0107' and len(r) == 1 and '_ensure_own_or_staff' in inspect.getsource(r[0].endpoint)
+print('GUARDED' if ok else 'NOT-GUARDED')" 2>&1 | tail -1 || true)
+  [ "$code" = GUARDED ] && say PASS "the route that answers /lms/progress/{student_id}/course/{course_id} in the running api calls the own-or-staff check" || say FAIL "the running api's progress route is not confirmed guarded ('${code:0:80}')"
 }
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -376,6 +394,7 @@ case "$MODE" in
       hold
     fi
     restore_images
+    if [ "$DRY_RUN" = 1 ]; then DONE=1; echo "== DRY RUN complete: nothing was changed. Every line starting with + is a command the real run would execute."; exit 0; fi
     do_verify; DONE=1
     echo "== ROLLBACK (code only) DONE. The database is still at 0107. Records created by the 0107 features are hidden, not deleted: MODE=forward brings them back." ;;
   forward) do_forward; DONE=1 ;;

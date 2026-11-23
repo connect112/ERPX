@@ -12,7 +12,7 @@ call was possible. Production itself has never been touched. Merge, deploy and m
 | `03_deploy_frontends.sh` | `web`, `student_portal`, `trainer_portal` | yes (deploy) |
 | `04_post_deploy_verify.sh` | automatic checks, counts against baseline, PDF libraries in the containers | **No** |
 | `90_rollback_code_only.sh` | code-only rollback with containment, and roll-forward | yes (rollback) |
-| `sql/rollback_hold.sql`, `sql/rollback_release.sql` | the two statements sets embedded in `90_…` | yes (rollback) |
+| `sql/rollback_hold.sql`, `sql/rollback_release.sql`, `rollback_guard/*.py` | the SQL and the two guard files embedded in `90_…` (a test keeps them equal; regenerate with `wip/build_90_v2.py`) | yes (rollback) |
 
 Run any script with `DRY_RUN=1` first to see every command without running it. Scripts are pasted into AWS Systems Manager → Run Command →
 `AWS-RunShellScript`, targeted at the production instance only, as in the 2026-10-30 release.
@@ -131,7 +131,7 @@ An optional real ₹1 payment-and-refund test is **your** decision and your card
 ### 4.1 When
 **Roll back (code only)** if, after Step 1, any of: the new api never becomes healthy and cannot be fixed within minutes; students cannot sign in; payment webhooks answer 5xx or the verifier shows payment failures;
 offer-letter or receipt PDFs fail; `04` shows a table that shrank. **Fix forward instead** for cosmetic issues, a wrong label, or a single screen.
-If the **migration itself failed**, the database is still at the old revision (it runs in one transaction): use `MODE=images` only, no hold needed.
+If the **migration itself failed**, the database is still at the old revision (it runs in one transaction): use `MODE=full` (it sees the schema is not at 0107, skips the hold, and only restores the images; the guarded api image is still used).
 
 **Never run `alembic downgrade 0106`**: it drops the question rows, attempt answers, cohort scoping and upload metadata created since the release, and orphans uploaded files.
 A restore of the pre-release dump is the last resort, needs its own approval, and loses everything written since the dump.
@@ -142,23 +142,34 @@ A restore of the pre-release dump is the last resort, needs its own approval, an
 
 ### 4.3 The procedure
 ```text
-90_rollback_code_only.sh   with MODE=full on its first line     (run it once with DRY_RUN=1 to read the plan)
+90_rollback_code_only.sh   with MODE=full on its first line     (run it once with DRY_RUN=1 to read the plan; every command that would change something is printed with a +)
 ```
-In order: (1) a small safety dump of the four tables → (2) **hold**: every internship-private row is moved, unchanged, under a soft-deleted holding course of the same organization (the previous code treats a deleted course as "not found"); the move
-is recorded row by row in `ops_0107_rollback_hold`, and the transaction checks that nothing private remains under a visible course or rolls back → (3) restore the six saved images, the api first, with `RUN_MIGRATIONS=false` through
-`/opt/backups/pre-release/rollback-api-override.yml` → (4) read-only verification. The database stays at 0107; nothing is dropped or deleted.
+In order, and the order is enforced by the script and by `tests/unit/test_rollback_90.py`:
+1. **Preflight, changes nothing**: the saved images exist, docker and the database answer, the revision is not ahead of 0107, 1 GB is free.
+2. **Guarded image**: a derived image is built FROM the saved previous api image with exactly two files replaced (`modules/examinations/results/routes.py`, `modules/lms/progress/routes.py`; section 4.5). It refuses, changing nothing, unless both files it replaces are byte-for-byte the previous release's.
+3. **Save the 0107 images** (needed for `MODE=forward`).
+4. **QUIESCE, before any data is touched**: stop `erpx_celery_beat`, stop `erpx_api` (in-flight requests get `API_GRACE` s), wait for `erpx_celery_worker` to finish its running tasks (up to `WORKER_DRAIN` s) and stop it. Queued tasks stay queued. Then it requires **zero** database sessions of the application user (`APP_DB_USER`, default `erpx`); if any remain it stops with exit 5 and **the hold is not run**.
+5. **Hold**: a verified safety dump of the five affected tables, then every internship-private row is moved, unchanged, under a soft-deleted holding course of the same organization (the previous code treats a deleted course as "not found"). Each move is recorded in `ops_0107_rollback_hold`; the transaction checks that nothing private remains under a visible course or rolls back.
+6. **Restore** the six saved images (the api from the guarded image) with `RUN_MIGRATIONS=false` through `/opt/backups/pre-release/rollback-api-override.yml`, then confirm the guards in the **running** api three ways (image label, file hash inside the container, the route's code). If they cannot be confirmed the api is **stopped again** (fail closed, exit 7).
+7. **Verify, read-only** (also available alone as `MODE=verify`).
+The database stays at 0107; nothing is dropped or deleted. An interrupted run is finished by running it again with the same MODE.
 
-**Rehearsed result (old code, 0107 schema, real rows):** with the hold, an independent enrolee and a cohort student see only the course-wide items; opening the holding course returns 403/404; another student's private marks are not returned.
-Every table keeps its row count; the held rows differ from the originals only in `course_id`; a second hold is a no-op; after the release every table is **byte-identical** to before (verified by content hashes, through two full cycles).
+Modes: `full` (the rollback), `forward` (stop the writers, release the hold, start the saved 0107 images), `verify` (read-only checks of the rolled-back state), `release` (only the hold-release SQL; refuses unless the 0107 api is the one running).
+
+**Verified by execution:** the stub tests (`tests/unit/test_rollback_90.py`) show that at the moment the dump and the hold SQL reach the database the api, worker and beat are all stopped, that remaining sessions block the hold, that a wrong previous image changes nothing, that unconfirmed guards stop the api again, that an interrupted run resumes, and that `forward` stops the writers before releasing. `tests/unit/test_rollback_real_image.py` runs the **real previous image** (built from `3a722a6`) with and without the guards over real HTTP against a scratch copy of the 0107 database.
 
 **After a rollback**, remember:
 - Any later `docker compose up` of the api while on the old image **must** use the override: `docker compose -f docker-compose.prod.yml -f /opt/backups/pre-release/rollback-api-override.yml up -d --no-deps --no-build api`.
 - Content created by the 0107 features is hidden, not deleted. The old screens have no Learning workspace.
-- The rollback also brings back behaviour that exists in production today and that this PR fixes (seen in the rehearsal: any student can read another student's combined course results through the old results route). The previous release's other known gaps return too.
+- The previous release's other known gaps return too. The two cross-student reads (course results, course progress) are closed by the guarded image; confirm with `MODE=verify`.
 - Uploaded curriculum files show a dead download link in the old UI (they are course-wide, so nothing leaks).
 
 ### 4.4 Roll forward
-Re-run `01` (with `EXPECT_REV_BEFORE=0107`; the migration is then a no-op), `02`, `03`, and only after the new api is running: `90_rollback_code_only.sh MODE=release`. It refuses while the previous api is still running (that would re-expose the records) and puts each row back under its original course.
+`90_rollback_code_only.sh MODE=forward` (stop the writers, release the hold, start the saved 0107 images, verify). The manual path: re-run `01` (with `EXPECT_REV_BEFORE=0107`; the migration is then a no-op), `02`, `03`, and only after the new api is running `MODE=release`, which refuses while the previous api is still running.
+
+### 4.5 The two guards
+`ops/release-0107/rollback_guard/results_routes.py` and `progress_routes.py` replace the previous release's route files inside the derived image. Rule for both: the caller is the student concerned, a superuser, or staff (results: grading / exam management permissions; progress: `lms.progress.manage`); everyone else gets 403; if the student record or permissions cannot be read the request fails and returns nothing. Both are embedded in `90_…` and a test keeps the embedded copies, hashes and SQL equal to the files; regenerate with `python ops/release-0107/wip/build_90_v2.py` after changing any of them.
+The current (0107) progress route has the same cross-student gap as the previous one; it is **not** changed in this PR (feature area of the LMS owners) and is listed as a follow-up.
 
 ---
 
