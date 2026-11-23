@@ -144,9 +144,9 @@ Not part of the four, but found: the previous release's `GET /api/v1/lms/progres
 
 ## 7. Known limitations on Apple Silicon (and what is unverified)
 
-* **Unverified on a Mac**: the bootstrap, the image builds and the test run have not been executed on Apple silicon. Treat the first run as the verification and fix the script if it disagrees.
+* **Verified on a Mac (M3 Pro)**: `bash scripts/mac-bootstrap.sh test` runs the representative backend suite plus web `tsc -b`, `eslint src` and `vitest run`. Mac-specific fixes found by that run: `test` puts `.venv/bin` first on `PATH` and the dump-script tests spawn `sys.executable` (macOS has no bare `python`); `00_preflight_readonly.sh` computes the backup age with GNU `date -d` first and BSD `date -j -f` as fallback, and fails the gate on an impossible date. Remaining skips: `pymupdf` not installed, no `nginx` binary, hard-link test.
 * Images: `postgres:16-alpine`, `redis:7-alpine`, `minio/minio`, `elasticsearch:8.13.4`, `python:3.12-slim`, `node:20-alpine`, `nginx:alpine` all publish arm64 builds; no `platform:` pin or Rosetta is used.
-  The CI job uses `pgsty/minio@sha256:...` (a pinned digest); locally the compose `minio/minio:latest` is used instead.
+  The CI job uses `pgsty/minio@sha256:...` (a pinned digest); locally the compose file's MinIO image is used (a developer may edit it locally; do not commit that change).
 * Python dependencies are pinned in `apps/api/requirements.txt` and should resolve to arm64 wheels (asyncpg, psycopg2-binary, tree-sitter 0.23.2, Pillow, reportlab). If one builds from source, `brew install libpq` and retry.
 * The API container bind-mounts `apps/api`, `modules` and `packages` with `uvicorn --reload`; file watching over Docker Desktop's file sharing can be slow. Use VirtioFS (default) and, if reload lags, restart the container.
 * macOS ships bash 3.2; the bootstrap avoids bash 4 features. Production is Linux: no production file was changed for the Mac (the bootstrap, this document and ops tests are additive).

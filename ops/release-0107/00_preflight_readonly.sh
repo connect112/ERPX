@@ -114,8 +114,15 @@ elif ! [[ "$NEWEST" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
   say FAIL "the newest folder under daily/ is named '${NEWEST:0:40}', not a date: cannot judge the age of the backup"
 else
   echo "newest day folder: $NEWEST"; aws s3 ls "s3://$BUCKET/daily/$NEWEST/" 2>&1 | sed 's/^/    /'
-  AGE_H=$(( ( $(date -u +%s) - $(date -u -d "$NEWEST 03:30" +%s) ) / 3600 ))
-  [ "$AGE_H" -le 27 ] && say PASS "newest off-server backup is $AGE_H h old (limit 27 h)" || say FAIL "newest off-server backup is $AGE_H h old (limit 27 h)"
+  # epoch of 03:30 UTC on the folder's date: GNU date (-d, production Linux) first, BSD/macOS date (-j -f) as the fallback; read-only either way
+  NEWEST_EPOCH=$(date -u -d "$NEWEST 03:30" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d %H:%M' "$NEWEST 03:30" +%s 2>/dev/null || true)
+  if ! [[ "$NEWEST_EPOCH" =~ ^[0-9]+$ ]]; then
+    say FAIL "the newest folder under daily/ ('${NEWEST:0:40}') is not a valid calendar date: cannot judge the age of the backup"
+    AGE_H=
+  else
+    AGE_H=$(( ( $(date -u +%s) - NEWEST_EPOCH ) / 3600 ))
+    [ "$AGE_H" -le 27 ] && say PASS "newest off-server backup is $AGE_H h old (limit 27 h)" || say FAIL "newest off-server backup is $AGE_H h old (limit 27 h)"
+  fi
   aws s3 ls "s3://$BUCKET/daily/$NEWEST/" 2>/dev/null | grep -q SHA256SUMS && say PASS "SHA256SUMS present (the backup finished and was verified)" || say FAIL "SHA256SUMS missing: that day's backup did not finish"
   aws s3 ls "s3://$BUCKET/daily/$NEWEST/" 2>/dev/null | grep -q manifest.json && say PASS "manifest.json present" || say WARN "manifest.json missing"
 fi

@@ -408,6 +408,7 @@ def test_preflight_a_revision_that_is_not_a_revision_is_a_fail(world):
     ({"STUB_TIMER": "inactive"}, "[FAIL] offsite-backup.timer is not active"),
     ({"STUB_API_HEALTH": "unhealthy"}, "[FAIL] erpx_api is not healthy before the release"),
     ({"STUB_NEWEST": "not-a-date"}, "[FAIL] the newest folder under daily/ is named"),
+    ({"STUB_NEWEST": "2026-13-45"}, "[FAIL] the newest folder under daily/ ('2026-13-45') is not a valid calendar date"),
 ])
 def test_preflight_each_failed_gate_is_a_no_go_with_a_nonzero_status(world, env, needle):
     with at_revision(world.uri, "0106"):

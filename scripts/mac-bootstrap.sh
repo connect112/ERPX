@@ -115,6 +115,7 @@ cmd_test() {
   .venv/bin/pip install -q --upgrade pip && .venv/bin/pip install -q -r apps/api/requirements.txt
   docker compose up -d postgres redis minio
   docker compose exec -T postgres psql -U erpx -d postgres -qc "DROP DATABASE IF EXISTS erpx_test" -c "CREATE DATABASE erpx_test"
+  export PATH="$ROOT/.venv/bin:$PATH"   # tests and their subprocesses that say "python" get the venv interpreter (macOS has no bare python)
   export DATABASE_URL=postgresql+asyncpg://erpx:erpx_secret@localhost:5432/erpx_test REDIS_URL=redis://localhost:6379/0
   export JWT_SECRET_KEY=test_secret_key_at_least_32_characters_long ENVIRONMENT=test PYTHONPATH="$ROOT"
   export MINIO_ENDPOINT=127.0.0.1:9000 MINIO_SECURE=false MINIO_BUCKET=erpx-ci-tests
@@ -131,8 +132,8 @@ if not c.bucket_exists(b):
 print("bucket", b, "ready")
 PY
   .venv/bin/python -m pytest tests/unit tests/api/test_rollback_results_guard.py tests/api/test_learning_preflight.py -q -p no:cacheprovider
-  say "frontend checks (web app): typecheck + unit tests"
-  (cd apps/web && { [ -d node_modules ] || npm ci --no-audit --no-fund > /dev/null; } && npx tsc -b && npx vitest run 2>&1 | tail -5)
+  say "frontend checks (web app): typecheck + eslint + unit tests"
+  (cd apps/web && { [ -d node_modules ] || npm ci --no-audit --no-fund > /dev/null; } && npx tsc -b && npx eslint src && npx vitest run 2>&1 | tail -5)
 }
 
 cmd_stop() {
