@@ -9,7 +9,7 @@ import sys
 
 pack = pathlib.Path(__file__).resolve().parents[1]
 wip = pack / "wip"
-guard = (pack / "rollback_guard" / "results_routes.py").read_bytes()
+guard = (pack / "rollback_guard" / "results_routes.py").read_bytes().replace(b"\r\n", b"\n")   # hash the LF form: the same on Windows (autocrlf) and Linux
 text = (wip / "90_rollback_code_only.v2.template.sh").read_text(encoding="utf8")
 replaces = re.search(rb'REPLACES_SHA256 = "([0-9a-f]{64})"', guard).group(1).decode()
 text = text.replace("@@REPLACES_SHA256@@", replaces).replace("@@GUARD_SHA256@@", hashlib.sha256(guard).hexdigest())
