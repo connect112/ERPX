@@ -22,10 +22,34 @@ BUCKET=pentrix-erpx-backups-373384939117
 RO_OPTS="-c default_transaction_read_only=on -c statement_timeout=30000 -c lock_timeout=3000 -c idle_in_transaction_session_timeout=60000"
 q() { docker exec -i -e PGOPTIONS="$RO_OPTS" shared_postgres psql -X -U postgres -d erpx -v ON_ERROR_STOP=1 "$@"; }
 
-PASS=0; WARN=0; FAIL=0
+PASS=0; WARN=0; FAIL=0; FINISHED=0
 say() { printf '  [%s] %s\n' "$1" "$2"; case "$1" in PASS) PASS=$((PASS+1));; WARN) WARN=$((WARN+1));; FAIL) FAIL=$((FAIL+1));; esac; }
+# EXIT STATUS: 0 = no FAIL (warnings are listed and counted separately); 1 = at least one FAIL, or the script stopped before it finished (the last line
+# then says NO-GO). A query that cannot run (database unreachable, invalid SQL, a missing table, a timeout) is a FAIL carrying the database's own
+# error message: it is never read as an empty result, a zero or a success.
+trap '[ "$FINISHED" = 1 ] || { echo "RESULT: NO-GO (the script stopped before it finished: treat this as a failure)"; }' EXIT
+# qs LABEL SQL [num|text]: one read-only query that returns one value. Sets QS and returns 0, or records a FAIL and returns 1.
+# Always call it directly (never inside $(...)), so the FAIL is counted.
+qs() {
+  local label=$1 sql=$2 kind=${3:-num} out rc
+  QS=""
+  out=$(q -tA -c "$sql" 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then say FAIL "$label: the query failed ($(printf '%s' "$out" | tr '\n' ' ' | cut -c1-170))"; return 1; fi
+  QS=$(printf '%s\n' "$out" | tail -1)
+  if [ "$kind" = num ] && ! [[ "$QS" =~ ^[0-9]+$ ]]; then say FAIL "$label: unexpected query result '${QS:0:60}'"; QS=""; return 1; fi
+  return 0
+}
+# qreport LABEL [psql args]: a query or report whose output is printed (indented). SQL comes from -c or from stdin. A failure is a FAIL.
+qreport() {
+  local label=$1 out rc; shift
+  out=$(q "$@" 2>&1); rc=$?
+  printf '%s\n' "$out" | sed 's/^/    /'
+  [ "$rc" -eq 0 ] || say FAIL "$label: the query failed (psql exit $rc; see the message above)"
+  return "$rc"
+}
 
 if [ "$DRY_RUN" = 1 ]; then
+  FINISHED=1
   echo "DRY RUN: this preflight only reads. It would run: df, du, date, head, systemctl is-active / list-timers, docker inspect, one docker exec (alembic heads),"
   echo "git rev-parse and git status (no locks), aws s3 ls s3://$BUCKET/daily/, and read-only psql sessions (PGOPTIONS: $RO_OPTS) against shared_postgres/erpx."
   exit 0
@@ -33,14 +57,27 @@ fi
 
 echo "== A. database revision and what is running"
 date -u
-REV=$(q -tA -c "select version_num from alembic_version" 2>&1 | tail -1)
-echo "production database revision (alembic_version): $REV"
-if [[ "$REV" =~ ^[0-9]{4}$ ]]; then N=$((10#$REV)); else N=-1; fi
-if   [ "$N" -lt 0 ];   then say FAIL "could not read alembic_version ($REV): is shared_postgres reachable?"
+if qs "read-only database session" "show transaction_read_only" text; then
+  [ "$QS" = on ] && say PASS "every database session of this script is read-only (enforced by PostgreSQL)" || say FAIL "the database session is NOT read-only ('$QS'): stop, nothing was changed"
+fi
+REV=""; N=-1
+if qs "alembic_version" "select version_num from alembic_version" text; then
+  REV=$QS
+  if [[ "$REV" =~ ^[0-9]{4}$ ]]; then N=$((10#$REV)); else say FAIL "alembic_version holds '${REV:0:40}', which is not a four-digit revision"; fi
+fi
+echo "production database revision (alembic_version): ${REV:-unknown}"
+if   [ "$N" -lt 0 ];   then :   # the FAIL above already says why
 elif [ "$N" -gt 107 ]; then say FAIL "the database is at $REV, AHEAD of this release (0107): another release is in place; stop and find out which"
 elif [ "$N" -eq 107 ]; then say WARN "already at 0107: this release has been applied (or a previous attempt did)"
 elif [ "$N" -ge 104 ]; then say PASS "at $REV: the release applies 0107 (0104-0106 are already in; read report F anyway)"
 else say WARN "at $REV, BELOW 0104: deploying also applies every revision up to 0107, including 0104-0106. Read reports F and G, and decide whether those were meant to ship in this window"
+fi
+# The rollback ledger exists only after a rollback was run. Absent = zero holds (the normal case); present with open rows = a rollback is half-undone.
+if [ "$N" -ge 107 ] && qs "rollback ledger lookup" "select coalesce(to_regclass('ops_0107_rollback_hold')::text, '')" text; then
+  if [ -z "$QS" ]; then say PASS "no rollback ledger exists: zero active holds"
+  elif qs "active rollback holds" "select count(*) from ops_0107_rollback_hold where released_at is null"; then
+    [ "$QS" = 0 ] && say PASS "the rollback ledger exists and no hold is active" || say FAIL "$QS record(s) are held by a previous rollback: finish that first (90_rollback_code_only.sh MODE=release after the 0107 code runs)"
+  fi
 fi
 echo "head the RUNNING api image knows: $(docker exec -e PYTHONDONTWRITEBYTECODE=1 erpx_api alembic heads 2>&1 | tail -1)"   # reads the migration files only; it does not touch the database
 echo "running images (rollback targets):"
@@ -57,11 +94,14 @@ fi
 
 echo; echo "== B. disk space"
 df -h / | tail -1
-AVAIL=$(df -B1 --output=avail / | tail -1 | tr -d ' ')
-DBSIZE=$(q -tA -c "select pg_database_size(current_database())" 2>/dev/null | tail -1)
-echo "free: $((AVAIL/1024/1024)) MiB   database size: $(( ${DBSIZE:-0}/1024/1024 )) MiB   pre-release folder: $(du -sh $PRE_DIR 2>/dev/null | cut -f1)"
-NEED=$(( ${DBSIZE:-0} * 2 )); [ "$NEED" -lt 4000000000 ] && NEED=4000000000
-if [ "$AVAIL" -ge "$NEED" ]; then say PASS "free disk $((AVAIL/1024/1024)) MiB >= $((NEED/1024/1024)) MiB (the larger of 4 GB and twice the database, for the pre-migration dump plus image builds)"; else say FAIL "free disk $((AVAIL/1024/1024)) MiB < $((NEED/1024/1024)) MiB needed"; fi
+AVAIL=$(df -B1 --output=avail / 2>/dev/null | tail -1 | tr -d ' ')
+if ! [[ "$AVAIL" =~ ^[0-9]+$ ]]; then say FAIL "could not read the free disk space (df gave '${AVAIL:0:40}')"
+elif qs "database size" "select pg_database_size(current_database())"; then
+  DBSIZE=$QS
+  echo "free: $((AVAIL/1024/1024)) MiB   database size: $((DBSIZE/1024/1024)) MiB   pre-release folder: $(du -sh $PRE_DIR 2>/dev/null | cut -f1)"
+  NEED=$((DBSIZE * 2)); [ "$NEED" -lt 4000000000 ] && NEED=4000000000
+  if [ "$AVAIL" -ge "$NEED" ]; then say PASS "free disk $((AVAIL/1024/1024)) MiB >= $((NEED/1024/1024)) MiB (the larger of 4 GB and twice the database, for the pre-migration dump plus image builds)"; else say FAIL "free disk $((AVAIL/1024/1024)) MiB < $((NEED/1024/1024)) MiB needed"; fi
+fi
 
 echo; echo "== C. off-server backup"
 echo "timer: $(systemctl is-active offsite-backup.timer 2>&1)"; systemctl list-timers --all 2>/dev/null | grep -E 'offsite|NEXT' | cut -c1-170
@@ -70,6 +110,8 @@ echo "last_status.json:"; head -c 600 /opt/backups/offsite/last_status.json 2>&1
 NEWEST=$(aws s3 ls "s3://$BUCKET/daily/" 2>/dev/null | awk '$1=="PRE"{print $2}' | tr -d '/' | sort | tail -1)
 if [ -z "$NEWEST" ]; then
   say FAIL "could not list s3://$BUCKET/daily/ (no instance role, no network, or no backups)"
+elif ! [[ "$NEWEST" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  say FAIL "the newest folder under daily/ is named '${NEWEST:0:40}', not a date: cannot judge the age of the backup"
 else
   echo "newest day folder: $NEWEST"; aws s3 ls "s3://$BUCKET/daily/$NEWEST/" 2>&1 | sed 's/^/    /'
   AGE_H=$(( ( $(date -u +%s) - $(date -u -d "$NEWEST 03:30" +%s) ) / 3600 ))
@@ -78,31 +120,39 @@ else
   aws s3 ls "s3://$BUCKET/daily/$NEWEST/" 2>/dev/null | grep -q manifest.json && say PASS "manifest.json present" || say WARN "manifest.json missing"
 fi
 echo "newest in-app backup records (informational; the in-app dump is not the recovery copy):"
-q -tA -F ' | ' -c "select left(id::text,8), status, coalesce(storage_key,'(cleared)'), size_bytes, to_char(completed_at,'YYYY-MM-DD HH24:MI') from backup_jobs order by started_at desc limit 4" 2>&1 | sed 's/^/    /'
+BJ=$(q -tA -F ' | ' -c "select left(id::text,8), status, coalesce(storage_key,'(cleared)'), size_bytes, to_char(completed_at,'YYYY-MM-DD HH24:MI') from backup_jobs order by started_at desc limit 4" 2>&1); rc=$?
+printf '%s\n' "$BJ" | sed 's/^/    /'
+[ "$rc" -eq 0 ] || say WARN "the in-app backup records could not be read (informational only: the off-server copy above is what counts)"
 
 echo; echo "== D. long-running transactions and lock waits (the migration needs brief locks: run it when this is quiet)"
-q -c "select pid, state, now()-xact_start as open_for, left(query,70) as query from pg_stat_activity where xact_start is not null and now()-xact_start > interval '1 minute' and pid <> pg_backend_pid() order by xact_start" 2>&1
-LONG=$(q -tA -c "select count(*) from pg_stat_activity where xact_start is not null and now()-xact_start > interval '1 minute' and pid <> pg_backend_pid()" 2>/dev/null | tail -1)
-VERYLONG=$(q -tA -c "select count(*) from pg_stat_activity where xact_start is not null and now()-xact_start > interval '10 minutes' and pid <> pg_backend_pid()" 2>/dev/null | tail -1)
-WAITING=$(q -tA -c "select count(*) from pg_locks where not granted" 2>/dev/null | tail -1)
-IDLE=$(q -tA -c "select count(*) from pg_stat_activity where state = 'idle in transaction' and pid <> pg_backend_pid()" 2>/dev/null | tail -1)
-echo "open > 1 min: $LONG   open > 10 min: $VERYLONG   idle in transaction: $IDLE   waiting for a lock: $WAITING"
-[ "${VERYLONG:-1}" = 0 ] && say PASS "no transaction open longer than 10 minutes" || say FAIL "a transaction has been open longer than 10 minutes (find out what it is before migrating)"
-[ "${LONG:-1}" = 0 ] && say PASS "no transaction open longer than 1 minute" || say WARN "a transaction is open longer than 1 minute (re-run just before migrating)"
-[ "${WAITING:-1}" = 0 ] && say PASS "nothing waiting for a lock" || say WARN "something is waiting for a lock"
+qreport "list of long transactions" -c "select pid, state, now()-xact_start as open_for, left(query,70) as query from pg_stat_activity where xact_start is not null and now()-xact_start > interval '1 minute' and pid <> pg_backend_pid() order by xact_start"
+LONG=""; VERYLONG=""; WAITING=""; IDLE=""
+qs "transactions open > 1 minute" "select count(*) from pg_stat_activity where xact_start is not null and now()-xact_start > interval '1 minute' and pid <> pg_backend_pid()" && LONG=$QS
+qs "transactions open > 10 minutes" "select count(*) from pg_stat_activity where xact_start is not null and now()-xact_start > interval '10 minutes' and pid <> pg_backend_pid()" && VERYLONG=$QS
+qs "lock waits" "select count(*) from pg_locks where not granted" && WAITING=$QS
+qs "idle in transaction" "select count(*) from pg_stat_activity where state = 'idle in transaction' and pid <> pg_backend_pid()" && IDLE=$QS
+echo "open > 1 min: ${LONG:-?}   open > 10 min: ${VERYLONG:-?}   idle in transaction: ${IDLE:-?}   waiting for a lock: ${WAITING:-?}"
+# (a query that failed already recorded its FAIL above; only a value that was read can pass or warn here)
+[ "$VERYLONG" = 0 ] && say PASS "no transaction open longer than 10 minutes"
+[ -n "$VERYLONG" ] && [ "$VERYLONG" != 0 ] && say FAIL "$VERYLONG transaction(s) open longer than 10 minutes (find out what they are before migrating)"
+[ "$LONG" = 0 ] && say PASS "no transaction open longer than 1 minute"
+[ -n "$LONG" ] && [ "$LONG" != 0 ] && say WARN "$LONG transaction(s) open longer than 1 minute (re-run just before migrating)"
+[ "$WAITING" = 0 ] && say PASS "nothing waiting for a lock"
+[ -n "$WAITING" ] && [ "$WAITING" != 0 ] && say WARN "something is waiting for a lock"
 
 echo; echo "== E. how many rows migration 0107 will touch, and exam behaviour that changes with this release"
-q -tA -F ' | ' -c "select 'workshop_exam_attendees', count(*) from workshop_exam_attendees union all select 'lms_assessments', count(*) from lms_assessments union all select 'lms_assessment_attempts', count(*) from lms_assessment_attempts union all select 'course_resources', count(*) from course_resources union all select 'exam_practicals', count(*) from exam_practicals union all select 'exam_vivas', count(*) from exam_vivas union all select 'lms_discussion_threads', count(*) from lms_discussion_threads" 2>&1 | sed 's/^/    /'
+qreport "row counts" -tA -F ' | ' -c "select 'workshop_exam_attendees', count(*) from workshop_exam_attendees union all select 'lms_assessments', count(*) from lms_assessments union all select 'lms_assessment_attempts', count(*) from lms_assessment_attempts union all select 'course_resources', count(*) from course_resources union all select 'exam_practicals', count(*) from exam_practicals union all select 'exam_vivas', count(*) from exam_vivas union all select 'lms_discussion_threads', count(*) from lms_discussion_threads"
 echo "OPEN internship exams (after this release their public sign-up link refuses new people: students use the personal links the internship team assigns). Empty = nothing is affected:"
-q -c "select id, title, status::text as status, (select count(*) from workshop_exam_attendees a where a.exam_id = workshop_exams.id) as attendees from workshop_exams where internship_id is not null and award is null and status::text = 'open' order by title" 2>&1 | sed 's/^/    /'
+qreport "open internship exams" -c "select id, title, status::text as status, (select count(*) from workshop_exam_attendees a where a.exam_id = workshop_exams.id) as attendees from workshop_exams where internship_id is not null and award is null and status::text = 'open' order by title"
 
 echo "exams being taken right now (the api restart drops requests for a few seconds; pick a time when this is 0):"
-INPROG=$(q -tA -c "select (select count(*) from workshop_exam_attendees where started_at is not null and submitted_at is null and started_at > now() - interval '6 hours') + (select count(*) from lms_assessment_attempts where status::text = 'in_progress' and started_at > now() - interval '6 hours')" 2>/dev/null | tail -1)
-echo "    attempts started in the last 6 hours and not submitted: ${INPROG:-?}"
-[ "${INPROG:-1}" = 0 ] && say PASS "no exam or quiz attempt is in progress" || say WARN "${INPROG:-?} exam/quiz attempt(s) in progress: deploy later, or accept a brief interruption"
+if qs "exams in progress" "select (select count(*) from workshop_exam_attendees where started_at is not null and submitted_at is null and started_at > now() - interval '6 hours') + (select count(*) from lms_assessment_attempts where status::text = 'in_progress' and started_at > now() - interval '6 hours')"; then
+  echo "    attempts started in the last 6 hours and not submitted: $QS"
+  [ "$QS" = 0 ] && say PASS "no exam or quiz attempt is in progress" || say WARN "$QS exam/quiz attempt(s) in progress: deploy later, or accept a brief interruption"
+fi
 
 echo; echo "== F. data reports: migrations 0104-0106 (ops/preflight/0104_0106_lms_access_ambiguity.sql) -- an empty result is good news"
-q <<'SQL_EOF'
+qreport "report F (0104-0106)" <<'SQL_EOF'
 -- READ-ONLY preflight for migrations 0104 and 0106 (internship LMS access).
 --
 -- Run it on the production database BEFORE applying 0104..0106 (it also works afterwards). It changes nothing: every statement is a
@@ -188,7 +238,7 @@ ROLLBACK;
 SQL_EOF
 
 echo; echo "== G. data report: migration 0107 (ops/preflight/0107_learning_integration.sql) -- an empty result is good news"
-q <<'SQL_EOF'
+qreport "report G (0107)" <<'SQL_EOF'
 -- READ-ONLY preflight for migration 0107 (Learning integration).
 --
 -- Run it on the production database BEFORE applying 0107 (it also works afterwards: it only reads columns that exist before the
@@ -265,6 +315,11 @@ ORDER BY a.title;
 ROLLBACK;
 SQL_EOF
 
+FINISHED=1
 echo; echo "== SUMMARY: PASS=$PASS WARN=$WARN FAIL=$FAIL"
-if [ "$FAIL" -gt 0 ]; then echo "RESULT: NO-GO (fix every FAIL line above, then run this preflight again)"; else echo "RESULT: no blocker found by the automatic checks (read the WARN lines and the two data reports before you approve)"; fi
-echo "== done (nothing was changed)"
+if [ "$FAIL" -gt 0 ]; then
+  echo "RESULT: NO-GO (fix every FAIL line above, then run this preflight again)"
+  echo "== done (nothing was changed)"; exit 1
+fi
+echo "RESULT: no blocker found by the automatic checks (read the WARN lines and the two data reports before you approve)"
+echo "== done (nothing was changed)"; exit 0
