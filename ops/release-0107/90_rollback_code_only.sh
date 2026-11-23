@@ -73,12 +73,26 @@ container_of() { echo "erpx_$1"; }
 ctr_image() { docker inspect -f '{{.Image}}' "$1" 2>/dev/null || true; }
 ctr_running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null || echo false)" = true ]; }
 rev() { qv "select version_num from alembic_version"; }
+# Stop the api and CONFIRM it: docker must report State.Running == false. Any other answer (still true, the container cannot be inspected, docker
+# unreachable) is "not confirmed", and the script ends with exit 9 (critical: the api may still be serving users). Never reports a safe state on faith.
+stop_api_confirmed() { # $1 = why (printed if the stop cannot be confirmed)
+  docker stop -t "$API_GRACE" erpx_api > /dev/null 2>&1 || true
+  local st; st=$(docker inspect -f '{{.State.Running}}' erpx_api 2>/dev/null || echo unknown)
+  [ "$st" = false ] && return 0
+  echo "!! CRITICAL: erpx_api is NOT confirmed stopped (docker reports '${st:0:20}'). $1"
+  die "the previous api may STILL BE RUNNING and serving users. Stop it by hand (docker stop erpx_api; docker inspect -f '{{.State.Running}}' erpx_api must print false) before anything else. Do not trust any earlier message that said it was stopped." 9
+}
+
 
 on_exit() {
   local rc=$?
   [ "$DONE" = 1 ] && return 0
   [ "$rc" -eq 0 ] && return 0
   echo; echo "!! STOPPED in phase '$PHASE' (exit $rc)."
+  if [ "$rc" -eq 9 ]; then
+    echo "!! CRITICAL (exit 9): the api could NOT be confirmed stopped. Assume it is RUNNING and serving users until you have stopped it by hand and docker reports State.Running=false."
+    return 0
+  fi
   case "$PHASE" in
     preflight|record) echo "!! Nothing that serves users was changed. Fix the cause above and run again." ;;
     quiesce|hold|images|start|release)
@@ -590,14 +604,14 @@ restore_images() {
       PASS=0; WARN=0; FAIL=0; check_guard_running
       if [ "$FAIL" -gt 0 ]; then
         echo "!! FAIL CLOSED: the protection for the results endpoint could not be confirmed, so the api is being stopped again."
-        docker stop -t "$API_GRACE" erpx_api > /dev/null
+        stop_api_confirmed "The guard is not confirmed."
         die "the previous api was stopped because the guard is not confirmed. Nothing else was started. Fix the cause or run MODE=forward." 7
       fi
       # last line of defence against a late writer: if an internship-private record became visible between the hold and now, stop the api again
       if [ "$(qnum "$PRIVATE_VISIBLE_SQL" || echo X)" != 0 ]; then
         echo "!! internship-private records are visible although the hold finished (a writer outside this script?): STOPPING THE API (fail closed)."
-        docker stop -t "$API_GRACE" erpx_api > /dev/null || true
-        die "the previous api was stopped: private records are visible. Find what wrote to the database (see the checklist, part 4.3), then run MODE=full again." 8
+        stop_api_confirmed "Private records are visible."
+        die "the previous api was stopped (confirmed): private records are visible. Find what wrote to the database (see the checklist, part 4.3), then run MODE=full again." 8
       fi
     fi
   done
@@ -727,9 +741,8 @@ case "$MODE" in
       echo "== the previous api is already running from the guarded image: resuming (checking the hold, restoring whatever is left, verifying)"
       if [ "$(rev)" = 0107 ] && [ "$(qnum "$PRIVATE_VISIBLE_SQL")" != 0 ]; then
         echo "!! the previous api is running while internship-private records are still visible: STOPPING IT NOW (fail closed)"
-        docker stop -t "$API_GRACE" erpx_api > /dev/null || true
-        ctr_running erpx_api && die "the previous api is STILL RUNNING over visible internship-private records and could not be stopped: stop it by hand (docker stop erpx_api) before anything else" 9
-        die "the previous api was stopped because internship-private records were visible. Run MODE=full again: it will stop the writers, hold the records and restore." 8
+        stop_api_confirmed "Private records are visible over a running previous api."
+        die "the previous api was stopped (confirmed) because internship-private records were visible. Run MODE=full again: it will stop the writers, hold the records and restore." 8
       fi
     else
       quiesce

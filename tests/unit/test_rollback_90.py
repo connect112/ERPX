@@ -76,6 +76,7 @@ if cmd == "inspect":
     name = args[-1]
     c = s["containers"].get(name)
     if c is None: sys.exit(1)
+    if "State.Running" in fmt and s.get("inspect_fails_after_api_start") and s.get("api_started") and name == "erpx_api": sys.exit(1)
     if "State.Running" in fmt: out("true" if c["running"] else "false")
     if "State.ExitCode" in fmt: out("0")
     if "State.Health.Status" in fmt: out("healthy" if c["running"] else "none")
@@ -97,7 +98,7 @@ if cmd == "run":   # sha256 of a route file inside an image (throw-away containe
     out((RESULTS_GUARD if guarded else RESULTS_PREV) + "  " + path)
 if cmd == "stop":
     name = args[-1]
-    if s.get("stop_fails"): sys.exit(1)
+    if s.get("stop_fails") or (s.get("stop_fails_after_api_start") and s.get("api_started")): sys.exit(1)
     if name in s["containers"]: s["containers"][name]["running"] = False
     save(s); out(name)
 if cmd == "compose":
@@ -296,7 +297,7 @@ def test_if_the_api_cannot_be_stopped_the_failure_says_so_loudly(host):
     containers["erpx_api"] = {"running": True, "image": "sha256:guarded"}
     host.set_state(containers=containers)
     rc, out = host.run("full")
-    assert rc == 9 and "STILL RUNNING" in out, out
+    assert rc == 9 and "STILL BE RUNNING" in out, out
 
 
 def test_a_record_that_becomes_visible_after_the_hold_stops_the_freshly_started_api(host):
@@ -307,6 +308,31 @@ def test_a_record_that_becomes_visible_after_the_hold_stops_the_freshly_started_
     calls = host.calls()
     assert host.index("docker stop -t 1 erpx_api", host.index("START api")) is not None, calls
     assert host.index("START celery_worker") is None, calls
+
+
+@pytest.mark.parametrize("flags", [
+    {"late_private": 1, "stop_fails_after_api_start": True},
+    {"guard_not_confirmed": True, "stop_fails_after_api_start": True},
+    {"late_private": 1, "inspect_fails_after_api_start": True, "stop_fails_after_api_start": True},
+], ids=["private-record-after-start", "guard-unconfirmed", "docker-cannot-even-be-inspected"])
+def test_a_failed_stop_of_the_freshly_started_api_is_critical_and_never_reported_as_safe(host, flags):
+    host.set_state(**flags)
+    rc, out = host.run("full")
+    assert rc == 9, out
+    assert "CRITICAL: erpx_api is NOT confirmed stopped" in out and "STILL BE RUNNING" in out, out
+    # no sentence anywhere claims the api was stopped, and no success line was printed
+    assert "was stopped (confirmed)" not in out and "the previous api was stopped" not in out, out
+    assert "Nothing that serves users was changed" not in out and "may be STOPPED" not in out, out   # the exit trap must not contradict the critical message
+    assert "Assume it is RUNNING" in out, out
+    assert "RESULT: the rolled-back state is confirmed" not in out and "ROLLBACK (code only) DONE" not in out
+    assert json.loads((host.state / "state.json").read_text())["containers"]["erpx_api"]["running"] is True   # the stub shows it really is still up
+    assert host.index("START celery_worker") is None
+
+
+def test_a_confirmed_stop_after_start_is_exit_8_and_says_confirmed(host):
+    host.set_state(late_private=1)
+    rc, out = host.run("full")
+    assert rc == 8 and "was stopped (confirmed)" in out and "CRITICAL" not in out, out
 
 
 def test_roll_forward_stops_the_writers_before_it_releases_the_hold(host):
