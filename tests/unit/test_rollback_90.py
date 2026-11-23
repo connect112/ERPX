@@ -126,7 +126,9 @@ if cmd == "exec":
         if "ROLLBACK HOLD 0107" in sql or "released_at = now()" in sql:
             kind = "HOLD-SQL" if "ROLLBACK HOLD 0107" in sql else "RELEASE-SQL"
             note(f"{kind} (running: {running_now()})")
+            s["traps"] = (0 if s.get("no_trap") else 4) if kind == "HOLD-SQL" else 0
             save(s); print("COMMIT"); sys.exit(0)
+        if "pg_trigger" in sql: out(str(s.get("traps", 0 if not s.get("held_before") else 4)))
         if "pg_stat_activity" in sql and "count(*)" in sql:
             n = s.get("sessions", 0)
             if s.get("sessions_drop_after_stop") and not any(c["running"] for k, c in s["containers"].items() if k in ("erpx_api", "erpx_celery_worker", "erpx_celery_beat")): n = 0
@@ -333,6 +335,38 @@ def test_a_confirmed_stop_after_start_is_exit_8_and_says_confirmed(host):
     host.set_state(late_private=1)
     rc, out = host.run("full")
     assert rc == 8 and "was stopped (confirmed)" in out and "CRITICAL" not in out, out
+
+
+def test_a_hold_that_did_not_install_the_late_writer_trap_stops_the_rollback_before_any_image_is_restored(host):
+    host.set_state(no_trap=True)
+    rc, out = host.run("full")
+    assert rc == 6 and "late-writer trap is not installed" in out, out
+    assert host.index("HOLD-SQL") is not None and host.index("START ") is None, host.calls()
+
+
+def test_verify_fails_when_the_trap_is_missing_from_a_rolled_back_state(host):
+    assert host.run("full")[0] == 0
+    host.set_state(traps=0)
+    rc, out = host.run("verify")
+    assert rc == 1 and "[FAIL] late-writer trap is missing" in out, out
+
+
+def test_resuming_with_the_previous_api_running_and_no_trap_stops_the_api(host):
+    containers = json.loads((host.state / "state.json").read_text())["containers"]
+    containers["erpx_api"] = {"running": True, "image": "sha256:guarded"}
+    host.set_state(containers=containers, traps=0)
+    rc, out = host.run("full")
+    assert rc == 8 and "late-writer trap is missing" in out, out
+    assert json.loads((host.state / "state.json").read_text())["containers"]["erpx_api"]["running"] is False
+
+
+def test_roll_forward_removes_the_trap_before_the_0107_code_starts(host):
+    assert host.run("full")[0] == 0
+    marker = len(host.calls())
+    rc, out = host.run("forward")
+    assert rc == 0, out
+    assert json.loads((host.state / "state.json").read_text())["traps"] == 0
+    assert host.index("RELEASE-SQL", marker) < host.index("START ", marker)
 
 
 def test_roll_forward_stops_the_writers_before_it_releases_the_hold(host):

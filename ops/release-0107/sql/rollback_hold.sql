@@ -101,5 +101,49 @@ BEGIN
   END IF;
 END $$;
 
+-- LATE-WRITER TRAP (prevention, not detection). The moves above only cover rows that exist now. Anything that writes an internship-private row AFTER this
+-- transaction (a 0107 api that was not stopped, a person with psql, a second host) would otherwise be readable by every enrolee through the previous code.
+-- So each of the four tables gets a BEFORE INSERT/UPDATE trigger that parks such a row at write time, exactly as the moves above do (same holding course,
+-- same ledger), before it is visible to anyone. Rows with internship_id NULL (everything the previous code writes) pass through untouched.
+-- rollback_release.sql drops the triggers first, in the same transaction that puts the rows back.
+-- SECURITY DEFINER: the writer is the application's database role, which has no rights on the ledger table or on inserting courses; the trap must work for it.
+-- search_path is pinned so the definer's rights cannot be redirected to another schema.
+CREATE OR REPLACE FUNCTION ops_0107_park_private() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+DECLARE org uuid; hold uuid;
+BEGIN
+  IF NEW.internship_id IS NULL THEN RETURN NEW; END IF;
+  SELECT organization_id INTO org FROM courses WHERE id = NEW.course_id;
+  IF org IS NULL THEN RETURN NEW; END IF;                       -- unknown course: the foreign key refuses the row anyway
+  SELECT id INTO hold FROM courses WHERE organization_id = org AND slug = 'rollback-hold-0107';
+  IF hold IS NULL THEN
+    INSERT INTO courses (id, organization_id, title, slug, is_published, deleted_at)
+    VALUES (gen_random_uuid(), org, '[ROLLBACK HOLD 0107] internship-private records (hidden, do not restore)', 'rollback-hold-0107', false, now())
+    ON CONFLICT (organization_id, slug) DO NOTHING;
+    SELECT id INTO hold FROM courses WHERE organization_id = org AND slug = 'rollback-hold-0107';
+  END IF;
+  IF NEW.course_id = hold THEN RETURN NEW; END IF;              -- already parked
+  INSERT INTO ops_0107_rollback_hold (table_name, row_id, original_course_id, parking_course_id)
+  VALUES (TG_TABLE_NAME, NEW.id, NEW.course_id, hold)
+  ON CONFLICT (table_name, row_id) WHERE released_at IS NULL DO NOTHING;   -- keeps the ORIGINAL course of a row that is already on the ledger
+  NEW.course_id := hold;
+  RETURN NEW;
+END
+$fn$;
+DROP TRIGGER IF EXISTS ops_0107_park_lms_assessments ON lms_assessments;
+CREATE TRIGGER ops_0107_park_lms_assessments BEFORE INSERT OR UPDATE OF course_id, internship_id ON lms_assessments FOR EACH ROW EXECUTE FUNCTION ops_0107_park_private();
+DROP TRIGGER IF EXISTS ops_0107_park_lms_discussion_threads ON lms_discussion_threads;
+CREATE TRIGGER ops_0107_park_lms_discussion_threads BEFORE INSERT OR UPDATE OF course_id, internship_id ON lms_discussion_threads FOR EACH ROW EXECUTE FUNCTION ops_0107_park_private();
+DROP TRIGGER IF EXISTS ops_0107_park_exam_practicals ON exam_practicals;
+CREATE TRIGGER ops_0107_park_exam_practicals BEFORE INSERT OR UPDATE OF course_id, internship_id ON exam_practicals FOR EACH ROW EXECUTE FUNCTION ops_0107_park_private();
+DROP TRIGGER IF EXISTS ops_0107_park_exam_vivas ON exam_vivas;
+CREATE TRIGGER ops_0107_park_exam_vivas BEFORE INSERT OR UPDATE OF course_id, internship_id ON exam_vivas FOR EACH ROW EXECUTE FUNCTION ops_0107_park_private();
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'ops_0107_park_%' AND NOT tgisinternal) <> 4 THEN
+    RAISE EXCEPTION 'late-writer trap incomplete: expected 4 triggers; rolled back, nothing changed';
+  END IF;
+END $$;
+
 SELECT table_name, count(*) FILTER (WHERE released_at IS NULL) AS held_now, count(*) AS ever_held FROM ops_0107_rollback_hold GROUP BY table_name ORDER BY table_name;
 COMMIT;

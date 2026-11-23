@@ -16,6 +16,10 @@
 #      unless the file it replaces is byte-for-byte the previous release's; the running container is checked afterwards, and the api is stopped again
 #      if the guard cannot be confirmed (fail closed). The guard lives in the image, so it survives restarts and recreation of the container.
 #   4. If the 0107 api keeps writing while the hold runs, a record created in between would be missed. So the writers are stopped first (below).
+#   5. A writer that gets in AFTER the hold (a 0107 api somewhere else, a person with psql) would create a private record that the previous code then
+#      serves to every enrolee until someone notices (shown in the staging rehearsal). So the hold transaction also installs a database trigger on the four
+#      tables that parks such a row as it is written (same holding course, same ledger): prevention, not detection. The release drops it first. Nothing about
+#      database roles or connections is changed. The post-start visibility check stays as a second, independent line.
 #
 # MODES (set MODE on the line below):
 #   full      THE ROLLBACK, resumable.  preflight (changes nothing) -> save the 0107 images -> QUIESCE -> HOLD -> restore the previous images -> VERIFY.
@@ -443,6 +447,7 @@ quiesce() {
 }
 
 PRIVATE_VISIBLE_SQL="select (select count(*) from lms_assessments t join courses c on c.id=t.course_id where t.internship_id is not null and c.deleted_at is null) + (select count(*) from lms_discussion_threads t join courses c on c.id=t.course_id where t.internship_id is not null and c.deleted_at is null) + (select count(*) from exam_practicals t join courses c on c.id=t.course_id where t.internship_id is not null and c.deleted_at is null) + (select count(*) from exam_vivas t join courses c on c.id=t.course_id where t.internship_id is not null and c.deleted_at is null)"
+TRAPS_SQL="select count(*) from pg_trigger where tgname like 'ops_0107_park_%' and not tgisinternal"
 COUNTS_SQL="select (select count(*) from lms_assessments) || '|' || (select count(*) from lms_discussion_threads) || '|' || (select count(*) from exam_practicals) || '|' || (select count(*) from exam_vivas)"
 
 hold() {
@@ -563,6 +568,50 @@ BEGIN
   END IF;
 END $$;
 
+-- LATE-WRITER TRAP (prevention, not detection). The moves above only cover rows that exist now. Anything that writes an internship-private row AFTER this
+-- transaction (a 0107 api that was not stopped, a person with psql, a second host) would otherwise be readable by every enrolee through the previous code.
+-- So each of the four tables gets a BEFORE INSERT/UPDATE trigger that parks such a row at write time, exactly as the moves above do (same holding course,
+-- same ledger), before it is visible to anyone. Rows with internship_id NULL (everything the previous code writes) pass through untouched.
+-- rollback_release.sql drops the triggers first, in the same transaction that puts the rows back.
+-- SECURITY DEFINER: the writer is the application's database role, which has no rights on the ledger table or on inserting courses; the trap must work for it.
+-- search_path is pinned so the definer's rights cannot be redirected to another schema.
+CREATE OR REPLACE FUNCTION ops_0107_park_private() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn$
+DECLARE org uuid; hold uuid;
+BEGIN
+  IF NEW.internship_id IS NULL THEN RETURN NEW; END IF;
+  SELECT organization_id INTO org FROM courses WHERE id = NEW.course_id;
+  IF org IS NULL THEN RETURN NEW; END IF;                       -- unknown course: the foreign key refuses the row anyway
+  SELECT id INTO hold FROM courses WHERE organization_id = org AND slug = 'rollback-hold-0107';
+  IF hold IS NULL THEN
+    INSERT INTO courses (id, organization_id, title, slug, is_published, deleted_at)
+    VALUES (gen_random_uuid(), org, '[ROLLBACK HOLD 0107] internship-private records (hidden, do not restore)', 'rollback-hold-0107', false, now())
+    ON CONFLICT (organization_id, slug) DO NOTHING;
+    SELECT id INTO hold FROM courses WHERE organization_id = org AND slug = 'rollback-hold-0107';
+  END IF;
+  IF NEW.course_id = hold THEN RETURN NEW; END IF;              -- already parked
+  INSERT INTO ops_0107_rollback_hold (table_name, row_id, original_course_id, parking_course_id)
+  VALUES (TG_TABLE_NAME, NEW.id, NEW.course_id, hold)
+  ON CONFLICT (table_name, row_id) WHERE released_at IS NULL DO NOTHING;   -- keeps the ORIGINAL course of a row that is already on the ledger
+  NEW.course_id := hold;
+  RETURN NEW;
+END
+$fn$;
+DROP TRIGGER IF EXISTS ops_0107_park_lms_assessments ON lms_assessments;
+CREATE TRIGGER ops_0107_park_lms_assessments BEFORE INSERT OR UPDATE OF course_id, internship_id ON lms_assessments FOR EACH ROW EXECUTE FUNCTION ops_0107_park_private();
+DROP TRIGGER IF EXISTS ops_0107_park_lms_discussion_threads ON lms_discussion_threads;
+CREATE TRIGGER ops_0107_park_lms_discussion_threads BEFORE INSERT OR UPDATE OF course_id, internship_id ON lms_discussion_threads FOR EACH ROW EXECUTE FUNCTION ops_0107_park_private();
+DROP TRIGGER IF EXISTS ops_0107_park_exam_practicals ON exam_practicals;
+CREATE TRIGGER ops_0107_park_exam_practicals BEFORE INSERT OR UPDATE OF course_id, internship_id ON exam_practicals FOR EACH ROW EXECUTE FUNCTION ops_0107_park_private();
+DROP TRIGGER IF EXISTS ops_0107_park_exam_vivas ON exam_vivas;
+CREATE TRIGGER ops_0107_park_exam_vivas BEFORE INSERT OR UPDATE OF course_id, internship_id ON exam_vivas FOR EACH ROW EXECUTE FUNCTION ops_0107_park_private();
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'ops_0107_park_%' AND NOT tgisinternal) <> 4 THEN
+    RAISE EXCEPTION 'late-writer trap incomplete: expected 4 triggers; rolled back, nothing changed';
+  END IF;
+END $$;
+
 SELECT table_name, count(*) FILTER (WHERE released_at IS NULL) AS held_now, count(*) AS ever_held FROM ops_0107_rollback_hold GROUP BY table_name ORDER BY table_name;
 COMMIT;
 SQL_HOLD_EOF
@@ -578,6 +627,7 @@ SQL_HOLD_EOF
     [ "$all" = "$open" ] && say PASS "$t: $all internship-scoped record(s), $open held and recorded in the ledger" || die "$t: $all internship-scoped record(s) but $open in the ledger" 6
   done
   [ "$(qnum "select count(*) from courses where slug = 'rollback-hold-0107' and (deleted_at is null or is_published)")" = 0 ] && say PASS "every holding course is soft-deleted and unpublished" || die "a holding course is visible" 6
+  [ "$(qnum "$TRAPS_SQL")" = 4 ] && say PASS "late-writer trap installed on all four tables: a private record written from now on is parked as it is written" || die "the late-writer trap is not installed on all four tables" 6
   sset HELD_AT "$(date -u +%Y%m%dT%H%M%SZ)"
 }
 
@@ -633,6 +683,7 @@ do_verify() {
   check_guard_running
   if [ "$r" = 0107 ]; then
     [ "$(qnum "$PRIVATE_VISIBLE_SQL")" = 0 ] && say PASS "no internship-private record is reachable through a visible course" || say FAIL "internship-private records are reachable through a visible course"
+    [ "$(qnum "$TRAPS_SQL")" = 4 ] && say PASS "late-writer trap present on all four tables" || say FAIL "late-writer trap is missing or incomplete: a record written now would be visible to enrolees"
     echo "  hold ledger (held_now = records currently hidden):"; qro -c "select table_name, count(*) filter (where released_at is null) as held_now, count(*) as ever_held from ops_0107_rollback_hold group by 1 order by 1" 2>&1 | sed 's/^/    /' || true
   fi
   $COMPOSE ps --format 'table {{.Name}}\t{{.Status}}' | head -20
@@ -670,6 +721,13 @@ BEGIN
   END IF;
 END $$;
 
+-- the late-writer trap goes first (otherwise it would park the rows again as they are put back); same transaction as the release
+DROP TRIGGER IF EXISTS ops_0107_park_lms_assessments ON lms_assessments;
+DROP TRIGGER IF EXISTS ops_0107_park_lms_discussion_threads ON lms_discussion_threads;
+DROP TRIGGER IF EXISTS ops_0107_park_exam_practicals ON exam_practicals;
+DROP TRIGGER IF EXISTS ops_0107_park_exam_vivas ON exam_vivas;
+DROP FUNCTION IF EXISTS ops_0107_park_private();
+
 UPDATE lms_assessments t SET course_id = h.original_course_id FROM ops_0107_rollback_hold h
  WHERE h.table_name = 'lms_assessments' AND h.row_id = t.id AND h.released_at IS NULL AND t.course_id = h.parking_course_id;
 UPDATE lms_discussion_threads t SET course_id = h.original_course_id FROM ops_0107_rollback_hold h
@@ -692,7 +750,8 @@ FROM ops_0107_rollback_hold GROUP BY table_name ORDER BY table_name;
 COMMIT;
 SQL_RELEASE_EOF
   fi
-  [ "$DRY_RUN" = 1 ] || { [ "$(qnum "select count(*) from ops_0107_rollback_hold where released_at is null")" = 0 ] || die "some held record(s) could not be put back (see the output above)" 6; }
+  [ "$DRY_RUN" = 1 ] || { [ "$(qnum "select count(*) from ops_0107_rollback_hold where released_at is null")" = 0 ] || die "some held record(s) could not be put back (see the output above)" 6
+    [ "$(qnum "$TRAPS_SQL")" = 0 ] || die "the late-writer trap is still installed after the release" 6; }
 }
 
 do_release() {
@@ -739,8 +798,8 @@ case "$MODE" in
     record_new_images
     if [ "$DRY_RUN" != 1 ] && [ "$(ctr_image erpx_api)" = "$GUARD_IMAGE" ] && ctr_running erpx_api; then
       echo "== the previous api is already running from the guarded image: resuming (checking the hold, restoring whatever is left, verifying)"
-      if [ "$(rev)" = 0107 ] && [ "$(qnum "$PRIVATE_VISIBLE_SQL")" != 0 ]; then
-        echo "!! the previous api is running while internship-private records are still visible: STOPPING IT NOW (fail closed)"
+      if [ "$(rev)" = 0107 ] && { [ "$(qnum "$PRIVATE_VISIBLE_SQL")" != 0 ] || [ "$(qnum "$TRAPS_SQL")" != 4 ]; }; then
+        echo "!! the previous api is running while internship-private records are visible or the late-writer trap is missing: STOPPING IT NOW (fail closed)"
         stop_api_confirmed "Private records are visible over a running previous api."
         die "the previous api was stopped (confirmed) because internship-private records were visible. Run MODE=full again: it will stop the writers, hold the records and restore." 8
       fi

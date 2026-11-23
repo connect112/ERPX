@@ -136,10 +136,48 @@ def rehearsal(tmp_path_factory):
                 raise AssertionError(f"{label} api never became healthy: " + sh(DOCKER, "logs", "--tail", "30", f"rb_rehearsal_{label}_{suffix}", check=False))
         ids = {row.split("|")[0]: row.split("|")[1] for row in psql(db, "select split_part(email,'@',1), id from students where email like '%.e2e@example.com'").splitlines()}
         course = psql(db, "select id from courses where deleted_at is null and slug <> 'rollback-hold-0107' and organization_id = (select organization_id from students where email = 'asha.e2e@example.com') order by created_at limit 1")
-        yield type("R", (), {"apis": apis, "ids": ids, "course": course, "guard_image": guard_image})
+        extra = []
+
+        def clone(label, hold_sql):
+            """A second scratch database (a copy of the first), the hold applied with the given SQL, served by the GUARDED previous image."""
+            name_db = f"{db}_{label}"
+            sh(DOCKER, "exec", "erpx_postgres", "psql", "-U", "erpx", "-d", "postgres", "-qc", f'CREATE DATABASE "{name_db}"')
+            extra.append(("db", name_db))
+            sh(DOCKER, "exec", "-i", "erpx_postgres", "psql", "-U", "erpx", "-d", name_db, "-q", "-X", input=dump, timeout=600)
+            internship = psql(name_db, "select id from our_internships order by created_at limit 1")
+            org = psql(name_db, f"select organization_id from courses where id = '{course}'")
+            assert internship and org, "the copied database has no internship to attach private records to"
+            for table, cols in (("lms_assessments", "title"), ("lms_discussion_threads", "title, body"), ("exam_practicals", "title, exam_date"), ("exam_vivas", "title, exam_date")):
+                extra_vals = {"lms_assessments": "'PRIVATE Quiz'", "lms_discussion_threads": "'PRIVATE thread', 'b'", "exam_practicals": "'PRIVATE practical', '2026-12-15'", "exam_vivas": "'PRIVATE viva', '2026-12-16'"}[table]
+                psql(name_db, f"insert into {table} (course_id, {cols}, internship_id) values ('{course}', {extra_vals}, '{internship}')")
+            sh(DOCKER, "exec", "-i", "erpx_postgres", "psql", "-U", "erpx", "-d", name_db, "-q", "-X", "-v", "ON_ERROR_STOP=1", input=hold_sql, timeout=120)
+            container = f"rb_rehearsal_{label}_{suffix}"
+            sh(DOCKER, "run", "-d", "--name", container, "--network", "erpx_erpx_network", "-p", "127.0.0.1::8000", "-e", f"DATABASE_URL={db_url.rsplit('/', 1)[0]}/{name_db}",
+               "-e", "RUN_MIGRATIONS=false", "-e", "ENVIRONMENT=test", *env_args, guard_image)
+            extra.append(("container", container))
+            port = sh(DOCKER, "port", container, "8000/tcp").splitlines()[0].rsplit(":", 1)[1]
+            api = Api(f"http://127.0.0.1:{port}")
+            for _ in range(60):
+                try:
+                    if http("GET", api.base + "/api/v1/health")[0] == 200:
+                        break
+                except Exception:
+                    pass
+                time.sleep(2)
+            else:
+                raise AssertionError(f"{label} api never became healthy")
+            return api, name_db, internship
+
+        yield type("R", (), {"apis": apis, "ids": ids, "course": course, "guard_image": guard_image, "clone": staticmethod(clone), "psql": staticmethod(psql)})
     finally:
+        for kind, name in locals().get("extra", []):
+            if kind == "container":
+                subprocess.run([DOCKER, "rm", "-f", name], capture_output=True)
         for name in containers:
             subprocess.run([DOCKER, "rm", "-f", name], capture_output=True)
+        for kind, name in locals().get("extra", []):
+            if kind == "db":
+                subprocess.run([DOCKER, "exec", "erpx_postgres", "psql", "-U", "erpx", "-d", "postgres", "-qc", f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'], capture_output=True)
         subprocess.run([DOCKER, "exec", "erpx_postgres", "psql", "-U", "erpx", "-d", "postgres", "-qc", f'DROP DATABASE IF EXISTS "{db}" WITH (FORCE)'], capture_output=True)
         for tag in tags:
             subprocess.run([DOCKER, "rmi", tag], capture_output=True)
@@ -188,3 +226,70 @@ def test_guarded_staff_still_read_any_student(rehearsal, template):
 def test_guarded_no_login_is_refused(rehearsal, template):
     status, _ = rehearsal.apis["guarded"].get(template.format(s=rehearsal.ids["asha.e2e"], c=rehearsal.course))
     assert status in (401, 403)
+
+
+# ---------------------------------------------------------------- the late writer (staging rehearsal scenario 5) ----------------------------------------
+
+HOLD_WITHOUT_TRAP = subprocess.run(["git", "-C", str(ROOT), "show", "87fae07:ops/release-0107/sql/rollback_hold.sql"], capture_output=True, text=True).stdout
+HOLD_WITH_TRAP = (ROOT / "ops" / "release-0107" / "sql" / "rollback_hold.sql").read_text()
+LATE = {
+    "lms_assessments": "(course_id, title, internship_id) values ('{c}', 'LATE PRIVATE Quiz', '{i}')",
+    "lms_discussion_threads": "(course_id, title, body, internship_id) values ('{c}', 'LATE PRIVATE thread', 'b', '{i}')",
+    "exam_practicals": "(course_id, title, exam_date, internship_id) values ('{c}', 'LATE PRIVATE practical', '2026-12-15', '{i}')",
+    "exam_vivas": "(course_id, title, exam_date, internship_id) values ('{c}', 'LATE PRIVATE viva', '2026-12-16', '{i}')",
+}
+WIDE = {
+    "lms_assessments": "(course_id, title) values ('{c}', 'WIDE Quiz')", "lms_discussion_threads": "(course_id, title, body) values ('{c}', 'WIDE thread', 'b')",
+    "exam_practicals": "(course_id, title, exam_date) values ('{c}', 'WIDE practical', '2026-12-15')", "exam_vivas": "(course_id, title, exam_date) values ('{c}', 'WIDE viva', '2026-12-16')",
+}
+
+
+def what_students_see(api, who, course):
+    token = api.login(who + "@example.com")
+    seen = set()
+    for path in (f"/lms/courses/{course}/assessments", f"/lms/courses/{course}/discussions", f"/examinations/courses/{course}/practicals", f"/examinations/courses/{course}/viva"):
+        status, body = api.get("/api/v1" + path, token)
+        assert status == 200, (who, path, status)
+        seen |= {x["title"] for x in (body if isinstance(body, list) else body.get("items", []))}
+    return seen
+
+
+@pytest.fixture(scope="module")
+def late_writer(rehearsal):
+    """Two databases with the hold applied, then a private record written AFTER it by an outside writer: one with the old hold SQL, one with the trap."""
+    out = {}
+    for label, hold_sql in (("notrap", HOLD_WITHOUT_TRAP), ("trap", HOLD_WITH_TRAP)):
+        api, name_db, internship = rehearsal.clone(label, hold_sql)
+        for table in LATE:
+            rehearsal.psql(name_db, f"insert into {table} {LATE[table].format(c=rehearsal.course, i=internship)}")
+            rehearsal.psql(name_db, f"insert into {table} {WIDE[table].format(c=rehearsal.course)}")
+        out[label] = api
+    return out
+
+
+def test_control_without_the_trap_a_late_private_record_is_served_to_an_independent_enrolee(rehearsal, late_writer):
+    """This is the exposure seen in the staging rehearsal (scenario 5), reproduced over HTTP on the real previous image."""
+    seen = what_students_see(late_writer["notrap"], "solo.e2e", rehearsal.course)
+    assert {"LATE PRIVATE Quiz", "LATE PRIVATE thread", "LATE PRIVATE practical", "LATE PRIVATE viva"} <= seen, seen
+    assert not any(t.startswith("PRIVATE ") for t in seen), seen   # the records that existed at hold time stay hidden: only the late ones leak
+
+
+@pytest.mark.parametrize("who", ["solo.e2e", "asha.e2e", "meera.e2e"])
+def test_with_the_trap_no_private_record_is_served_to_any_student_not_even_a_late_one(rehearsal, late_writer, who):
+    seen = what_students_see(late_writer["trap"], who, rehearsal.course)
+    assert not [t for t in seen if "PRIVATE" in t], seen
+
+
+def test_with_the_trap_course_wide_content_and_staff_access_are_unchanged(rehearsal, late_writer):
+    api = late_writer["trap"]
+    for who in ("solo.e2e", "asha.e2e", "admin.learning.e2e"):
+        seen = what_students_see(api, who, rehearsal.course)
+        assert {"WIDE Quiz", "WIDE thread", "WIDE practical", "WIDE viva"} <= seen, (who, seen)
+    assert not [t for t in what_students_see(api, "admin.learning.e2e", rehearsal.course) if "PRIVATE" in t]
+
+
+def test_with_the_trap_the_guards_still_answer_403_across_students(rehearsal, late_writer):
+    api = late_writer["trap"]
+    token = api.login("solo.e2e@example.com")
+    for template in (RESULTS, PROGRESS):
+        assert api.get(template.format(s=rehearsal.ids["asha.e2e"], c=rehearsal.course), token)[0] == 403

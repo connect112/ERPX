@@ -16,6 +16,10 @@
 #      unless the file it replaces is byte-for-byte the previous release's; the running container is checked afterwards, and the api is stopped again
 #      if the guard cannot be confirmed (fail closed). The guard lives in the image, so it survives restarts and recreation of the container.
 #   4. If the 0107 api keeps writing while the hold runs, a record created in between would be missed. So the writers are stopped first (below).
+#   5. A writer that gets in AFTER the hold (a 0107 api somewhere else, a person with psql) would create a private record that the previous code then
+#      serves to every enrolee until someone notices (shown in the staging rehearsal). So the hold transaction also installs a database trigger on the four
+#      tables that parks such a row as it is written (same holding course, same ledger): prevention, not detection. The release drops it first. Nothing about
+#      database roles or connections is changed. The post-start visibility check stays as a second, independent line.
 #
 # MODES (set MODE on the line below):
 #   full      THE ROLLBACK, resumable.  preflight (changes nothing) -> save the 0107 images -> QUIESCE -> HOLD -> restore the previous images -> VERIFY.
@@ -257,6 +261,7 @@ quiesce() {
 }
 
 PRIVATE_VISIBLE_SQL="select (select count(*) from lms_assessments t join courses c on c.id=t.course_id where t.internship_id is not null and c.deleted_at is null) + (select count(*) from lms_discussion_threads t join courses c on c.id=t.course_id where t.internship_id is not null and c.deleted_at is null) + (select count(*) from exam_practicals t join courses c on c.id=t.course_id where t.internship_id is not null and c.deleted_at is null) + (select count(*) from exam_vivas t join courses c on c.id=t.course_id where t.internship_id is not null and c.deleted_at is null)"
+TRAPS_SQL="select count(*) from pg_trigger where tgname like 'ops_0107_park_%' and not tgisinternal"
 COUNTS_SQL="select (select count(*) from lms_assessments) || '|' || (select count(*) from lms_discussion_threads) || '|' || (select count(*) from exam_practicals) || '|' || (select count(*) from exam_vivas)"
 
 hold() {
@@ -288,6 +293,7 @@ SQL_HOLD_EOF
     [ "$all" = "$open" ] && say PASS "$t: $all internship-scoped record(s), $open held and recorded in the ledger" || die "$t: $all internship-scoped record(s) but $open in the ledger" 6
   done
   [ "$(qnum "select count(*) from courses where slug = 'rollback-hold-0107' and (deleted_at is null or is_published)")" = 0 ] && say PASS "every holding course is soft-deleted and unpublished" || die "a holding course is visible" 6
+  [ "$(qnum "$TRAPS_SQL")" = 4 ] && say PASS "late-writer trap installed on all four tables: a private record written from now on is parked as it is written" || die "the late-writer trap is not installed on all four tables" 6
   sset HELD_AT "$(date -u +%Y%m%dT%H%M%SZ)"
 }
 
@@ -343,6 +349,7 @@ do_verify() {
   check_guard_running
   if [ "$r" = 0107 ]; then
     [ "$(qnum "$PRIVATE_VISIBLE_SQL")" = 0 ] && say PASS "no internship-private record is reachable through a visible course" || say FAIL "internship-private records are reachable through a visible course"
+    [ "$(qnum "$TRAPS_SQL")" = 4 ] && say PASS "late-writer trap present on all four tables" || say FAIL "late-writer trap is missing or incomplete: a record written now would be visible to enrolees"
     echo "  hold ledger (held_now = records currently hidden):"; qro -c "select table_name, count(*) filter (where released_at is null) as held_now, count(*) as ever_held from ops_0107_rollback_hold group by 1 order by 1" 2>&1 | sed 's/^/    /' || true
   fi
   $COMPOSE ps --format 'table {{.Name}}\t{{.Status}}' | head -20
@@ -361,7 +368,8 @@ release_sql() {
 @@SQL_RELEASE@@
 SQL_RELEASE_EOF
   fi
-  [ "$DRY_RUN" = 1 ] || { [ "$(qnum "select count(*) from ops_0107_rollback_hold where released_at is null")" = 0 ] || die "some held record(s) could not be put back (see the output above)" 6; }
+  [ "$DRY_RUN" = 1 ] || { [ "$(qnum "select count(*) from ops_0107_rollback_hold where released_at is null")" = 0 ] || die "some held record(s) could not be put back (see the output above)" 6
+    [ "$(qnum "$TRAPS_SQL")" = 0 ] || die "the late-writer trap is still installed after the release" 6; }
 }
 
 do_release() {
@@ -408,8 +416,8 @@ case "$MODE" in
     record_new_images
     if [ "$DRY_RUN" != 1 ] && [ "$(ctr_image erpx_api)" = "$GUARD_IMAGE" ] && ctr_running erpx_api; then
       echo "== the previous api is already running from the guarded image: resuming (checking the hold, restoring whatever is left, verifying)"
-      if [ "$(rev)" = 0107 ] && [ "$(qnum "$PRIVATE_VISIBLE_SQL")" != 0 ]; then
-        echo "!! the previous api is running while internship-private records are still visible: STOPPING IT NOW (fail closed)"
+      if [ "$(rev)" = 0107 ] && { [ "$(qnum "$PRIVATE_VISIBLE_SQL")" != 0 ] || [ "$(qnum "$TRAPS_SQL")" != 4 ]; }; then
+        echo "!! the previous api is running while internship-private records are visible or the late-writer trap is missing: STOPPING IT NOW (fail closed)"
         stop_api_confirmed "Private records are visible over a running previous api."
         die "the previous api was stopped (confirmed) because internship-private records were visible. Run MODE=full again: it will stop the writers, hold the records and restore." 8
       fi

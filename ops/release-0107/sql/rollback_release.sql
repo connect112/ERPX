@@ -20,6 +20,13 @@ BEGIN
   END IF;
 END $$;
 
+-- the late-writer trap goes first (otherwise it would park the rows again as they are put back); same transaction as the release
+DROP TRIGGER IF EXISTS ops_0107_park_lms_assessments ON lms_assessments;
+DROP TRIGGER IF EXISTS ops_0107_park_lms_discussion_threads ON lms_discussion_threads;
+DROP TRIGGER IF EXISTS ops_0107_park_exam_practicals ON exam_practicals;
+DROP TRIGGER IF EXISTS ops_0107_park_exam_vivas ON exam_vivas;
+DROP FUNCTION IF EXISTS ops_0107_park_private();
+
 UPDATE lms_assessments t SET course_id = h.original_course_id FROM ops_0107_rollback_hold h
  WHERE h.table_name = 'lms_assessments' AND h.row_id = t.id AND h.released_at IS NULL AND t.course_id = h.parking_course_id;
 UPDATE lms_discussion_threads t SET course_id = h.original_course_id FROM ops_0107_rollback_hold h
